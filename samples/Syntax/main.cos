@@ -1,0 +1,222 @@
+
+@external
+def Vec(Ty: Type) = cxx.std.vector(Ty);
+
+def Source /* inferred as : Type */ = class {
+  val data = Vec(U8)
+}
+def Pair(Lhs: Type, Rhs: Type) /* inferred as : Type */ = (Lhs, Rhs);
+
+trait Unsigned(T: Type) {
+  assert(T == U8 or T == U16 or T == U32 or T == U64);
+  def asUint64(self): U64 = self;
+  // or
+  val asUint64 = method(Identity(U64));
+}
+
+def UnsignedVec(T: Type) = {
+  assert(Unsigned(T));
+}
+// or
+def UnsignedVec(T: Unsigned(T)) = _;
+
+def DependentType(T: Type) = if (T == U8) {
+  U16
+} else {
+  U32
+}
+
+// Enum class will be translated into tagged union
+case class Nat = Zero;
+case class Nat = Succ(Nat);
+
+def add(A: Nat, B: Nat): Nat = A match {
+  case Zero => B
+  case Succ(A) => Succ(Add(A, B))
+}
+
+// implicit type parameters are inferred automatically
+val identity(implicit T: Type)(val v: T) = Identity;
+val lift(implicit T: Type)(val v: T) = Type;
+
+// partial specialization
+val identityU8 = identity(implicit U8);
+
+val True = Type(true);
+
+// equivalent to
+def conditionalPrint(msg: String) = {
+  if (Type(true)) { // compile-time evaluation
+    println(msg);
+  }
+}
+
+ // compile-time value
+val EnableLogging = True;
+
+def conditionalPrint(msg: String) = {
+  if (EnableLogging) {
+    println(msg);
+  }
+}
+
+var runtimeEnableLogging = false;
+
+def conditionalPrintWithRuntime(msg: String) = {
+  // it should be evaluated at compile-time, but some of which can only be evaluated at runtime
+  // Use `lift` to mix them.
+  val enableLogging = EnableLogging or lift(runtimeEnableLogging);
+  if (enableLogging) {
+    println(msg);
+  }
+}
+
+def main(): () = {
+  val x = 1
+  val y = 2
+  val z = x + y
+  println(z)
+}
+
+def catchException(implicit T)(f: () => T): T = {
+  trait ExceptionHandler {
+    def (excp: Exception): Nothing;
+  }
+
+  def neverFail(excp) = panic(excp.toString());
+
+  handleThrow(ExceptionHandler, neverFail);
+  f();
+}
+
+def catchFuture(implicit T)(f: () => Promise(T)): T = {
+  trait PromiseHandler {
+    def (promise: Promise(T)): T;
+  }
+
+  val futureExecutor: PromiseHandler = cxx.std.launch;
+
+  handleThrow(PromiseHandler, futureExecutor);
+  f();
+}
+
+def main() {
+  def readFile(filename: String): Promise(String);
+  catchException(() => {
+    catchFuture(() => {
+      val fileContent = throw readFile("file.txt");
+      println(fileContent);
+    });
+  });
+}
+
+// compile features are enabled by type or string
+@feature(Ref = "v1") {
+  def Referential(implicit A: Ref)(T: Type) = class {
+    val pointer: Ref(A, Vec(T));
+  }
+}
+
+def Referential(implicit A: Ref)(T: Type) = class {
+  val pointer: Ref(A, Vec(T));
+}
+
+def case1() { // ok
+  var elem = Vec(U32)(0);
+  var r = Referential;
+  r.pointer = elem;
+} // elem destroyed
+
+def case2() { // error
+  var r = Referential;
+  {
+    var elem = Vec(U32)(0);
+    r.pointer = elem;
+  } // elem destroyed
+}
+
+
+def case3() { // ok
+  var a = Alloc();
+  var r = Referential;
+  {
+    var elem = a.allocate(Vec(U32))(0);
+    r.pointer = elem;
+  }
+} // elem destroyed
+
+def case4() { // error
+  var r = Referential;
+  {
+    var a = Alloc();
+    {
+      var elem = a.allocate(Vec(U32))(0);
+      r.pointer = elem;
+    }
+  } // elem destroyed
+}
+
+def SelfReferential(implicit val A: Ref)(T: Type) = class {
+  val pointer: Ref(A, Vec(T));
+}
+
+def case1() { // ok
+  var elem = Vec(U32)(0);
+  var r = SelfReferential;
+  r.pointer = elem;
+} // elem destroyed
+
+def case2() { // ok
+  var r = SelfReferential;
+  {
+    var elem = Vec(U32)(0);
+    r.pointer = elem;
+  }
+} // elem destroyed
+
+def case3(elem: Ref(Vec(U32))) { // error: cannot lift elem2 to outer scope
+  var r = SelfReferential;
+  r.pointer = elem;
+  {
+    var elem2 = Vec(U32)(0);
+    r.pointer = elem2;
+  }
+}
+
+def case4() { // ok
+  var r = SelfReferential;
+  var elem2 = Vec(U32)(0);
+  r.pointer = elem2;
+  return r;
+}
+
+val Static = Alloc();
+val StaticReferential = SelfReferential(implicit Static);
+
+def case1() { // ok
+  var r = StaticReferential;
+  {
+    var elem = Vec(U32)(0);
+    r.pointer = elem;
+  }
+}
+
+def case2() { // null pointer exception, since static references will be checked at runtime
+  var r = StaticReferential;
+  {
+    var elem = Vec(U32)(0);
+    r.pointer = elem;
+    drop(elem);
+    r.pointer(0) = 1;
+  }
+}
+
+def case3() { // SIGSEGV, since static references checking is bypassed
+  var r = StaticReferential;
+  unsafe {
+    var elem = Vec(U32)(0);
+    r.pointer = elem;
+    drop(elem);
+    r.pointer.unchecked(0) = 1;
+  }
+}

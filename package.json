@@ -1,0 +1,23 @@
+{
+  "name": "cosmo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "editors/vscode"
+  ],
+  "scripts": {
+    "console": "sbt run",
+    "compile": "sbt fullLinkJS",
+    "watch": "sbt ~fullLinkJS",
+    "watch:test": "sbt ~test",
+    "compile:dev": "sbt fastLinkJS"
+  },
+  "devDependencies": {
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-n": "^16.2.0",
+    "eslint-plugin-promise": "^6.1.1",
+    "ovsx": "^0.8.3"
+  }
+}
