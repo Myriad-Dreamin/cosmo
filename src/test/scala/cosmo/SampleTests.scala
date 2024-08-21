@@ -1,16 +1,25 @@
 package cosmo
 import scala.scalajs.js
 
-class MonoidTest extends munit.FunSuite:
-  test("HelloWorld") {
-    // read samples/HelloWorld/main.cos
+class SampleTest extends munit.FunSuite:
+  def runTestOnFile(path: String) = {
+    // read the file
     var fs = js.Dynamic.global.require("fs")
-    var src = fs
-      .readFileSync("samples/HelloWorld/main.cos", "utf8")
-      .asInstanceOf[String]
+    var src =
+      fs.readFileSync(path, "utf8").asInstanceOf[String]
     // mayCompile the source code
     var result = Cosmo.mayCompile(src)
     // check the result
     println(result)
   }
-end MonoidTest
+
+  test("HelloWorld") {
+    runTestOnFile("samples/HelloWorld/main.cos")
+  }
+  test("TypeAnnotation/add".only) {
+    runTestOnFile("samples/TypeAnnotation/add.cos")
+  }
+  test("VecPush") {
+    runTestOnFile("samples/Vec/push.cos")
+  }
+end SampleTest

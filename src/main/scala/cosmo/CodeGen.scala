@@ -19,7 +19,8 @@ class CodeGen {
     val funcCode = funcs
       .map { (item) =>
         var (name, ir.Fn(params, body)) = item
-        val paramCode = params.mkString(", ")
+        val paramCode =
+          params.map(param => s"${param.ty} ${param.name}").mkString(", ")
         val bodyCode = body match
           case Some(body) => s"{${expr(body)}}"
           case None       => ";"

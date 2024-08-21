@@ -1,0 +1,11 @@
+
+
+def Vec(Ty: Type) = external(cpp, std.vector(Ty));
+
+def main() = {
+  val vec = Vec(U8)();
+  vec.push_back(1);
+  vec.push_back(2);
+  vec.push_back(3);
+  println(vec.size());
+}

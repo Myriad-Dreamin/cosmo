@@ -1,0 +1,9 @@
+
+def add(a: I32, b: I32) = {
+  return a + b
+}
+
+def main() = {
+  val x = add(3, 2)
+  println(x)
+}

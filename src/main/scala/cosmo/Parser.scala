@@ -23,7 +23,7 @@ object Parser {
     )
   // Terms
   def term[$: P]: P[Node] = P(
-    defItem | valItem | varItem | addSub,
+    defItem | valItem | varItem | returnItem | addSub,
   )
   def factor[$: P]: P[Node] = P(
     applyItem | identifier | literal | parens | braces,
@@ -39,8 +39,9 @@ object Parser {
   def varItem[$: P] =
     P(keyword("var") ~/ ident ~ "=" ~ term).map(Var.apply.tupled)
   def applyItem[$: P] = P(ident ~ "(" ~/ term.rep(sep = ",") ~ ")").map {
-    case (name, args) => args.foldLeft(Ident(name): Node)(Apply.apply)
+    case (name, args) => Apply(Ident(name), args.toList)
   }
+  def returnItem[$: P] = P(keyword("return") ~/ term).map(Return.apply)
   // Arithmetics
   def addSub[$: P] = P(divMul ~ (CharIn("+\\-").! ~/ divMul).rep).map {
     case (lhs, rhs) =>
@@ -58,8 +59,15 @@ object Parser {
   def parens[$: P] = P("(" ~/ term ~ ")")
   def braces[$: P] =
     P("{" ~/ term.rep.map(_.toList) ~ "}").map(Block.apply)
-  def params[$: P]: P[List[String]] =
-    P(ident.rep(sep = ",")).map(_.toList)
+  def params[$: P]: P[List[Param]] =
+    P(param.rep(sep = ",")).map(_.toList)
+  def param[$: P]: P[Param] =
+    P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param.apply.tupled)
+  def typeAnnotation[$: P]: P[Node] =
+    P(":" ~/ ident).map(Ident.apply)
+  def initExpression[$: P]: P[Node] =
+    P("=" ~/ term)
+
   // Keywords
   val keywords =
     Set(
