@@ -1,5 +1,7 @@
 package cosmo.syntax
 
+import cosmo.DefId
+
 sealed abstract class Node
 final case class Ident(name: String) extends Node
 final case class Literal(value: Int) extends Node

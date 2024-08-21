@@ -1,66 +1,155 @@
 package cosmo
 
 import ir._
-import cosmo.syntax.Block
+
+final class DefId(val id: Int) extends AnyVal
+
+class Scopes {
+  var scopes: List[Map[String, DefId]] = List(Map())
+
+  def push() = {
+    scopes = Map() :: scopes
+  }
+
+  def pop() = {
+    scopes = scopes.tail
+  }
+
+  def withScope[T](f: => T): T = {
+    push()
+    val result = f
+    pop()
+    result
+  }
+
+  def get(name: String): Option[DefId] = {
+    scopes.find(_.contains(name)).flatMap(_.get(name))
+  }
+
+  def set(name: String, value: DefId) = {
+    scopes = scopes.updated(0, scopes.head.updated(name, value))
+  }
+}
+
+class DefInfo(
+    val name: String,
+    val noMangle: Boolean,
+    var upperBounds: List[Type],
+    var lowerBounds: List[Type],
+)
 
 class Eval {
-  var inits: List[Item] = List()
-  var funcs: Map[String, Fn] = Map()
+  var defAlloc = 0
+  var defs: Map[DefId, DefInfo] = Map()
+  var items: Map[DefId, Item] = Map()
+  var scopes = new Scopes()
   var errors: List[String] = List()
+  var module: ir.Region = Region(List())
 
   def eval(ast: syntax.Block): Eval = {
-    block(ast, true)
+    newBuiltin("println")
+
+    module = block(ast)
     this
   }
 
-  def block(ast: syntax.Block, topLevel: Boolean) = {
-    ast.stmts.foreach {
-      case syntax.Val(name, rhs) =>
-        val value = expr(rhs)
-        if (topLevel) {
-          inits = Lit(0) :: inits
-        }
-        inits = value :: inits
-      case syntax.Def(name, params, rhs) =>
-        val value = expr(rhs)
-        funcs += (name -> Fn(
-          params.map(p => Param(p.name, p.ty.map(ty_).getOrElse("int"))),
-          Some(value),
-        ))
-      case _ =>
-        errors = "Invalid statement" :: errors
-    }
+  def newDef(name: String, noMangle: Boolean = false): DefId = {
+    defAlloc += 1
+    val id = new DefId(defAlloc)
+    scopes.set(name, id)
+    defs += (id -> new DefInfo(name, noMangle, List(), List()))
+    id
   }
 
-  def ty_(ast: syntax.Node): String = {
+  def newBuiltin(name: String) = {
+    val id = newDef(name, noMangle = true)
+    items += (id -> Opaque(s"$name"))
+  }
+
+  def block(ast: syntax.Block) = {
+    val stmts = scopes.withScope {
+      ast.stmts.map(expr)
+    }
+
+    Region(stmts)
+  }
+
+  def varItem(name: String, rhs: syntax.Node, isContant: Boolean) = {
+    val value = expr(rhs)
+    val id = newDef(name)
+    items += (id -> value)
+    ir.Var(id, value, isContant)
+  }
+
+  def defItem(ast: syntax.Def) = {
+    val syntax.Def(name, params, rhs) = ast
+    val result = scopes.withScope {
+      params.foreach { p =>
+        val syntax.Param(name, ty, init) = p
+
+        val id = newDef(name)
+
+        ty.map(ty_).map { case initTy =>
+          defs(id).upperBounds = defs(id).upperBounds :+ initTy
+        }
+        // todo: infer type from initExpr and body
+        val initExpr = init.map(expr).getOrElse(Variable(id))
+
+        items += (id -> initExpr)
+      }
+
+      val value = expr(rhs)
+
+      Fn(
+        params.map(p =>
+          val id = scopes.get(p.name).get
+          // todo: compute canonical type
+          Param(p.name, id, defs(id).upperBounds.head),
+        ),
+        Some(value),
+      )
+    }
+    var id = newDef(name)
+    items += (id -> result)
+    ir.Def(id)
+  }
+
+  def ty_(ast: syntax.Node): Type = {
     ast match {
-      case syntax.Ident("I32") => "int32_t"
-      case syntax.Ident(name)  => name
-      case _                   => "int"
+      case syntax.Ident(name) =>
+        name match
+          case "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" =>
+            IntegerTy.parse(name).get
+          case _ =>
+            TopTy
+      case _ => TopTy
     }
   }
 
   def expr(ast: syntax.Node): ir.Item = {
     ast match {
-      case Block(stmts)          => Region(stmts.iterator.map(expr).toList)
-      case syntax.Literal(value) => Opaque(value.toString)
-      case syntax.Ident(name)    => Opaque(name)
+      case b: syntax.Block => block(b)
       case syntax.Val(name, rhs) =>
-        Opaque(s"int $name = ${opa(rhs)};")
+        varItem(name, rhs, true)
+      case syntax.Var(name, rhs) =>
+        varItem(name, rhs, false)
+      case d: syntax.Def =>
+        defItem(d)
+      case syntax.Literal(value) => Opaque(value.toString)
+      case syntax.Ident(name) =>
+        scopes.get(name) match {
+          case Some(id) => Variable(id)
+          case None => errors = s"Undefined variable $name" :: errors; Lit(0)
+        }
       case syntax.Param(name, ty, init) =>
         val initExp = init.map(init => s" = ${opa(init)}").getOrElse("")
         Opaque(s"int $name${initExp};")
-      case syntax.Var(name, rhs) =>
-        Opaque(s"int $name = ${opa(rhs)};")
       case syntax.BinOp(op, lhs, rhs) =>
-        Opaque(
-          s"${opa(lhs)} $op ${opa(rhs)}",
-        )
+        BinOp(op, expr(lhs), expr(rhs))
       case syntax.Apply(lhs, rhs) =>
-        Opaque(s"${opa(lhs)}(${rhs.map(opa).mkString(",")});")
+        Apply(expr(lhs), rhs.map(expr))
       case syntax.Return(value) =>
-        Opaque(s"return ${opa(value)};")
-      case syntax.Def(name, params, rhs) => Lit(0)
+        Return(expr(value))
     }
   }
 

@@ -59,14 +59,11 @@ object Parser {
   def parens[$: P] = P("(" ~/ term ~ ")")
   def braces[$: P] =
     P("{" ~/ term.rep.map(_.toList) ~ "}").map(Block.apply)
-  def params[$: P]: P[List[Param]] =
-    P(param.rep(sep = ",")).map(_.toList)
-  def param[$: P]: P[Param] =
+  def params[$: P] = P(param.rep(sep = ",")).map(_.toList)
+  def param[$: P] =
     P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param.apply.tupled)
-  def typeAnnotation[$: P]: P[Node] =
-    P(":" ~/ ident).map(Ident.apply)
-  def initExpression[$: P]: P[Node] =
-    P("=" ~/ term)
+  def typeAnnotation[$: P] = P(":" ~/ ident).map(Ident.apply)
+  def initExpression[$: P] = P("=" ~/ term)
 
   // Keywords
   val keywords =

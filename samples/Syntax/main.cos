@@ -3,15 +3,15 @@
 def Vec(Ty: Type) = cxx.std.vector(Ty);
 
 def Source /* inferred as : Type */ = class {
-  val data = Vec(U8)
+  val data = Vec(u8)
 }
 def Pair(Lhs: Type, Rhs: Type) /* inferred as : Type */ = (Lhs, Rhs);
 
 trait Unsigned(T: Type) {
-  assert(T == U8 or T == U16 or T == U32 or T == U64);
-  def asUint64(self): U64 = self;
+  assert(T == u8 or T == u16 or T == u32 or T == u64);
+  def asUint64(self): u64 = self;
   // or
-  val asUint64 = method(Identity(U64));
+  val asUint64 = method(Identity(u64));
 }
 
 def UnsignedVec(T: Type) = {
@@ -20,10 +20,10 @@ def UnsignedVec(T: Type) = {
 // or
 def UnsignedVec(T: Unsigned(T)) = _;
 
-def DependentType(T: Type) = if (T == U8) {
-  U16
+def DependentType(T: Type) = if (T == u8) {
+  u16
 } else {
-  U32
+  u32
 }
 
 // Enum class will be translated into tagged union
@@ -40,7 +40,7 @@ val identity(implicit T: Type)(val v: T) = Identity;
 val lift(implicit T: Type)(val v: T) = Type;
 
 // partial specialization
-val identityU8 = identity(implicit U8);
+val identityU8 = identity(implicit u8);
 
 val True = Type(true);
 
@@ -122,7 +122,7 @@ def Referential(implicit A: Ref)(T: Type) = class {
 }
 
 def case1() { // ok
-  var elem = Vec(U32)(0);
+  var elem = Vec(u32)(0);
   var r = Referential;
   r.pointer = elem;
 } // elem destroyed
@@ -130,7 +130,7 @@ def case1() { // ok
 def case2() { // error
   var r = Referential;
   {
-    var elem = Vec(U32)(0);
+    var elem = Vec(u32)(0);
     r.pointer = elem;
   } // elem destroyed
 }
@@ -140,7 +140,7 @@ def case3() { // ok
   var a = Alloc();
   var r = Referential;
   {
-    var elem = a.allocate(Vec(U32))(0);
+    var elem = a.allocate(Vec(u32))(0);
     r.pointer = elem;
   }
 } // elem destroyed
@@ -150,7 +150,7 @@ def case4() { // error
   {
     var a = Alloc();
     {
-      var elem = a.allocate(Vec(U32))(0);
+      var elem = a.allocate(Vec(u32))(0);
       r.pointer = elem;
     }
   } // elem destroyed
@@ -161,7 +161,7 @@ def SelfReferential(implicit val A: Ref)(T: Type) = class {
 }
 
 def case1() { // ok
-  var elem = Vec(U32)(0);
+  var elem = Vec(u32)(0);
   var r = SelfReferential;
   r.pointer = elem;
 } // elem destroyed
@@ -169,23 +169,23 @@ def case1() { // ok
 def case2() { // ok
   var r = SelfReferential;
   {
-    var elem = Vec(U32)(0);
+    var elem = Vec(u32)(0);
     r.pointer = elem;
   }
 } // elem destroyed
 
-def case3(elem: Ref(Vec(U32))) { // error: cannot lift elem2 to outer scope
+def case3(elem: Ref(Vec(u32))) { // error: cannot lift elem2 to outer scope
   var r = SelfReferential;
   r.pointer = elem;
   {
-    var elem2 = Vec(U32)(0);
+    var elem2 = Vec(u32)(0);
     r.pointer = elem2;
   }
 }
 
 def case4() { // ok
   var r = SelfReferential;
-  var elem2 = Vec(U32)(0);
+  var elem2 = Vec(u32)(0);
   r.pointer = elem2;
   return r;
 }
@@ -196,7 +196,7 @@ val StaticReferential = SelfReferential(implicit Static);
 def case1() { // ok
   var r = StaticReferential;
   {
-    var elem = Vec(U32)(0);
+    var elem = Vec(u32)(0);
     r.pointer = elem;
   }
 }
@@ -204,7 +204,7 @@ def case1() { // ok
 def case2() { // null pointer exception, since static references will be checked at runtime
   var r = StaticReferential;
   {
-    var elem = Vec(U32)(0);
+    var elem = Vec(u32)(0);
     r.pointer = elem;
     drop(elem);
     r.pointer(0) = 1;
@@ -214,7 +214,7 @@ def case2() { // null pointer exception, since static references will be checked
 def case3() { // SIGSEGV, since static references checking is bypassed
   var r = StaticReferential;
   unsafe {
-    var elem = Vec(U32)(0);
+    var elem = Vec(u32)(0);
     r.pointer = elem;
     drop(elem);
     r.pointer.unchecked(0) = 1;

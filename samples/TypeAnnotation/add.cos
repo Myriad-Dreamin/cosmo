@@ -1,5 +1,5 @@
 
-def add(a: I32, b: I32) = {
+def add(a: i32, b: i32) = {
   return a + b
 }
 

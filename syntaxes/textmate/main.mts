@@ -74,8 +74,12 @@ const functionIdentifier: textmate.PatternMatch = {
   name: "entity.name.function.cosmo",
 };
 
+const typeConvention = /(?=[A-Z])/.source + IDENTIFIER.source;
+
 const typeIdentifier: textmate.PatternMatch = {
-  match: /(?=[A-Z])/.source + IDENTIFIER.source,
+  match:
+    `(?:${typeConvention})|` +
+    /i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize/.source,
   name: "entity.name.type.cosmo",
 };
 

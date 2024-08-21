@@ -27,7 +27,10 @@ object Cosmo {
         return None
     }
     val artifact = new Eval().eval(ast)
-    val output = new CodeGen().gen(artifact)
+    for (error <- artifact.errors) {
+      println(error)
+    }
+    val output = new CodeGen(artifact).gen()
     Some(output)
   }
 }
