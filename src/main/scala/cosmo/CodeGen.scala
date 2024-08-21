@@ -33,6 +33,13 @@ class CodeGen(val artifact: Eval) {
               case None       => ";"
             }
             s"int $name($paramCode) $bodyCode"
+          case ir.Class(_, body) =>
+            val bodyCode = body match {
+              case ir.Region(stmts) =>
+                stmts.map(genDef(_, false)).mkString(";\n") + ";"
+              case _ => s"/* bad class body */"
+            }
+            s"struct $name {$bodyCode};"
           case _ => s"unknown $name;"
         }
       }

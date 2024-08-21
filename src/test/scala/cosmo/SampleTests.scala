@@ -16,8 +16,11 @@ class SampleTest extends munit.FunSuite:
   test("HelloWorld") {
     runTestOnFile("samples/HelloWorld/main.cos")
   }
-  test("TypeAnnotation/add".only) {
+  test("TypeAnnotation/add") {
     runTestOnFile("samples/TypeAnnotation/add.cos")
+  }
+  test("Class/basic".only) {
+    runTestOnFile("samples/Class/basic.cos")
   }
   test("VecPush") {
     runTestOnFile("samples/Vec/push.cos")

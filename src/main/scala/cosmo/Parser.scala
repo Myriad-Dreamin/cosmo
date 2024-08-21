@@ -23,7 +23,7 @@ object Parser {
     )
   // Terms
   def term[$: P]: P[Node] = P(
-    defItem | valItem | varItem | returnItem | addSub,
+    defItem | valItem | varItem | classItem | returnItem | addSub,
   )
   def factor[$: P]: P[Node] = P(
     applyItem | identifier | literal | parens | braces,
@@ -35,9 +35,13 @@ object Parser {
     P(keyword("def") ~/ ident ~ "(" ~/ params ~ ")" ~ "=" ~ term)
       .map(Def.apply.tupled)
   def valItem[$: P] =
-    P(keyword("val") ~/ ident ~ "=" ~ term).map(Val.apply.tupled)
+    P(keyword("val") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
+      .map(Val.apply.tupled)
   def varItem[$: P] =
-    P(keyword("var") ~/ ident ~ "=" ~ term).map(Var.apply.tupled)
+    P(keyword("var") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
+      .map(Var.apply.tupled)
+  def classItem[$: P] =
+    P(keyword("class") ~/ ident ~ braces).map(Class.apply.tupled)
   def applyItem[$: P] = P(ident ~ "(" ~/ term.rep(sep = ",") ~ ")").map {
     case (name, args) => Apply(Ident(name), args.toList)
   }

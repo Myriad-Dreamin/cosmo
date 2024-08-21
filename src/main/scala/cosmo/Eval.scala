@@ -74,11 +74,34 @@ class Eval {
     Region(stmts)
   }
 
-  def varItem(name: String, rhs: syntax.Node, isContant: Boolean) = {
-    val value = expr(rhs)
+  def classBlock(ast: syntax.Block) = {
+    val stmts = scopes.withScope {
+      ast.stmts.flatMap {
+        case syntax.Val(name, ty, init) =>
+          Some(varItem(name, ty, init, true))
+        case syntax.Var(name, ty, init) =>
+          Some(varItem(name, ty, init, false))
+        case syntax.Def(name, params, rhs) =>
+          Some(defItem(syntax.Def(name, params, rhs)))
+        case _ =>
+          errors = "Invalid class body" :: errors
+          None
+      }
+    }
+
+    Region(stmts)
+  }
+
+  def varItem(
+      name: String,
+      ty: Option[syntax.Node],
+      init: Option[syntax.Node],
+      isContant: Boolean,
+  ): ir.Item = {
+    val initExpr = init.map(expr).getOrElse(NoneItem)
     val id = newDef(name)
-    items += (id -> value)
-    ir.Var(id, value, isContant)
+    items += (id -> initExpr)
+    ir.Var(id, initExpr, isContant)
   }
 
   def defItem(ast: syntax.Def) = {
@@ -114,6 +137,22 @@ class Eval {
     ir.Def(id)
   }
 
+  def classItem(ast: syntax.Class) = {
+    val syntax.Class(name, body) = ast
+    val result = scopes.withScope {
+      body match
+        case body: syntax.Block =>
+          classBlock(body)
+        case _ =>
+          errors = "Invalid class body" :: errors
+          Region(List())
+    }
+    var id = newDef(name)
+    var cls = ir.Class(id, result)
+    items += (id -> cls)
+    ir.Def(id)
+  }
+
   def ty_(ast: syntax.Node): Type = {
     ast match {
       case syntax.Ident(name) =>
@@ -129,12 +168,14 @@ class Eval {
   def expr(ast: syntax.Node): ir.Item = {
     ast match {
       case b: syntax.Block => block(b)
-      case syntax.Val(name, rhs) =>
-        varItem(name, rhs, true)
-      case syntax.Var(name, rhs) =>
-        varItem(name, rhs, false)
+      case syntax.Val(name, ty, init) =>
+        varItem(name, ty, init, true)
+      case syntax.Var(name, ty, init) =>
+        varItem(name, ty, init, false)
       case d: syntax.Def =>
         defItem(d)
+      case c: syntax.Class =>
+        classItem(c)
       case syntax.Literal(value) => Opaque(value.toString)
       case syntax.Ident(name) =>
         scopes.get(name) match {

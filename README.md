@@ -10,10 +10,10 @@ It sees cosmo functions and evaluate the type parts in the functions. The result
 
 ```scala
 @external
-def Vec(Ty: Type) = cxx.std.vector(Ty);
+def Vec(Ty: Type) = external(cpp, std.vector(Ty));
 
 def main() = {
-  val vec = Vec(U8)();
+  val vec = Vec(u8)();
   vec.push_back(1);
   vec.push_back(2);
   vec.push_back(3);
@@ -42,11 +42,10 @@ clang -std=c++17 samples/HelloWorld/main.cc -o test && test
 
 ## Syntax
 
-External types can be handled by `@external` annotation.
+External types can be handled by builtin `external` function:
 
 ```scala
-@external
-def Vec(Ty: Type) = cxx.std.vector(Ty);
+def Vec(Ty: Type) = external(cpp, std.vector(Ty));
 ```
 
 Function body can be a type:

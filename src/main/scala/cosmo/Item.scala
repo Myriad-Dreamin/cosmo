@@ -3,6 +3,7 @@ package cosmo.ir
 import cosmo.{DefId, Type}
 
 sealed abstract class Item
+object NoneItem extends Item
 object Runtime extends Item
 final case class Lit(value: Int) extends Item
 final case class Opaque(value: String) extends Item
@@ -18,3 +19,4 @@ final case class Fn(
     params: List[Param],
     body: Option[Item],
 ) extends Item
+final case class Class(id: DefId, body: Item) extends Item
