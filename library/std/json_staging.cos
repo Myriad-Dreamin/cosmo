@@ -10,6 +10,19 @@ pub class ValueT(T: Type) {
   case Object(Map(String, Self))
   case _ =>
     import T.{value, parse};
+
+    def length = self match {
+      case Array(v) | Object(v) => Ok(v.length)
+      case _ => Err("Value is not an array or object");
+    }
+
+    def apply(implicit Ty: Type, self, index: Ty) = if (Ty == usize) self match {
+      case Array(arr) => Ok(arr(index))
+      case _ => Err("Value is not an array");
+    } else if (Ty == String) self match {
+      case Object(obj) => Ok(obj(index))
+      case _ => Err("Value is not an object");
+    } else Err("Invalid index type");
 }
 
 import "nlohmann/json.hpp" as nlohmann;
@@ -22,6 +35,7 @@ class NlohmannJsonImpl {
   lazy def value: ValueT(Self) = Self.from(internal);
   def parse(implicit Ty: Type, s: Ty) = {
     assert(Ty == String, "Only string parsing is supported for NlohmannJsonImpl");
+    // todo: panic?
     Self.from(nlohmann.json.parse(s))
   }
   def getAs(Ty: Type): T = unsafe internal.externalCall(cpp, s"get<${Ty.cppName}>()");
@@ -40,3 +54,5 @@ class NlohmannJsonImpl {
 
 // default JSON implementation
 pub def Value = ValueT(NlohmannJsonImpl);
+
+pub def parse(implicit Ty: Type, s: Ty) = Value.parse(s);
