@@ -27,12 +27,30 @@ def DependentType(T: Type) = if (T == u8) {
 }
 
 // Enum class will be translated into tagged union
-case class Nat = Zero;
-case class Nat = Succ(Nat);
+class Nat {
+  case Zero
+  case Succ(Nat)
+}
+
+val succ = nat.map {
+  case Zero
+  case Succ(succ: Nat) => succ
+}
+
+val hasSucc = nat.map {
+  case Zero => 0
+  case Succ(Nat) => 1
+}
+
+val hasSucc = nat match {
+  case Zero => 0
+  case Succ(Nat) => 1
+}
+
 
 def add(A: Nat, B: Nat): Nat = A match {
   case Zero => B
-  case Succ(A) => Succ(Add(A, B))
+  case Succ(B) => Succ(Add(A, B))
 }
 
 // implicit type parameters are inferred automatically

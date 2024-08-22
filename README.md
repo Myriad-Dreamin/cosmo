@@ -52,7 +52,7 @@ Function body can be a type:
 
 ```scala
 def Source /* inferred as : Type */ = class {
-  val data = Vec(U8)
+  val data = Vec(u8)
 }
 def Pair(Lhs: Type, Rhs: Type) /* inferred as : Type */ = (Lhs, Rhs);
 ```
@@ -70,7 +70,7 @@ Traits are classes containing unimplemented methods, while you can provide defau
 
 ```scala
 trait Unsigned(T: Type) {
-  def asUint64(self): U64 = staticCast(U64)(self);
+  def asUint64(self): u64 = staticCast(u64)(self);
 }
 ```
 
@@ -78,7 +78,7 @@ Constraints are compile-time assertions containing type expressions:
 
 ```scala
 trait Unsigned(T: Type) {
-  assert(T == U8 or T == U16 or T == U32 or T == U64);
+  assert(T == u8 or T == u16 or T == u32 or T == u64);
 }
 ```
 
@@ -97,9 +97,9 @@ Constructing a type from a type expression:
 
 ```scala
 def RoundBits(T: Type) = if (IsUnsigned(T)) {
-  U64
+  u64
 } else {
-  I64
+  i64
 }
 ```
 
@@ -107,12 +107,14 @@ Enum and pattern matching:
 
 ```scala
 // Enum class will be translated into tagged union
-case class Nat = Zero;
-case class Nat = Succ(Nat);
+class Nat {
+  case Zero
+  case Succ(Nat)
+}
 
 def add(A: Nat, B: Nat): Nat = A match {
   case Zero => B
-  case Succ(A) => Succ(Add(A, B))
+  case Succ(B) => Succ(Add(A, B))
 }
 ```
 
@@ -125,7 +127,7 @@ val identity(implicit T: Type)(val v: T) = v;
 val identity(implicit T: Type, val v: T) = v;
 
 // partial specialization
-val identityU8 = identity(implicit U8);
+val identityU8 = identity(implicit u8);
 ```
 
 ## Semantics

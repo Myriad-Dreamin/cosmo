@@ -3,6 +3,7 @@ package cosmo
 sealed abstract class Type
 case object TopTy extends Type
 case object BottomTy extends Type
+case object SelfTy extends Type
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)
     extends Type {
   override def toString: String = s"${if (isUnsigned) "u" else "i"}$width"

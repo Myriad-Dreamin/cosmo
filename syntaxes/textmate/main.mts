@@ -70,7 +70,7 @@ const constIdentifier: textmate.PatternMatch = {
 };
 
 const functionIdentifier: textmate.PatternMatch = {
-  match: IDENTIFIER.source + /(?=\()/.source,
+  match: IDENTIFIER.source + /(?=\(|\s*\{)/.source,
   name: "entity.name.function.cosmo",
 };
 
@@ -116,8 +116,8 @@ export const cosmo: textmate.Grammar = {
     literal,
     keywords,
     typeIdentifier,
-    constIdentifier,
     functionIdentifier,
+    constIdentifier,
     identifier,
     escape,
     numeric,

@@ -23,7 +23,7 @@ object Parser {
     )
   // Terms
   def term[$: P]: P[Node] = P(
-    defItem | valItem | varItem | classItem | returnItem | addSub,
+    defItem | valItem | varItem | classItem | returnItem | caseClause | compound,
   )
   def factor[$: P]: P[Node] = P(
     applyItem | identifier | literal | parens | braces,
@@ -46,7 +46,11 @@ object Parser {
     case (name, args) => Apply(Ident(name), args.toList)
   }
   def returnItem[$: P] = P(keyword("return") ~/ term).map(Return.apply)
-  // Arithmetics
+  // Compound expressions
+  def compound[$: P] = P(addSub ~ matchClause.?).map {
+    case (lhs, Some(rhs)) => Match(lhs, rhs)
+    case (lhs, None)      => lhs
+  }
   def addSub[$: P] = P(divMul ~ (CharIn("+\\-").! ~/ divMul).rep).map {
     case (lhs, rhs) =>
       rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
@@ -61,13 +65,26 @@ object Parser {
   }
   // Clauses
   def parens[$: P] = P("(" ~/ term ~ ")")
-  def braces[$: P] =
-    P("{" ~/ term.rep.map(_.toList) ~ "}").map(Block.apply)
+  def braces[$: P]: P[Node] =
+    P("{" ~/ term.rep.map(_.toList) ~ "}").map(body => {
+      // check if all terms are cases
+      var caseItems = List.empty[Case]
+      var anyNotCase = false
+      body.foreach {
+        case c: Case => caseItems = caseItems :+ c
+        case _       => anyNotCase = true
+      }
+      if anyNotCase || body.isEmpty then Block(body)
+      else CaseBlock(caseItems)
+    })
   def params[$: P] = P(param.rep(sep = ",")).map(_.toList)
   def param[$: P] =
     P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param.apply.tupled)
   def typeAnnotation[$: P] = P(":" ~/ ident).map(Ident.apply)
   def initExpression[$: P] = P("=" ~/ term)
+  def matchClause[$: P] = P(keyword("match") ~/ braces)
+  def caseClause[$: P] =
+    P("case" ~/ term ~ ("=>" ~ term).?).map(Case.apply.tupled)
 
   // Keywords
   val keywords =

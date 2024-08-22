@@ -1,0 +1,6 @@
+
+// Enum class will be translated into tagged union
+class Nat {
+  case Zero
+  case Succ(Nat)
+}

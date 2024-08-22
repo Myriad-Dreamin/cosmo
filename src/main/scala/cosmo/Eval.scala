@@ -31,12 +31,26 @@ class Scopes {
   }
 }
 
+private val nameJoiner = "::";
+
 class DefInfo(
     val name: String,
     val noMangle: Boolean,
+    val namespaces: List[String],
     var upperBounds: List[Type],
     var lowerBounds: List[Type],
-)
+) {
+  def nameStem(disambiguator: Int) =
+    if (noMangle) name
+    else mangledName(disambiguator)
+  def fullName(disambiguator: Int) =
+    if (noMangle) name
+    else fullMangledName(disambiguator)
+  // todo: ${disambiguator}
+  def mangledName(disambiguator: Int) = name
+  def fullMangledName(disambiguator: Int) =
+    (namespaces :+ s"${name}").mkString(nameJoiner)
+}
 
 class Eval {
   var defAlloc = 0
@@ -45,6 +59,7 @@ class Eval {
   var scopes = new Scopes()
   var errors: List[String] = List()
   var module: ir.Region = Region(List())
+  var ns: List[String] = List()
 
   def eval(ast: syntax.Block): Eval = {
     newBuiltin("println")
@@ -53,17 +68,33 @@ class Eval {
     this
   }
 
-  def newDef(name: String, noMangle: Boolean = false): DefId = {
+  def newDefWithInfo(
+      name: String,
+      noMangle: Boolean = false,
+  ): (DefId, DefInfo) = {
     defAlloc += 1
     val id = new DefId(defAlloc)
     scopes.set(name, id)
-    defs += (id -> new DefInfo(name, noMangle, List(), List()))
+    val info = new DefInfo(name, noMangle, ns, List(), List())
+    defs += (id -> info)
+    (id, info)
+  }
+
+  def newDef(name: String, noMangle: Boolean = false): DefId = {
+    val (id, info) = newDefWithInfo(name, noMangle)
     id
   }
 
   def newBuiltin(name: String) = {
     val id = newDef(name, noMangle = true)
     items += (id -> Opaque(s"$name"))
+  }
+
+  def withNs[T](ns: String)(f: => T): T = {
+    this.ns = ns :: this.ns
+    val result = f
+    this.ns = this.ns.tail
+    result
   }
 
   def block(ast: syntax.Block) = {
@@ -74,22 +105,73 @@ class Eval {
     Region(stmts)
   }
 
-  def classBlock(ast: syntax.Block) = {
+  def caseBlock(ast: syntax.CaseBlock) = {
+    // , target: ir.Item
     val stmts = scopes.withScope {
-      ast.stmts.flatMap {
-        case syntax.Val(name, ty, init) =>
-          Some(varItem(name, ty, init, true))
-        case syntax.Var(name, ty, init) =>
-          Some(varItem(name, ty, init, false))
-        case syntax.Def(name, params, rhs) =>
-          Some(defItem(syntax.Def(name, params, rhs)))
-        case _ =>
-          errors = "Invalid class body" :: errors
-          None
+      ast.stmts.map { case syntax.Case(cond, body) =>
+        val condExpr = expr(cond)
+        val bodyExpr = body.map(expr).getOrElse(NoneItem)
+        Case(condExpr, bodyExpr)
       }
     }
 
     Region(stmts)
+  }
+
+  def classBlock(ast: syntax.Block, info: DefInfo, id: DefId) = {
+    val stmts = scopes.withScope {
+      withNs(info.name) {
+        ast.stmts.flatMap {
+          case syntax.Val(name, ty, init) =>
+            Some(varItem(name, ty, init, true))
+          case syntax.Var(name, ty, init) =>
+            Some(varItem(name, ty, init, false))
+          case syntax.Def(name, params, rhs) =>
+            Some(defItem(syntax.Def(name, params, rhs)))
+          case _ =>
+            errors = "Invalid class body" :: errors
+            None
+        }
+      }
+    }
+
+    Region(stmts)
+  }
+
+  def enumClassBlock(ast: syntax.CaseBlock, info: DefInfo, id: DefId) = {
+    val stmts = scopes.withScope {
+      withNs(info.name) {
+        ast.stmts.map { case syntax.Case(cond, body) =>
+          val (subName, params) = cond match {
+            case syntax.Ident(name)                       => (name, List())
+            case syntax.Apply(syntax.Ident(name), params) => (name, params)
+            case _                                        => ("invalid", List())
+          }
+
+          val vars = params.zipWithIndex.map {
+            case (n: syntax.Ident, index) =>
+              val ty = if (n.name == info.name) {
+                syntax.Self
+              } else {
+                n
+              }
+              syntax.Var(s"_${index}", Some(ty), None)
+            case (_, index) => syntax.Var(s"_${index}", None, None)
+          }
+
+          val b = (body, vars) match {
+            case (_, Nil) => body.getOrElse(syntax.Block(List()))
+            case (Some(syntax.Block(bc)), vars) => syntax.Block(vars ++ bc)
+            case (Some(n), vars)                => syntax.Block(vars :+ n)
+            case _                              => syntax.Block(vars)
+          }
+
+          classItem(syntax.Class(subName, b))
+        }
+      }
+    }
+
+    Region(Opaque(s"using self_t = ${info.fullName(id.id)}*") :: stmts)
   }
 
   def varItem(
@@ -101,6 +183,11 @@ class Eval {
     val initExpr = init.map(expr).getOrElse(NoneItem)
     val id = newDef(name)
     items += (id -> initExpr)
+    ty.map(ty_) match {
+      case Some(initTy) =>
+        defs(id).upperBounds = defs(id).upperBounds :+ initTy
+      case None =>
+    }
     ir.Var(id, initExpr, isContant)
   }
 
@@ -137,18 +224,20 @@ class Eval {
     ir.Def(id)
   }
 
-  def classItem(ast: syntax.Class) = {
+  def classItem(ast: syntax.Class): ir.Def = {
     val syntax.Class(name, body) = ast
+    val (id, defInfo) = newDefWithInfo(name)
     val result = scopes.withScope {
       body match
         case body: syntax.Block =>
-          classBlock(body)
+          classBlock(body, defInfo, id)
+        case caseBlock: syntax.CaseBlock =>
+          enumClassBlock(caseBlock, defInfo, id)
         case _ =>
           errors = "Invalid class body" :: errors
           Region(List())
     }
-    var id = newDef(name)
-    var cls = ir.Class(id, result)
+    var cls = ir.Class(id, Some(result))
     items += (id -> cls)
     ir.Def(id)
   }
@@ -159,15 +248,40 @@ class Eval {
         name match
           case "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" =>
             IntegerTy.parse(name).get
-          case _ =>
-            TopTy
-      case _ => TopTy
+          case name =>
+            scopes.get(name) match {
+              case Some(id) =>
+                TypeVariable(name, id)
+              case None =>
+                TopTy
+            }
+      case syntax.Self => SelfTy
+      case _           => TopTy
     }
   }
 
   def expr(ast: syntax.Node): ir.Item = {
     ast match {
       case b: syntax.Block => block(b)
+      case b: syntax.CaseBlock =>
+        errors = s"case block without match" :: errors
+        Opaque(s"0/* error: case block without match */")
+      case b: syntax.Match =>
+        val lhs = expr(b.lhs)
+        val rhs = b.rhs match {
+          case b: syntax.CaseBlock => caseBlock(b)
+          case b: syntax.Block =>
+            if (b.stmts.isEmpty) Region(List())
+            else {
+              errors = s"match body contains non-case items" :: errors;
+              Region(List())
+            }
+          case _ => {
+            errors = s"Invalid match body" :: errors;
+            Region(List())
+          }
+        }
+        Match(lhs, rhs)
       case syntax.Val(name, ty, init) =>
         varItem(name, ty, init, true)
       case syntax.Var(name, ty, init) =>
@@ -177,6 +291,7 @@ class Eval {
       case c: syntax.Class =>
         classItem(c)
       case syntax.Literal(value) => Opaque(value.toString)
+      case syntax.Self           => SelfItem
       case syntax.Ident(name) =>
         scopes.get(name) match {
           case Some(id) => Variable(id)
@@ -191,6 +306,9 @@ class Eval {
         Apply(expr(lhs), rhs.map(expr))
       case syntax.Return(value) =>
         Return(expr(value))
+      case syntax.Case(cond, body) =>
+        errors = s"case clause without match" :: errors
+        Opaque(s"/* error: case clause without match */")
     }
   }
 
