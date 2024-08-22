@@ -118,60 +118,61 @@ class Eval {
     Region(stmts)
   }
 
-  def classBlock(ast: syntax.Block, info: DefInfo, id: DefId) = {
-    val stmts = scopes.withScope {
+  def baseClass(ast: syntax.Block, info: DefInfo, id: DefId) = {
+    var vars = List[ir.Var]();
+    var defs = List[ir.Item]();
+    scopes.withScope {
       withNs(info.name) {
-        ast.stmts.flatMap {
+        ast.stmts.foreach {
           case syntax.Val(name, ty, init) =>
-            Some(varItem(name, ty, init, true))
+            vars = vars :+ varItem(name, ty, init, true)
           case syntax.Var(name, ty, init) =>
-            Some(varItem(name, ty, init, false))
+            vars = vars :+ varItem(name, ty, init, false)
           case syntax.Def(name, params, rhs) =>
-            Some(defItem(syntax.Def(name, params, rhs)))
+            defs = defs :+ defItem(syntax.Def(name, params, rhs))
           case _ =>
             errors = "Invalid class body" :: errors
-            None
         }
       }
     }
 
-    Region(stmts)
+    Class(id, vars, defs)
   }
 
-  def enumClassBlock(ast: syntax.CaseBlock, info: DefInfo, id: DefId) = {
+  def enumClass(ast: syntax.CaseBlock, info: DefInfo, id: DefId) = {
     val stmts = scopes.withScope {
       withNs(info.name) {
-        ast.stmts.map { case syntax.Case(cond, body) =>
-          val (subName, params) = cond match {
-            case syntax.Ident(name)                       => (name, List())
-            case syntax.Apply(syntax.Ident(name), params) => (name, params)
-            case _                                        => ("invalid", List())
-          }
-
-          val vars = params.zipWithIndex.map {
-            case (n: syntax.Ident, index) =>
-              val ty = if (n.name == info.name) {
-                syntax.Self
-              } else {
-                n
-              }
-              syntax.Var(s"_${index}", Some(ty), None)
-            case (_, index) => syntax.Var(s"_${index}", None, None)
-          }
-
-          val b = (body, vars) match {
-            case (_, Nil) => body.getOrElse(syntax.Block(List()))
-            case (Some(syntax.Block(bc)), vars) => syntax.Block(vars ++ bc)
-            case (Some(n), vars)                => syntax.Block(vars :+ n)
-            case _                              => syntax.Block(vars)
-          }
-
-          classItem(syntax.Class(subName, b))
-        }
+        ast.stmts.map(enumVariant(_, info.name))
       }
     }
 
-    Region(Opaque(s"using self_t = ${info.fullName(id.id)}*") :: stmts)
+    EnumClass(id, stmts, None)
+  }
+
+  def enumVariant(node: syntax.Case, baseName: String) = {
+    val syntax.Case(cond, body) = node;
+    val (subName, params) = cond match {
+      case syntax.Ident(name)                       => (name, List())
+      case syntax.Apply(syntax.Ident(name), params) => (name, params)
+      case _                                        => ("invalid", List())
+    }
+
+    val vars = params.zipWithIndex.map {
+      case (n: syntax.Ident, index) =>
+        val ty = if (n.name == baseName) { syntax.Self }
+        else { n }
+        syntax.Var(s"_${index}", Some(ty), None)
+      case (_, index) => syntax.Var(s"_${index}", None, None)
+    }
+
+    val b = (body, vars) match {
+      case (_, Nil) => body.getOrElse(syntax.Block(List()))
+      case (Some(syntax.Block(bc)), vars) => syntax.Block(vars ++ bc)
+      case (Some(n), vars)                => syntax.Block(vars :+ n)
+      case _                              => syntax.Block(vars)
+    }
+
+    classItem(syntax.Class(subName, b))
   }
 
   def varItem(
@@ -179,7 +180,7 @@ class Eval {
       ty: Option[syntax.Node],
       init: Option[syntax.Node],
       isContant: Boolean,
-  ): ir.Item = {
+  ): ir.Var = {
     val initExpr = init.map(expr).getOrElse(NoneItem)
     val id = newDef(name)
     items += (id -> initExpr)
@@ -227,17 +228,16 @@ class Eval {
   def classItem(ast: syntax.Class): ir.Def = {
     val syntax.Class(name, body) = ast
     val (id, defInfo) = newDefWithInfo(name)
-    val result = scopes.withScope {
+    val cls = scopes.withScope {
       body match
         case body: syntax.Block =>
-          classBlock(body, defInfo, id)
+          baseClass(body, defInfo, id)
         case caseBlock: syntax.CaseBlock =>
-          enumClassBlock(caseBlock, defInfo, id)
+          enumClass(caseBlock, defInfo, id)
         case _ =>
           errors = "Invalid class body" :: errors
-          Region(List())
+          Class.empty
     }
-    var cls = ir.Class(id, Some(result))
     items += (id -> cls)
     ir.Def(id)
   }

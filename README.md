@@ -9,7 +9,6 @@ It sees cosmo functions and evaluate the type parts in the functions. The result
 ## Example
 
 ```scala
-@external
 def Vec(Ty: Type) = external(cpp, std.vector(Ty));
 
 def main() = {

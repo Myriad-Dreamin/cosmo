@@ -22,4 +22,13 @@ final case class Fn(
     params: List[Param],
     body: Option[Item],
 ) extends Item
-final case class Class(id: DefId, body: Option[Item]) extends Item
+final case class Class(id: DefId, vars: List[Var], defs: List[Item])
+    extends Item {}
+object Class {
+  lazy val empty = Class(DefId(0), List.empty, List.empty)
+}
+final case class EnumClass(
+    id: DefId,
+    variants: List[Def],
+    default: Option[Item],
+) extends Item
