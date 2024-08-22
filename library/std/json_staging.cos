@@ -23,6 +23,30 @@ pub class ValueT(T: Type) {
       case Object(obj) => Ok(obj(index))
       case _ => Err("Value is not an object");
     } else Err("Invalid index type");
+
+    /// == Example
+    ///
+    /// ```cos
+    /// self(0)
+    /// key
+    /// self("key")
+    /// self.key
+    /// key(0)
+    /// self("self")
+    /// self.key(0)
+    /// ```
+    def path(implicit S: syntax.Expr, self, field: S) = S match {
+      case syntax.Expr.Apply(syntax.Expr.Self, field) | syntax.Expr.Ident(field) => std.code {
+        self.apply(field)
+      }
+      case syntax.Expr.Apply(field, index) => std.code {
+        self.apply(field).andThen(_.value.apply(index))
+      }
+      case syntax.Expr.Select(target, field) => std.code {
+        self.path(target)
+      }
+      case _ => panic("path is not valid");
+    }
 }
 
 import "nlohmann/json.hpp" as nlohmann;
