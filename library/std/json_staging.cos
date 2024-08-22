@@ -1,0 +1,42 @@
+
+pub class ValueT(T: Type) {
+  case Null
+  case Bool(bool)
+  case NumberSigned(i64)
+  case NumberUnsigned(u64)
+  case Number(f64)
+  case String(String)
+  case Array(Vec(Self))
+  case Object(Map(String, Self))
+  case _ =>
+    import T.{value, parse};
+}
+
+import "nlohmann/json.hpp" as nlohmann;
+
+def NlohmannJsonValue = nlohmann.json.value;
+def NlohmannJsonTag: std.c.enum(u8) = nlohmann.json.value_t;
+
+class NlohmannJsonImpl {
+  var internal: NlohmannJsonValue;
+  lazy def value: ValueT(Self) = Self.from(internal);
+  def parse(implicit Ty: Type, s: Ty) = {
+    assert(Ty == String, "Only string parsing is supported for NlohmannJsonImpl");
+    Self.from(nlohmann.json.parse(s))
+  }
+  def getAs(Ty: Type): T = unsafe internal.externalCall(cpp, s"get<${Ty.cppName}>()");
+  def from(j: NlohmannJsonValue) = unsafe j.m_type: NlohmannJsonTag match {
+    case NlohmannJsonTag.null => ValueT(Self).Null
+    case NlohmannJsonTag.boolean => ValueT(Self).Bool(j.getAs(bool))
+    case NlohmannJsonTag.number_integer => ValueT(Self).NumberSigned(j.getAs(i64))
+    case NlohmannJsonTag.number_unsigned => ValueT(Self).NumberUnsigned(j.getAs(u64))
+    case NlohmannJsonTag.number_float => ValueT(Self).Number(j.getAs(f64))
+    case NlohmannJsonTag.string => ValueT(Self).String(j.getAs(String))
+    case NlohmannJsonTag.array => ValueT(Self).Array(j.getAs(Vec(NlohmannJsonValue)).map(Self(internal = _)))
+    case NlohmannJsonTag.object => ValueT(Self).Object(j.getAs(Map(NlohmannJsonValue)).map(Self(internal = _)))
+    case _ => panic(s"Invalid JSON type ${j.m_type}");
+  }
+}
+
+// default JSON implementation
+pub def Value = ValueT(NlohmannJsonImpl);

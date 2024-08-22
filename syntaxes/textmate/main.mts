@@ -79,7 +79,8 @@ const typeConvention = /(?=[A-Z])/.source + IDENTIFIER.source;
 const typeIdentifier: textmate.PatternMatch = {
   match:
     `(?:${typeConvention})|` +
-    /i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize/.source,
+    /\b(?:any|none|bool|f32|f64|f128|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize)\b/
+      .source,
   name: "entity.name.type.cosmo",
 };
 
@@ -92,7 +93,7 @@ const keywords: textmate.Pattern = {
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|if|else|for|loop|val|var|and|or|in|not)\b/,
+        /\b(?:pub|private|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
     },
   ],
 };

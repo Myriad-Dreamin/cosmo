@@ -1,4 +1,4 @@
-import * as cosmo from '../../target/scala-3.3.3/cosmo-opt/main.js';
+import * as cosmo from '../../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js';
 import { readFileSync, writeFileSync } from 'fs';
 
 const input  = process.argv[2];

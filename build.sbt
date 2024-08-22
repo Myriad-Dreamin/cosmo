@@ -1,7 +1,7 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 
 lazy val cosmo = project
-  .in(file("."))
+  .in(file("packages/cosmo"))
   .enablePlugins(ScalaJSPlugin) // Enable the Scala.js plugin in this project
   .settings(
     name := "cosmo",
