@@ -27,13 +27,19 @@ pub class ValueT(T: Type) {
     /// == Example
     ///
     /// ```cos
-    /// self(0)
-    /// key
-    /// self("key")
-    /// self.key
-    /// key(0)
-    /// self("self")
-    /// self.key(0)
+    /// self.path(self(0))
+    /// self.path(key)
+    /// self.path(self("key"))
+    /// self.path(self.key)
+    /// self.path(key(0))
+    /// self.path(self("self"))
+    /// self.path(self.key(0))
+    /// ```
+    /// 
+    /// == Example as macro function (looks problematic)
+    ///
+    /// ```cos
+    /// def betterPath(implicit S: syntax.Expr, self, field: S) = Self.path(implicit S, self, field)
     /// ```
     def path(implicit S: syntax.Expr, self, field: S) = S match {
       case syntax.Expr.Apply(syntax.Expr.Self, field) | syntax.Expr.Ident(field) => std.code {
