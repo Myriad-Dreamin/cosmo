@@ -1,7 +1,7 @@
 package cosmo
 
 import scala.util.chaining._
-import scala.util.TupledFunction
+import scala.util.{TupledFunction, Left, Right, Either}
 import fastparse._, fastparse.ScalaWhitespace._
 
 import cosmo.syntax._
@@ -21,19 +21,53 @@ object Parser {
     P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
       !keywords(_),
     )
+  def stringLit[$: P]: P[String] = P(P("s").? ~ (longstring | shortstring))
+  def shortstring[$: P]: P[String] = P(shortstring0("\""))
+  def shortstring0[$: P](delimiter: String) = P(
+    delimiter ~ shortstringitem(delimiter).rep.! ~ delimiter,
+  )
+  def shortstringitem[$: P](quote: String): P[Unit] = P(
+    shortstringchar(quote) | escapeseq,
+  )
+  def shortstringchar[$: P](quote: String): P[Unit] = P(
+    CharsWhile(!s"\\\n${quote(0)}".contains(_)),
+  )
+  def longstring[$: P]: P[String] = P(longstring0("\"\"\""))
+  def longstring0[$: P](delimiter: String) = P(
+    delimiter ~ longstringitem(delimiter).rep.! ~ delimiter,
+  )
+  def longstringitem[$: P](quote: String): P[Unit] = P(
+    longstringchar(quote) | escapeseq | !quote ~ quote.take(1),
+  )
+  def longstringchar[$: P](quote: String): P[Unit] = P(
+    CharsWhile(!s"\\${quote(0)}".contains(_)),
+  )
+  def escapeseq[$: P]: P[Unit] = P("\\" ~ AnyChar)
+
   // Terms
   def term[$: P]: P[Node] = P(
-    defItem | valItem | varItem | classItem | ifItem | forItem | breakItem | continueItem | returnItem | loopItem
-      | caseClause | compound,
+    canExportItem | ifItem | forItem | breakItem | continueItem | returnItem | loopItem | caseClause | compound,
   )
+  def canExportItem[$: P]: P[Node] =
+    keyword("pub").? ~ P(defItem | valItem | varItem | classItem | importItem)
+  def primaryExpr[$: P] = P(identifier | literal | parens | braces)
   def factor[$: P]: P[Node] = P(
-    applyItem | identifier | literal | parens | braces,
-  )
+    primaryExpr ~ (P("." ~ identifier).map(Left.apply) | P(
+      "(" ~/ term.rep(sep = ",") ~ ")",
+    ).map(Right.apply)).rep,
+  ).map { case (lhs, parts) =>
+    parts.foldLeft(lhs) { case (lhs, part) =>
+      part match {
+        case Left(rhs)   => Select(lhs, rhs)
+        case Right(args) => Apply(lhs, args.toList)
+      }
+    }
+  }
   // Expressions
   def literal[$: P] = number.map(Literal.apply)
   def identifier[$: P] = ident.map(Ident.apply)
   def defItem[$: P] =
-    P(keyword("def") ~/ ident ~ "(" ~/ params ~ ")" ~ "=" ~ term)
+    P(keyword("def") ~/ ident ~ ("(" ~/ params ~ ")").? ~ "=" ~ term)
       .map(Def.apply.tupled)
   def valItem[$: P] =
     P(keyword("val") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
@@ -42,6 +76,7 @@ object Parser {
     P(keyword("var") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
       .map(Var.apply.tupled)
   def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
+  def importItem[$: P] = P(keyword("import") ~/ stringLit).map(Import.apply)
   def forItem[$: P] = P(
     keyword("for") ~ "(" ~/ ident ~ keyword("in") ~ term ~ ")" ~ braces,
   ).map(For.apply.tupled)
@@ -53,9 +88,6 @@ object Parser {
   ).map(If.apply.tupled)
   def classItem[$: P] =
     P(keyword("class") ~/ ident ~ braces).map(Class.apply.tupled)
-  def applyItem[$: P] = P(ident ~ "(" ~/ term.rep(sep = ",") ~ ")").map {
-    case (name, args) => Apply(Ident(name), args.toList)
-  }
   def returnItem[$: P] = P(keyword("return") ~/ term).map(Return.apply)
   // Compound expressions
   def compound[$: P] = P(addSub ~ matchClause.?).map {

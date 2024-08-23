@@ -195,7 +195,7 @@ class Eval {
   def defItem(ast: syntax.Def) = {
     val syntax.Def(name, params, rhs) = ast
     val result = scopes.withScope {
-      params.foreach { p =>
+      params.iterator.flatten.foreach { p =>
         val syntax.Param(name, ty, init) = p
 
         val id = newDef(name)
@@ -212,11 +212,13 @@ class Eval {
       val value = expr(rhs)
 
       Fn(
-        params.map(p =>
-          val id = scopes.get(p.name).get
-          // todo: compute canonical type
-          Param(p.name, id, defs(id).upperBounds.head),
-        ),
+        params.map { params =>
+          params.map(p =>
+            val id = scopes.get(p.name).get
+            // todo: compute canonical type
+            Param(p.name, id, defs(id).upperBounds.head),
+          )
+        },
         Some(value),
       )
     }
@@ -290,6 +292,13 @@ class Eval {
         defItem(d)
       case c: syntax.Class =>
         classItem(c)
+      case syntax.Import(path) =>
+        val includeStr = if path startsWith "libc++/" then {
+          s"#include <${path.drop(7)}>"
+        } else {
+          s"#include \"$path\""
+        }
+        Opaque(includeStr)
       case l: syntax.Loop =>
         Loop(expr(l.body))
       case f: syntax.For =>
@@ -314,6 +323,8 @@ class Eval {
         BinOp(op, expr(lhs), expr(rhs))
       case syntax.Apply(lhs, rhs) =>
         Apply(expr(lhs), rhs.map(expr))
+      case syntax.Select(lhs, rhs) =>
+        Select(expr(lhs), rhs.name)
       case syntax.Return(value) =>
         Return(expr(value))
       case syntax.Case(cond, body) =>

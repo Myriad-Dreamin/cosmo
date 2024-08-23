@@ -32,7 +32,9 @@ class CodeGen(val artifact: Eval) {
         val item = artifact.items(id)
         val name = defName(id)
         item match {
-          case ir.Fn(params, body) =>
+          case ir.Fn(None, _) =>
+            s"/* cosmo function $name */"
+          case ir.Fn(Some(params), body) =>
             val paramCode =
               params
                 .map(param =>

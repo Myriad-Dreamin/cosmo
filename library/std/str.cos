@@ -1,0 +1,8 @@
+
+import "libc++/string"
+
+def CxxString = external(cpp, std.string)
+
+pub class String {
+  var internal: CxxString
+}
