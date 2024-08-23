@@ -292,6 +292,8 @@ class Eval {
         classItem(c)
       case l: syntax.Loop =>
         Loop(expr(l.body))
+      case f: syntax.For =>
+        For(f.name, expr(f.iter), expr(f.body))
       case syntax.Break() =>
         Break()
       case syntax.Continue() =>

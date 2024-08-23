@@ -23,8 +23,8 @@ object Parser {
     )
   // Terms
   def term[$: P]: P[Node] = P(
-    defItem | valItem | varItem | classItem | ifItem | loopItem | breakItem | continueItem
-      | returnItem | caseClause | compound,
+    defItem | valItem | varItem | classItem | ifItem | forItem | breakItem | continueItem | returnItem | loopItem
+      | caseClause | compound,
   )
   def factor[$: P]: P[Node] = P(
     applyItem | identifier | literal | parens | braces,
@@ -42,6 +42,9 @@ object Parser {
     P(keyword("var") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
       .map(Var.apply.tupled)
   def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
+  def forItem[$: P] = P(
+    keyword("for") ~ "(" ~/ ident ~ keyword("in") ~ term ~ ")" ~ braces,
+  ).map(For.apply.tupled)
   def breakItem[$: P] = P(keyword("break")).map(_ => Break())
   def continueItem[$: P] = P(keyword("continue")).map(_ => Continue())
   def ifItem[$: P]: P[Node] = P(
@@ -72,8 +75,17 @@ object Parser {
       }
   }
   def compare[$: P] = P(
-    assign ~ (P(
+    range_lit ~ (P(
       "<=" | ">=" | "==" | "!=" | "<" | ">",
+    ).! ~/ range_lit).rep,
+  ).map { case (lhs, rhs) =>
+    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
+      BinOp(op, lhs, rhs)
+    }
+  }
+  def range_lit[$: P] = P(
+    assign ~ (P(
+      "..",
     ).! ~/ assign).rep,
   ).map { case (lhs, rhs) =>
     rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>

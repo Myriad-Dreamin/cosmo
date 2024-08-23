@@ -25,8 +25,11 @@ class SampleTest extends munit.FunSuite:
   test("Class/nat") {
     runTestOnFile("samples/Class/nat.cos")
   }
-  test("ControlFlow/loop".only) {
+  test("ControlFlow/loop") {
     runTestOnFile("samples/ControlFlow/loop.cos")
+  }
+  test("ControlFlow/forIn".only) {
+    runTestOnFile("samples/ControlFlow/forIn.cos")
   }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")

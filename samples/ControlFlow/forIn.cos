@@ -1,0 +1,8 @@
+
+def main() = {
+  var a: i32 = 0
+  for (i in 0..10000) {
+    a = a + 1
+  }
+  println(a)
+}
