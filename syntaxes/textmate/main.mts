@@ -93,7 +93,7 @@ const keywords: textmate.Pattern = {
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:pub|private|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
+        /\b(?:from|pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
     },
   ],
 };
@@ -101,6 +101,11 @@ const keywords: textmate.Pattern = {
 const numeric: textmate.Pattern = {
   name: "constant.numeric.cosmo",
   match: /\b(?:0x[\da-fA-F]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/,
+};
+
+const markers: textmate.Pattern = {
+  name: "keyword.control.cosmo",
+  match: /=>/,
 };
 
 const literal: textmate.Pattern = {
@@ -114,6 +119,7 @@ export const cosmo: textmate.Grammar = {
     blockComment,
     lineComment,
     stringPattern,
+    markers,
     literal,
     keywords,
     typeIdentifier,
@@ -148,6 +154,9 @@ function generate() {
         },
         {
           include: "#literal",
+        },
+        {
+          include: "#markers",
         },
         {
           include: "#keywords",

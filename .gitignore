@@ -3,5 +3,6 @@ node_modules
 .metals
 .bsp
 .bloop
+dist
 target
 *.log

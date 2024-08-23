@@ -11,7 +11,10 @@
     "compile": "sbt fullLinkJS",
     "watch": "sbt ~fullLinkJS",
     "watch:test": "sbt ~test",
-    "compile:dev": "sbt fastLinkJS"
+    "compile:dev": "sbt fastLinkJS",
+    "docs": "shiroa serve --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ -w . docs/cosmo",
+    "build:syntax": "cd editors/vscode && yarn build:syntax",
+    "build:vscode": "cd editors/vscode && yarn build:syntax && yarn package"
   },
   "devDependencies": {
     "eslint-config-prettier": "^9.0.0",
