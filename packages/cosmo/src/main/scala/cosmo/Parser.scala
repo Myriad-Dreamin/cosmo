@@ -23,7 +23,8 @@ object Parser {
     )
   // Terms
   def term[$: P]: P[Node] = P(
-    defItem | valItem | varItem | classItem | returnItem | caseClause | compound,
+    defItem | valItem | varItem | classItem | ifItem | loopItem | breakItem | continueItem
+      | returnItem | caseClause | compound,
   )
   def factor[$: P]: P[Node] = P(
     applyItem | identifier | literal | parens | braces,
@@ -40,6 +41,13 @@ object Parser {
   def varItem[$: P] =
     P(keyword("var") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
       .map(Var.apply.tupled)
+  def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
+  def breakItem[$: P] = P(keyword("break")).map(_ => Break())
+  def continueItem[$: P] = P(keyword("continue")).map(_ => Continue())
+  def ifItem[$: P]: P[Node] = P(
+    keyword("if") ~/ parens ~ braces
+      ~ (keyword("else") ~ P(ifItem | braces)).?,
+  ).map(If.apply.tupled)
   def classItem[$: P] =
     P(keyword("class") ~/ ident ~ braces).map(Class.apply.tupled)
   def applyItem[$: P] = P(ident ~ "(" ~/ term.rep(sep = ",") ~ ")").map {
@@ -57,11 +65,29 @@ object Parser {
         BinOp(op, lhs, rhs)
       }
   }
-  def divMul[$: P] = P(factor ~ (CharIn("*/").! ~/ factor).rep).map {
+  def divMul[$: P] = P(compare ~ (CharIn("*/").! ~/ compare).rep).map {
     case (lhs, rhs) =>
       rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
         BinOp(op, lhs, rhs)
       }
+  }
+  def compare[$: P] = P(
+    assign ~ (P(
+      "<=" | ">=" | "==" | "!=" | "<" | ">",
+    ).! ~/ assign).rep,
+  ).map { case (lhs, rhs) =>
+    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
+      BinOp(op, lhs, rhs)
+    }
+  }
+  def assign[$: P] = P(
+    factor ~ (P(
+      "=" | "+=" | "-=" | "*=" | "/=",
+    ).! ~/ factor).rep,
+  ).map { case (lhs, rhs) =>
+    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
+      BinOp(op, lhs, rhs)
+    }
   }
   // Clauses
   def parens[$: P] = P("(" ~/ term ~ ")")

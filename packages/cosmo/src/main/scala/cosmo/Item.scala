@@ -17,6 +17,11 @@ final case class Return(value: Item) extends Item
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item
 final case class Match(lhs: Item, rhs: Item) extends Item
 final case class Case(cond: Item, body: Item) extends Item
+final case class Loop(body: Item) extends Item
+final case class Break() extends Item
+final case class Continue() extends Item
+final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
+    extends Item
 final case class Region(stmts: List[Item]) extends Item
 final case class Fn(
     params: List[Param],

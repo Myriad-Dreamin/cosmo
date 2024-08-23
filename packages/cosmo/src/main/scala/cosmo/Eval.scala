@@ -290,6 +290,14 @@ class Eval {
         defItem(d)
       case c: syntax.Class =>
         classItem(c)
+      case l: syntax.Loop =>
+        Loop(expr(l.body))
+      case syntax.Break() =>
+        Break()
+      case syntax.Continue() =>
+        Continue()
+      case syntax.If(cond, cont_bb, else_bb) =>
+        If(expr(cond), expr(cont_bb), else_bb.map(expr))
       case syntax.Literal(value) => Opaque(value.toString)
       case syntax.Self           => SelfItem
       case syntax.Ident(name) =>

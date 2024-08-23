@@ -22,10 +22,13 @@ class SampleTest extends munit.FunSuite:
   test("Class/basic") {
     runTestOnFile("samples/Class/basic.cos")
   }
-  test("Class/nat".only) {
+  test("Class/nat") {
     runTestOnFile("samples/Class/nat.cos")
   }
-  test("VecPush") {
+  test("ControlFlow/loop".only) {
+    runTestOnFile("samples/ControlFlow/loop.cos")
+  }
+  test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")
   }
 end SampleTest

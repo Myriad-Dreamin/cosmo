@@ -198,9 +198,14 @@ class CodeGen(val artifact: Eval) {
         stmts.map(genDef(_, false)).mkString(";\n") + ";"
       case ir.Variable(id) => {
         val defInfo = artifact.defs(id)
-        if defInfo.noMangle then defInfo.name
-        else s"${defInfo.name}${id.id}"
+        val name = defInfo.nameStem(id.id)
+        name
       }
+      case ir.Loop(body) => s"for(;;) {${expr(body)}}"
+      case ir.Break()    => "break"
+      case ir.Continue() => "continue"
+      case ir.If(cond, cont_bb, else_bb) =>
+        s"if(${expr(cond)}) {${expr(cont_bb)}}${else_bb.map(e => s" else {${expr(e)}}").getOrElse("")}"
       case ir.BinOp(op, lhs, rhs) =>
         s"${expr(lhs)} $op ${expr(rhs)}"
       case ir.Return(value) => s"return ${expr(value)}"

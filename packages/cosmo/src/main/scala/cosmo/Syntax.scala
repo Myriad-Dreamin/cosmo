@@ -15,6 +15,11 @@ final case class Class(name: String, body: Node) extends Node
 final case class Param(name: String, ty: Option[Node], init: Option[Node])
     extends Node
 final case class Def(name: String, params: List[Param], rhs: Node) extends Node
+final case class Loop(body: Node) extends Node
+final case class Break() extends Node
+final case class Continue() extends Node
+final case class If(cond: Node, cont_bb: Node, else_bb: Option[Node])
+    extends Node
 final case class BinOp(op: String, lhs: Node, rhs: Node) extends Node
 final case class Match(lhs: Node, rhs: Node) extends Node
 final case class Apply(lhs: Node, rhs: List[Node]) extends Node

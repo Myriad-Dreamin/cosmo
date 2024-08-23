@@ -1,0 +1,9 @@
+
+def main() = {
+  var i: i32 = 0
+  loop {
+    if (i >= 10) { break }
+    println(i)
+    i += 1
+  }
+}

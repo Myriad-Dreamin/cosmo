@@ -787,11 +787,11 @@ for (auto i = 0; i < 10; i++) { println(i); }
 is equivalent to:
 
 ```cos
-val i = 0;
+val i = 0
 loop {
   if (i >= 10) { break }
-  println(i);
-  i += 1;
+  println(i)
+  i += 1
 }
 ```
 
