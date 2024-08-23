@@ -1,8 +1,8 @@
 
-import "libc++/string"
+import stringSys from "libc++/string"
 
-def CxxString = external(cpp, std.string)
+// def CxxBytes = stringSys.std.string
 
-pub class String {
-  var internal: CxxString
+pub class CString {
+  var internal: stringSys.std.string
 }

@@ -5,9 +5,9 @@ pub class ValueT(T: Type) {
   case NumberSigned(i64)
   case NumberUnsigned(u64)
   case Number(f64)
-  case String(String)
+  case String(CString)
   case Array(Vec(Self))
-  case Object(Map(String, Self))
+  case Object(Map(CString, Self))
   case _ =>
     import T.{value, parse};
 
@@ -19,7 +19,7 @@ pub class ValueT(T: Type) {
     def apply(implicit Ty: Type, self, index: Ty) = if (Ty == usize) self match {
       case Array(arr) => Ok(arr(index))
       case _ => Err("Value is not an array");
-    } else if (Ty == String) self match {
+    } else if (Ty == CString) self match {
       case Object(obj) => Ok(obj(index))
       case _ => Err("Value is not an object");
     } else Err("Invalid index type");
@@ -75,7 +75,7 @@ class NlohmannJsonImpl {
     case NlohmannJsonTag.number_integer => ValueT(Self).NumberSigned(j.getAs(i64))
     case NlohmannJsonTag.number_unsigned => ValueT(Self).NumberUnsigned(j.getAs(u64))
     case NlohmannJsonTag.number_float => ValueT(Self).Number(j.getAs(f64))
-    case NlohmannJsonTag.string => ValueT(Self).String(j.getAs(String))
+    case NlohmannJsonTag.string => ValueT(Self).String(j.getAs(CString))
     case NlohmannJsonTag.array => ValueT(Self).Array(j.getAs(Vec(NlohmannJsonValue)).map(Self(internal = _)))
     case NlohmannJsonTag.object => ValueT(Self).Object(j.getAs(Map(NlohmannJsonValue)).map(Self(internal = _)))
     case _ => panic(s"Invalid JSON type ${j.m_type}");

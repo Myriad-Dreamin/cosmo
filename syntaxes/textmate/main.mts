@@ -88,12 +88,21 @@ const comments: textmate.Pattern = {
   patterns: [{ include: "#blockComment" }, { include: "#lineComment" }],
 };
 
+const contextualKeywords: textmate.Pattern = {
+  patterns: [
+    {
+      name: "keyword.control.cosmo",
+      match: /\b(?:from)(?=\s*\")\b/,
+    },
+  ],
+};
+
 const keywords: textmate.Pattern = {
   patterns: [
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:from|pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
+        /\b(?:pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
     },
   ],
 };
@@ -121,6 +130,7 @@ export const cosmo: textmate.Grammar = {
     stringPattern,
     markers,
     literal,
+    contextualKeywords,
     keywords,
     typeIdentifier,
     functionIdentifier,
@@ -157,6 +167,9 @@ function generate() {
         },
         {
           include: "#markers",
+        },
+        {
+          include: "#contextualKeywords",
         },
         {
           include: "#keywords",

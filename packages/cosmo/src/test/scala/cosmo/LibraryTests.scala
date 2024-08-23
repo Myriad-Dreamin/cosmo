@@ -11,7 +11,16 @@ class LibraryTest extends munit.FunSuite:
     println(result)
   }
 
-  test("std/str".only) {
+  test("std.str") {
     runTestOnFile("library/std/str.cos")
+  }
+  test("std.collections.vec") {
+    runTestOnFile("library/std/collections/vec.cos")
+  }
+  test("std.collections.set") {
+    runTestOnFile("library/std/collections/set.cos")
+  }
+  test("std.collections.map") {
+    runTestOnFile("library/std/collections/map.cos")
   }
 end LibraryTest

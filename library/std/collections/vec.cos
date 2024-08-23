@@ -1,0 +1,8 @@
+
+import vectorSys from "libc++/vector"
+
+// def CxxVec(T: Type) = vectorSys.std.vector(T)
+
+pub class Vec(T: Type) {
+  var internal: vectorSys.std.vector(T)
+}

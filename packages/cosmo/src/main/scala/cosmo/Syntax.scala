@@ -5,18 +5,20 @@ import cosmo.DefId
 sealed abstract class Node
 object Self extends Node
 final case class Ident(name: String) extends Node
-final case class Literal(value: Int) extends Node
+final case class IntLit(value: Int) extends Node
+final case class StringLit(value: String) extends Node
 final case class Block(stmts: List[Node]) extends Node
 final case class Val(name: String, ty: Option[Node], init: Option[Node])
     extends Node
 final case class Var(name: String, ty: Option[Node], init: Option[Node])
     extends Node
-final case class Class(name: String, body: Node) extends Node
+final case class Class(name: String, params: Option[List[Param]], body: Node)
+    extends Node
 final case class Param(name: String, ty: Option[Node], init: Option[Node])
     extends Node
 final case class Def(name: String, params: Option[List[Param]], rhs: Node)
     extends Node
-final case class Import(path: String) extends Node
+final case class Import(path: Node, dest: Option[Node]) extends Node
 final case class Loop(body: Node) extends Node
 final case class For(name: String, iter: Node, body: Node) extends Node
 final case class Break() extends Node

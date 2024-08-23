@@ -26,11 +26,11 @@ object Cosmo {
         println(src.slice(index, index + 40))
         return None
     }
-    val artifact = new Eval().eval(ast)
-    for (error <- artifact.errors) {
+    val env = new Env().eval(ast)
+    for (error <- env.errors) {
       println(error)
     }
-    val output = new CodeGen(artifact).gen()
+    val output = new CodeGen(env).gen()
     Some(output)
   }
 }

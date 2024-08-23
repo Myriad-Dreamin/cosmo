@@ -1,6 +1,6 @@
 package cosmo
 
-class CodeGen(val artifact: Eval) {
+class CodeGen(val env: Env) {
   val prelude = """
 // NOLINTBEGIN(readability-identifier-naming)
 
@@ -11,15 +11,15 @@ class CodeGen(val artifact: Eval) {
 // NOLINTEND(readability-identifier-naming)
 """
 
-  // Generate Cxx code from the artifact
+  // Generate Cxx code from the env
   def gen(): String = {
-    val itemCode = artifact.module.stmts.map(genDef(_, true)).mkString("\n")
-    val errorCode = artifact.errors.mkString("\n")
+    val itemCode = env.module.stmts.map(genDef(_, true)).mkString("\n")
+    val errorCode = env.errors.mkString("\n")
     s"$prelude$itemCode\n#if 0\n$errorCode\n#endif$postlude"
   }
 
   def defName(id: DefId)(implicit topLevel: Boolean): String = {
-    val defInfo = artifact.defs(id)
+    val defInfo = env.defs(id)
     if ((topLevel && defInfo.name == "main"))
       defInfo.name
     else defInfo.nameStem(id.id)
@@ -29,7 +29,7 @@ class CodeGen(val artifact: Eval) {
     implicit val topLevel = tl;
     ast match {
       case ir.Def(id) => {
-        val item = artifact.items(id)
+        val item = env.values(id)
         val name = defName(id)
         item match {
           case ir.Fn(None, _) =>
@@ -46,19 +46,34 @@ class CodeGen(val artifact: Eval) {
               case None       => ";"
             }
             s"int $name($paramCode) $bodyCode"
-          case ir.Class(_, vars, defs) =>
+          case ir.CModule(kind, path) =>
+            kind match {
+              case ir.CModuleKind.Builtin =>
+                s"#include <$path>"
+              case ir.CModuleKind.Error =>
+                s"""#error "cosmo error module $path""""
+              case ir.CModuleKind.Source =>
+                s"""#include "$path""""
+            }
+          case ir.Class(_, params, vars, defs) =>
+            println(s"class $name has params $params")
+            val templateCode = params
+              .map { ps =>
+                s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
+              }
+              .getOrElse("")
             val varsCode = vars.map(genDef(_, false)).mkString(";\n") + ";"
             val defsCode = defs.map(genDef(_, false)).mkString(";\n") + ";"
             val consPref = if (vars.isEmpty) "" else s":"
             val consCode =
               s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
-            s"struct $name {$varsCode$consCode$defsCode};"
-          case ir.EnumClass(_, variants, default) =>
+            s"$templateCode struct $name {$varsCode$consCode$defsCode};"
+          case ir.EnumClass(_, params, variants, default) =>
             val variantNames = variants.map(e => defName(e.id))
             val variantVars = variants.map(e =>
-              artifact.items(e.id) match
-                case ir.Class(_, vars, _) => vars
-                case _                    => List.empty,
+              env.values(e.id) match
+                case c: ir.Class => c.vars
+                case _           => List.empty,
             )
             println(s"enum $variantVars")
             val bodyCode = variants.map(genDef(_, false)).mkString(";\n")
@@ -80,7 +95,7 @@ class CodeGen(val artifact: Eval) {
                 .zipWithIndex
                 .flatMap { case ((vn, vars), index) =>
                   vars.map(v =>
-                    val defInfo = artifact.defs(v.id)
+                    val defInfo = env.defs(v.id)
                     val name = defInfo.nameStem(v.id.id)
                     val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
                     val mayDeref = if ty == SelfTy then "*" else ""
@@ -97,7 +112,7 @@ class CodeGen(val artifact: Eval) {
                 .map { case ((vn, vars), index) =>
                   val clones = vars
                     .map(v =>
-                      val defInfo = artifact.defs(v.id)
+                      val defInfo = env.defs(v.id)
                       val name = defInfo.nameStem(v.id.id)
                       val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
                       val mayClone = if ty == SelfTy then "->clone()" else ""
@@ -138,7 +153,7 @@ class CodeGen(val artifact: Eval) {
 
   def genVarParam(node: ir.Var) = {
     val ir.Var(id, init, isContant) = node
-    val defInfo = artifact.defs(id)
+    val defInfo = env.defs(id)
     val name = defInfo.nameStem(id.id)
     val ty = paramTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
     var constantStr = if isContant then "const " else ""
@@ -147,7 +162,7 @@ class CodeGen(val artifact: Eval) {
 
   def genVarCons(node: ir.Var) = {
     val ir.Var(id, init, isContant) = node
-    val defInfo = artifact.defs(id)
+    val defInfo = env.defs(id)
     val name = defInfo.nameStem(id.id)
     val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
     val p = s"std::move(${name}_p)"
@@ -157,7 +172,7 @@ class CodeGen(val artifact: Eval) {
 
   def genVarStore(node: ir.Var) = {
     val ir.Var(id, init, isContant) = node
-    val defInfo = artifact.defs(id)
+    val defInfo = env.defs(id)
     val name = defInfo.nameStem(id.id)
     val ty = storeTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
     var constantStr = if isContant then "const " else ""
@@ -167,19 +182,15 @@ class CodeGen(val artifact: Eval) {
 
   def paramTy(ty: Type): String = {
     ty match {
-      case IntegerTy(size, isUnsigned) =>
-        s"${if (isUnsigned) "u" else ""}int${size}_t"
       case SelfTy => "Self&&"
-      case ty     => ty.toString
+      case ty     => returnTy(ty)
     }
   }
 
   def returnTy(ty: Type): String = {
     ty match {
-      case IntegerTy(size, isUnsigned) =>
-        s"${if (isUnsigned) "u" else ""}int${size}_t"
       case SelfTy => "Self"
-      case ty     => ty.toString
+      case ty     => storeTy(ty)
     }
   }
 
@@ -187,8 +198,10 @@ class CodeGen(val artifact: Eval) {
     ty match {
       case IntegerTy(size, isUnsigned) =>
         s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case SelfTy => "self_t"
-      case ty     => ty.toString
+      case SelfTy         => "self_t"
+      case ty: CppType    => ty.repr
+      case ty: CppInsType => ty.repr
+      case ty             => ty.toString
     }
   }
 
@@ -199,7 +212,7 @@ class CodeGen(val artifact: Eval) {
       case ir.Region(stmts) =>
         stmts.map(genDef(_, false)).mkString(";\n") + ";"
       case ir.Variable(id) => {
-        val defInfo = artifact.defs(id)
+        val defInfo = env.defs(id)
         val name = defInfo.nameStem(id.id)
         name
       }

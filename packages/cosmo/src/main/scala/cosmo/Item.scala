@@ -2,7 +2,16 @@ package cosmo.ir
 
 import cosmo.{DefId, Type}
 
-sealed abstract class Item
+sealed abstract class Value
+final case class Integer(value: Int) extends Value
+final case class Str(value: String) extends Value
+final case class CModule(kind: CModuleKind, path: String) extends Value
+
+enum CModuleKind {
+  case Builtin, Error, Source
+}
+
+sealed abstract class Item extends Value
 object NoneItem extends Item
 object SelfItem extends Item
 object Runtime extends Item
@@ -29,13 +38,18 @@ final case class Fn(
     params: Option[List[Param]],
     body: Option[Item],
 ) extends Item
-final case class Class(id: DefId, vars: List[Var], defs: List[Item])
-    extends Item {}
+final case class Class(
+    id: DefId,
+    params: Option[List[Param]],
+    vars: List[Var],
+    defs: List[Item],
+) extends Item {}
 object Class {
-  lazy val empty = Class(DefId(0), List.empty, List.empty)
+  lazy val empty = Class(DefId(0), None, List.empty, List.empty)
 }
 final case class EnumClass(
     id: DefId,
+    params: Option[List[Param]],
     variants: List[Def],
     default: Option[Item],
 ) extends Item

@@ -84,7 +84,7 @@ Principles:
 External types can be handled by builtin `external` function:
 
 ```cos
-def Vec(Ty: Type) = external(cpp, std.vector(Ty));
+def Vec(Ty: Type) = std.cpp.ty(std.vector(Ty));
 ```
 
 ```cpp

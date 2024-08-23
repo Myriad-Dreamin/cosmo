@@ -1,0 +1,13 @@
+
+import mapSys from "libc++/map"
+import unorderedMapSys from "libc++/unordered_map"
+
+// def CxxMap(K: Type, V: Type) = mapSys.std.map(K, V)
+
+pub class Map(K: Type, V: Type) {
+  var internal: mapSys.std.map(K, V)
+}
+
+pub class HashMap(K: Type, V: Type) {
+  var internal: unorderedMapSys.std.unordered_map(K, V)
+}

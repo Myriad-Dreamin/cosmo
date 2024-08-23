@@ -9,7 +9,7 @@ It sees cosmo functions and evaluate the type parts in the functions. The result
 ## Example
 
 ```scala
-def Vec(Ty: Type) = external(cpp, std.vector(Ty));
+def Vec(Ty: Type) = std.cpp.ty(std.vector(Ty));
 
 def main() = {
   val vec = Vec(u8)();
@@ -44,7 +44,7 @@ clang -std=c++17 samples/HelloWorld/main.cc -o test && test
 External types can be handled by builtin `external` function:
 
 ```scala
-def Vec(Ty: Type) = external(cpp, std.vector(Ty));
+def Vec(Ty: Type) = std.cpp.ty(std.vector(Ty));
 ```
 
 Function body can be a type:

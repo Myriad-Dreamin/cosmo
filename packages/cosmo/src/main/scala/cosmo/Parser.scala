@@ -16,12 +16,13 @@ object Parser {
   def lowercase[$: P] = P(CharIn("a-z"))
   def uppercase[$: P] = P(CharIn("A-Z"))
   def digit[$: P] = P(CharIn("0-9"))
-  def number[$: P]: P[Int] = P(digit.rep(1).!.map(_.toInt))
   def ident[$: P]: P[String] =
     P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
       !keywords(_),
     )
-  def stringLit[$: P]: P[String] = P(P("s").? ~ (longstring | shortstring))
+  def numberLit[$: P] = P(digit.rep(1).!.map(_.toInt).map(IntLit.apply))
+  def stringLit[$: P]: P[StringLit] =
+    P(P("s").? ~ (longstring | shortstring)).map(StringLit.apply)
   def shortstring[$: P]: P[String] = P(shortstring0("\""))
   def shortstring0[$: P](delimiter: String) = P(
     delimiter ~ shortstringitem(delimiter).rep.! ~ delimiter,
@@ -64,11 +65,13 @@ object Parser {
     }
   }
   // Expressions
-  def literal[$: P] = number.map(Literal.apply)
+  def literal[$: P] = P(numberLit | stringLit)
   def identifier[$: P] = ident.map(Ident.apply)
-  def defItem[$: P] =
-    P(keyword("def") ~/ ident ~ ("(" ~/ params ~ ")").? ~ "=" ~ term)
-      .map(Def.apply.tupled)
+  def defItem[$: P] = P(funcLike("def")).map(Def.apply.tupled)
+  def classItem[$: P] = P(funcLike("class")).map(Class.apply.tupled)
+  def funcLike[$: P](kw: String) = P(
+    keyword(kw) ~/ ident ~ ("(" ~/ params ~ ")").? ~ term,
+  )
   def valItem[$: P] =
     P(keyword("val") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
       .map(Val.apply.tupled)
@@ -76,7 +79,11 @@ object Parser {
     P(keyword("var") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
       .map(Var.apply.tupled)
   def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
-  def importItem[$: P] = P(keyword("import") ~/ stringLit).map(Import.apply)
+  def importItem[$: P] =
+    P(keyword("import") ~/ term ~ (keyword("from") ~/ term).?).map {
+      case (dest, Some(path)) => Import(path, Some(dest))
+      case (path, None)       => Import(path, None)
+    }
   def forItem[$: P] = P(
     keyword("for") ~ "(" ~/ ident ~ keyword("in") ~ term ~ ")" ~ braces,
   ).map(For.apply.tupled)
@@ -86,8 +93,6 @@ object Parser {
     keyword("if") ~/ parens ~ braces
       ~ (keyword("else") ~ P(ifItem | braces)).?,
   ).map(If.apply.tupled)
-  def classItem[$: P] =
-    P(keyword("class") ~/ ident ~ braces).map(Class.apply.tupled)
   def returnItem[$: P] = P(keyword("return") ~/ term).map(Return.apply)
   // Compound expressions
   def compound[$: P] = P(addSub ~ matchClause.?).map {
@@ -150,7 +155,7 @@ object Parser {
   def params[$: P] = P(param.rep(sep = ",")).map(_.toList)
   def param[$: P] =
     P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param.apply.tupled)
-  def typeAnnotation[$: P] = P(":" ~/ ident).map(Ident.apply)
+  def typeAnnotation[$: P] = P(":" ~/ factor)
   def initExpression[$: P] = P("=" ~/ term)
   def matchClause[$: P] = P(keyword("match") ~/ braces)
   def caseClause[$: P] =
@@ -161,6 +166,7 @@ object Parser {
     Set(
       "match",
       "implicit",
+      "from",
       "break",
       "continue",
       "using",
