@@ -2,6 +2,7 @@ package cosmo
 
 import ir._
 import cosmo.system._
+import cosmo.FileId
 
 final class DefId(val id: Int) extends AnyVal
 
@@ -53,7 +54,7 @@ class DefInfo(
     (namespaces :+ s"${name}").mkString(nameJoiner)
 }
 
-class Env(var packages: Map[String, Map[String, Package]]) {
+class Env(pacMgr: cosmo.PackageManager) {
   var defAlloc = 0
   var defs: Map[DefId, DefInfo] = Map()
   var values: Map[DefId, Value] = Map()
@@ -66,6 +67,7 @@ class Env(var packages: Map[String, Map[String, Package]]) {
 
   def eval(ast: syntax.Block): Env = {
     newBuiltin("println")
+    newBuiltin("panic")
 
     module = block(ast)
     this
@@ -112,7 +114,7 @@ class Env(var packages: Map[String, Map[String, Package]]) {
 
           val id = newDef(name)
 
-          ty.map(ty_expr).map { case initTy =>
+          ty.map(typeExpr).map { case initTy =>
             defs(id).upperBounds = defs(id).upperBounds :+ initTy
           }
           // todo: infer type from initExpr and body
@@ -210,6 +212,9 @@ class Env(var packages: Map[String, Map[String, Package]]) {
         val ty = if (n.name == baseName) { syntax.Self }
         else { n }
         syntax.Var(s"_${index}", Some(ty), None)
+      // todo: replace self
+      case (n: syntax.Apply, index) =>
+        syntax.Var(s"_${index}", Some(n), None)
       case (_, index) => syntax.Var(s"_${index}", None, None)
     }
 
@@ -229,15 +234,18 @@ class Env(var packages: Map[String, Map[String, Package]]) {
       init: Option[syntax.Node],
       isContant: Boolean,
   ): ir.Var = {
-    val initExpr = init.map(expr).getOrElse(NoneItem)
+    val initExpr = init.map(expr)
     val id = newDef(name)
-    values += (id -> initExpr)
-    ty.map(ty_expr) match {
+    initExpr.map { initExpr =>
+      values += (id -> initExpr)
+    }
+    ty.map(typeExpr) match {
       case Some(initTy) =>
         defs(id).upperBounds = defs(id).upperBounds :+ initTy
       case None =>
+        defs(id).upperBounds = defs(id).upperBounds :+ TopTy
     }
-    ir.Var(id, initExpr, isContant)
+    ir.Var(id, initExpr.getOrElse(NoneItem), isContant)
   }
 
   def defItem(ast: syntax.Def) = {
@@ -245,9 +253,21 @@ class Env(var packages: Map[String, Map[String, Package]]) {
     var id = newDef(name)
     // todo: assign values before checking expr for recursive functions
     val result = withNsParams(name, params) {
-      val value = rhs.map(expr).getOrElse(NoneItem)
-
-      Fn(resolveParams(params), Some(value))
+      val ret = ret_ty.map(typeExpr)
+      (params, ret) match {
+        case (None, Some(UniverseTy)) =>
+          rhs.map(typeExpr) match {
+            case Some(ty) => TypeAlias(ty)
+            case None =>
+              errors = "Invalid type alias" :: errors; TypeAlias(TopTy)
+          }
+        case _ =>
+          Fn(
+            resolveParams(params),
+            ret,
+            Some(rhs.map(expr).getOrElse(NoneItem)),
+          )
+      }
     }
     values += (id -> result)
     ir.Def(id)
@@ -271,10 +291,58 @@ class Env(var packages: Map[String, Map[String, Package]]) {
     ir.Def(id)
   }
 
-  def importItem(p: syntax.Node, dest: Option[syntax.Node]) = {
+  def importNative(p: syntax.Node, dest: Option[syntax.Node]): ir.Def = {
+    val (f, m) = pacMgr.loadModule(p) match {
+      case Some((fid, env)) => (fid, env)
+      case None => {
+        errors = s"Failed to load module $p" :: errors
+        return ir.Def(newDef("$module"))
+      }
+    }
+
+    val (id, defInfo) = newDefWithInfo(if (dest.isEmpty) {
+      val moduleName = p match {
+        case syntax.Select(lhs, syntax.Ident(name)) =>
+          name
+        case syntax.Ident(name) =>
+          name
+        case _ =>
+          "$module"
+      }
+
+      // println(s"importNative $moduleName")
+      moduleName
+    } else {
+      "$module"
+    })
+
+    val v = NativeModule(m, f)
+
+    val valTy = ValueTy(v)
+
+    values += (id -> v)
+
+    dest match {
+      case Some(syntax.Ident(name)) =>
+        val (id, defInfo) = newDefWithInfo(name)
+        defs(id).upperBounds = defs(id).upperBounds :+ valTy
+        values += (id -> v)
+      case Some(v) =>
+        errors = s"Invalid import destination $v" :: errors
+      case None => {
+        defs(id).upperBounds = defs(id).upperBounds :+ valTy
+      }
+    }
+
+    ir.Def(id)
+  }
+
+  def importItem(p: syntax.Node, dest: Option[syntax.Node]): ir.Def = {
     val path = p match {
       case syntax.StringLit(s) =>
         s
+      case syntax.Select(_, _) | syntax.Ident(_) =>
+        return importNative(p, dest)
       case _ =>
         errors = s"Invalid import path" :: errors
         ""
@@ -305,35 +373,58 @@ class Env(var packages: Map[String, Map[String, Package]]) {
     ir.Def(id)
   }
 
-  def ty_expr(node: syntax.Node): Type = {
+  def selectItem(lhs: syntax.Node, rhs: syntax.Ident): ir.Item = {
+    val lhsItem = expr(lhs)
+    val lhsVal = lhsItem match {
+      case Variable(id) => values(id)
+      case _            => return Select(lhsItem, rhs.name)
+    }
+    lhsVal match {
+      // todo: process namespaces
+      case NativeModule(_, _) => Opaque.expr(rhs.name)
+      case _                  => Select(lhsItem, rhs.name)
+    }
+  }
+
+  def typeExpr(node: syntax.Node): Type = {
     implicit val env = this
     implicit val level = 1
-    // println(s"ty_expr $node")
+    // println(s"typeExpr $node")
     node match {
+      case syntax.Semi(None)        => TopTy
+      case syntax.Semi(Some(value)) => typeExpr(value)
       case syntax.Select(lhs, syntax.Ident(name)) =>
-        ty_expr(lhs).instantiate match {
-          case ValueTy(CModule(_, _)) => CppType(name, List())
-          case CppType(ns0, ns)       => CppType(name, ns :+ ns0)
-          case _                      => TopTy
+        typeExpr(lhs).instantiate match {
+          case ValueTy(CModule(_, _))      => CppType(name, List())
+          case ValueTy(NativeModule(_, _)) => NativeType(name)
+          case NativeType(_)               => NativeType(name)
+          case CppType(ns0, ns)            => CppType(name, ns :+ ns0)
+          case _                           => TopTy
         }
       case syntax.Apply(lhs, rhs) =>
-        val operands = rhs.map(ty_expr).map {
+        val operands = rhs.map(typeExpr).map {
           case TypeVariable(nameHint, defId) => {
             val info = env.defs(defId)
             val name = info.nameStem(defId.id)
-            name
+            TypeVariable(name, defId)
           }
-          case ty => ty.toString
+          case ty => ty
         }
-        ty_expr(lhs).instantiate match {
-          case c: CppType => CppInsType(c, operands)
-          case _          => TopTy
+        // println(s"typeExpr apply ${typeExpr(lhs).instantiate} $operands")
+        typeExpr(lhs).instantiate match {
+          case c: CppType    => CppInsType(c, operands)
+          case c: NativeType => NativeInsType(c, operands)
+          case _             => TopTy
         }
       case syntax.Ident(name) =>
         name match
-          case "Type" => UniverseTy
+          case "Type"   => UniverseTy
+          case "String" => StringTy
+          case "bool"   => BoolTy
           case "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" =>
             IntegerTy.parse(name).get
+          case "f32" | "f64" | "f128" =>
+            FloatTy.parse(name).get
           case name =>
             scopes.get(name) match {
               case Some(id) =>
@@ -355,25 +446,35 @@ class Env(var packages: Map[String, Map[String, Package]]) {
       case syntax.Semi(Some(value))   => Semi(expr(value))
       case syntax.BinOp(op, lhs, rhs) => BinOp(op, expr(lhs), expr(rhs))
       case syntax.Apply(lhs, rhs)     => Apply(expr(lhs), rhs.map(expr))
-      case syntax.Select(lhs, rhs)    => Select(expr(lhs), rhs.name)
+      case syntax.Select(lhs, rhs)    => selectItem(lhs, rhs)
       case syntax.Return(value)       => Return(expr(value))
       case syntax.Break()             => Break()
       case syntax.Continue()          => Continue()
       case syntax.BoolLit(value)      => Opaque.expr(value.toString)
       case syntax.IntLit(value)       => Opaque.expr(value.toString)
-      case syntax.StringLit(value)    => Opaque.expr(s"""std::string("$value")""")
-      case syntax.TodoLit             => Opaque.expr("""unimplemented()""")
-      case syntax.Self                => SelfItem
-      case d: syntax.Def              => defItem(d)
-      case c: syntax.Class            => classItem(c)
-      case syntax.Import(p, dest)     => importItem(p, dest)
+      case syntax.StringLit(value) => Opaque.expr(s"""std::string("$value")""")
+      case syntax.TodoLit          => TodoLit
+      case syntax.Self             => SelfItem
+      case d: syntax.Def           => defItem(d)
+      case c: syntax.Class         => classItem(c)
+      case syntax.Import(p, dest)  => importItem(p, dest)
       case syntax.Val(name, ty, init) => varItem(name, ty, init, true)
       case syntax.Var(name, ty, init) => varItem(name, ty, init, false)
       case syntax.If(cond, cont_bb, else_bb) =>
         If(expr(cond), expr(cont_bb), else_bb.map(expr))
       case syntax.Ident(name) =>
         scopes.get(name) match {
-          case Some(id) => Variable(id)
+          case Some(id) => {
+            // get type of id
+            val info = defs(id)
+            val ty = typeExpr(ast).instantiate(2, this)
+
+            if (ty.level >= 2) {
+              TypeVarRef(id)
+            } else {
+              Variable(id)
+            }
+          }
           case None => errors = s"Undefined variable $name" :: errors; Lit(0)
         }
       case b: syntax.CaseBlock =>

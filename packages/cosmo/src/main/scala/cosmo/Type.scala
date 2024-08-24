@@ -22,9 +22,9 @@ sealed abstract class Type {
           else ty
         }
         ty2.getOrElse(TopKind(level))
-      case TopKind(lvl)    => TopKind((lvl - 1).max(level))
-      case BottomKind(lvl) => BottomKind((lvl - 1).max(level))
-      case SelfKind(lvl)   => SelfKind((lvl - 1).max(level))
+      case TopKind(lvl)    => TopKind((lvl - 1).min(level))
+      case BottomKind(lvl) => BottomKind((lvl - 1).min(level))
+      case SelfKind(lvl)   => SelfKind((lvl - 1).min(level))
       case ty              => ty
     }
   }
@@ -37,6 +37,8 @@ val TopTy = TopKind(1)
 val BottomTy = BottomKind(1)
 val SelfTy = SelfKind(1)
 val UniverseTy = TopKind(2)
+case object BoolTy extends Type;
+case object StringTy extends Type;
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)
     extends Type {
   override def toString: String = s"${if (isUnsigned) "u" else "i"}$width"
@@ -46,6 +48,14 @@ object IntegerTy {
     val unsigned = s.startsWith("u")
     val width = s.stripPrefix("u").stripPrefix("i").toInt
     Some(new IntegerTy(width, unsigned))
+  }
+}
+final case class FloatTy(val width: Int) extends Type {
+  override def toString: String = s"f$width"
+}
+object FloatTy {
+  def parse(s: String): Option[FloatTy] = {
+    Some(new FloatTy(s.stripPrefix("f").toInt))
   }
 }
 
@@ -60,8 +70,32 @@ final case class CppType(val name: String, val ns: List[String]) extends Type {
   override def toString: String = s"cpp($repr)"
   def repr: String = (ns :+ name).mkString("::")
 }
-final case class CppInsType(val target: CppType, val arguments: List[String])
+final case class NativeType(val name: String) extends Type {
+  override def toString: String = s"native($repr)"
+  def repr: String = name
+}
+final case class CppInsType(val target: CppType, val arguments: List[Type])
     extends Type {
   override def toString: String = s"cpp($repr)"
-  def repr: String = target.repr + "<" + arguments.mkString(", ") + ">"
+  def repr(rec: Type => String): String =
+    target.repr + "<" + arguments
+      .map {
+        case TypeVariable(nameHint, defId) => nameHint
+        case ty                            => rec(ty)
+      }
+      .mkString(", ") + ">"
+}
+
+final case class NativeInsType(
+    val target: NativeType,
+    val arguments: List[Type],
+) extends Type {
+  override def toString: String = s"native($repr)"
+  def repr(rec: Type => String): String =
+    target.repr + "<" + arguments
+      .map {
+        case TypeVariable(nameHint, defId) => nameHint
+        case ty                            => rec(ty)
+      }
+      .mkString(", ") + ">"
 }

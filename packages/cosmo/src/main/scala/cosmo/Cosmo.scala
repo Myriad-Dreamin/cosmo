@@ -12,8 +12,14 @@ import cosmo.linker._
 @main
 def CosmoMain() = {}
 
+case class FileId(val pkg: Package, val path: String) {}
+
+trait PackageManager {
+  def loadModule(path: syntax.Node): Option[(FileId, Env)]
+}
+
 @JSExportTopLevel("Cosmo")
-class Cosmo {
+class Cosmo extends PackageManager {
   var packages: Map[String, Map[String, Package]] = Map()
   val system: CosmoSystem = new JsPhysicalSystem()
   val linker: Linker = new MsvcLinker(system)
@@ -36,7 +42,7 @@ class Cosmo {
 
   @JSExport
   def preloadPackage(name: String): Unit = {
-    val (pkg, pathInPkg) = resolvePackage(parsePackagePath(name) match {
+    val FileId(pkg, pathInPkg) = resolvePackage(parsePackagePath(name) match {
       case Some(path) => path
       case None       => throw new Exception("Invalid package path")
     })
@@ -60,13 +66,13 @@ class Cosmo {
     loadModule(parsePackagePath(s) match {
       case Some(path) => path
       case None       => throw new Exception("Invalid package path")
-    })
+    }).map(_._2)
   }
 
-  def loadModule(path: syntax.Node): Option[Env] = {
-    val (pkg, pathInPkg) = resolvePackage(path)
-    // println(s"Loading module $pathInPkg from package ${pkg.name}")
-    loadModuleBySrc(pkg.sources(pathInPkg).source)
+  def loadModule(path: syntax.Node): Option[(FileId, Env)] = {
+    val fid = resolvePackage(path)
+    // println(s"Loading module $fid")
+    loadModuleBySrc(fid.pkg.sources(fid.path).source).map((fid, _))
   }
 
   def parsePackagePath(s: String): Option[syntax.Node] = {
@@ -79,7 +85,7 @@ class Cosmo {
     })
   }
 
-  def resolvePackage(path: syntax.Node): (Package, String) = {
+  def resolvePackage(path: syntax.Node): FileId = {
     var names = path match {
       case syntax.Select(target, nn) =>
         // collect all the names in the target
@@ -120,7 +126,7 @@ class Cosmo {
       .drop(dropped)
       .mkString("/", "/", ".cos")
 
-    (pkg, pathInPkg)
+    FileId(pkg, pathInPkg)
   }
 
   def loadModuleBySrc(src: String): Option[Env] = {
@@ -132,7 +138,7 @@ class Cosmo {
         println(src.slice(index, index + 40))
         return None
     }
-    val env = new Env(packages).eval(ast)
+    val env = new Env(this).eval(ast)
     for (error <- env.errors) {
       println(error)
     }

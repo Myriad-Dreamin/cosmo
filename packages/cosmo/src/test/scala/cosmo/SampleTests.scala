@@ -7,6 +7,7 @@ class SampleTest extends munit.FunSuite:
     var src =
       cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var compiler = new Cosmo();
+    compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
     var result = compiler.mayConvert(src)
     println(result)
   }

@@ -10,7 +10,11 @@ class IntegratedStdTest extends munit.FunSuite:
     println(compiler.getExecutable(path))
   }
 
-  test("Hello World") {
+  test("Hello World".only) {
     runTestOnFile("samples/HelloWorld/main.cos")
+  }
+
+  test("readFile".only) {
+    runTestOnFile("samples/Io/readFile.cos")
   }
 end IntegratedStdTest

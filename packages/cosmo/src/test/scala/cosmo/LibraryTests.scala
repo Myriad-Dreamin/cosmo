@@ -7,6 +7,7 @@ class LibraryTest extends munit.FunSuite:
     var src =
       cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var compiler = new Cosmo();
+    compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
     var result = compiler.mayConvert(src)
     println(result)
   }
@@ -23,7 +24,7 @@ class LibraryTest extends munit.FunSuite:
   test("std.collections.map") {
     runTestOnFile("library/std/src/collections/map.cos")
   }
-  test("std.json") {
+  test("std.json".only) {
     runTestOnFile("library/std/src/json.cos")
   }
   test("std.fs".only) {

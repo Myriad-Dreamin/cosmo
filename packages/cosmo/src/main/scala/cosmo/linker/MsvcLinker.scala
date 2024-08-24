@@ -83,7 +83,10 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       .absPath("target/cosmo/externals/json/single_include")
       .replace("\\", "\\\\")
 
-    var includeFlags = s"-I\"$cosmoRtDir\" -I\"$nlJsonDir\""
+    var releaseRoot =
+      system.absPath("target/cosmo/release").replace("\\", "\\\\")
+
+    var includeFlags = s"-I$cosmoRtDir -I$nlJsonDir -I$releaseRoot"
 
     var compilationCommandsPath = destDir + "/../compile_commands.json"
     var compilationCommands = (sources :+ allCCPath)
@@ -140,18 +143,24 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       val clCommand =
         s""""$clPath" /std:c++17 /EHsc /I"$windowsSdkIncludePath" /I"$systemIncludePath" $includeFlags /I. /Fe:"$programPath" "$destPath" /link $linkFlags"""
 
-      val result = cosmo.NodeChildProcess.execSync(
-        clCommand,
-        js.Dynamic.literal(
-          encoding = "utf8",
-          stdio = "pipe",
-          cwd = dirPath,
-        ),
-      )
-
-      if (result.status.asInstanceOf[Int] != 0) {
-        throw new Exception(s"Compilation failed: ${result.stderr}")
+      try {
+        val result = cosmo.NodeChildProcess.execSync(
+          clCommand,
+          js.Dynamic.literal(
+            encoding = "utf8",
+            stdio = "pipe",
+            // stdio = js.Tuple3("pipe", 2, "pipe"),
+            cwd = dirPath,
+          ),
+        )
+      } catch {
+        case e: js.JavaScriptException =>
+          throw new Exception(s"Compilation failed: ${e.getMessage()}")
       }
+
+      // if (result.status.asInstanceOf[Int] != 0) {
+      //   throw new Exception(s"Compilation failed: ${result.stderr}")
+      // }
 
       programPath
     }

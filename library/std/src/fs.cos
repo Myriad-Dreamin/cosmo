@@ -1,2 +1,23 @@
 
-def readFile(fileName: String): String = ???;
+import stdSys from "cosmo-std.h"
+
+import fstreamSys from "libc++/fstream"
+
+def Ifstream: Type = fstreamSys.std.ifstream;
+def IosFlag: Type = fstreamSys.std.ios;
+
+def readFile(fileName: String): String = {
+  var file = Ifstream(fileName.internal, IosFlag.binary);
+  file.seekg(0, IosFlag.end);
+  val sz: i64 = file.tellg();
+  if (sz < 0) {
+    panic("Error reading file");
+  }
+
+  var vec: String = "";
+  vec.internal.resize(sz);
+  file.seekg(0);
+  file.read(vec.internal.data(), sz);
+  file.close();
+  vec
+}

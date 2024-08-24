@@ -34,32 +34,44 @@ class CodeGen(val env: Env) {
   def mayGenDef(ast: ir.Item, tl: Boolean): Option[String] = {
     implicit val topLevel = tl;
     val res = ast match {
+      case ir.Semi(value) => genDef(value, tl)
       case ir.Def(id) => {
         val item = env.values(id)
         val name = defName(id)
         item match {
-          case ir.Fn(None, _) =>
+          case ir.Semi(value) =>
+            genDef(value, tl)
+          case ir.TypeAlias(ret_ty) =>
+            s"using $name = ${returnTy(ret_ty)};"
+          case ir.Fn(None, ret_ty, body) =>
             s"/* cosmo function $name */"
-          case ir.Fn(Some(params), body) =>
+          case ir.Fn(Some(params), ret_ty, body) =>
             val paramCode =
               params
-                .map(param =>
-                  s"${paramTy(param.ty)} ${param.name}${param.id.id}",
-                )
+                .map(param => s"${paramTy(param.ty)} ${param.name}")
                 .mkString(", ")
             val bodyCode = body match {
               case Some(body) => blockizeExpr(body, ValRecv.Return)
               case None       => ";"
             }
-            s"int $name($paramCode) $bodyCode"
+            if name == "main" then
+              s"int main(int argc, char **argv) { $bodyCode }"
+            else
+              val rt = ret_ty.map(returnTy).getOrElse("void")
+              s"inline $rt $name($paramCode) $bodyCode"
+          case ir.NativeModule(_, fid) =>
+            // fid.path (.cos -> .h)
+            // todo: unreliable path conversion
+            val path = fid.path.slice(0, fid.path.length - 4) + ".h"
+            s"#include <${fid.pkg.namespace}/${fid.pkg.name}/src${path}>"
           case ir.CModule(kind, path) =>
             kind match {
               case ir.CModuleKind.Builtin =>
-                s"#include <$path>"
+                s"#include <$path> // IWYU pragma: keep"
               case ir.CModuleKind.Error =>
                 s"""#error "cosmo error module $path""""
               case ir.CModuleKind.Source =>
-                s"""#include "$path""""
+                s"""#include "$path" // IWYU pragma: keep"""
             }
           case ir.Class(_, params, vars, defs) =>
             // println(s"class $name has params $params")
@@ -75,6 +87,11 @@ class CodeGen(val env: Env) {
               s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
             s"$templateCode struct $name {$varsCode$consCode$defsCode};"
           case ir.EnumClass(_, params, variants, default) =>
+            val templateCode = params
+              .map { ps =>
+                s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
+              }
+              .getOrElse("")
             val variantNames = variants.map(e => defName(e.id))
             val variantVars = variants.map(e =>
               env.values(e.id) match
@@ -128,7 +145,7 @@ class CodeGen(val env: Env) {
                   s"""case ${index}: return ${vn}_cons($clones);"""
                 }
                 .mkString("\n    ")
-            s"""struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+            s"""$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
   $name($name &&n) : data(std::move(n.data)) {}
   $name &operator=($name &&n) {
     data = std::move(n.data);
@@ -141,7 +158,7 @@ class CodeGen(val env: Env) {
 
   $variantFields
 
-  Nat clone() const { // NOLINT(misc-no-recursion)
+  Self clone() const { // NOLINT(misc-no-recursion)
     switch (data.index()) {
     $variantClones
     default:
@@ -206,10 +223,15 @@ class CodeGen(val env: Env) {
     ty match {
       case IntegerTy(size, isUnsigned) =>
         s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case SelfTy         => "self_t"
-      case ty: CppType    => ty.repr
-      case ty: CppInsType => ty.repr
-      case ty             => ty.toString
+      case FloatTy(size)     => s"float${size}_t"
+      case BoolTy            => "bool"
+      case StringTy          => "CString"
+      case SelfTy            => "self_t"
+      case ty: CppType       => ty.repr
+      case ty: CppInsType    => ty.repr(storeTy)
+      case ty: NativeType    => ty.repr
+      case ty: NativeInsType => ty.repr(storeTy)
+      case ty                => "auto"
     }
   }
 
@@ -245,6 +267,11 @@ class CodeGen(val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
+      case ir.TypeVarRef(id) => {
+        val defInfo = env.defs(id)
+        val name = defInfo.nameStem(id.id)
+        name
+      }
       case ir.Variable(id) => {
         val defInfo = env.defs(id)
         val name = defInfo.nameStem(id.id)
@@ -256,6 +283,7 @@ class CodeGen(val env: Env) {
         return s"for(auto $name : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
       case ir.Continue() => return "continue"
+      case ir.TodoLit    => return "unimplemented();"
       case ir.If(cond, cont_bb, else_bb) =>
         return s"if(${expr(cond)}) ${blockizeExpr(cont_bb, recv)}${else_bb
             .map(e => s" else ${blockizeExpr(e, recv)}")
@@ -266,8 +294,18 @@ class CodeGen(val env: Env) {
         s"${expr(lhs)} $op ${expr(rhs)}"
       case ir.Apply(lhs, rhs) =>
         s"${expr(lhs)}(${rhs.map(expr).mkString(", ")})"
+      case ir.Select(lhs, rhs) =>
+        if (lhsIsType(lhs)) {
+          // todo: this is not well modeled
+          s"${expr(lhs)}::${rhs}"
+        } else {
+          s"${expr(lhs)}.${rhs}"
+        }
       case ir.Semi(value) => return exprWith(value, ValRecv.None)
-      case a              => a.toString()
+      case a => {
+        println(s"unknown expr $a")
+        a.toString()
+      }
     }
 
     recv match {
@@ -275,6 +313,14 @@ class CodeGen(val env: Env) {
       case ValRecv.Return    => s"return ($res)"
       case ValRecv.Var(name) => s"$name = ($res)"
     }
+  }
+}
+
+def lhsIsType(lhs: ir.Item): Boolean = {
+  lhs match {
+    case ir.TypeVarRef(_)  => true
+    case ir.Select(lhs, _) => lhsIsType(lhs)
+    case _                 => false
   }
 }
 

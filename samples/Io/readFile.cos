@@ -1,0 +1,7 @@
+
+import std.fs;
+
+def main() = {
+  val content: String = fs.readFile("samples/Io/readFile.txt");
+  println(content.internal);
+}

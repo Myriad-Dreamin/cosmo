@@ -1,0 +1,29 @@
+
+import nlSys from "nlohmann/json.hpp"
+import stdSys from "cosmo-std.h"
+
+import std.collections.vec
+import std.collections.map
+
+pub class ValueT(T: Type) {
+  case Null
+  case Bool(bool)
+  case NumberSigned(i64)
+  case NumberUnsigned(u64)
+  case Number(f64)
+  case Str(String)
+  case Array(vec.Vec(T))
+  case Object(map.HashMap(String, T))
+}
+
+def NlohmannJsonTag = nlSys.nlohmann.json.value_t
+
+class NlohmannJsonImpl {
+  var internal: nlSys.nlohmann.json
+}
+
+// default JSON implementation
+pub def Value = ValueT(NlohmannJsonImpl)
+
+// implicit Ty: Type, 
+pub def parse(path: String): Value = ???

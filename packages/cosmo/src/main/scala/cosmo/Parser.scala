@@ -93,8 +93,11 @@ object Parser {
   def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
   def importItem[$: P] =
     P(keyword("import") ~/ term ~ (keyword("from") ~/ term).?).map {
-      case (dest, Some(path)) => Import(path, Some(dest))
-      case (path, None)       => Import(path, None)
+      case (dest, Some(Semi(Some(path)))) =>
+        Semi(Some(Import(path, Some(dest))))
+      case (Semi(Some(path)), None) => Semi(Some(Import(path, None)))
+      case (dest, Some(path))       => Import(path, Some(dest))
+      case (path, None)             => Import(path, None)
     }
   def forItem[$: P] = P(
     keyword("for") ~ "(" ~/ ident ~ keyword("in") ~ term ~ ")" ~ braces,
