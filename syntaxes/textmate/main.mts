@@ -92,7 +92,7 @@ const contextualKeywords: textmate.Pattern = {
   patterns: [
     {
       name: "keyword.control.cosmo",
-      match: /\b(?:from)(?=\s*\")\b/,
+      match: /\b(?:from)(?=\s*["\p{XID_Start}_])\b/u,
     },
   ],
 };
@@ -114,7 +114,7 @@ const numeric: textmate.Pattern = {
 
 const markers: textmate.Pattern = {
   name: "keyword.control.cosmo",
-  match: /=>/,
+  match: /=>|\?\?\?/,
 };
 
 const literal: textmate.Pattern = {

@@ -20,9 +20,12 @@ object Parser {
     P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
       !keywords(_),
     )
+  def booleanLit[$: P] =
+    (P(keyword("true") | keyword("false"))).!.map(v => BoolLit(v == "true"))
   def numberLit[$: P] = P(digit.rep(1).!.map(_.toInt).map(IntLit.apply))
   def stringLit[$: P]: P[StringLit] =
     P(P("s").? ~ (longstring | shortstring)).map(StringLit.apply)
+  def todoLit[$: P] = P("???").map(_ => TodoLit)
   def shortstring[$: P]: P[String] = P(shortstring0("\""))
   def shortstring0[$: P](delimiter: String) = P(
     delimiter ~ shortstringitem(delimiter).rep.! ~ delimiter,
@@ -47,10 +50,18 @@ object Parser {
 
   // Terms
   def term[$: P]: P[Node] = P(
-    canExportItem | ifItem | forItem | breakItem | continueItem | returnItem | loopItem | caseClause | compound,
+    ifItem | forItem | loopItem | caseClause | semiWrap | semi,
   )
+  def semiWrap[$: P]: P[Node] = P(
+    P(
+      canExportItem | breakItem | continueItem | returnItem | compound,
+    ) ~/ semi.?,
+  ).map((item, isSemi) => if isSemi.isEmpty then item else Semi(Some(item)))
+  def semi[$: P] = P(";").map(_ => Semi(None))
   def canExportItem[$: P]: P[Node] =
-    keyword("pub").? ~ P(defItem | valItem | varItem | classItem | importItem)
+    (keyword("pub") | keyword("private")).? ~ P(
+      defItem | valItem | varItem | classItem | importItem,
+    )
   def primaryExpr[$: P] = P(identifier | literal | parens | braces)
   def factor[$: P]: P[Node] = P(
     primaryExpr ~ (P("." ~ identifier).map(Left.apply) | P(
@@ -65,12 +76,13 @@ object Parser {
     }
   }
   // Expressions
-  def literal[$: P] = P(numberLit | stringLit)
+  def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit)
   def identifier[$: P] = ident.map(Ident.apply)
-  def defItem[$: P] = P(funcLike("def")).map(Def.apply.tupled)
-  def classItem[$: P] = P(funcLike("class")).map(Class.apply.tupled)
-  def funcLike[$: P](kw: String) = P(
-    keyword(kw) ~/ ident ~ ("(" ~/ params ~ ")").? ~ term,
+  def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
+    .map(Def.apply.tupled)
+  def classItem[$: P] = P(sigItem("class") ~ term).map(Class.apply.tupled)
+  def sigItem[$: P](kw: String) = P(
+    keyword(kw) ~/ ident ~ ("(" ~/ params ~ ")").?,
   )
   def valItem[$: P] =
     P(keyword("val") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
@@ -164,9 +176,17 @@ object Parser {
   // Keywords
   val keywords =
     Set(
+      "pub",
+      "private",
+      "impl",
+      "yield",
+      "lazy",
+      "as",
+      "import",
+      "module",
+      "unsafe",
       "match",
       "implicit",
-      "from",
       "break",
       "continue",
       "using",
@@ -177,6 +197,7 @@ object Parser {
       "self",
       "class",
       "trait",
+      "type",
       "if",
       "else",
       "for",
@@ -187,5 +208,9 @@ object Parser {
       "or",
       "in",
       "not",
+      "from",
+      "true",
+      "false",
+      "none",
     )
 }

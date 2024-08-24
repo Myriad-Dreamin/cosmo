@@ -16,13 +16,18 @@ object NoneItem extends Item
 object SelfItem extends Item
 object Runtime extends Item
 final case class Lit(value: Int) extends Item
-final case class Opaque(value: String) extends Item
+final case class Opaque(expr: Option[String], stmt: Option[String]) extends Item
+object Opaque {
+  def expr(expr: String) = Opaque(Some(expr), None)
+  def stmt(stmt: String) = Opaque(None, Some(stmt))
+}
 final case class Param(name: String, id: DefId, ty: Type) extends Item
 final case class Def(id: DefId) extends Item
 final case class Var(id: DefId, init: Item, isContant: Boolean) extends Item
 final case class Variable(id: DefId) extends Item
 final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item
 final case class Return(value: Item) extends Item
+final case class Semi(value: Item) extends Item
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item
 final case class Select(lhs: Item, rhs: String) extends Item
 final case class Match(lhs: Item, rhs: Item) extends Item

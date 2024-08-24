@@ -1,14 +1,16 @@
 package cosmo
 
+import scala.compiletime.ops.boolean
+
 class CodeGen(val env: Env) {
   val prelude = """
-// NOLINTBEGIN(readability-identifier-naming)
+// NOLINTBEGIN(readability-identifier-naming,llvm-else-after-return)
 
 #include "cosmo-rt.h"
 """
 
   val postlude = """
-// NOLINTEND(readability-identifier-naming)
+// NOLINTEND(readability-identifier-naming,llvm-else-after-return)
 """
 
   // Generate Cxx code from the env
@@ -26,8 +28,12 @@ class CodeGen(val env: Env) {
   }
 
   def genDef(ast: ir.Item, tl: Boolean): String = {
+    mayGenDef(ast, tl).getOrElse(expr(ast))
+  }
+
+  def mayGenDef(ast: ir.Item, tl: Boolean): Option[String] = {
     implicit val topLevel = tl;
-    ast match {
+    val res = ast match {
       case ir.Def(id) => {
         val item = env.values(id)
         val name = defName(id)
@@ -42,7 +48,7 @@ class CodeGen(val env: Env) {
                 )
                 .mkString(", ")
             val bodyCode = body match {
-              case Some(body) => s"{${expr(body)}}"
+              case Some(body) => blockizeExpr(body, ValRecv.Return)
               case None       => ";"
             }
             s"int $name($paramCode) $bodyCode"
@@ -147,8 +153,10 @@ class CodeGen(val env: Env) {
         }
       }
       case v: ir.Var => genVarStore(v)
-      case a         => expr(a)
+      case a         => return None
     }
+
+    Some(res)
   }
 
   def genVarParam(node: ir.Var) = {
@@ -205,32 +213,72 @@ class CodeGen(val env: Env) {
     }
   }
 
-  def expr(ast: ir.Item): String = {
+  def blockizeExpr(ast: ir.Item, recv: ValRecv): String = {
     ast match {
-      case ir.Lit(value)    => value.toString
-      case ir.Opaque(value) => value
-      case ir.Region(stmts) =>
-        stmts.map(genDef(_, false)).mkString(";\n") + ";"
+      case s: ir.Region => exprWith(s, recv)
+      case a            => s"{${exprWith(a, recv)}}"
+    }
+  }
+
+  def expr(ast: ir.Item): String = {
+    exprWith(ast, ValRecv.None)
+  }
+
+  def exprWith(ast: ir.Item, recv: ValRecv): String = {
+    val res = ast match {
+      case ir.Lit(value)            => value.toString
+      case ir.Opaque(_, Some(stmt)) => stmt
+      case ir.Opaque(Some(expr), _) => expr
+      case ir.Region(stmts) => {
+        val (rests, last) = stmts.length match {
+          case 0 => return "{}"
+          case 1 => (List.empty, stmts.head)
+          case _ => (stmts.dropRight(1), stmts.last)
+        }
+
+        return (rests.map(genDef(_, false)) :+ exprWith(last, recv))
+          .mkString("{", ";\n", ";}")
+      }
+      case ir.Return(value) => {
+        recv match {
+          case ValRecv.Return => exprWith(value, ValRecv.Return)
+          case recv           => s"return ${exprWith(value, recv)}"
+        }
+      }
       case ir.Variable(id) => {
         val defInfo = env.defs(id)
         val name = defInfo.nameStem(id.id)
         name
       }
-      case ir.Loop(body) => s"for(;;) {${expr(body)}}"
+      case ir.Loop(body) =>
+        return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name, iter, body) =>
-        s"for(auto $name : ${expr(iter)}) {${expr(body)}}"
-      case ir.Break()    => "break"
-      case ir.Continue() => "continue"
+        return s"for(auto $name : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
+      case ir.Break()    => return "break"
+      case ir.Continue() => return "continue"
       case ir.If(cond, cont_bb, else_bb) =>
-        s"if(${expr(cond)}) {${expr(cont_bb)}}${else_bb.map(e => s" else {${expr(e)}}").getOrElse("")}"
+        return s"if(${expr(cond)}) ${blockizeExpr(cont_bb, recv)}${else_bb
+            .map(e => s" else ${blockizeExpr(e, recv)}")
+            .getOrElse("")}"
       case ir.BinOp("..", lhs, rhs) =>
         s"Range(${expr(lhs)}, ${expr(rhs)})"
       case ir.BinOp(op, lhs, rhs) =>
         s"${expr(lhs)} $op ${expr(rhs)}"
-      case ir.Return(value) => s"return ${expr(value)}"
       case ir.Apply(lhs, rhs) =>
         s"${expr(lhs)}(${rhs.map(expr).mkString(", ")})"
-      case a => a.toString()
+      case ir.Semi(value) => return exprWith(value, ValRecv.None)
+      case a              => a.toString()
+    }
+
+    recv match {
+      case ValRecv.None      => res
+      case ValRecv.Return    => s"return ($res)"
+      case ValRecv.Var(name) => s"auto $name = ($res)"
     }
   }
+}
+
+enum ValRecv {
+  case None, Return
+  case Var(name: String)
 }

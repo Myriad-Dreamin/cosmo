@@ -1,6 +1,6 @@
 
 
-def Vec(Ty: Type) = external(cpp, std.vector(Ty));
+def Vec(Ty: Type) = std.cpp.ty(std.vector(Ty));
 
 def main() = {
   val vec = Vec(u8)();

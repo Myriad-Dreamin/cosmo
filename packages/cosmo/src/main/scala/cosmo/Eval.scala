@@ -87,7 +87,7 @@ class Env {
 
   def newBuiltin(name: String) = {
     val id = newDef(name, noMangle = true)
-    values += (id -> Opaque(s"$name"))
+    values += (id -> Opaque.expr(s"$name"))
   }
 
   def withNs[T](ns: String)(f: => T): T = {
@@ -106,7 +106,6 @@ class Env {
       scopes.withScope {
         params.iterator.flatten.foreach { p =>
           val syntax.Param(name, ty, init) = p
-          println(s"withNsParams $name $ty $init")
 
           val id = newDef(name)
 
@@ -169,8 +168,8 @@ class Env {
             vars = vars :+ varItem(name, ty, init, true)
           case syntax.Var(name, ty, init) =>
             vars = vars :+ varItem(name, ty, init, false)
-          case syntax.Def(name, params, rhs) =>
-            defs = defs :+ defItem(syntax.Def(name, params, rhs))
+          case d: syntax.Def =>
+            defs = defs :+ defItem(d)
           case _ =>
             errors = "Invalid class body" :: errors
         }
@@ -239,11 +238,11 @@ class Env {
   }
 
   def defItem(ast: syntax.Def) = {
-    val syntax.Def(name, params, rhs) = ast
+    val syntax.Def(name, params, ret_ty, rhs) = ast
     var id = newDef(name)
     // todo: assign values before checking expr for recursive functions
     val result = withNsParams(name, params) {
-      val value = expr(rhs)
+      val value = rhs.map(expr).getOrElse(NoneItem)
 
       Fn(resolveParams(params), Some(value))
     }
@@ -306,7 +305,7 @@ class Env {
   def ty_expr(node: syntax.Node): Type = {
     implicit val env = this
     implicit val level = 1
-    println(s"ty_expr $node")
+    // println(s"ty_expr $node")
     node match {
       case syntax.Select(lhs, syntax.Ident(name)) =>
         ty_expr(lhs).instantiate match {
@@ -323,7 +322,6 @@ class Env {
           }
           case ty => ty.toString
         }
-        println(s"ty_expr apply $lhs ${rhs.map(ty_expr)} $operands")
         ty_expr(lhs).instantiate match {
           case c: CppType => CppInsType(c, operands)
           case _          => TopTy
@@ -347,10 +345,43 @@ class Env {
 
   def expr(ast: syntax.Node): ir.Item = {
     ast match {
-      case b: syntax.Block => block(b)
+      case b: syntax.Block            => block(b)
+      case l: syntax.Loop             => Loop(expr(l.body))
+      case f: syntax.For              => For(f.name, expr(f.iter), expr(f.body))
+      case syntax.Semi(None)          => ir.NoneItem
+      case syntax.Semi(Some(value))   => Semi(expr(value))
+      case syntax.BinOp(op, lhs, rhs) => BinOp(op, expr(lhs), expr(rhs))
+      case syntax.Apply(lhs, rhs)     => Apply(expr(lhs), rhs.map(expr))
+      case syntax.Select(lhs, rhs)    => Select(expr(lhs), rhs.name)
+      case syntax.Return(value)       => Return(expr(value))
+      case syntax.Break()             => Break()
+      case syntax.Continue()          => Continue()
+      case syntax.BoolLit(value)      => Opaque.expr(value.toString)
+      case syntax.IntLit(value)       => Opaque.expr(value.toString)
+      case syntax.StringLit(value)    => Opaque.expr(s""""$value"""")
+      case syntax.TodoLit             => Opaque.expr("""unimplemented()""")
+      case syntax.Self                => SelfItem
+      case d: syntax.Def              => defItem(d)
+      case c: syntax.Class            => classItem(c)
+      case syntax.Import(p, dest)     => importItem(p, dest)
+      case syntax.Val(name, ty, init) => varItem(name, ty, init, true)
+      case syntax.Var(name, ty, init) => varItem(name, ty, init, false)
+      case syntax.If(cond, cont_bb, else_bb) =>
+        If(expr(cond), expr(cont_bb), else_bb.map(expr))
+      case syntax.Ident(name) =>
+        scopes.get(name) match {
+          case Some(id) => Variable(id)
+          case None => errors = s"Undefined variable $name" :: errors; Lit(0)
+        }
       case b: syntax.CaseBlock =>
         errors = s"case block without match" :: errors
-        Opaque(s"0/* error: case block without match */")
+        Opaque.expr(s"0/* error: case block without match */")
+      case syntax.Param(name, ty, init) =>
+        val initExp = init.map(init => s" = ${exprOpa(init)}").getOrElse("")
+        Opaque(Some(name), Some(s"int $name${initExp};"))
+      case syntax.Case(cond, body) =>
+        errors = s"case clause without match" :: errors
+        Opaque.expr(s"0/* error: case clause without match */")
       case b: syntax.Match =>
         val lhs = expr(b.lhs)
         val rhs = b.rhs match {
@@ -367,55 +398,13 @@ class Env {
           }
         }
         Match(lhs, rhs)
-      case syntax.Val(name, ty, init) =>
-        varItem(name, ty, init, true)
-      case syntax.Var(name, ty, init) =>
-        varItem(name, ty, init, false)
-      case d: syntax.Def =>
-        defItem(d)
-      case c: syntax.Class =>
-        classItem(c)
-      case syntax.Import(p, dest) =>
-        importItem(p, dest)
-      case l: syntax.Loop =>
-        Loop(expr(l.body))
-      case f: syntax.For =>
-        For(f.name, expr(f.iter), expr(f.body))
-      case syntax.Break() =>
-        Break()
-      case syntax.Continue() =>
-        Continue()
-      case syntax.If(cond, cont_bb, else_bb) =>
-        If(expr(cond), expr(cont_bb), else_bb.map(expr))
-      case syntax.IntLit(value)    => Opaque(value.toString)
-      case syntax.StringLit(value) => Opaque(s""""$value"""")
-      case syntax.Self             => SelfItem
-      case syntax.Ident(name) =>
-        scopes.get(name) match {
-          case Some(id) => Variable(id)
-          case None => errors = s"Undefined variable $name" :: errors; Lit(0)
-        }
-      case syntax.Param(name, ty, init) =>
-        val initExp = init.map(init => s" = ${opa(init)}").getOrElse("")
-        Opaque(s"int $name${initExp};")
-      case syntax.BinOp(op, lhs, rhs) =>
-        BinOp(op, expr(lhs), expr(rhs))
-      case syntax.Apply(lhs, rhs) =>
-        Apply(expr(lhs), rhs.map(expr))
-      case syntax.Select(lhs, rhs) =>
-        Select(expr(lhs), rhs.name)
-      case syntax.Return(value) =>
-        Return(expr(value))
-      case syntax.Case(cond, body) =>
-        errors = s"case clause without match" :: errors
-        Opaque(s"/* error: case clause without match */")
     }
   }
 
-  def opa(ast: syntax.Node): String = {
+  def exprOpa(ast: syntax.Node): String = {
     expr(ast) match {
-      case Opaque(value) => value
-      case _             => ""
+      case Opaque(Some(expr), _) => expr
+      case _                     => ""
     }
   }
 }
