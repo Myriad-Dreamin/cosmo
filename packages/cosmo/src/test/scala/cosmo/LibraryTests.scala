@@ -4,10 +4,10 @@ import scala.scalajs.js
 class LibraryTest extends munit.FunSuite:
   def runTestOnFile(path: String) = {
     // read the file
-    var fs = js.Dynamic.global.require("fs")
     var src =
-      fs.readFileSync(path, "utf8").asInstanceOf[String]
-    var result = Cosmo.mayCompile(src)
+      cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
+    var compiler = new Cosmo();
+    var result = compiler.mayConvert(src)
     println(result)
   }
 

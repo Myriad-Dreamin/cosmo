@@ -6,7 +6,7 @@ class CodeGen(val env: Env) {
   val prelude = """
 // NOLINTBEGIN(readability-identifier-naming,llvm-else-after-return)
 
-#include "cosmo-rt.h"
+#include "cosmo-rt.h" // IWYU pragma: keep
 """
 
   val postlude = """
@@ -62,7 +62,7 @@ class CodeGen(val env: Env) {
                 s"""#include "$path""""
             }
           case ir.Class(_, params, vars, defs) =>
-            println(s"class $name has params $params")
+            // println(s"class $name has params $params")
             val templateCode = params
               .map { ps =>
                 s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
@@ -81,7 +81,7 @@ class CodeGen(val env: Env) {
                 case c: ir.Class => c.vars
                 case _           => List.empty,
             )
-            println(s"enum $variantVars")
+            // println(s"enum $variantVars")
             val bodyCode = variants.map(genDef(_, false)).mkString(";\n")
             val dataCode = variantNames.mkString(", ")
             val variantCons =
@@ -273,7 +273,7 @@ class CodeGen(val env: Env) {
     recv match {
       case ValRecv.None      => res
       case ValRecv.Return    => s"return ($res)"
-      case ValRecv.Var(name) => s"auto $name = ($res)"
+      case ValRecv.Var(name) => s"$name = ($res)"
     }
   }
 }

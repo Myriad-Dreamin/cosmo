@@ -1,6 +1,7 @@
 package cosmo
 
 import ir._
+import cosmo.system._
 
 final class DefId(val id: Int) extends AnyVal
 
@@ -52,7 +53,7 @@ class DefInfo(
     (namespaces :+ s"${name}").mkString(nameJoiner)
 }
 
-class Env {
+class Env(var packages: Map[String, Map[String, Package]]) {
   var defAlloc = 0
   var defs: Map[DefId, DefInfo] = Map()
   var values: Map[DefId, Value] = Map()
@@ -60,6 +61,8 @@ class Env {
   var errors: List[String] = List()
   var module: ir.Region = Region(List())
   var ns: List[String] = List()
+
+  implicit val system: CosmoSystem = new JsPhysicalSystem()
 
   def eval(ast: syntax.Block): Env = {
     newBuiltin("println")
@@ -358,7 +361,7 @@ class Env {
       case syntax.Continue()          => Continue()
       case syntax.BoolLit(value)      => Opaque.expr(value.toString)
       case syntax.IntLit(value)       => Opaque.expr(value.toString)
-      case syntax.StringLit(value)    => Opaque.expr(s""""$value"""")
+      case syntax.StringLit(value)    => Opaque.expr(s"""std::string("$value")""")
       case syntax.TodoLit             => Opaque.expr("""unimplemented()""")
       case syntax.Self                => SelfItem
       case d: syntax.Def              => defItem(d)
