@@ -1,0 +1,19 @@
+Some(
+  value = Block(
+    stmts = List(
+      Class(
+        name = "Basic",
+        params = None,
+        body = Block(
+          stmts = List(
+            Val(
+              name = "data",
+              ty = Some(value = Ident(name = "i32")),
+              init = Some(value = IntLit(value = 0))
+            )
+          )
+        )
+      )
+    )
+  )
+)

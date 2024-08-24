@@ -1,7 +1,9 @@
 
 def main() = {
-  val x = 1
-  val y = 2
-  val z = x + y
-  println(z)
+  println("Hello, World!")
+
+  val x: i32 = 1
+  val y: i32 = 2
+  val z: i32 = x + y
+  println(z);
 }

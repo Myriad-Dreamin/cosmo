@@ -1,0 +1,93 @@
+Some(
+  value = Block(
+    stmts = List(
+      Def(
+        name = "Vec",
+        params = Some(
+          value = List(Param(name = "Ty", ty = Some(value = Ident(name = "Type")), init = None))
+        ),
+        ret = None,
+        rhs = Some(
+          value = Semi(
+            semi = Some(
+              value = Apply(
+                lhs = Select(
+                  lhs = Select(lhs = Ident(name = "std"), rhs = Ident(name = "cpp")),
+                  rhs = Ident(name = "ty")
+                ),
+                rhs = List(
+                  Apply(
+                    lhs = Select(lhs = Ident(name = "std"), rhs = Ident(name = "vector")),
+                    rhs = List(Ident(name = "Ty"))
+                  )
+                )
+              )
+            )
+          )
+        )
+      ),
+      Def(
+        name = "main",
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Val(
+                name = "vec",
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Apply(
+                        lhs = Apply(lhs = Ident(name = "Vec"), rhs = List(Ident(name = "u8"))),
+                        rhs = List()
+                      )
+                    )
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "push_back")),
+                    rhs = List(IntLit(value = 1))
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "push_back")),
+                    rhs = List(IntLit(value = 2))
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "push_back")),
+                    rhs = List(IntLit(value = 3))
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      Apply(
+                        lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "size")),
+                        rhs = List()
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

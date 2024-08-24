@@ -37,7 +37,8 @@
         "id": "cosmo",
         "configuration": "./syntaxes/language-configuration.json",
         "extensions": [
-          ".cos"
+          ".cos",
+          ".cos-ast"
         ],
         "aliases": [
           "Cosmo",

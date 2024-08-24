@@ -1,0 +1,40 @@
+Some(
+  value = Block(
+    stmts = List(
+      Def(
+        name = "main",
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Var(
+                name = "a",
+                ty = Some(value = Ident(name = "i32")),
+                init = Some(value = IntLit(value = 0))
+              ),
+              For(
+                name = "i",
+                iter = BinOp(op = "..", lhs = IntLit(value = 0), rhs = IntLit(value = 10000)),
+                body = Block(
+                  stmts = List(
+                    BinOp(
+                      op = "+",
+                      lhs = BinOp(op = "=", lhs = Ident(name = "a"), rhs = Ident(name = "a")),
+                      rhs = IntLit(value = 1)
+                    )
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(lhs = Ident(name = "println"), rhs = List(Ident(name = "a")))
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

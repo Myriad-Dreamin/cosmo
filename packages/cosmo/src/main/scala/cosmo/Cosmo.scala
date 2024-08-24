@@ -3,7 +3,6 @@ package cosmo
 import org.scalajs.dom
 import scala.scalajs.js
 import scala.scalajs.js.annotation._
-import fastparse._
 import fastparse.Parsed
 
 import cosmo.system._
@@ -75,14 +74,29 @@ class Cosmo extends PackageManager {
     loadModuleBySrc(fid.pkg.sources(fid.path).source).map((fid, _))
   }
 
+  def parse(s: String): Option[syntax.Block] = {
+    Some(parseBase(s, "r")).map(_.asInstanceOf[syntax.Block])
+  }
+
   def parsePackagePath(s: String): Option[syntax.Node] = {
-    Some(parse(s, Parser.factor(_)) match {
+    Some(parseBase(s, "f"))
+  }
+
+  def parseBase(src: String, kind: String): syntax.Node = {
+    fastparse.parse(
+      src,
+      kind match {
+        case "r" => Parser.root(_)
+        case "f" => Parser.factor(_)
+        case _   => throw new Exception("Invalid kind")
+      },
+    ) match {
       case Parsed.Success(ast, _) => ast
       case Parsed.Failure(_, index, extra) =>
         println(extra.trace().longAggregateMsg)
-        println(s.slice(index, index + 40))
-        return None
-    })
+        println(src.slice(index, index + 40))
+        throw new Exception("Parsing failed")
+    }
   }
 
   def resolvePackage(path: syntax.Node): FileId = {
@@ -130,15 +144,7 @@ class Cosmo extends PackageManager {
   }
 
   def loadModuleBySrc(src: String): Option[Env] = {
-    val parsed = parse(src, Parser.root(_), verboseFailures = true)
-    val ast = parsed match {
-      case Parsed.Success(ast, _) => ast
-      case Parsed.Failure(_, index, extra) =>
-        println(extra.trace().longAggregateMsg)
-        println(src.slice(index, index + 40))
-        return None
-    }
-    val env = new Env(this).eval(ast)
+    val env = new Env(this).eval(parse(src).get)
     for (error <- env.errors) {
       println(error)
     }

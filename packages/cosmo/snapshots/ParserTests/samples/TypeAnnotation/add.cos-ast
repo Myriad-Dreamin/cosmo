@@ -1,0 +1,45 @@
+Some(
+  value = Block(
+    stmts = List(
+      Def(
+        name = "add",
+        params = Some(
+          value = List(
+            Param(name = "a", ty = Some(value = Ident(name = "i32")), init = None),
+            Param(name = "b", ty = Some(value = Ident(name = "i32")), init = None)
+          )
+        ),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Return(value = BinOp(op = "+", lhs = Ident(name = "a"), rhs = Ident(name = "b")))
+            )
+          )
+        )
+      ),
+      Def(
+        name = "main",
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Val(
+                name = "x",
+                ty = None,
+                init = Some(
+                  value = Apply(
+                    lhs = Ident(name = "add"),
+                    rhs = List(IntLit(value = 3), IntLit(value = 2))
+                  )
+                )
+              ),
+              Apply(lhs = Ident(name = "println"), rhs = List(Ident(name = "x")))
+            )
+          )
+        )
+      )
+    )
+  )
+)

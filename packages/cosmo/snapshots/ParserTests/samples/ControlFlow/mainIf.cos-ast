@@ -1,0 +1,18 @@
+Some(
+  value = Block(
+    stmts = List(
+      Def(
+        name = "main",
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = If(
+            cond = BoolLit(value = true),
+            cont_bb = Block(stmts = List(IntLit(value = 0))),
+            else_bb = Some(value = Block(stmts = List(IntLit(value = 1))))
+          )
+        )
+      )
+    )
+  )
+)
