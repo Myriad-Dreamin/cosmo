@@ -105,8 +105,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
   ): Option[String] = {
     val src = system.readFile(path)
     val generated = loader(src).map { content =>
-      // s"""#include "cosmo/std/index.h"\n\n""" + content
-      content
+      s"""#include "cosmo-rt.h" // IWYU pragma: keep\n\n""" + content
     }
 
     var cosmoRtDir = system

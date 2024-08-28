@@ -1,5 +1,5 @@
 {
-  "name": "typst-textmate",
+  "name": "cosmo-textmate",
   "version": "0.11.19",
   "private": true,
   "scripts": {
@@ -13,18 +13,18 @@
   "contributes": {
     "languages": [
       {
-        "id": "typst",
+        "id": "cosmo",
         "extensions": [
-          ".typ",
-          ".typc"
+          ".cos",
+          ".cos-ast"
         ]
       }
     ],
     "grammars": [
       {
-        "language": "typst",
-        "scopeName": "source.typst",
-        "path": "./typst.tmLanguage.json"
+        "language": "cosmo",
+        "scopeName": "source.cosmo",
+        "path": "./cosmo.tmLanguage.json"
       }
     ]
   }

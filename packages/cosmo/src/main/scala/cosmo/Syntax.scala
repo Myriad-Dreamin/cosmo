@@ -8,6 +8,7 @@ private type No = Option[Node]
 
 sealed abstract class Node
 object Self extends Node
+object BigSelf extends Node
 object TodoLit extends Node
 final case class Semi(semi: No) extends Node
 final case class Ident(name: Str) extends Node

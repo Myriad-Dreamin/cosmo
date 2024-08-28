@@ -1,9 +1,9 @@
 
-def add(a: i32, b: i32) = {
-  return a + b
+def add(a: i32, b: i32): i32 = {
+  a + b
 }
 
 def main() = {
   val x = add(3, 2)
-  println(x)
+  println(x);
 }

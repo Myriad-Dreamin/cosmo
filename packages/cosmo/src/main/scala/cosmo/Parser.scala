@@ -20,6 +20,8 @@ object Parser {
     P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
       !keywords(_),
     )
+  def selfLit[$: P] =
+    (keyword("self").map(_ => Self) | keyword("Self").map(_ => BigSelf))
   def booleanLit[$: P] =
     (P(keyword("true") | keyword("false"))).!.map(v => BoolLit(v == "true"))
   def numberLit[$: P] = P(digit.rep(1).!.map(_.toInt).map(IntLit.apply))
@@ -76,7 +78,7 @@ object Parser {
     }
   }
   // Expressions
-  def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit)
+  def literal[$: P] = P(numberLit | selfLit | booleanLit | stringLit | todoLit)
   def identifier[$: P] = ident.map(Ident.apply)
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
@@ -169,7 +171,9 @@ object Parser {
     })
   def params[$: P] = P(param.rep(sep = ",")).map(_.toList)
   def param[$: P] =
-    P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param.apply.tupled)
+    P((ident | selfIdent) ~ typeAnnotation.? ~ initExpression.?)
+      .map(Param.apply.tupled)
+  def selfIdent[$: P] = keyword("self").map(_ => "self")
   def typeAnnotation[$: P] = P(":" ~/ factor)
   def initExpression[$: P] = P("=" ~/ term)
   def matchClause[$: P] = P(keyword("match") ~/ braces)

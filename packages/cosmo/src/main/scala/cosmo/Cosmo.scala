@@ -52,7 +52,10 @@ class Cosmo extends PackageManager {
   def mayConvert(src: String): Option[String] =
     loadModuleBySrc(src).map(cppBackend).flatten
 
-  def cppBackend(env: Env): Option[String] = Some(new CodeGen(env).gen())
+  def cppBackend(e: Env): Option[String] = {
+    implicit val env = e
+    Some(new CodeGen().gen())
+  }
 
   def loadPackage(source: PackageMetaSource): Unit = {
     val package_ = new Package(source, system)
@@ -91,10 +94,10 @@ class Cosmo extends PackageManager {
         case _   => throw new Exception("Invalid kind")
       },
     ) match {
-      case Parsed.Success(ast, _) => ast
+      case Parsed.Success(ast, _)          => ast
       case Parsed.Failure(_, index, extra) =>
-        println(extra.trace().longAggregateMsg)
-        println(src.slice(index, index + 40))
+        // println(extra.trace().longAggregateMsg)
+        // println(src.slice(index, index + 40))
         throw new Exception("Parsing failed")
     }
   }

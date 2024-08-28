@@ -6,7 +6,7 @@ import munit.diff.Diffs
 class ParserTest extends munit.FunSuite {
   def runTestOnFile(path: String) = {
 
-    val updateSnapshot: Boolean = true;
+    val updateSnapshot: Boolean = false;
 
     // read the file
     val src =

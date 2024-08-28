@@ -1,12 +1,12 @@
 package cosmo
 
 import scala.compiletime.ops.boolean
+import ir._
 
-class CodeGen(val env: Env) {
+class CodeGen(implicit val env: Env) {
   val prelude = """
 // NOLINTBEGIN(readability-identifier-naming,llvm-else-after-return)
 
-#include "cosmo-rt.h" // IWYU pragma: keep
 """
 
   val postlude = """
@@ -20,13 +20,6 @@ class CodeGen(val env: Env) {
     s"$prelude$itemCode\n#if 0\n$errorCode\n#endif$postlude"
   }
 
-  def defName(id: DefId)(implicit topLevel: Boolean): String = {
-    val defInfo = env.defs(id)
-    if ((topLevel && defInfo.name == "main"))
-      defInfo.name
-    else defInfo.nameStem(id.id)
-  }
-
   def genDef(ast: ir.Item, tl: Boolean): String = {
     mayGenDef(ast, tl).getOrElse(expr(ast))
   }
@@ -36,8 +29,8 @@ class CodeGen(val env: Env) {
     val res = ast match {
       case ir.Semi(value) => genDef(value, tl)
       case ir.Def(id) => {
-        val item = env.values(id)
-        val name = defName(id)
+        val item = env.items(id)
+        val name = id.defName(env)
         item match {
           case ir.Semi(value) =>
             genDef(value, tl)
@@ -92,9 +85,9 @@ class CodeGen(val env: Env) {
                 s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
               }
               .getOrElse("")
-            val variantNames = variants.map(e => defName(e.id))
+            val variantNames = variants.map(e => e.id.defName(env))
             val variantVars = variants.map(e =>
-              env.values(e.id) match
+              env.items(e.id) match
                 case c: ir.Class => c.vars
                 case _           => List.empty,
             )
@@ -219,21 +212,7 @@ class CodeGen(val env: Env) {
     }
   }
 
-  def storeTy(ty: Type): String = {
-    ty match {
-      case IntegerTy(size, isUnsigned) =>
-        s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case FloatTy(size)     => s"float${size}_t"
-      case BoolTy            => "bool"
-      case StringTy          => "CString"
-      case SelfTy            => "self_t"
-      case ty: CppType       => ty.repr
-      case ty: CppInsType    => ty.repr(storeTy)
-      case ty: NativeType    => ty.repr
-      case ty: NativeInsType => ty.repr(storeTy)
-      case ty                => "auto"
-    }
-  }
+  def storeTy(ty: Type): String = env.storeTy(ty)(false)
 
   def blockizeExpr(ast: ir.Item, recv: ValRecv): String = {
     ast match {
@@ -258,7 +237,9 @@ class CodeGen(val env: Env) {
           case _ => (stmts.dropRight(1), stmts.last)
         }
 
-        return (rests.map(genDef(_, false)) :+ exprWith(last, recv))
+        return (rests.map(genDef(_, false)) :+ mayGenDef(last, false).getOrElse(
+          exprWith(last, recv),
+        ))
           .mkString("{", ";\n", ";}")
       }
       case ir.Return(value) => {
@@ -267,12 +248,7 @@ class CodeGen(val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case ir.TypeVarRef(id) => {
-        val defInfo = env.defs(id)
-        val name = defInfo.nameStem(id.id)
-        name
-      }
-      case ir.Variable(id) => {
+      case ir.Variable(_, id, _, v) => {
         val defInfo = env.defs(id)
         val name = defInfo.nameStem(id.id)
         name
@@ -301,9 +277,21 @@ class CodeGen(val env: Env) {
         } else {
           s"${expr(lhs)}.${rhs}"
         }
-      case ir.Semi(value) => return exprWith(value, ValRecv.None)
+      case ir.Semi(value)      => return exprWith(value, ValRecv.None)
+      case v: ir.NativeInsType => storeTy(v)
+      case v: ir.Var           => v.id.defName(env)(false)
+      case v: ir.ClassInstance => {
+        // println(v.iface.fields);
+        val numOfVars = v.iface.fields.valuesIterator.filter {
+          case v: VarField => true; case _ => false
+        }.size
+        val initArgs = List.fill(numOfVars)("{}").mkString(", ")
+
+        s"${storeTy(v.iface.ty)}($initArgs)"
+      }
+      case v: CIdent => v.repr
       case a => {
-        println(s"unknown expr $a")
+        // println(s"unknown expr $a")
         a.toString()
       }
     }
@@ -318,9 +306,9 @@ class CodeGen(val env: Env) {
 
 def lhsIsType(lhs: ir.Item): Boolean = {
   lhs match {
-    case ir.TypeVarRef(_)  => true
-    case ir.Select(lhs, _) => lhsIsType(lhs)
-    case _                 => false
+    case ir.Variable(_, _, _, _) if lhs.level == 1 => true
+    case ir.Select(lhs, _)                         => lhsIsType(lhs)
+    case _                                         => false
   }
 }
 

@@ -21,4 +21,5 @@ lazy val cosmo = project
     libraryDependencies += "com.lihaoyi" %%% "fastparse" % "3.1.1",
     libraryDependencies += "com.lihaoyi" %%% "sourcecode" % "0.4.2",
     libraryDependencies += "org.scalameta" %%% "munit" % "1.0.0" % Test,
+    libraryDependencies += "com.lihaoyi" %%% "pprint" % "0.9.0",
   )
