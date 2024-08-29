@@ -1,0 +1,19 @@
+
+// import std.shell.bash
+
+def main() = {
+  // format strings
+  println(s"Hello !")
+  println(s"Hello, world ${1} !")
+  println(s"Hello, world ${1:.2f} !")
+  println(s"Hello, world ${1:.2f} ${a:.2f} !")
+  println(s"Hello, world ${1:.2f}")
+  // long format strings
+  println("""Hello, world ${1:.2f} !""")
+  // macros
+  println(q"def main() = { println(s\"Hello !\") }")
+  println(q"""def main() = { println(s"Hello, world ${1} !") }""")
+  // customized
+  val s = "Hello, world";
+  println(bash"cd /tmp && echo ${s:q} > hello.txt")
+}

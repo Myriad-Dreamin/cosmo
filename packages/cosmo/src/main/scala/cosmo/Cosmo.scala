@@ -94,10 +94,10 @@ class Cosmo extends PackageManager {
         case _   => throw new Exception("Invalid kind")
       },
     ) match {
-      case Parsed.Success(ast, _)          => ast
+      case Parsed.Success(ast, _) => ast
       case Parsed.Failure(_, index, extra) =>
-        // println(extra.trace().longAggregateMsg)
-        // println(src.slice(index, index + 40))
+        println(extra.trace().longAggregateMsg)
+        println(src.slice(index, index + 40))
         throw new Exception("Parsing failed")
     }
   }

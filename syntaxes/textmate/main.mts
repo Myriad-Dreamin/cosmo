@@ -43,10 +43,10 @@ const escape: textmate.Pattern = {
   match: /\\./,
 };
 
-const stringPattern: textmate.Pattern = {
+const stringPattern = (p: RegExp): textmate.Pattern => ({
   name: "string.quoted.double.cosmo",
-  begin: /"/,
-  end: /"/,
+  begin: p,
+  end: p,
   beginCaptures: {
     "0": {
       name: "punctuation.definition.string.begin.cosmo",
@@ -62,7 +62,7 @@ const stringPattern: textmate.Pattern = {
       include: "#escape",
     },
   ],
-};
+});
 
 const constIdentifier: textmate.PatternMatch = {
   match: /(?<=val\s*)/.source + IDENTIFIER.source,
@@ -102,7 +102,7 @@ const keywords: textmate.Pattern = {
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
+        /\b(?:pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|Self|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
     },
   ],
 };
@@ -127,7 +127,12 @@ export const cosmo: textmate.Grammar = {
     comments,
     blockComment,
     lineComment,
-    stringPattern,
+    stringPattern: stringPattern(/"/),
+    stringPattern3: stringPattern(/"""/),
+    stringPattern4: stringPattern(/""""/),
+    stringPattern5: stringPattern(/"""""/),
+    stringPattern6: stringPattern(/""""""/),
+    stringPattern7: stringPattern(/"""""""/),
     markers,
     literal,
     contextualKeywords,
@@ -158,6 +163,21 @@ function generate() {
       patterns: [
         {
           include: "#comments",
+        },
+        {
+          include: "#stringPattern7",
+        },
+        {
+          include: "#stringPattern6",
+        },
+        {
+          include: "#stringPattern5",
+        },
+        {
+          include: "#stringPattern4",
+        },
+        {
+          include: "#stringPattern3",
         },
         {
           include: "#stringPattern",

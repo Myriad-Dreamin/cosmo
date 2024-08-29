@@ -75,6 +75,7 @@ final case class Return(value: Item) extends Item {}
 final case class Semi(value: Item) extends Item {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {}
+final case class KeyedArg(key: String, value: Item) extends Item {}
 final case class Match(lhs: Item, rhs: Item) extends Item {}
 final case class Case(cond: Item, body: Item) extends Item {}
 final case class Loop(body: Item) extends Item {}
@@ -100,6 +101,7 @@ final case class Interface(
 }
 final case class ClassInstance(
     iface: Interface,
+    args: List[Item],
 ) extends Item {}
 final case class Class(
     id: DefId,
@@ -116,10 +118,10 @@ final case class EnumClass(
     id: DefId,
     params: Option[List[Param]],
     variants: List[Def],
-    default: Option[Item],
 ) extends Item {
   override val level: Int = 1
 }
+final case class As(lhs: Item, rhs: Item) extends Item {}
 
 // TopTy
 val TopTy = TopKind(1)

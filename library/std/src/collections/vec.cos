@@ -4,5 +4,12 @@ import vectorSys from "libc++/vector"
 // def CxxVec(T: Type) = vectorSys.std.vector(T)
 
 pub class Vec(T: Type) {
-  var internal: vectorSys.std.vector(T)
+  var internal: vectorSys.std.vector(T) = vectorSys.std.vector(T)();
+
+  def push(self, value: T) = {
+    self.internal.push_back(value);
+  }
+  def size(self): usize = {
+    self.internal.size()
+  }
 }

@@ -7,4 +7,7 @@ function RunTestPoint {
 
 . ./Venv.ps1
 RunTestPoint samples/Class/method.cos
+RunTestPoint samples/Class/staticMethod.cos
 RunTestPoint samples/Io/readFile.cos
+RunTestPoint samples/Vec/push.cos
+# RunTestPoint samples/DataProcessing/readJson.cos

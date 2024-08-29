@@ -85,6 +85,9 @@ class Env(pacMgr: cosmo.PackageManager) {
     newType("Type", UniverseTy)
     newType("String", StringTy)
     newType("bool", BoolTy)
+    // todo: size_t
+    newType("usize", IntegerTy(64, true))
+    newType("isize", IntegerTy(64, false))
     List(8, 16, 32, 64).foreach { width =>
       newType(s"i$width", IntegerTy(width, false))
       newType(s"u$width", IntegerTy(width, true))
@@ -96,6 +99,24 @@ class Env(pacMgr: cosmo.PackageManager) {
     module = Region(ast.stmts.map(valueExpr))
 
     this
+  }
+
+  def newDefWithInfoOr(name: String, id: Option[DefId]) = {
+    id match {
+      case Some(id) => {
+        scopes.set(name, id)
+        (id, defs(id))
+      }
+      case None => newDefWithInfo(name)
+    }
+  }
+
+  def paramsOr(classSelf: Option[Item], params: Option[List[syntax.Param]]) = {
+    classSelf match {
+      case Some(ir.Class(_, params, _, _))  => params.map(Right(_))
+      case Some(ir.EnumClass(_, params, _)) => params.map(Right(_))
+      case _                                => params.map(Left(_))
+    }
   }
 
   def newDefWithInfo(
@@ -142,39 +163,53 @@ class Env(pacMgr: cosmo.PackageManager) {
     result
   }
 
-  def withNsParams[T](ns: String, params: Option[List[syntax.Param]])(
+  def withNsParams[T](
+      ns: String,
+      params: Option[Either[List[syntax.Param], List[Param]]],
+  )(
       f: => T,
   ): T = {
     val ns0 = ns
-    val ns1 = params.map(_.map(_.name)).getOrElse(List())
+    // val ns1 = params.map(_.map(_.name)).getOrElse(List())
     withNs(ns0) {
       scopes.withScope {
-        params.iterator.flatten.foreach { p =>
-          val syntax.Param(name, ty, init) = p
-
-          val id = newDef(name)
-
-          val paramTy = ty.map(typeExpr);
-          val paramTy2 = paramTy.orElse(
-            name match {
-              case "self" => Some(SelfTy)
-              case _      => None
-            },
-          );
-          val tyLvl = paramTy2
-            .map { case initTy =>
-              defs(id).upperBounds = defs(id).upperBounds :+ initTy
-              initTy.level
+        params match {
+          case None =>
+            f
+          case Some(Right(params)) =>
+            params.iterator.foreach { p =>
+              val Param(name, id, ty) = p
+              scopes.set(name, id)
             }
-            .getOrElse(0)
-          // todo: infer type from initExpr and body
-          val valLvl = (tyLvl - 1).max(0)
-          val initExpr =
-            init.map(valueExpr).getOrElse(Variable(name, id, valLvl))
+            f
+          case Some(Left(params)) =>
+            params.iterator.foreach { p =>
+              val syntax.Param(name, ty, init) = p
 
-          items += (id -> initExpr)
+              val id = newDef(name)
+
+              val paramTy = ty.map(typeExpr);
+              val paramTy2 = paramTy.orElse(
+                name match {
+                  case "self" => Some(SelfTy)
+                  case _      => None
+                },
+              );
+              val tyLvl = paramTy2
+                .map { case initTy =>
+                  defs(id).upperBounds = defs(id).upperBounds :+ initTy
+                  initTy.level
+                }
+                .getOrElse(0)
+              // todo: infer type from initExpr and body
+              val valLvl = (tyLvl - 1).max(0)
+              val initExpr =
+                init.map(valueExpr).getOrElse(Variable(name, id, valLvl))
+
+              items += (id -> initExpr)
+            }
+            f
         }
-        f
       }
     }
   }
@@ -213,11 +248,29 @@ class Env(pacMgr: cosmo.PackageManager) {
       ast: syntax.Block,
       info: DefInfo,
       id: DefId,
+      classSelf: Option[DefId] = None,
   ) = {
+    val classSelfItem = classSelf.map(items)
     var vars = List[ir.Var]();
-    var defs = List[ir.Fn]();
+    var defItems = List[ir.Fn]();
 
-    val nn = newDef(_, inClass = true)
+    var nnOld = (name: String) =>
+      classSelfItem match {
+        case Some(ir.Class(_, params, vars, defItems)) =>
+          val oid = vars
+            .map(_.id)
+            .concat(defItems.map(_.id))
+            .find(x => defs(x).name == name)
+          oid.map { scopes.set(name, _) }
+          oid
+        case None => None
+        case item => {
+          errors = s"Invalid class item predefined: $item" :: errors
+          None
+        }
+      }
+    val nn = (name: String) =>
+      nnOld(name).getOrElse(newDef(name, inClass = true))
 
     def classItem(item: syntax.Node) = item match {
       case syntax.Val(name, ty, init) =>
@@ -225,7 +278,8 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.Var(name, ty, init) =>
         vars = vars :+ varItem(nn(name), ty, init, false)(0)
       case d: syntax.Def =>
-        defs = defs :+ defItem(d, nn(d.name))
+        defItems =
+          defItems :+ defItem(d, nn(d.name), withBody = !classSelf.isEmpty)
       case node =>
         errors = "Invalid class item" :: errors
     }
@@ -236,7 +290,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       case stmt                    => classItem(stmt)
     }
 
-    Class(id, resolveParams(params), vars, defs)
+    Class(id, resolveParams(params), vars, defItems)
   }
 
   def enumClass(
@@ -244,12 +298,31 @@ class Env(pacMgr: cosmo.PackageManager) {
       ast: syntax.CaseBlock,
       info: DefInfo,
       id: DefId,
+      classSelf: Option[DefId] = None,
   ) = {
-    val stmts = ast.stmts.map(enumVariant(_, info.name))
-    EnumClass(id, resolveParams(params), stmts, None)
+    var subs =
+      classSelf
+        .map(items)
+        .map {
+          case ir.EnumClass(_, _, variants) =>
+            variants.map(_.id)
+          case item =>
+            errors = s"Invalid class item: $item" :: errors
+            List()
+        }
+        .iterator
+        .flatten
+
+    val stmts =
+      ast.stmts.map(enumVariant(_, info.name, classSelf = subs.nextOption()))
+    EnumClass(id, resolveParams(params), stmts)
   }
 
-  def enumVariant(node: syntax.Case, baseName: String) = {
+  def enumVariant(
+      node: syntax.Case,
+      baseName: String,
+      classSelf: Option[DefId] = None,
+  ) = {
     val syntax.Case(cond, body) = node;
     val (subName, params) = cond match {
       case syntax.Ident(name)                       => (name, List())
@@ -275,7 +348,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       case _                              => syntax.Block(vars)
     }
 
-    classItem(syntax.Class(subName, None, b))
+    classItem(syntax.Class(subName, None, b), classSelf = classSelf)
   }
 
   def varItem(
@@ -306,14 +379,18 @@ class Env(pacMgr: cosmo.PackageManager) {
     res
   }
 
-  def defItem(ast: syntax.Def, id: DefId) = {
+  def defItem(ast: syntax.Def, id: DefId, withBody: Boolean = true) = {
     val syntax.Def(name, params, ret_ty, rhs) = ast
     // todo: assign items before checking expr for recursive functions
-    val sig = withNsParams("", params) {
+    val sig = withNsParams("", params.map(Left(_))) {
       Sig(
         resolveParams(params),
         ret_ty.map(typeExpr),
-        Some(rhs.map(valueExpr).getOrElse(NoneItem)),
+        if (withBody) {
+          rhs.map(valueExpr)
+        } else {
+          None
+        },
       )
     }
     val f = Fn(id, sig, 0)
@@ -321,16 +398,23 @@ class Env(pacMgr: cosmo.PackageManager) {
     f
   }
 
-  def classItem(ast: syntax.Class): ir.Def = {
+  def resolveClassItem(ast: syntax.Class, item: ir.Def): Item = {
+    val reItem = classItem(ast, classSelf = Some(item.id))
+    assert(reItem.id == item.id)
+    reItem
+  }
+
+  def classItem(ast: syntax.Class, classSelf: Option[DefId] = None): ir.Def = {
+    val classSelfItem = classSelf.map(items)
     val syntax.Class(name, params, body) = ast
-    val (id, defInfo) = newDefWithInfo(name)
+    val (id, defInfo) = newDefWithInfoOr(name, classSelf)
     // todo: assign items before checking expr for recursive functions
-    val cls = withNsParams(name, params) {
+    val cls = withNsParams(name, paramsOr(classSelfItem, params)) {
       body match
         case body: syntax.Block =>
-          baseClass(params, body, defInfo, id)
+          baseClass(params, body, defInfo, id, classSelf = classSelf)
         case caseBlock: syntax.CaseBlock =>
-          enumClass(params, caseBlock, defInfo, id)
+          enumClass(params, caseBlock, defInfo, id, classSelf = classSelf)
         case _ =>
           errors = "Invalid class body" :: errors
           Class.empty
@@ -357,6 +441,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def applyClassItem(node: Class, args: Option[List[Item]]): Item = {
+    debugln(s"applyClassItem ${node.id} $args")
     val Class(rawId, params, vars, defItems) = node
 
     val rawDefInfo = defs(rawId)
@@ -374,7 +459,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       args.map(NativeInsType(classTy, _)).getOrElse(classTy)
     };
     val iface = ir.Interface(this, ty, id, Map(mp: _*))
-    if (!params.isEmpty) {
+    if (!params.isEmpty || args.isEmpty) {
       return iface
     }
 
@@ -382,7 +467,8 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def applyInterface(iface: Interface, rhs: List[Item]): Item = {
-    ClassInstance(iface)
+    debugln(s"applyInterface $iface $rhs")
+    ClassInstance(iface, rhs)
   }
 
   def importNative(p: syntax.Node, dest: Option[syntax.Node]): ir.Def = {
@@ -519,7 +605,6 @@ class Env(pacMgr: cosmo.PackageManager) {
   ): Item = {
     debugln(s"applyItem $lhs |||| ${rhs}")
     lhs match {
-      // .getOrElse(items(id))
       case Variable(_, id, _, Some(v)) if v.level > 0 => applyItem(v, rhs)
       case EnvItem(env, item) =>
         xEnv(env, env.applyItem(item, rhs.map(EnvItem(this, _))))
@@ -527,17 +612,8 @@ class Env(pacMgr: cosmo.PackageManager) {
       case fn: Fn           => applyFunc(fn.sig, rhs).getOrElse(Apply(fn, rhs))
       case cls: Class       => applyClassItem(cls, Some(rhs))
       case iface: Interface => applyInterface(iface, rhs)
-      case v: CIdent => {
-        val isTemplateCall = rhs.exists(_.level > 0)
-        // debugln(rhs.map(_.level))
-        // debugln(isTemplateCall)
-        if (isTemplateCall) {
-          CppInsType(v, rhs)
-        } else {
-          Apply(lhs, rhs)
-        }
-      }
-      case _ => Apply(lhs, rhs)
+      case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
+      case _                                    => Apply(lhs, rhs)
     }
     // val operands = rhs.map(typeExpr).map {
     //   case Variable(nameHint, id, level, v) => {
@@ -589,6 +665,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.Semi(None)          => ir.NoneKind(level)
       case syntax.Semi(Some(value))   => Semi(expr(value))
       case syntax.BinOp(op, lhs, rhs) => BinOp(op, expr(lhs), expr(rhs))
+      case syntax.As(lhs, rhs)        => As(expr(lhs), typeExpr(rhs))
       case syntax.Apply(lhs, rhs)     => applyItem(expr(lhs), rhs.map(expr))
       case syntax.Select(lhs, rhs)    => deref(selectItem(expr(lhs), rhs.name))
       case syntax.Return(value)       => Return(expr(value))
@@ -596,13 +673,17 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.Continue()          => Continue()
       case syntax.BoolLit(value)      => Opaque.expr(value.toString)
       case syntax.IntLit(value)       => Opaque.expr(value.toString)
+      case syntax.KeyedArg(k, v)      => KeyedArg(k, expr(v))
       case syntax.StringLit(value) => Opaque.expr(s"""std::string("$value")""")
-      case syntax.TodoLit          => TodoLit
-      case syntax.Self             => SelfVal
-      case syntax.BigSelf          => SelfTy
-      case d: syntax.Def           => defItem(d, newDef(d.name))
-      case c: syntax.Class         => classItem(c)
-      case syntax.Import(p, dest)  => importItem(p, dest)
+      case syntax.TmplApply(lhs, rhs) =>
+        Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */")
+      case syntax.TodoLit => TodoLit
+      case syntax.Self    => SelfVal
+      case syntax.BigSelf => SelfTy
+      case d: syntax.Def  => defItem(d, newDef(d.name))
+      case c: syntax.Class =>
+        resolveClassItem(c, classItem(c, classSelf = None))
+      case syntax.Import(p, dest)     => importItem(p, dest)
       case syntax.Val(name, ty, init) => varItem(newDef(name), ty, init, true)
       case syntax.Var(name, ty, init) => varItem(newDef(name), ty, init, false)
       case syntax.If(cond, cont_bb, else_bb) =>
@@ -666,19 +747,19 @@ class Env(pacMgr: cosmo.PackageManager) {
     ty match {
       case IntegerTy(size, isUnsigned) =>
         s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case FloatTy(size)                  => s"float${size}_t"
-      case BoolTy                         => "bool"
-      case StringTy                       => "CString"
-      case SelfTy                         => "self_t"
-      case ty: CIdent                     => ty.repr
-      case ty: CppInsType                 => ty.repr(storeTy)
-      case ty: NativeType                 => ty.repr
-      case ty: Interface                  => storeTy(ty.ty)
-      case ty: NativeInsType              => ty.repr(storeTy)
-      case EnvItem(env, v)                => env.storeTy(v)
-      case classTy: Class                 => classTy.id.defName(this)
-      case classTy: EnumClass             => classTy.id.defName(this)
-      case v: Variable if v.value.isEmpty => v.id.defName(this)
+      case FloatTy(size)      => s"float${size}_t"
+      case BoolTy             => "bool"
+      case StringTy           => "CString"
+      case SelfTy             => "self_t"
+      case ty: CIdent         => ty.repr
+      case ty: CppInsType     => ty.repr(storeTy)
+      case ty: NativeType     => ty.repr
+      case ty: Interface      => storeTy(ty.ty)
+      case ty: NativeInsType  => ty.repr(storeTy)
+      case EnvItem(env, v)    => env.storeTy(v)
+      case classTy: Class     => classTy.id.defName(this, stem = true)
+      case classTy: EnumClass => classTy.id.defName(this, stem = true)
+      case v: Variable if v.value.isEmpty => v.id.defName(this, stem = true)
       case Variable(_, _, _, Some(v))     => storeTy(v)
       case Apply(lhs, rhs) => {
         val lhsTy = storeTy(lhs)

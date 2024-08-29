@@ -79,19 +79,24 @@ class CodeGen(implicit val env: Env) {
                 s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
               }
               .getOrElse("")
+            val emptyConstructable =
+              vars.forall(v => v.init != ir.NoneItem)
             val varsCode = vars.map(genDef(_, false)).mkString("", ";\n", ";")
             val defsCode = defs.map(genDef(_, false)).mkString("\n")
             val consPref = if (vars.isEmpty) "" else s":"
             val consCode =
               s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
-            s"$templateCode struct $name {$varsCode$consCode$defsCode};"
-          case ir.EnumClass(_, params, variants, default) =>
+            val emptyConsCode =
+              if emptyConstructable && !vars.isEmpty then s"$name() = default;"
+              else ""
+            s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
+          case ir.EnumClass(_, params, variants) =>
             val templateCode = params
               .map { ps =>
                 s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
               }
               .getOrElse("")
-            val variantNames = variants.map(e => e.id.defName(env))
+            val variantNames = variants.map(e => e.id.defName(env, stem = true))
             val variantVars = variants.map(e =>
               env.items(e.id) match
                 case c: ir.Class => c.vars
@@ -200,8 +205,11 @@ class CodeGen(implicit val env: Env) {
     val ty = storeTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
     var constantStr = if isContant then "const " else ""
     val kInit =
-      if (defInfo.inClass && init != ir.NoneItem) then
-        s"static inline $ty k${name.capitalize}Default = ${expr(init)};"
+      if (defInfo.inClass) then
+        val initStr =
+          if (init == ir.NoneItem) then "{}"
+          else s"${expr(init)}"
+        s"static inline $ty k${name.capitalize}Default = ${initStr};"
       else ""
     val initStr =
       if (init == ir.NoneItem) then ""
@@ -290,12 +298,26 @@ class CodeGen(implicit val env: Env) {
         }
       case SelfVal             => "this"
       case ir.Semi(value)      => return exprWith(value, ValRecv.None)
+      case v: ir.NativeType    => storeTy(v)
+      case v: ir.CIdent        => storeTy(v)
       case v: ir.NativeInsType => storeTy(v)
-      case v: ir.Var           => v.id.defName(env)(false)
+      case v: ir.CppInsType    => storeTy(v)
+      case v: ir.Var           => v.id.defName(env, stem = true)(false)
       case v: ir.ClassInstance => {
+        val args = v.args.flatMap {
+          case v: KeyedArg => Some((v.key, v.value))
+          case v           => None
+        }.toMap
+        val positions = v.args.iterator.flatMap {
+          case v: KeyedArg => None
+          case v           => Some(v)
+        }.iterator
         val ty = storeTy(v.iface.ty)
         val vars = v.iface.fields.iterator.flatMap {
-          case (s, v: VarField) => Some(s"$ty::k${s.capitalize}Default");
+          case (s, v: VarField) => {
+            val value = args.get(s).orElse(positions.nextOption)
+            Some(value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"))
+          };
           case _                => None
         }
         val initArgs = vars.mkString(", ")
@@ -303,8 +325,8 @@ class CodeGen(implicit val env: Env) {
         s"$ty($initArgs)"
       }
       // case v: ir.Sig()
-      case v: CIdent => v.repr
       case a => {
+        println(s"unhandled expr: $a")
         a.toString()
       }
     }

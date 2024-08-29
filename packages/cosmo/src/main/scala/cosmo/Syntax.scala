@@ -29,8 +29,12 @@ final case class Continue() extends Node
 final case class If(cond: Node, cont_bb: Node, else_bb: No) extends Node
 final case class BinOp(op: Str, lhs: Node, rhs: Node) extends Node
 final case class Match(lhs: Node, rhs: Node) extends Node
+final case class As(lhs: Node, rhs: Node) extends Node
 final case class Select(lhs: Node, rhs: Ident) extends Node
 final case class Apply(lhs: Node, rhs: List[Node]) extends Node
+final case class TmplApply(lhs: Node, rhs: List[(String, Option[(Node, Option[String])])])
+    extends Node
+final case class KeyedArg(key: Str, value: Node) extends Node
 final case class Return(value: Node) extends Node
 final case class CaseBlock(stmts: List[Case]) extends Node
 final case class Case(cond: Node, body: No) extends Node

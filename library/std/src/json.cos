@@ -16,14 +16,33 @@ pub class ValueT(T: Type) {
   case Object(map.HashMap(String, T))
 }
 
-def NlohmannJsonTag = nlSys.nlohmann.json.value_t
+def NlohmannJsonValue: Type = nlSys.nlohmann.json
+def NlohmannJsonTag: Type = nlSys.nlohmann.json.value_t
 
 class NlohmannJsonImpl {
-  var internal: nlSys.nlohmann.json
+  var internal: NlohmannJsonValue
+  // lazy def value: ValueT(Self) = Self.from(internal);
+
+  def parse(content: String) = {
+    self.from(NlohmannJsonValue.parse(content.internal))
+  }
+  
+  def getAs(Ty: Type, self): Ty = self.internal.get(Ty)();
+  def from(j: NlohmannJsonValue): ValueT(Self) = (j.m_type as NlohmannJsonTag) match {
+    case NlohmannJsonTag.null => ValueT(Self).Null
+    case NlohmannJsonTag.boolean => ValueT(Self).Bool(j.getAs(bool))
+    case NlohmannJsonTag.number_integer => ValueT(Self).NumberSigned(j.getAs(i64))
+    case NlohmannJsonTag.number_unsigned => ValueT(Self).NumberUnsigned(j.getAs(u64))
+    case NlohmannJsonTag.number_float => ValueT(Self).Number(j.getAs(f64))
+    case NlohmannJsonTag.string => ValueT(Self).String(j.getAs(CString))
+    case NlohmannJsonTag.array => ValueT(Self).Array(j.getAs(Vec(NlohmannJsonValue)).map(Self(internal: _)))
+    case NlohmannJsonTag.object => ValueT(Self).Object(j.getAs(HashMap(CString, NlohmannJsonValue)).map(Self(internal: _)))
+    case _ => panic("Invalid JSON type ");
+  }
 }
 
 // default JSON implementation
 pub def Value: Type = ValueT(NlohmannJsonImpl)
 
 // implicit Ty: Type, 
-pub def parse(path: String): Value = ???
+pub def parse(content: String): Value = NlohmannJsonImpl.parse(content)

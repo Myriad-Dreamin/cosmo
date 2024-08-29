@@ -27,10 +27,10 @@ class LibraryTest extends munit.FunSuite:
   test("std.collections.map") {
     runTestOnFile("library/std/src/collections/map.cos")
   }
-  test("std.json") {
+  test("std.json".only) {
     runTestOnFile("library/std/src/json.cos")
   }
-  test("std.fs".only) {
+  test("std.fs") {
     runTestOnFile("library/std/src/fs.cos")
   }
 end LibraryTest

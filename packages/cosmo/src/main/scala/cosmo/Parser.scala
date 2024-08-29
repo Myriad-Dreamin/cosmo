@@ -25,30 +25,55 @@ object Parser {
   def booleanLit[$: P] =
     (P(keyword("true") | keyword("false"))).!.map(v => BoolLit(v == "true"))
   def numberLit[$: P] = P(digit.rep(1).!.map(_.toInt).map(IntLit.apply))
-  def stringLit[$: P]: P[StringLit] =
-    P(P("s").? ~ (longstring | shortstring)).map(StringLit.apply)
   def todoLit[$: P] = P("???").map(_ => TodoLit)
+
+  def stringLit[$: P]: P[StringLit] =
+    P(longstring | shortstring).map(StringLit.apply)
   def shortstring[$: P]: P[String] = P(shortstring0("\""))
   def shortstring0[$: P](delimiter: String) = P(
-    delimiter ~ shortstringitem(delimiter).rep.! ~ delimiter,
-  )
-  def shortstringitem[$: P](quote: String): P[Unit] = P(
-    shortstringchar(quote) | escapeseq,
-  )
-  def shortstringchar[$: P](quote: String): P[Unit] = P(
-    CharsWhile(!s"\\\n${quote(0)}".contains(_)),
+    delimiter ~~/ (!"\"" ~~ shortstringitem).repX.! ~~ delimiter,
   )
   def longstring[$: P]: P[String] = P(longstring0("\"\"\""))
   def longstring0[$: P](delimiter: String) = P(
-    delimiter ~ longstringitem(delimiter).rep.! ~ delimiter,
+    delimiter ~~/ (!"\"\"\"" ~~ longstringitem).repX.! ~~ delimiter,
   )
-  def longstringitem[$: P](quote: String): P[Unit] = P(
-    longstringchar(quote) | escapeseq | !quote ~ quote.take(1),
+  def shortstringitem[$: P]: P[Unit] = P(litCharsWhile("\\\n\"") | escapeseq)
+  def longstringitem[$: P]: P[Unit] = P(lStringChars("\\\"").repX.!)
+
+  def tmplLit[$: P] =
+    P(tmplPath ~ &("\"") ~ tmplLitParts).map(TmplApply.apply.tupled)
+  def tmplPath[$: P] = P(
+    (ident.filter(_ != "from") | selfIdent).map(Ident.apply) ~ (P(
+      "." ~ identifier,
+    )).rep,
+  ).map { case (lhs, rhs) => rhs.foldLeft(lhs: Node)(Select.apply) }
+  def tmplLitParts[$: P] = P(longTmplLit | shortTmplLit)
+  def shortTmplLit[$: P]: P[List[(String, Option[(Node, Option[String])])]] = P(
+    "\"" ~~/ (!"\"" ~~ shortTmplLitItem).repX ~~ "\"",
+  ).map(_.toList)
+  def longTmplLit[$: P]: P[List[(String, Option[(Node, Option[String])])]] = P(
+    "\"\"\"" ~~/ (!"\"\"\"" ~~ longTmplLitItem).repX ~~ "\"\"\"",
+  ).map(_.toList)
+  def shortTmplLitItem[$: P]: P[(String, Option[(Node, Option[String])])] = P(
+    (litCharsWhile("\n\"$") | escapeseq).repX.! ~~/ tmplExpr,
   )
-  def longstringchar[$: P](quote: String): P[Unit] = P(
-    CharsWhile(!s"\\${quote(0)}".contains(_)),
+  def longTmplLitItem[$: P] = P(lStringChars("\\\"$").repX.! ~~/ tmplExpr)
+
+  def lStringChars[$: P](mores: String): P[Unit] = P(
+    litCharsWhile(mores) | escapeseq | !"\"\"\"" ~~ "\"\"\"".take(1),
+  )
+  def litCharsWhile[$: P](mores: String) = P(
+    CharsWhile(!s"\\${mores}".contains(_)),
   )
   def escapeseq[$: P]: P[Unit] = P("\\" ~ AnyChar)
+  def tmplExpr[$: P]: P[Option[(Node, Option[String])]] = P(
+    &("\"").map(_ => None) | ("$" ~~/ P(
+      "{" ~/ compound ~ tmplAnnotation.? ~ "}",
+    ).?),
+  )
+  def tmplAnnotation[$: P]: P[String] = P(
+    ":" ~/ CharsWhile(!s"}\"".contains(_)).!,
+  )
 
   // Terms
   def term[$: P]: P[Node] = P(
@@ -64,11 +89,11 @@ object Parser {
     (keyword("pub") | keyword("private")).? ~ P(
       defItem | valItem | varItem | classItem | importItem,
     )
-  def primaryExpr[$: P] = P(identifier | literal | parens | braces)
+  def primaryExpr[$: P] = P(tmplLit | identifier | literal | parens | braces)
   def factor[$: P]: P[Node] = P(
-    primaryExpr ~ (P("." ~ identifier).map(Left.apply) | P(
-      "(" ~/ term.rep(sep = ",") ~ ")",
-    ).map(Right.apply)).rep,
+    primaryExpr ~ (P("." ~ identifier).map(Left.apply) | args.map(
+      Right.apply,
+    )).rep,
   ).map { case (lhs, parts) =>
     parts.foldLeft(lhs) { case (lhs, part) =>
       part match {
@@ -83,9 +108,7 @@ object Parser {
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
   def classItem[$: P] = P(sigItem("class") ~ term).map(Class.apply.tupled)
-  def sigItem[$: P](kw: String) = P(
-    keyword(kw) ~/ ident ~ ("(" ~/ params ~ ")").?,
-  )
+  def sigItem[$: P](kw: String) = P(keyword(kw) ~/ ident ~ params.?)
   def valItem[$: P] =
     P(keyword("val") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
       .map(Val.apply.tupled)
@@ -112,9 +135,18 @@ object Parser {
   ).map(If.apply.tupled)
   def returnItem[$: P] = P(keyword("return") ~/ term).map(Return.apply)
   // Compound expressions
-  def compound[$: P] = P(addSub ~ matchClause.?).map {
-    case (lhs, Some(rhs)) => Match(lhs, rhs)
-    case (lhs, None)      => lhs
+  def compound[$: P] = P(
+    addSub ~ (
+      P(keyword("match").map(_ => "m") ~/ braces) |
+        P(keyword("as").map(_ => "a") ~/ factor)
+    ).rep,
+  ).map { case (lhs, rhs) =>
+    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
+      op match {
+        case "m" => Match(lhs, rhs)
+        case "a" => As(lhs, rhs)
+      }
+    }
   }
   def addSub[$: P] = P(divMul ~ (CharIn("+\\-").! ~/ divMul).rep).map {
     case (lhs, rhs) =>
@@ -148,7 +180,7 @@ object Parser {
   }
   def assign[$: P] = P(
     factor ~ (P(
-      "=" | "+=" | "-=" | "*=" | "/=",
+      ("=" ~ !">") | "+=" | "-=" | "*=" | "/=",
     ).! ~/ factor).rep,
   ).map { case (lhs, rhs) =>
     rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
@@ -169,7 +201,9 @@ object Parser {
       if anyNotCase || body.isEmpty then Block(body)
       else CaseBlock(caseItems)
     })
-  def params[$: P] = P(param.rep(sep = ",")).map(_.toList)
+  def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
+  def arg[$: P] = P(keyedClause | compound)
+  def params[$: P] = P("(" ~/ P(param.rep(sep = ",")) ~ ")").map(_.toList)
   def param[$: P] =
     P((ident | selfIdent) ~ typeAnnotation.? ~ initExpression.?)
       .map(Param.apply.tupled)
@@ -179,6 +213,10 @@ object Parser {
   def matchClause[$: P] = P(keyword("match") ~/ braces)
   def caseClause[$: P] =
     P("case" ~/ term ~ ("=>" ~ term).?).map(Case.apply.tupled)
+  def keyedClause[$: P] = P(
+    ((ident | selfIdent) ~ (":" | "=" | "->") ~/ compound)
+      .map(KeyedArg.apply.tupled),
+  )
 
   // Keywords
   val keywords =
@@ -215,9 +253,10 @@ object Parser {
       "or",
       "in",
       "not",
-      "from",
       "true",
       "false",
       "none",
+      // weak
+      // "from",
     )
 }
