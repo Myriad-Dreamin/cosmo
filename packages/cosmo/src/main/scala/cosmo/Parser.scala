@@ -24,7 +24,9 @@ object Parser {
     (keyword("self").map(_ => Self) | keyword("Self").map(_ => BigSelf))
   def booleanLit[$: P] =
     (P(keyword("true") | keyword("false"))).!.map(v => BoolLit(v == "true"))
-  def numberLit[$: P] = P(digit.rep(1).!.map(_.toInt).map(IntLit.apply))
+  def numberLit[$: P] = P(
+    integer.map(IntLit.apply) | floatnumber.map(FloatLit.apply),
+  )
   def todoLit[$: P] = P("???").map(_ => TodoLit)
 
   def stringLit[$: P]: P[StringLit] =
@@ -75,6 +77,39 @@ object Parser {
     ":" ~/ CharsWhile(!s"}\"".contains(_)).!,
   )
 
+  def negatable[T, $: P](p: => P[T])(implicit ev: Numeric[T]) =
+    (("+" | "-").?.! ~ p).map {
+      case ("-", i) => ev.negate(i)
+      case (_, i)   => i
+    }
+
+  def integer[$: P]: P[BigInt] = negatable[BigInt, Any](
+    P(octinteger | hexinteger | bininteger | decimalinteger),
+  )
+  def decimalinteger[$: P]: P[BigInt] =
+    P(nonzerodigit ~ digit.rep | "0").!.map(scala.BigInt(_))
+  def octinteger[$: P]: P[BigInt] = P(
+    "0" ~ ("o" | "O") ~ octdigit.rep(1).! | "0" ~ octdigit.rep(1).!,
+  ).map(scala.BigInt(_, 8))
+  def hexinteger[$: P]: P[BigInt] =
+    P("0" ~ ("x" | "X") ~ hexdigit.rep(1).!).map(scala.BigInt(_, 16))
+  def bininteger[$: P]: P[BigInt] =
+    P("0" ~ ("b" | "B") ~ bindigit.rep(1).!).map(scala.BigInt(_, 2))
+  def nonzerodigit[$: P]: P[Unit] = P(CharIn("1-9"))
+  def octdigit[$: P]: P[Unit] = P(CharIn("0-7"))
+  def bindigit[$: P]: P[Unit] = P("0" | "1")
+  def hexdigit[$: P]: P[Unit] = P(digit | CharIn("a-f", "A-F"))
+
+  def floatnumber[$: P]: P[BigDecimal] =
+    negatable[BigDecimal, Any](P(pointfloat | exponentfloat))
+  def pointfloat[$: P]: P[BigDecimal] =
+    P(intpart.? ~ fraction | intpart ~ ".").!.map(BigDecimal(_))
+  def exponentfloat[$: P]: P[BigDecimal] =
+    P((intpart | pointfloat) ~ exponent).!.map(BigDecimal(_))
+  def intpart[$: P]: P[BigDecimal] = P(digit.rep(1)).!.map(BigDecimal(_))
+  def fraction[$: P]: P[Unit] = P("." ~ digit.rep(1))
+  def exponent[$: P]: P[Unit] = P(("e" | "E") ~ ("+" | "-").? ~ digit.rep(1))
+
   // Terms
   def term[$: P]: P[Node] = P(
     ifItem | forItem | loopItem | caseClause | semiWrap | semi,
@@ -87,10 +122,11 @@ object Parser {
   def semi[$: P] = P(";").map(_ => Semi(None))
   def canExportItem[$: P]: P[Node] =
     (keyword("pub") | keyword("private")).? ~ P(
-      defItem | valItem | varItem | classItem | importItem,
+      defItem | valItem | varItem | classItem | traitItem | importItem,
     )
   def primaryExpr[$: P] = P(tmplLit | identifier | literal | parens | braces)
-  def factor[$: P]: P[Node] = P(
+  def factor[$: P] = P(unary | factorBase)
+  def factorBase[$: P]: P[Node] = P(
     primaryExpr ~ (P("." ~ identifier).map(Left.apply) | args.map(
       Right.apply,
     )).rep,
@@ -108,13 +144,13 @@ object Parser {
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
   def classItem[$: P] = P(sigItem("class") ~ term).map(Class.apply.tupled)
+  def traitItem[$: P] = P(sigItem("trait") ~ term).map(Trait.apply.tupled)
   def sigItem[$: P](kw: String) = P(keyword(kw) ~/ ident ~ params.?)
-  def valItem[$: P] =
-    P(keyword("val") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
-      .map(Val.apply.tupled)
-  def varItem[$: P] =
-    P(keyword("var") ~/ ident ~ typeAnnotation.? ~ initExpression.?)
-      .map(Var.apply.tupled)
+  def valItem[$: P] = P(varLike("val")).map(Val.apply.tupled)
+  def varItem[$: P] = P(varLike("var")).map(Var.apply.tupled)
+  def typeItem[$: P] = P(varLike("type")).map(Typ.apply.tupled)
+  def varLike[$: P](kw: String) =
+    P(keyword(kw) ~/ ident ~ typeAnnotation.? ~ initExpression.?)
   def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
   def importItem[$: P] =
     P(keyword("import") ~/ term ~ (keyword("from") ~/ term).?).map {
@@ -136,7 +172,7 @@ object Parser {
   def returnItem[$: P] = P(keyword("return") ~/ term).map(Return.apply)
   // Compound expressions
   def compound[$: P] = P(
-    addSub ~ (
+    assign ~ (
       P(keyword("match").map(_ => "m") ~/ braces) |
         P(keyword("as").map(_ => "a") ~/ factor)
     ).rep,
@@ -148,44 +184,28 @@ object Parser {
       }
     }
   }
-  def addSub[$: P] = P(divMul ~ (CharIn("+\\-").! ~/ divMul).rep).map {
-    case (lhs, rhs) =>
+  def moreAssigns[$: P] =
+    "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
+  def assign[$: P]: P[Node] = binOp(P(P("=" ~ !">") | moreAssigns), andOr)
+  def binOp[$: P](op: => P[Unit], next: => P[Node]): P[Node] =
+    P(next ~ (op.! ~/ next).rep).map { case (lhs, rhs) =>
       rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
         BinOp(op, lhs, rhs)
       }
-  }
-  def divMul[$: P] = P(compare ~ (CharIn("*/").! ~/ compare).rep).map {
-    case (lhs, rhs) =>
-      rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-        BinOp(op, lhs, rhs)
-      }
-  }
-  def compare[$: P] = P(
-    range_lit ~ (P(
-      "<=" | ">=" | "==" | "!=" | "<" | ">",
-    ).! ~/ range_lit).rep,
-  ).map { case (lhs, rhs) =>
-    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-      BinOp(op, lhs, rhs)
     }
-  }
-  def range_lit[$: P] = P(
-    assign ~ (P(
-      "..",
-    ).! ~/ assign).rep,
-  ).map { case (lhs, rhs) =>
-    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-      BinOp(op, lhs, rhs)
-    }
-  }
-  def assign[$: P] = P(
-    factor ~ (P(
-      ("=" ~ !">") | "+=" | "-=" | "*=" | "/=",
-    ).! ~/ factor).rep,
-  ).map { case (lhs, rhs) =>
-    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-      BinOp(op, lhs, rhs)
-    }
+  def andOr[$: P]: P[Node] = binOp(P("and" | "or"), compare)
+  def relOp[$: P] = "<=" | ">=" | "==" | "!=" | P("<" ~ !"<") | P(">" ~ !">")
+  def inNotIn[$: P] = keyword("in") | (keyword("not") ~ keyword("in"))
+  def compare[$: P]: P[Node] = binOp(P(relOp | inNotIn), range_lit)
+  def range_lit[$: P]: P[Node] = binOp(P(".."), bitOr)
+  def bitOr[$: P]: P[Node] = binOp(CharIn("|"), divMul)
+  def bitAnd[$: P]: P[Node] = binOp(CharIn("&"), divMul)
+  def bitShift[$: P]: P[Node] = binOp(P("<<" | ">>"), divMul)
+  def addSub[$: P]: P[Node] = binOp(CharIn("+\\-"), divMul)
+  def divMul[$: P]: P[Node] = binOp(CharIn("*/"), arithMod)
+  def arithMod[$: P]: P[Node] = binOp(CharIn("%"), factor)
+  def unary[$: P]: P[Node] = P(P("!" | "~" | "-" | "+").! ~ factor) map {
+    case (op, lhs) => UnOp(op, lhs)
   }
   // Clauses
   def parens[$: P] = P("(" ~/ term ~ ")")
@@ -214,7 +234,7 @@ object Parser {
   def caseClause[$: P] =
     P("case" ~/ term ~ ("=>" ~ term).?).map(Case.apply.tupled)
   def keyedClause[$: P] = P(
-    ((ident | selfIdent) ~ (":" | "=" | "->") ~/ compound)
+    ((ident | selfIdent) ~ ":" ~/ compound)
       .map(KeyedArg.apply.tupled),
   )
 
@@ -255,7 +275,6 @@ object Parser {
       "not",
       "true",
       "false",
-      "none",
       // weak
       // "from",
     )

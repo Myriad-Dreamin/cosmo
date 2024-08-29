@@ -70,6 +70,7 @@ final case class Variable(
 ) extends Item {
   override def toString: String = s"$nameHint:${id.id}"
 }
+final case class UnOp(op: String, lhs: Item) extends Item {}
 final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
 final case class Return(value: Item) extends Item {}
 final case class Semi(value: Item) extends Item {}

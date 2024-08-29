@@ -664,6 +664,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       case f: syntax.For              => For(f.name, expr(f.iter), expr(f.body))
       case syntax.Semi(None)          => ir.NoneKind(level)
       case syntax.Semi(Some(value))   => Semi(expr(value))
+      case syntax.UnOp(op, lhs)       => UnOp(op, expr(lhs))
       case syntax.BinOp(op, lhs, rhs) => BinOp(op, expr(lhs), expr(rhs))
       case syntax.As(lhs, rhs)        => As(expr(lhs), typeExpr(rhs))
       case syntax.Apply(lhs, rhs)     => applyItem(expr(lhs), rhs.map(expr))
@@ -673,6 +674,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.Continue()          => Continue()
       case syntax.BoolLit(value)      => Opaque.expr(value.toString)
       case syntax.IntLit(value)       => Opaque.expr(value.toString)
+      case syntax.FloatLit(value)     => Opaque.expr(value.toString)
       case syntax.KeyedArg(k, v)      => KeyedArg(k, expr(v))
       case syntax.StringLit(value) => Opaque.expr(s"""std::string("$value")""")
       case syntax.TmplApply(lhs, rhs) =>
@@ -683,8 +685,10 @@ class Env(pacMgr: cosmo.PackageManager) {
       case d: syntax.Def  => defItem(d, newDef(d.name))
       case c: syntax.Class =>
         resolveClassItem(c, classItem(c, classSelf = None))
+      case t: syntax.Trait            => Opaque.expr(s"0/* trait: ${t} */")
       case syntax.Import(p, dest)     => importItem(p, dest)
       case syntax.Val(name, ty, init) => varItem(newDef(name), ty, init, true)
+      case syntax.Typ(name, ty, init) => varItem(newDef(name), ty, init, true)
       case syntax.Var(name, ty, init) => varItem(newDef(name), ty, init, false)
       case syntax.If(cond, cont_bb, else_bb) =>
         If(expr(cond), expr(cont_bb), else_bb.map(expr))
