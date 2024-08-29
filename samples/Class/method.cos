@@ -1,0 +1,10 @@
+
+class Basic {
+  var data: i32 = 42
+  def method(self) = self.data
+}
+
+def main() = {
+  var b: Basic = Basic()
+  println(b.method())
+}

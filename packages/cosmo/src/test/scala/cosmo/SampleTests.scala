@@ -24,6 +24,12 @@ class SampleTest extends munit.FunSuite:
   test("Class/nat") {
     runTestOnFile("samples/Class/nat.cos")
   }
+  test("Class/method".only) {
+    runTestOnFile("samples/Class/method.cos")
+  }
+  test("Class/staticMethod") {
+    runTestOnFile("samples/Class/staticMethod.cos")
+  }
   test("ControlFlow/loop") {
     runTestOnFile("samples/ControlFlow/loop.cos")
   }
@@ -32,6 +38,9 @@ class SampleTest extends munit.FunSuite:
   }
   test("ControlFlow/mainIf") {
     runTestOnFile("samples/ControlFlow/mainIf.cos")
+  }
+  test("Io/readFile") {
+    runTestOnFile("samples/Io/readFile.cos")
   }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")

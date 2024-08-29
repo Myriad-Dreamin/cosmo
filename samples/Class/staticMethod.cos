@@ -1,0 +1,9 @@
+
+class Basic {
+  def staticMethod() = 42
+}
+
+def main() = {
+  println(Basic.staticMethod())
+}
+

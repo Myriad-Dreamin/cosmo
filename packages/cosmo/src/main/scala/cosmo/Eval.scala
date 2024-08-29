@@ -5,11 +5,14 @@ import cosmo.system._
 import cosmo.FileId
 
 final class DefId(val id: Int) extends AnyVal {
-  def defName(env: Env)(implicit topLevel: Boolean): String = {
+  def defName(env: Env, stem: Boolean = false)(implicit
+      topLevel: Boolean,
+  ): String = {
     val defInfo = env.defs(this)
     if ((topLevel && defInfo.name == "main"))
       defInfo.name
-    else defInfo.nameStem(this.id)
+    else if (stem) defInfo.nameStem(this.id)
+    else defInfo.fullMangledName(this.id)
   }
 }
 
@@ -50,6 +53,7 @@ class DefInfo(
     val namespaces: List[String],
     var upperBounds: List[Type],
     var lowerBounds: List[Type],
+    var inClass: Boolean = false,
 ) {
   def nameStem(disambiguator: Int) =
     if (noMangle) name
@@ -97,6 +101,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   def newDefWithInfo(
       name: String,
       noMangle: Boolean = false,
+      inClass: Boolean = false,
       hidden: Boolean = false,
   ): (DefId, DefInfo) = {
     defAlloc += 1
@@ -104,13 +109,18 @@ class Env(pacMgr: cosmo.PackageManager) {
     if (!hidden) {
       scopes.set(name, id)
     }
-    val info = new DefInfo(name, noMangle, ns, List(), List())
+    val info =
+      new DefInfo(name, noMangle, ns, List(), List(), inClass = inClass)
     defs += (id -> info)
     (id, info)
   }
 
-  def newDef(name: String, noMangle: Boolean = false): DefId = {
-    val (id, info) = newDefWithInfo(name, noMangle)
+  def newDef(
+      name: String,
+      noMangle: Boolean = false,
+      inClass: Boolean = false,
+  ): DefId = {
+    val (id, info) = newDefWithInfo(name, noMangle, inClass = inClass)
     id
   }
 
@@ -125,6 +135,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def withNs[T](ns: String)(f: => T): T = {
+    if ns.isEmpty() then return f
     this.ns = ns :: this.ns
     val result = f
     this.ns = this.ns.tail
@@ -150,13 +161,16 @@ class Env(pacMgr: cosmo.PackageManager) {
               case _      => None
             },
           );
-          paramTy2
+          val tyLvl = paramTy2
             .map { case initTy =>
               defs(id).upperBounds = defs(id).upperBounds :+ initTy
+              initTy.level
             }
+            .getOrElse(0)
           // todo: infer type from initExpr and body
-          // todo: level
-          val initExpr = init.map(valueExpr).getOrElse(Variable(name, id, 0))
+          val valLvl = (tyLvl - 1).max(0)
+          val initExpr =
+            init.map(valueExpr).getOrElse(Variable(name, id, valLvl))
 
           items += (id -> initExpr)
         }
@@ -201,27 +215,25 @@ class Env(pacMgr: cosmo.PackageManager) {
       id: DefId,
   ) = {
     var vars = List[ir.Var]();
-    var defs = List[ir.Item]();
+    var defs = List[ir.Fn]();
+
+    val nn = newDef(_, inClass = true)
 
     def classItem(item: syntax.Node) = item match {
       case syntax.Val(name, ty, init) =>
-        vars = vars :+ varItem(name, ty, init, true)(0)
+        vars = vars :+ varItem(nn(name), ty, init, true)(0)
       case syntax.Var(name, ty, init) =>
-        vars = vars :+ varItem(name, ty, init, false)(0)
+        vars = vars :+ varItem(nn(name), ty, init, false)(0)
       case d: syntax.Def =>
-        defs = defs :+ defItem(d)
+        defs = defs :+ defItem(d, nn(d.name))
       case node =>
         errors = "Invalid class item" :: errors
     }
 
-    scopes.withScope {
-      withNs(info.name) {
-        ast.stmts.foreach {
-          case syntax.Semi(None)       =>
-          case syntax.Semi(Some(stmt)) => classItem(stmt)
-          case stmt                    => classItem(stmt)
-        }
-      }
+    ast.stmts.foreach {
+      case syntax.Semi(None)       =>
+      case syntax.Semi(Some(stmt)) => classItem(stmt)
+      case stmt                    => classItem(stmt)
     }
 
     Class(id, resolveParams(params), vars, defs)
@@ -233,12 +245,7 @@ class Env(pacMgr: cosmo.PackageManager) {
       info: DefInfo,
       id: DefId,
   ) = {
-    val stmts = scopes.withScope {
-      withNs(info.name) {
-        ast.stmts.map(enumVariant(_, info.name))
-      }
-    }
-
+    val stmts = ast.stmts.map(enumVariant(_, info.name))
     EnumClass(id, resolveParams(params), stmts, None)
   }
 
@@ -272,20 +279,22 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def varItem(
-      name: String,
+      id: DefId,
       ty: Option[syntax.Node],
       init: Option[syntax.Node],
       isContant: Boolean,
   )(implicit level: Int): ir.Var = {
     val initExpr = init.map(valueExpr)
-    val id = newDef(name)
-    ty.map(typeExpr) match {
+    val tyLvl = ty.map(typeExpr) match {
       case Some(initTy) =>
         defs(id).upperBounds = defs(id).upperBounds :+ initTy
+        initTy.level
       case None =>
         defs(id).upperBounds = defs(id).upperBounds :+ TopTy
+        1
     }
-    val res = ir.Var(id, initExpr.getOrElse(NoneItem), isContant)
+    val valLvl = (tyLvl - 1).max(0)
+    val res = ir.Var(id, initExpr.getOrElse(NoneItem), isContant, valLvl)
     if (level == 0) {
       items += (id -> res)
     } else {
@@ -297,29 +306,19 @@ class Env(pacMgr: cosmo.PackageManager) {
     res
   }
 
-  def defItem(ast: syntax.Def) = {
+  def defItem(ast: syntax.Def, id: DefId) = {
     val syntax.Def(name, params, ret_ty, rhs) = ast
-    var id = newDef(name)
     // todo: assign items before checking expr for recursive functions
-    val result = withNsParams(name, params) {
-      val ret = ret_ty.map(typeExpr)
-      (params, ret) match {
-        case (None, Some(UniverseTy)) =>
-          rhs.map(typeExpr) match {
-            case Some(ty) => TypeAlias(ty)
-            case None =>
-              errors = "Invalid type alias" :: errors; TypeAlias(TopTy)
-          }
-        case _ =>
-          Fn(
-            resolveParams(params),
-            ret,
-            Some(rhs.map(valueExpr).getOrElse(NoneItem)),
-          )
-      }
+    val sig = withNsParams("", params) {
+      Sig(
+        resolveParams(params),
+        ret_ty.map(typeExpr),
+        Some(rhs.map(valueExpr).getOrElse(NoneItem)),
+      )
     }
-    items += (id -> result)
-    ir.Def(id)
+    val f = Fn(id, sig, 0)
+    items += (id -> f)
+    f
   }
 
   def classItem(ast: syntax.Class): ir.Def = {
@@ -340,33 +339,46 @@ class Env(pacMgr: cosmo.PackageManager) {
     ir.Def(id)
   }
 
-  def applyFunc(fn: Fn, args: List[Item])(implicit level: Int): Item = {
-    val Fn(params, ret_ty, body) = fn
+  def applyFunc(fn: Sig, args: List[Item])(implicit
+      level: Int,
+  ): Option[Item] = {
+    val Sig(params, ret_ty, body) = fn
     ret_ty match {
       case Some(ir.Variable(_, id, _, Some(UniverseTy))) =>
-        // println(s"applyFunc at compile time")
+        // debugln(s"applyFunc at compile time")
         return scopes.withScope {
-          // println(s"applyFunc withScope")
-          body.map(liftAsType).getOrElse(NoneItem)
+          // debugln(s"applyFunc withScope")
+          Some(body.map(liftAsType).getOrElse(NoneItem))
         }
       case _ =>
     }
 
-    ir.Apply(fn, args)
+    None
   }
 
-  def applyClassItem(node: Class, args: List[Item]): ir.Interface = {
+  def applyClassItem(node: Class, args: Option[List[Item]]): Item = {
     val Class(rawId, params, vars, defItems) = node
+
     val rawDefInfo = defs(rawId)
     val (id, defInfo) = newDefWithInfo(rawDefInfo.name, hidden = true)
     val mp = vars.map { v =>
-      (defs(v.id).name -> VarField(ir.Def(v.id)))
+      (defs(v.id).name -> VarField(v))
     } ++ defItems.map { case f =>
-      errors = "Invalid class item" :: errors
-      ("_bad" -> DefField(ir.Var(newDef("$error"), NoneItem, false)))
+      (defs(f.id).name -> DefField(f))
     }
-    val ty = NativeInsType(NativeType(rawDefInfo.name), args);
-    ir.Interface(this, ty, id, Map(mp: _*))
+    val classTy = NativeType(rawDefInfo.name);
+
+    val ty = if (params.isEmpty) {
+      classTy
+    } else {
+      args.map(NativeInsType(classTy, _)).getOrElse(classTy)
+    };
+    val iface = ir.Interface(this, ty, id, Map(mp: _*))
+    if (!params.isEmpty) {
+      return iface
+    }
+
+    return applyInterface(iface, args.getOrElse(List()))
   }
 
   def applyInterface(iface: Interface, rhs: List[Item]): Item = {
@@ -392,7 +404,7 @@ class Env(pacMgr: cosmo.PackageManager) {
           "$module"
       }
 
-      // println(s"importNative $moduleName")
+      // debugln(s"importNative $moduleName")
       moduleName
     } else {
       "$module"
@@ -463,30 +475,41 @@ class Env(pacMgr: cosmo.PackageManager) {
     newId
   }
 
+  def xEnv(env: Env, item: Item): Item = {
+    // debugln(s"xEnv $item")
+    item match {
+      case EnvItem(env, v) if env == this => v
+      case Apply(lhs, rhs)  => Apply(xEnv(env, lhs), rhs.map(xEnv(env, _)))
+      case v: Interface     => v
+      case v: ClassInstance => v
+      case v: Opaque        => v
+      case v: Lit           => v
+      case v: Integer       => v
+      case v: Str           => v
+      case _                => EnvItem(env, item)
+    }
+  }
+
   def selectItem(lhs: Item, field: String)(implicit level: Int): Item = {
-    // println(s"selectItem $lhs $field")
+    debugln(s"selectItem $lhs $field")
     var res = lhs match {
       case Variable(_, id, _, v) => v.map(selectItem(_, field))
       case NativeModule(env, fid) =>
-        env.scopes.get(field).map(env.items(_)).map(EnvItem(env, _))
-      case CModule(kind, path) => return CIdent(field, List())
-      case CIdent(ns0, ns)     => return CIdent(field, ns :+ ns0)
+        env.scopes.get(field).map(env.byRef(field, _)).map(xEnv(env, _))
+      case CModule(kind, path)    => return CIdent(field, List(), level)
+      case CIdent(ns0, ns, level) => return CIdent(field, ns :+ ns0, level)
+      case cls: Class => return selectItem(applyClassItem(cls, None), field)
+      case interface: Interface =>
+        interface.fields.get(field).map {
+          case DefField(item) => item
+          case VarField(item) => NoneItem
+        }
       // case ValueTy(NativeModule(_, _)) => NativeType(name)
       // case NativeType(_)               => NativeType(name)
       // case _                           => TopTy
       case _ => None
     }
-    // lhsVal match {
-    //   // todo: process namespaces
-    //   case NativeModule(_, _) => Opaque.expr(rhs.name)
-    //   case _                  => Select(lhsItem, rhs.name)
-    // }
     // typeExpr(lhs).instantiate match {
-    //   case ValueTy(CModule(_, _))      => CIdent(name, List())
-    //   case ValueTy(NativeModule(_, _)) => NativeType(name)
-    //   case NativeType(_)               => NativeType(name)
-    //   case CIdent(ns0, ns)             => CIdent(name, ns :+ ns0)
-    //   case _                           => TopTy
     // }
     res.getOrElse(Select(lhs, field))
   }
@@ -494,15 +517,27 @@ class Env(pacMgr: cosmo.PackageManager) {
   def applyItem(lhs: Item, rhs: List[Item])(implicit
       level: Int,
   ): Item = {
-    // println(s"applyItem $lhs ${rhs}")
+    debugln(s"applyItem $lhs |||| ${rhs}")
     lhs match {
-      case Variable(_, id, _, v) => applyItem(v.getOrElse(items(id)), rhs)
-      case EnvItem(env, item) => env.applyItem(item, rhs.map(EnvItem(this, _)))
-      case fn: Fn             => applyFunc(fn, rhs)
-      case cls: Class         => applyClassItem(cls, rhs)
-      case iface: Interface   => applyInterface(iface, rhs)
-      case v: CIdent          => CppInsType(v, rhs)
-      case _                  => Apply(lhs, rhs)
+      // .getOrElse(items(id))
+      case Variable(_, id, _, Some(v)) if v.level > 0 => applyItem(v, rhs)
+      case EnvItem(env, item) =>
+        xEnv(env, env.applyItem(item, rhs.map(EnvItem(this, _))))
+      case fn: Sig          => applyFunc(fn, rhs).getOrElse(Apply(fn, rhs))
+      case fn: Fn           => applyFunc(fn.sig, rhs).getOrElse(Apply(fn, rhs))
+      case cls: Class       => applyClassItem(cls, Some(rhs))
+      case iface: Interface => applyInterface(iface, rhs)
+      case v: CIdent => {
+        val isTemplateCall = rhs.exists(_.level > 0)
+        // debugln(rhs.map(_.level))
+        // debugln(isTemplateCall)
+        if (isTemplateCall) {
+          CppInsType(v, rhs)
+        } else {
+          Apply(lhs, rhs)
+        }
+      }
+      case _ => Apply(lhs, rhs)
     }
     // val operands = rhs.map(typeExpr).map {
     //   case Variable(nameHint, id, level, v) => {
@@ -512,7 +547,7 @@ class Env(pacMgr: cosmo.PackageManager) {
     //   }
     //   case ty => ty
     // }
-    // // println(s"typeExpr apply ${typeExpr(lhs).instantiate} $operands")
+    // // debugln(s"typeExpr apply ${typeExpr(lhs).instantiate} $operands")
     // typeExpr(lhs).instantiate match {
     //   case c: CIdent     => CppInsType(c, operands)
     //   case c: NativeType => NativeInsType(c, operands)
@@ -522,20 +557,26 @@ class Env(pacMgr: cosmo.PackageManager) {
 
   def deref(lhs: Item)(implicit level: Int): Item = {
     lhs match {
-      case f: Fn =>
-        if (f.params.isEmpty) { applyItem(f, List()) }
-        else { lhs }
-      case _ => lhs
+      case (f: Sig) if f.params.isEmpty    => applyItem(f, List())
+      case Fn(_, f, _) if f.params.isEmpty => applyItem(f, List())
+      case _                               => lhs
     }
   }
 
   def liftAsType(item: Item)(implicit level: Int): Item = {
-    // println(s"liftAsType $item")
+    // debugln(s"liftAsType $item")
     item match {
       case Semi(value)  => liftAsType(value)
       case item: CIdent => item
       case _            => item
     }
+  }
+
+  def byRef(name: String, id: DefId)(implicit level: Int): Item = {
+    // val ty = typeExpr(ast).instantiate(2, this)
+    val v = items.get(id).map(deref)
+    // debugln(s"byRef $name $id $v")5
+    Variable(name, id, v.map(_.level).getOrElse(level), value = v)
   }
 
   def valueExpr(node: syntax.Node)(implicit level: Int = 0): Item = expr(node)
@@ -559,18 +600,16 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.TodoLit          => TodoLit
       case syntax.Self             => SelfVal
       case syntax.BigSelf          => SelfTy
-      case d: syntax.Def           => defItem(d)
+      case d: syntax.Def           => defItem(d, newDef(d.name))
       case c: syntax.Class         => classItem(c)
       case syntax.Import(p, dest)  => importItem(p, dest)
-      case syntax.Val(name, ty, init) => varItem(name, ty, init, true)
-      case syntax.Var(name, ty, init) => varItem(name, ty, init, false)
+      case syntax.Val(name, ty, init) => varItem(newDef(name), ty, init, true)
+      case syntax.Var(name, ty, init) => varItem(newDef(name), ty, init, false)
       case syntax.If(cond, cont_bb, else_bb) =>
         If(expr(cond), expr(cont_bb), else_bb.map(expr))
       case syntax.Ident(name) =>
         scopes.get(name) match {
-          case Some(id) =>
-            // val ty = typeExpr(ast).instantiate(2, this)
-            Variable(name, id, level, value = items.get(id).map(deref))
+          case Some(id) => byRef(name, id)
           case None =>
             errors = s"Undefined variable $name" :: errors;
             TopTy
@@ -610,8 +649,20 @@ class Env(pacMgr: cosmo.PackageManager) {
     }
   }
 
+  def defByName(id: DefId): String = defs(id).nameStem(id.id)
+
+  def varByRef(vv: Variable)(implicit topLevel: Boolean): String = {
+    val ir.Variable(n, id, level, v) = vv
+    v.map {
+      case v: CppInsType => Some(storeTy(v))
+      case v: CIdent     => Some(v.repr)
+      case _             => None
+    }.flatten
+      .getOrElse(defByName(id))
+  }
+
   def storeTy(ty: Type)(implicit topLevel: Boolean): String = {
-    // println(s"storeTy $ty")
+    debugln(s"storeTy $ty")
     ty match {
       case IntegerTy(size, isUnsigned) =>
         s"${if (isUnsigned) "u" else ""}int${size}_t"
@@ -622,12 +673,19 @@ class Env(pacMgr: cosmo.PackageManager) {
       case ty: CIdent                     => ty.repr
       case ty: CppInsType                 => ty.repr(storeTy)
       case ty: NativeType                 => ty.repr
+      case ty: Interface                  => storeTy(ty.ty)
       case ty: NativeInsType              => ty.repr(storeTy)
       case EnvItem(env, v)                => env.storeTy(v)
       case classTy: Class                 => classTy.id.defName(this)
+      case classTy: EnumClass             => classTy.id.defName(this)
       case v: Variable if v.value.isEmpty => v.id.defName(this)
       case Variable(_, _, _, Some(v))     => storeTy(v)
-      case ty                             => "auto"
+      case Apply(lhs, rhs) => {
+        val lhsTy = storeTy(lhs)
+        val rhsTy = rhs.map(storeTy).mkString(", ")
+        s"$lhsTy<$rhsTy>"
+      }
+      case ty => "auto"
     }
   }
 }

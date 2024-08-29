@@ -46,10 +46,22 @@ object Opaque {
   def expr(expr: String) = Opaque(Some(expr), None)
   def stmt(stmt: String) = Opaque(None, Some(stmt))
 }
-final case class Param(name: String, id: DefId, ty: Type) extends Item {}
 final case class Def(id: DefId) extends Item {}
 final case class EnvItem(env: Env, v: Item) extends Item {}
-final case class Var(id: DefId, init: Item, isContant: Boolean) extends Item {}
+
+final case class Param(name: String, id: DefId, ty: Type) extends Item {}
+final case class Var(
+    id: DefId,
+    init: Item,
+    isContant: Boolean,
+    override val level: Int,
+) extends Item {}
+final case class Fn(
+    id: DefId,
+    sig: Sig,
+    override val level: Int,
+) extends Item {}
+
 final case class Variable(
     val nameHint: String,
     val id: DefId,
@@ -73,20 +85,19 @@ case object TodoLit extends Item {}
 final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
     extends Item {}
 final case class Region(stmts: List[Item]) extends Item {}
-final case class Fn(
+final case class Sig(
     params: Option[List[Param]],
     ret_ty: Option[Type],
     body: Option[Item],
-) extends Item {}
-final case class TypeAlias(
-    ret_ty: Type,
 ) extends Item {}
 final case class Interface(
     env: Env,
     ty: Type,
     id: DefId,
     fields: Map[String, VField],
-) extends Item {}
+) extends Item {
+  override val level: Int = 1
+}
 final case class ClassInstance(
     iface: Interface,
 ) extends Item {}
@@ -94,8 +105,10 @@ final case class Class(
     id: DefId,
     params: Option[List[Param]],
     vars: List[Var],
-    defs: List[Item],
-) extends Item {}
+    funcs: List[Fn],
+) extends Item {
+  override val level: Int = 1
+}
 object Class {
   lazy val empty = Class(DefId(0), None, List.empty, List.empty)
 }
@@ -104,7 +117,9 @@ final case class EnumClass(
     params: Option[List[Param]],
     variants: List[Def],
     default: Option[Item],
-) extends Item {}
+) extends Item {
+  override val level: Int = 1
+}
 
 // TopTy
 val TopTy = TopKind(1)
@@ -144,8 +159,11 @@ final case class ValueTy(val value: Value) extends Type {
   override val level = 1
   override def toString: String = value.toString
 }
-final case class CIdent(val name: String, val ns: List[String]) extends Type {
-  override val level = 1
+final case class CIdent(
+    val name: String,
+    val ns: List[String],
+    override val level: Int,
+) extends Item {
   override def toString: String = s"cpp($repr)"
   def repr: String = (ns :+ name).mkString("::")
 }

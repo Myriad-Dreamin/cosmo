@@ -28,30 +28,37 @@ class CodeGen(implicit val env: Env) {
     implicit val topLevel = tl;
     val res = ast match {
       case ir.Semi(value) => genDef(value, tl)
+      case Fn(id, Sig(None, ret_ty, body), _) =>
+        val name = id.defName(env, stem = true)
+        s"/* cosmo function $name */"
+      case Fn(id, Sig(Some(params), ret_ty, body), _) =>
+        val defInfo = env.defs(id)
+        val name = id.defName(env, stem = true)
+        val hasSelf = params.exists(_.name == "self")
+        val paramCode =
+          params
+            .filter(_.name != "self")
+            .map(param => s"${paramTy(param.ty)} ${param.name}")
+            .mkString(", ")
+        val bodyCode = body match {
+          case Some(body) => blockizeExpr(body, ValRecv.Return)
+          case None       => ";"
+        }
+        if name == "main" then s"int main(int argc, char **argv) { $bodyCode }"
+        else
+          val rt = ret_ty.map(returnTy).getOrElse("auto")
+          debugln(s"$ret_ty => $rt")
+          val staticModifier =
+            if (defInfo.inClass && !hasSelf) "static " else ""
+          s"inline $staticModifier$rt $name($paramCode) $bodyCode"
       case ir.Def(id) => {
         val item = env.items(id)
-        val name = id.defName(env)
+        val name = id.defName(env, stem = true)
         item match {
           case ir.Semi(value) =>
             genDef(value, tl)
-          case ir.TypeAlias(ret_ty) =>
-            s"using $name = ${returnTy(ret_ty)};"
-          case ir.Fn(None, ret_ty, body) =>
-            s"/* cosmo function $name */"
-          case ir.Fn(Some(params), ret_ty, body) =>
-            val paramCode =
-              params
-                .map(param => s"${paramTy(param.ty)} ${param.name}")
-                .mkString(", ")
-            val bodyCode = body match {
-              case Some(body) => blockizeExpr(body, ValRecv.Return)
-              case None       => ";"
-            }
-            if name == "main" then
-              s"int main(int argc, char **argv) { $bodyCode }"
-            else
-              val rt = ret_ty.map(returnTy).getOrElse("void")
-              s"inline $rt $name($paramCode) $bodyCode"
+          // case ir.TypeAlias(ret_ty) =>
+          //   s"using $name = ${returnTy(ret_ty)};"
           case ir.NativeModule(_, fid) =>
             // fid.path (.cos -> .h)
             // todo: unreliable path conversion
@@ -67,14 +74,13 @@ class CodeGen(implicit val env: Env) {
                 s"""#include "$path" // IWYU pragma: keep"""
             }
           case ir.Class(_, params, vars, defs) =>
-            // println(s"class $name has params $params")
             val templateCode = params
               .map { ps =>
                 s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
               }
               .getOrElse("")
-            val varsCode = vars.map(genDef(_, false)).mkString(";\n") + ";"
-            val defsCode = defs.map(genDef(_, false)).mkString(";\n") + ";"
+            val varsCode = vars.map(genDef(_, false)).mkString("", ";\n", ";")
+            val defsCode = defs.map(genDef(_, false)).mkString("\n")
             val consPref = if (vars.isEmpty) "" else s":"
             val consCode =
               s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
@@ -91,7 +97,6 @@ class CodeGen(implicit val env: Env) {
                 case c: ir.Class => c.vars
                 case _           => List.empty,
             )
-            // println(s"enum $variantVars")
             val bodyCode = variants.map(genDef(_, false)).mkString(";\n")
             val dataCode = variantNames.mkString(", ")
             val variantCons =
@@ -170,7 +175,7 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarParam(node: ir.Var) = {
-    val ir.Var(id, init, isContant) = node
+    val ir.Var(id, init, isContant, _) = node
     val defInfo = env.defs(id)
     val name = defInfo.nameStem(id.id)
     val ty = paramTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
@@ -179,7 +184,7 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarCons(node: ir.Var) = {
-    val ir.Var(id, init, isContant) = node
+    val ir.Var(id, init, isContant, _) = node
     val defInfo = env.defs(id)
     val name = defInfo.nameStem(id.id)
     val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
@@ -189,13 +194,20 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarStore(node: ir.Var) = {
-    val ir.Var(id, init, isContant) = node
+    val ir.Var(id, init, isContant, _) = node
     val defInfo = env.defs(id)
     val name = defInfo.nameStem(id.id)
     val ty = storeTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
     var constantStr = if isContant then "const " else ""
-    var initStr = if init == ir.NoneItem then "" else s" = ${expr(init)}"
-    s"${constantStr}${ty} $name${initStr}"
+    val kInit =
+      if (defInfo.inClass && init != ir.NoneItem) then
+        s"static inline $ty k${name.capitalize}Default = ${expr(init)};"
+      else ""
+    val initStr =
+      if (init == ir.NoneItem) then ""
+      else if (defInfo.inClass) then s" = k${name.capitalize}Default"
+      else s" = ${expr(init)}"
+    s"$kInit$constantStr$ty $name$initStr"
   }
 
   def paramTy(ty: Type): String = {
@@ -217,7 +229,7 @@ class CodeGen(implicit val env: Env) {
   def blockizeExpr(ast: ir.Item, recv: ValRecv): String = {
     ast match {
       case s: ir.Region => exprWith(s, recv)
-      case a            => s"{${exprWith(a, recv)}}"
+      case a            => s"{${exprWith(a, recv)};}"
     }
   }
 
@@ -227,10 +239,11 @@ class CodeGen(implicit val env: Env) {
 
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
-      case ir.Lit(value)            => value.toString
-      case ir.Opaque(_, Some(stmt)) => stmt
-      case ir.Opaque(Some(expr), _) => expr
-      case ir.Region(stmts) => {
+      case Lit(value)                => value.toString
+      case EnvItem(env, v: Variable) => env.varByRef(v)(false)
+      case Opaque(_, Some(stmt))     => stmt
+      case Opaque(Some(expr), _)     => expr
+      case Region(stmts) => {
         val (rests, last) = stmts.length match {
           case 0 => return "{}"
           case 1 => (List.empty, stmts.head)
@@ -248,11 +261,8 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case ir.Variable(_, id, _, v) => {
-        val defInfo = env.defs(id)
-        val name = defInfo.nameStem(id.id)
-        name
-      }
+      case v: Variable => env.varByRef(v)(false)
+      case v: Fn       => v.id.defName(env)(false)
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name, iter, body) =>
@@ -270,6 +280,7 @@ class CodeGen(implicit val env: Env) {
         s"${expr(lhs)} $op ${expr(rhs)}"
       case ir.Apply(lhs, rhs) =>
         s"${expr(lhs)}(${rhs.map(expr).mkString(", ")})"
+      case ir.Select(SelfVal, rhs) => rhs
       case ir.Select(lhs, rhs) =>
         if (lhsIsType(lhs)) {
           // todo: this is not well modeled
@@ -277,21 +288,23 @@ class CodeGen(implicit val env: Env) {
         } else {
           s"${expr(lhs)}.${rhs}"
         }
+      case SelfVal             => "this"
       case ir.Semi(value)      => return exprWith(value, ValRecv.None)
       case v: ir.NativeInsType => storeTy(v)
       case v: ir.Var           => v.id.defName(env)(false)
       case v: ir.ClassInstance => {
-        // println(v.iface.fields);
-        val numOfVars = v.iface.fields.valuesIterator.filter {
-          case v: VarField => true; case _ => false
-        }.size
-        val initArgs = List.fill(numOfVars)("{}").mkString(", ")
+        val ty = storeTy(v.iface.ty)
+        val vars = v.iface.fields.iterator.flatMap {
+          case (s, v: VarField) => Some(s"$ty::k${s.capitalize}Default");
+          case _                => None
+        }
+        val initArgs = vars.mkString(", ")
 
-        s"${storeTy(v.iface.ty)}($initArgs)"
+        s"$ty($initArgs)"
       }
+      // case v: ir.Sig()
       case v: CIdent => v.repr
       case a => {
-        // println(s"unknown expr $a")
         a.toString()
       }
     }

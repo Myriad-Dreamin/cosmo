@@ -23,7 +23,7 @@ class NlohmannJsonImpl {
 }
 
 // default JSON implementation
-pub def Value = ValueT(NlohmannJsonImpl)
+pub def Value: Type = ValueT(NlohmannJsonImpl)
 
 // implicit Ty: Type, 
 pub def parse(path: String): Value = ???
