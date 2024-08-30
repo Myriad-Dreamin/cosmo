@@ -118,7 +118,7 @@ def catchFuture(implicit T)(f: () => Promise(T)): T = {
   f();
 }
 
-def main() {
+def main() = {
   def readFile(filename: String): Promise(String);
   catchException(() => {
     catchFuture(() => {
@@ -126,6 +126,64 @@ def main() {
       println(fileContent);
     });
   });
+}
+
+def main() = {
+  /// For headless literals, i.e. objects without a function name before the parentheses, directly parse an ArgsLike
+  /// 1. If it is followed by a =>, it is a lambda
+  /// 1. If it matches the paren format, it is a paren
+  /// 1. If it matches the array format, it is an array
+  /// 1. If it matches the dict format, it is a dict
+  ///
+  /// No backtracking is needed.
+  type Lambda = ArgsLike + "=>" + Expr;
+  type Paren = ArgsLike;
+  type Array = ArgsLike;
+  type Dict = ArgsLike;
+
+  val lam1 = x => x + 1;
+  val lam2 = (x) => x + 1;
+  val lam3 = (x: u32) => x + 1;
+  val lam4 = (x: u32, y: u32) => { x + y };
+  val lam5 = (x: u32, y) => { x + y };
+  val lam6 = (x: u32, (y, z): (u32, u32)) => { x + y + z };
+  val lam7 = (x: u32, (y: y2, z: z2): (y: u32, z: u32)) => { x + y2 + z2 };
+  val lam8 = (x: u32 = 0) => { x + 1 };
+
+  val paren = (1);
+
+  val arr1 = ();
+  val arr2 = Array(1); // distinguish from `paren`
+  val arr3 = (1,);
+  val arr4 = (1, 2);
+  val arr5 = Array(1, 2);
+
+  val dict1 = Dict(); // distinguish from `arr1`
+  val dict2 = (1: 2);
+  val dict3 = (1: 2,);
+  val dict4 = (1: 2, 3: 4);
+  val dict5 = (1: 2, 3: 4,);
+
+  val spreading1 = (1, 2, ..arr3);
+  val spreading2 = (1, 2, ..arr3, 3, 4);
+  val spreading3 = (1, 2, ..arr3, 3: 4, ..dict4);
+  
+  val (1, 2, ..arr3, 3, 4) = spreading2;
+
+  val args1 = Args(); // distinguish from `arr1`
+  val args2 = Args(a,);
+  val args3 = Args(a, b);
+  val args4 = Args(a: b);
+  val args5 = Args(a: b,);
+  val args6 = Args(x, y: z,);
+  val args7 = Args(x, y: z, ..f);
+
+  type ArgsLike = "(" + (ArgLike + ","?)* + ")";
+  type ArgLike = Ident | ".." + ArgsLike | (ArgsLike + (":" + Expr)? + ("=" + Expr)?);
+
+  type ValLike = ("def" | "val" | "var" | "type") + Ident + ArgsLike? + "=" + Expr;
+  type ClsLike = ("class" | "trait") + Ident + ArgsLike? + Block;
+  type Destructing = ("val" | "var" | "type") + ArgsLike + "=" + Expr;
 }
 
 // compile features are enabled by type or string
