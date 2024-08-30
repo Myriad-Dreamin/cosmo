@@ -391,7 +391,8 @@ PubStmt = "pub" Declaration
 `DeerivedMacro` can only generate extra syntax structures.
 
 ```scala
-Macro = BlockMacro | DeerivedMacro
+Macro = CallMacro | BlockMacro | DeerivedMacro
+CallMacro = CallExpr ArgLike
 BlockMacro = CallExpr Block
 DeerivedMacro = DecoratedExpr
 ```
@@ -401,6 +402,19 @@ DeerivedMacro = DecoratedExpr
 class A {
   val name = "cosmo"
 }
+```
+
+```example
+val (Q, R) = decompositeMatrix(M) ( // format: 2c
+  Q, 0,
+  0, R,
+)
+val I_4 = matrix(4, 4) (
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1,
+)
 ```
 
 ```example
