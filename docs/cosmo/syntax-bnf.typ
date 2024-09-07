@@ -355,13 +355,13 @@ ImportDest = Identifier ["," Destructuring]
 == Infinite Loop Statement
 
 ```scala
-ForInfStmt = [ Tag ] "for" Block
+ForInfStmt = [ Tag ] "loop" Block
 ```
 
 == While Loop Statement
 
 ```scala
-ForUntilStmt = [ Tag ] "for" "(" Expression ")" Block
+WhileStmt = [ Tag ] "while" "(" Expression ")" Block
 ```
 
 == Range Loop Statement

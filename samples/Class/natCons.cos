@@ -1,0 +1,11 @@
+
+// Enum class will be translated into tagged union
+class Nat {
+  case Zero
+  case Succ(Nat)
+}
+
+def main() = {
+  var zero = Nat.Zero;
+  var one = Nat.Succ(zero);
+}

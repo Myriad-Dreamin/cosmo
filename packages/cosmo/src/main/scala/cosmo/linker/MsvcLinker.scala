@@ -140,7 +140,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       }
 
       val clCommand =
-        s""""$clPath" /std:c++17 /EHsc /I"$windowsSdkIncludePath" /I"$systemIncludePath" $includeFlags /I. /Fe:"$programPath" "$destPath" /link $linkFlags"""
+        s""""$clPath" /O2 /std:c++17 /EHsc /I"$windowsSdkIncludePath" /I"$systemIncludePath" $includeFlags /I. /Fe:"$programPath" "$destPath" /link $linkFlags"""
 
       try {
         val result = cosmo.NodeChildProcess.execSync(

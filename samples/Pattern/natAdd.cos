@@ -1,0 +1,25 @@
+class Nat {
+  case Zero
+  case Succ(Nat)
+  case _ => {
+    def to_int(self) = self match {
+      case Nat.Zero => 0
+      case Nat.Succ(n) => 1 + n.to_int()
+    }
+  }
+}
+
+def add(A: Nat, B: Nat): Nat = A match {
+  case Nat.Zero => B
+  case Nat.Succ(A2) => Nat.Succ(add(A2, B))
+}
+
+def main() = {
+  var a = Nat.Zero
+  val one = Nat.Succ(Nat.Zero)
+  for (i in 0..10000) {
+    a = add(one.clone(), a)
+  }
+
+  println(a.to_int());
+}

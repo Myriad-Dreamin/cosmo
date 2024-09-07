@@ -26,7 +26,7 @@ class CodeGen(implicit val env: Env) {
 
   def mayGenDef(ast: ir.Item, tl: Boolean): Option[String] = {
     implicit val topLevel = tl;
-    val res = ast match {
+    val res: String = ast match {
       case ir.Semi(value) => genDef(value, tl)
       case Fn(id, Sig(None, ret_ty, body), _) =>
         val name = id.defName(env, stem = true)
@@ -44,111 +44,125 @@ class CodeGen(implicit val env: Env) {
           case Some(body) => blockizeExpr(body, ValRecv.Return)
           case None       => ";"
         }
-        if name == "main" then s"int main(int argc, char **argv) { $bodyCode }"
+        if (name == "main") s"int main(int argc, char **argv) { $bodyCode }"
         else
           val rt = ret_ty.map(returnTy).getOrElse("auto")
           debugln(s"$ret_ty => $rt")
           val staticModifier =
             if (defInfo.inClass && !hasSelf) "static " else ""
           s"inline $staticModifier$rt $name($paramCode) $bodyCode"
-      case ir.Def(id) => {
+      // case ir.TypeAlias(ret_ty) =>
+      //   s"using $name = ${returnTy(ret_ty)};"
+      case ir.NativeModule(id, _, fid) =>
         val item = env.items(id)
         val name = id.defName(env, stem = true)
-        item match {
-          case ir.Semi(value) =>
-            genDef(value, tl)
-          // case ir.TypeAlias(ret_ty) =>
-          //   s"using $name = ${returnTy(ret_ty)};"
-          case ir.NativeModule(_, fid) =>
-            // fid.path (.cos -> .h)
-            // todo: unreliable path conversion
-            val path = fid.path.slice(0, fid.path.length - 4) + ".h"
-            s"#include <${fid.pkg.namespace}/${fid.pkg.name}/src${path}>"
-          case ir.CModule(kind, path) =>
-            kind match {
-              case ir.CModuleKind.Builtin =>
-                s"#include <$path> // IWYU pragma: keep"
-              case ir.CModuleKind.Error =>
-                s"""#error "cosmo error module $path""""
-              case ir.CModuleKind.Source =>
-                s"""#include "$path" // IWYU pragma: keep"""
-            }
-          case ir.Class(_, params, vars, defs) =>
-            val templateCode = params
-              .map { ps =>
-                s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
-              }
-              .getOrElse("")
-            val emptyConstructable =
-              vars.forall(v => v.init != ir.NoneItem)
-            val varsCode = vars.map(genDef(_, false)).mkString("", ";\n", ";")
-            val defsCode = defs.map(genDef(_, false)).mkString("\n")
-            val consPref = if (vars.isEmpty) "" else s":"
-            val consCode =
-              s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
-            val emptyConsCode =
-              if emptyConstructable && !vars.isEmpty then s"$name() = default;"
-              else ""
-            s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
-          case ir.EnumClass(_, params, variants) =>
-            val templateCode = params
-              .map { ps =>
-                s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
-              }
-              .getOrElse("")
-            val variantNames = variants.map(e => e.id.defName(env, stem = true))
-            val variantVars = variants.map(e =>
-              env.items(e.id) match
-                case c: ir.Class => c.vars
-                case _           => List.empty,
-            )
-            val bodyCode = variants.map(genDef(_, false)).mkString(";\n")
-            val dataCode = variantNames.mkString(", ")
-            val variantCons =
-              variantNames
-                .map(vn => s"$name($vn &&v): data(std::move(v)) {}")
-                .mkString("\n  ")
-            val variantCons2 = variantNames
-              .map(vn =>
-                s"""template <typename... Args> static $name ${vn}_cons(Args &&...args) {
+        // fid.path (.cos -> .h)
+        // todo: unreliable path conversion
+        val path = fid.path.slice(0, fid.path.length - 4) + ".h"
+        s"#include <${fid.pkg.namespace}/${fid.pkg.name}/src${path}>"
+      case ir.CModule(id, kind, path) =>
+        kind match {
+          case ir.CModuleKind.Builtin =>
+            s"#include <$path> // IWYU pragma: keep"
+          case ir.CModuleKind.Error =>
+            s"""#error "cosmo error module $path""""
+          case ir.CModuleKind.Source =>
+            s"""#include "$path" // IWYU pragma: keep"""
+        }
+      case ir.Class(id, params, vars, defs) =>
+        val item = env.items(id)
+        val name = id.defName(env, stem = true)
+        val templateCode = params
+          .map { ps =>
+            s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
+          }
+          .getOrElse("")
+        val emptyConstructable =
+          vars.forall(v => v.init != ir.NoneItem)
+        val varsCode = vars.map(genDef(_, false)).mkString("", ";\n", ";")
+        val defsCode = defs.map(genDef(_, false)).mkString("\n")
+        val consPref = if (vars.isEmpty) "" else s":"
+        val consCode =
+          s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
+        val emptyConsCode =
+          if emptyConstructable && !vars.isEmpty then s"$name() = default;"
+          else ""
+        s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
+      case ir.EnumClass(id, params, variants, default) =>
+        val item = env.items(id)
+        val name = id.defName(env, stem = true)
+        val templateCode = params
+          .map { ps =>
+            s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
+          }
+          .getOrElse("")
+        val variantNames = variants.map(_.id.defName(env, stem = true))
+        val variantVars = variants.map(e =>
+          e.base match
+            case c: ir.Class => c.vars
+            case _           => List.empty,
+        )
+        val bodyCode =
+          variants.map(id => genDef(id.base, false)).mkString(";\n")
+        val enumIdxCode = variantNames.zipWithIndex
+          .map { case (name, idx) =>
+            s"kIdx$name = $idx"
+          }
+          .mkString(", ")
+        val dataCode = variantNames.mkString(", ")
+        val variantCons =
+          variantNames
+            .map(vn => s"$name($vn &&v): data(std::move(v)) {}")
+            .mkString("\n  ")
+        val variantCons2 = variantNames
+          .map(vn =>
+            s"""template <typename... Args> static $name ${vn}_cons(Args &&...args) {
     return {${vn}(std::forward<Args>(args)...)};
   }""",
+          )
+          .mkString("\n  ")
+        val variantFields =
+          variantNames
+            .zip(variantVars)
+            .zipWithIndex
+            .flatMap { case ((vn, vars), index) =>
+              vars.map(v =>
+                val defInfo = env.defs(v.id)
+                val name = defInfo.nameStem(v.id.id)
+                val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
+                val mayDeref = if ty == SelfTy then "*" else ""
+                s"""const ${returnTy(
+                    ty,
+                  )} &${vn}${name}() const { return $mayDeref(std::get<$index>(data)).${name};};""",
               )
-              .mkString("\n  ")
-            val variantFields =
-              variantNames
-                .zip(variantVars)
-                .zipWithIndex
-                .flatMap { case ((vn, vars), index) =>
-                  vars.map(v =>
-                    val defInfo = env.defs(v.id)
-                    val name = defInfo.nameStem(v.id.id)
-                    val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
-                    val mayDeref = if ty == SelfTy then "*" else ""
-                    s"""const ${returnTy(
-                        ty,
-                      )} &${vn}${name}() const { return $mayDeref(std::get<$index>(data)).${name};};""",
-                  )
-                }
-                .mkString("\n  ")
-            val variantClones =
-              variantNames
-                .zip(variantVars)
-                .zipWithIndex
-                .map { case ((vn, vars), index) =>
-                  val clones = vars
-                    .map(v =>
-                      val defInfo = env.defs(v.id)
-                      val name = defInfo.nameStem(v.id.id)
-                      val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
-                      val mayClone = if ty == SelfTy then "->clone()" else ""
-                      s"std::get<$index>(data).${name}$mayClone",
-                    )
-                    .mkString(",")
-                  s"""case ${index}: return ${vn}_cons($clones);"""
-                }
-                .mkString("\n    ")
-            s"""$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+            }
+            .mkString("\n  ")
+        val variantClones: String =
+          variantNames
+            .zip(variantVars)
+            .zipWithIndex
+            .map { case ((vn, vars), index) =>
+              val clones = vars
+                .map(v =>
+                  val defInfo = env.defs(v.id)
+                  val name = defInfo.nameStem(v.id.id)
+                  val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
+                  val mayClone = if ty == SelfTy then "->clone()" else ""
+                  s"std::get<$index>(data).${name}$mayClone",
+                )
+                .mkString(",")
+              s"""case ${index}: return ${vn}_cons($clones);"""
+            }
+            .mkString("\n    ")
+        val defsCode =
+          default.iterator
+            .flatMap(_.funcs)
+            .map(genDef(_, false))
+            .mkString("\n")
+        s"""$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+
+  enum { $enumIdxCode };
+
   $name($name &&n) : data(std::move(n.data)) {}
   $name &operator=($name &&n) {
     data = std::move(n.data);
@@ -168,10 +182,9 @@ class CodeGen(implicit val env: Env) {
       unreachable();
     }
   }
+
+  $defsCode
 };"""
-          case _ => s"unknown $name;"
-        }
-      }
       case v: ir.Var => genVarStore(v)
       case a         => return None
     }
@@ -234,6 +247,25 @@ class CodeGen(implicit val env: Env) {
 
   def storeTy(ty: Type): String = env.storeTy(ty)(false)
 
+  // todo: analysis it concretely
+  def mayClone(v: ir.VarField, value: String): String = {
+    v.item match {
+      case ir.Var(id, _, _, _) =>
+        val ty = env.defs(id)
+        if (ty.upperBounds.headOption.getOrElse(TopTy) == SelfTy) {
+          // todo: detect rvalue correctly
+          if (value.endsWith(")")) {
+            s"std::move($value)"
+          } else {
+            s"${value}.clone()"
+          }
+        } else {
+          value
+        }
+      case _ => value
+    }
+  }
+
   def blockizeExpr(ast: ir.Item, recv: ValRecv): String = {
     ast match {
       case s: ir.Region => exprWith(s, recv)
@@ -287,7 +319,7 @@ class CodeGen(implicit val env: Env) {
       case ir.BinOp(op, lhs, rhs) =>
         s"${expr(lhs)} $op ${expr(rhs)}"
       case ir.Apply(lhs, rhs) =>
-        s"${expr(lhs)}(${rhs.map(expr).mkString(", ")})"
+        s"${expr(lhs)}(${rhs.map(v => s"std::move(${expr(v)})").mkString(", ")})"
       case ir.Select(SelfVal, rhs) => rhs
       case ir.Select(lhs, rhs) =>
         if (lhsIsType(lhs)) {
@@ -296,7 +328,8 @@ class CodeGen(implicit val env: Env) {
         } else {
           s"${expr(lhs)}.${rhs}"
         }
-      case SelfVal             => "this"
+      case SelfVal             => "(*this)"
+      case Unreachable         => return "unreachable();"
       case ir.Semi(value)      => return exprWith(value, ValRecv.None)
       case v: ir.NativeType    => storeTy(v)
       case v: ir.CIdent        => storeTy(v)
@@ -318,13 +351,91 @@ class CodeGen(implicit val env: Env) {
             val value = args.get(s).orElse(positions.nextOption)
             Some(value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"))
           };
-          case _                => None
+          case _ => None
         }
         val initArgs = vars.mkString(", ")
 
         s"$ty($initArgs)"
       }
+      case v: ir.EnumInstance => {
+        val args = v.args.flatMap {
+          case v: KeyedArg => Some((v.key, v.value))
+          case v           => None
+        }.toMap
+        val positions = v.args.iterator.flatMap {
+          case v: KeyedArg => None
+          case v           => Some(v)
+        }.iterator
+        val ty = storeTy(v.iface.ty)
+        val vars = v.iface.fields.iterator.flatMap {
+          case (s, v: VarField) => {
+            val value = args.get(s).orElse(positions.nextOption)
+            Some(
+              mayClone(
+                v,
+                value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"),
+              ),
+            )
+          };
+          case _ => None
+        }
+        val initArgs = vars.mkString(", ")
+
+        val base = v.base.variantOf.defName(env, stem = false)(false);
+        s"$base::${ty}_cons($initArgs)"
+      }
       // case v: ir.Sig()
+      case v: ir.EnumDestruct if v.bindings.isEmpty => {
+        s""
+      }
+      // todo: handle enum class
+      case v: ir.EnumClass => s""
+      case v: ir.EnumDestruct => {
+
+        // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
+        // auto n = std::move(*nn);
+
+        val base = v.variant.variantOf.defName(env, stem = true)(false)
+        val namelist = v.bindings
+          .map {
+            case "_" => ""
+            case s   => s"_destructed_${s}"
+          }
+          .mkString(", ")
+        val rebind = v.bindings
+          .zip(
+            v.variant.base match {
+              case c: ir.Class => c.vars
+              case _           => List.empty
+            },
+          )
+          .map {
+            case ("_", _) => ""
+            case (s, v) => {
+              val defInfo = env.defs(v.id)
+              val name = defInfo.nameStem(v.id.id)
+              val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
+              val mayDeref = if ty == SelfTy then "*" else ""
+              s"auto $s = std::move(*$namelist);"
+            }
+          }
+          .mkString("\n")
+        s"auto [$namelist] = std::get<${base}::kIdx${v.variant.id
+            .defName(env, stem = true)(false)}>(std::move(${expr(v.item)}.data));$rebind"
+      }
+      case v: ir.EnumMatch => {
+        val clsName = v.meta.defName(env, stem = true)(false)
+        val cases = v.cases.map { case (variant, body) =>
+          val name = variant.id.defName(env, stem = true)(false)
+          s"case $clsName::kIdx$name: ${blockizeExpr(body, recv)}; break;"
+        }
+        val orElse = v.orElse match {
+          case ir.NoneItem => ""
+          case e           => s"default: ${blockizeExpr(e, recv)}"
+        }
+        // todo: value receiver
+        return s"switch(${expr(v.lhs)}.data.index()) {${cases.mkString("\n")}\n$orElse}"
+      }
       case a => {
         println(s"unhandled expr: $a")
         a.toString()

@@ -5,6 +5,9 @@ import cosmo.{DefId, FileId}
 import cosmo.ir.Value
 import cosmo.{DefId, Env}
 
+val DEF_ALLOC_START = 16
+val CLASS_EMPTY = 0
+
 sealed abstract class Item {
   val level: Int = 0;
 
@@ -34,7 +37,10 @@ case class TopKind(override val level: Int) extends Item
 case class BottomKind(override val level: Int) extends Item
 case class SelfKind(override val level: Int) extends Item
 case class NoneKind(override val level: Int) extends Item
+case object Unreachable extends Item
 case class RuntimeKind(override val level: Int) extends Item
+final case class EnvItem(env: Env, v: Item) extends Item {}
+final case class Unresolved(id: DefId) extends Item {}
 
 val NoneItem = NoneKind(0)
 val Runtime = RuntimeKind(0)
@@ -46,8 +52,36 @@ object Opaque {
   def expr(expr: String) = Opaque(Some(expr), None)
   def stmt(stmt: String) = Opaque(None, Some(stmt))
 }
-final case class Def(id: DefId) extends Item {}
-final case class EnvItem(env: Env, v: Item) extends Item {}
+
+final case class UnOp(op: String, lhs: Item) extends Item {}
+final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
+final case class Return(value: Item) extends Item {}
+final case class Semi(value: Item) extends Item {}
+final case class Apply(lhs: Item, rhs: List[Item]) extends Item {}
+final case class Select(lhs: Item, rhs: String) extends Item {}
+final case class KeyedArg(key: String, value: Item) extends Item {}
+final case class EnumMatch(
+    lhs: Item,
+    meta: DefId,
+    cases: List[(EnumVariant, Item)],
+    orElse: Item,
+) extends Item {}
+final case class Match(lhs: Item, rhs: Item) extends Item {}
+final case class Case(cond: Item, body: Item) extends Item {}
+final case class Loop(body: Item) extends Item {}
+final case class For(name: String, iter: Item, body: Item) extends Item {}
+final case class Break() extends Item {}
+final case class Continue() extends Item {}
+case object TodoLit extends Item {}
+final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
+    extends Item {}
+final case class Region(stmts: List[Item]) extends Item {}
+final case class Sig(
+    params: Option[List[Param]],
+    ret_ty: Option[Type],
+    body: Option[Item],
+) extends Item {}
+final case class As(lhs: Item, rhs: Item) extends Item {}
 
 final case class Param(name: String, id: DefId, ty: Type) extends Item {}
 final case class Var(
@@ -70,32 +104,18 @@ final case class Variable(
 ) extends Item {
   override def toString: String = s"$nameHint:${id.id}"
 }
-final case class UnOp(op: String, lhs: Item) extends Item {}
-final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
-final case class Return(value: Item) extends Item {}
-final case class Semi(value: Item) extends Item {}
-final case class Apply(lhs: Item, rhs: List[Item]) extends Item {}
-final case class Select(lhs: Item, rhs: String) extends Item {}
-final case class KeyedArg(key: String, value: Item) extends Item {}
-final case class Match(lhs: Item, rhs: Item) extends Item {}
-final case class Case(cond: Item, body: Item) extends Item {}
-final case class Loop(body: Item) extends Item {}
-final case class For(name: String, iter: Item, body: Item) extends Item {}
-final case class Break() extends Item {}
-final case class Continue() extends Item {}
-case object TodoLit extends Item {}
-final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
-    extends Item {}
-final case class Region(stmts: List[Item]) extends Item {}
-final case class Sig(
-    params: Option[List[Param]],
-    ret_ty: Option[Type],
-    body: Option[Item],
-) extends Item {}
+final case class CModule(id: DefId, kind: CModuleKind, path: String)
+    extends Value {}
+enum CModuleKind {
+  case Builtin, Error, Source
+}
+final case class NativeModule(id: DefId, env: cosmo.Env, fid: FileId)
+    extends Value {}
 final case class Interface(
     env: Env,
     ty: Type,
     id: DefId,
+    clsId: DefId,
     fields: Map[String, VField],
 ) extends Item {
   override val level: Int = 1
@@ -103,6 +123,24 @@ final case class Interface(
 final case class ClassInstance(
     iface: Interface,
     args: List[Item],
+) extends Item {}
+final case class EnumInstance(
+    iface: Interface,
+    base: EnumVariant,
+    args: List[Item],
+) extends Item {}
+final case class EnumVariant(
+    id: DefId,
+    variantOf: DefId,
+    base: Item,
+) extends Item {
+  override val level: Int = 1
+}
+final case class EnumDestruct(
+    item: Item,
+    variant: EnumVariant,
+    bindings: List[String],
+    orElse: Option[Item],
 ) extends Item {}
 final case class Class(
     id: DefId,
@@ -113,16 +151,16 @@ final case class Class(
   override val level: Int = 1
 }
 object Class {
-  lazy val empty = Class(DefId(0), None, List.empty, List.empty)
+  lazy val empty = Class(DefId(CLASS_EMPTY), None, List.empty, List.empty)
 }
 final case class EnumClass(
     id: DefId,
     params: Option[List[Param]],
-    variants: List[Def],
+    variants: List[EnumVariant],
+    default: Option[Class],
 ) extends Item {
   override val level: Int = 1
 }
-final case class As(lhs: Item, rhs: Item) extends Item {}
 
 // TopTy
 val TopTy = TopKind(1)
@@ -208,13 +246,8 @@ final case class NativeInsType(
 sealed abstract class Value extends Item
 final case class Integer(value: Int) extends Value {}
 final case class Str(value: String) extends Value {}
-final case class CModule(kind: CModuleKind, path: String) extends Value {}
-final case class NativeModule(env: cosmo.Env, fid: FileId) extends Value {}
-
-enum CModuleKind {
-  case Builtin, Error, Source
-}
 
 sealed abstract class VField
 final case class VarField(item: Item) extends VField
 final case class DefField(item: Item) extends VField
+final case class TypeField(item: Item) extends VField

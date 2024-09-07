@@ -198,15 +198,13 @@ object Parser {
   def inNotIn[$: P] = keyword("in") | (keyword("not") ~ keyword("in"))
   def compare[$: P]: P[Node] = binOp(P(relOp | inNotIn), range_lit)
   def range_lit[$: P]: P[Node] = binOp(P(".."), bitOr)
-  def bitOr[$: P]: P[Node] = binOp(CharIn("|"), divMul)
-  def bitAnd[$: P]: P[Node] = binOp(CharIn("&"), divMul)
-  def bitShift[$: P]: P[Node] = binOp(P("<<" | ">>"), divMul)
+  def bitOr[$: P]: P[Node] = binOp(CharIn("|"), bitAnd)
+  def bitAnd[$: P]: P[Node] = binOp(CharIn("&"), bitShift)
+  def bitShift[$: P]: P[Node] = binOp(P("<<" | ">>"), addSub)
   def addSub[$: P]: P[Node] = binOp(CharIn("+\\-"), divMul)
   def divMul[$: P]: P[Node] = binOp(CharIn("*/"), arithMod)
   def arithMod[$: P]: P[Node] = binOp(CharIn("%"), factor)
-  def unary[$: P]: P[Node] = P(P("!" | "~" | "-" | "+").! ~ factor) map {
-    case (op, lhs) => UnOp(op, lhs)
-  }
+  def unary[$: P]: P[Node] = P(P("!" | "~" | "-" | "+").! ~ factor).map(UnOp.apply.tupled)
   // Clauses
   def parens[$: P] = P("(" ~/ term ~ ")")
   def braces[$: P]: P[Node] =
