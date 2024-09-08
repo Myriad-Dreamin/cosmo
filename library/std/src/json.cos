@@ -2,6 +2,7 @@
 import nlSys from "nlohmann/json.hpp"
 import stdSys from "cosmo-std.h"
 
+import std.str
 import std.collections.vec
 import std.collections.map
 
@@ -13,31 +14,94 @@ pub class ValueT(T: Type) {
   case Number(f64)
   case Str(String)
   case Array(vec.Vec(T))
-  case Object(map.HashMap(String, T))
+  case Object(map.Map(String, T))
+  // case Object(map.HashMap(String, T))
+  case _ => {
+    def apply(Ty: Type, self, index: Ty) = {
+      self match {
+        case ValueT(T).Null => {panic("value is null");}
+        case ValueT(T).Bool(b) => {panic("value is a boolean");}
+        case ValueT(T).NumberSigned(n) => {panic("value is a signed number");}
+        case ValueT(T).NumberUnsigned(n) => {panic("value is an unsigned number");}
+        case ValueT(T).Number(n) => {panic("value is a number");}
+        case ValueT(T).Str(s) => {panic("value is a string");}
+        case ValueT(T).Array(arr) => {
+          code("""
+          if constexpr (std::is_unsigned_v<Ty>) {
+              return T::pack(arr.internal[index]);
+          } else {
+            panic("invalid index type for array");
+            return ValueT<T>::Null_cons();
+          }
+          """);
+        }
+        case ValueT(T).Object(obj) => {
+          code("""
+          if constexpr (std::is_same_v<Ty, CString> || std::is_same_v<Ty, std::string>) {
+            return T::pack(obj.internal[index]);
+          } else {
+            panic("invalid index type for object");
+            return ValueT<T>::Null_cons();
+          }
+          """);
+        }
+      }
+
+      code("""
+      return ValueT<T>::Null_cons();
+      """);
+    }
+  }
 }
 
 def NlohmannJsonValue: Type = nlSys.nlohmann.json
 def NlohmannJsonTag: Type = nlSys.nlohmann.json.value_t
 
 class NlohmannJsonImpl {
-  var internal: NlohmannJsonValue
-  // lazy def value: ValueT(Self) = Self.from(internal);
+  var internal: NlohmannJsonValue = NlohmannJsonValue();
+  // lazy def value: ValueT(Self) = Self.pack(internal);
 
   def parse(content: String) = {
-    self.from(NlohmannJsonValue.parse(content.internal))
+    self.pack(NlohmannJsonImpl(NlohmannJsonValue.parse(content.internal)))
   }
   
-  def getAs(Ty: Type, self): Ty = self.internal.get(Ty)();
-  def from(j: NlohmannJsonValue): ValueT(Self) = (j.m_type as NlohmannJsonTag) match {
-    case NlohmannJsonTag.null => ValueT(Self).Null
-    case NlohmannJsonTag.boolean => ValueT(Self).Bool(j.getAs(bool))
-    case NlohmannJsonTag.number_integer => ValueT(Self).NumberSigned(j.getAs(i64))
-    case NlohmannJsonTag.number_unsigned => ValueT(Self).NumberUnsigned(j.getAs(u64))
-    case NlohmannJsonTag.number_float => ValueT(Self).Number(j.getAs(f64))
-    case NlohmannJsonTag.string => ValueT(Self).String(j.getAs(CString))
-    case NlohmannJsonTag.array => ValueT(Self).Array(j.getAs(Vec(NlohmannJsonValue)).map(Self(internal: _)))
-    case NlohmannJsonTag.object => ValueT(Self).Object(j.getAs(HashMap(CString, NlohmannJsonValue)).map(Self(internal: _)))
-    case _ => panic("Invalid JSON type ");
+  def getAs(Ty: Type, self): Ty = {
+    return self.internal.get(Ty)();
+  }
+
+  // todo: Self != NlohmannJsonImpl...
+  def pack(j: NlohmannJsonImpl): ValueT(NlohmannJsonImpl) = {
+    val mTag: c_enum = NlohmannJsonTag(Ref(j.internal));
+    // stdSys.printf("%d\n".data(), mTag);
+
+    mTag match {
+      case NlohmannJsonTag.null => ValueT(NlohmannJsonImpl).Null
+      case NlohmannJsonTag.boolean => ValueT(NlohmannJsonImpl).Bool(j.getAs(bool)())
+      case NlohmannJsonTag.number_integer => ValueT(NlohmannJsonImpl).NumberSigned(j.getAs(i64)())
+      case NlohmannJsonTag.number_unsigned => ValueT(NlohmannJsonImpl).NumberUnsigned(j.getAs(u64)())
+      case NlohmannJsonTag.number_float => ValueT(NlohmannJsonImpl).Number(j.getAs(f64)())
+      case NlohmannJsonTag.string => {
+        val s = str.CString(j.getAs(str.CppString)())
+        ValueT(NlohmannJsonImpl).Str(s)
+      }
+      case NlohmannJsonTag.array => {
+        var a = vec.Vec(NlohmannJsonImpl)()
+        code("""
+        for (const auto &i : j.internal) {
+          a.push(NlohmannJsonImpl(i));
+        }""");
+        ValueT(NlohmannJsonImpl).Array(a)
+      }
+      case NlohmannJsonTag.object => {
+        var o = map.Map(String, NlohmannJsonImpl)();
+        code("""
+        for (const auto &[k, v] : j.internal.items()) {
+          o.internal.insert({CString(k), NlohmannJsonImpl(v)});
+        }""");
+        ValueT(NlohmannJsonImpl).Object(o)
+      }
+      case _ => panic("Invalid JSON type ");
+    }
   }
 }
 
@@ -46,3 +110,62 @@ pub def Value: Type = ValueT(NlohmannJsonImpl)
 
 // implicit Ty: Type, 
 pub def parse(content: String): Value = NlohmannJsonImpl.parse(content)
+
+code("""
+
+template <> struct DisplayTrait<ValueT<NlohmannJsonImpl>> {
+  static void println(const ValueT<NlohmannJsonImpl> &x) {
+    switch (x.data.index()) {
+    case ValueT<NlohmannJsonImpl>::kIdxNull: {
+      printf(std::move(::std::string("null\n").data()));
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxBool: {
+      printf(std::move(::std::string("%s\n").data()),
+             x.Bool_0() ? "true" : "false");
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxNumberSigned: {
+      printf(std::move(::std::string("%lld\n").data()), x.NumberSigned_0());
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxNumberUnsigned: {
+      printf(std::move(::std::string("%llu\n").data()), x.NumberUnsigned_0());
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxNumber: {
+      printf(std::move(::std::string("%f\n").data()), x.Number_0());
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxStr: {
+      printf(std::move(::std::string("%s\n").data()),
+             x.Str_0().internal.c_str());
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxArray: {
+      printf("[\n");
+      auto first = true;
+      for (const auto &i : x.Array_0().internal) {
+        if (!first) {
+          printf(",\n..");
+        } else {
+          printf("..");
+          first = false;
+        }
+      };
+      printf("]\n");
+    }; break;
+    case ValueT<NlohmannJsonImpl>::kIdxObject: {
+      printf("{\n");
+      auto first = true;
+      for (const auto &[k, v] : x.Object_0().internal) {
+        if (!first) {
+          printf(",\n");
+        } else {
+          first = false;
+        }
+        printf(std::move(::std::string("%s: ..\n").data()), k.internal.c_str());
+      };
+      printf("}\n");
+    }; break;
+    default: {
+      unreachable();
+    }
+    };
+  }
+};
+""")

@@ -1,0 +1,15 @@
+
+// Enum class will be translated into tagged union
+import std.collections.vec
+
+pub class ValueT(T: Type) {
+  case Null
+  case Bool(bool)
+  case Array(vec.Vec(T))
+}
+
+def main() = {
+  val null = ValueT(i64).Null;
+  val bool = ValueT(i64).Bool(true);
+}
+

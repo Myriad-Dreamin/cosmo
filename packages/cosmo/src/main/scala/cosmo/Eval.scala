@@ -83,6 +83,8 @@ class Env(pacMgr: cosmo.PackageManager) {
     newBuiltin("println")
     newBuiltin("panic")
 
+    newType("c_enum", CEnumTy)
+    newType("Ref", RefTy)
     newType("Type", UniverseTy)
     newType("String", StringTy)
     newType("bool", BoolTy)
@@ -98,6 +100,7 @@ class Env(pacMgr: cosmo.PackageManager) {
     List(32, 64, 128).foreach { width =>
       newType(s"f$width", FloatTy(width))
     }
+    newType("code", Unresolved(DefId(CODE_FUNC)))
 
     module = Region(ast.stmts.map(valueExpr))
 
@@ -241,7 +244,7 @@ class Env(pacMgr: cosmo.PackageManager) {
     lhs match {
       case (f: Sig) if f.params.isEmpty    => applyItem(f, List())
       case Fn(_, f, _) if f.params.isEmpty => applyItem(f, List())
-      case v @ EnumVariant(_, _, cls: Class)
+      case v @ EnumVariantIns(iface, _, _, cls: Class)
           if cls.params.isEmpty && cls.vars.isEmpty =>
         applyItem(v, List())
       case _ => lhs
@@ -249,18 +252,23 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def liftAsType(item: Item)(implicit level: Int): Item = {
-    // debugln(s"liftAsType $item")
+    debugln(s"liftAsType $item")
     item match {
       case Semi(value)  => liftAsType(value)
-      case item: CIdent => item
-      case _            => item
+      case item: CIdent => CIdent(item.name, item.ns, 1)
+      case item: CppInsType =>
+        CppInsType(
+          liftAsType(item.target).asInstanceOf[CIdent],
+          item.arguments.map(liftAsType),
+        )
+      case _ => item
     }
   }
 
   def byRef(name: String, id: DefId)(implicit level: Int): Item = {
     // val ty = typeExpr(ast).instantiate(2, this)
     val v = items.get(id).map(deref)
-    // debugln(s"byRef $name $id $v")5
+    debugln(s"byRef $name $id ${v.map(_.level)}")
     Variable(name, id, v.map(_.level).getOrElse(level), value = v)
   }
 
@@ -303,13 +311,13 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.BoolLit(value)      => Opaque.expr(value.toString)
       case syntax.IntLit(value)       => Opaque.expr(value.toString)
       case syntax.FloatLit(value)     => Opaque.expr(value.toString)
-      case syntax.StringLit(value) => Opaque.expr(s"""std::string("$value")""")
+      case syntax.StringLit(value)    => Str(value)
       case syntax.Ident(name) =>
         scopes.get(name) match {
           case Some(id) => byRef(name, id)
           case None =>
             errors = s"Undefined variable $name" :: errors;
-            TopTy
+            Unresolved(newDef(name))
         }
       case syntax.Import(p, dest) => importItem(p, dest)
       case syntax.Param(name, ty, init) =>
@@ -355,8 +363,24 @@ class Env(pacMgr: cosmo.PackageManager) {
     Region(stmts)
   }
 
+  def isCEnum(ty: Item): Boolean = ty match {
+    case Variable(_, id, _, Some(CEnumTy)) => true
+    case Variable(_, id, _, _)             => isCEnum(items(id))
+    case CEnumTy                           => true
+    case _                                 => false
+  }
+
   def matchExpr(b: syntax.Match)(implicit level: Int): Item = {
     var lhs = expr(b.lhs)
+    var lhsTy = lhs match {
+      case Variable(_, id, _, v) => defs(id).upperBounds.headOption
+      case _                     => None
+    }
+    val ce = lhsTy.map(isCEnum).getOrElse(false)
+    if (ce) {
+      return matchCEnum(b)
+    }
+
     val rhs = b.rhs match {
       case b: syntax.CaseBlock => b
       case b: syntax.Block =>
@@ -372,19 +396,23 @@ class Env(pacMgr: cosmo.PackageManager) {
     }
     debugln(s"matchExpr $lhs on $rhs")
 
-    var vMappings = Map[DefId, List[(EnumDestruct, Option[syntax.Node])]]()
+    var vMappings =
+      Map[String, (Interface, List[(EnumDestruct, Option[syntax.Node])])]()
 
     for (syntax.Case(destructor, body) <- rhs.stmts) {
       val splited = destructItem(lhs, destructor);
 
       splited match {
         case ed: EnumDestruct =>
-          vMappings.get(ed.variant.variantOf) match {
-            case Some(lst) =>
+          // todo: stable toString
+          val vs = storeTy(ed.variant.variantOf.ty)(false)
+          vMappings.get(vs) match {
+            case Some((_, lst)) =>
               vMappings =
-                vMappings + (ed.variant.variantOf -> (lst :+ (ed, body)))
+                vMappings + (vs -> (ed.variant.variantOf, lst :+ (ed, body)))
             case None =>
-              vMappings = vMappings + (ed.variant.variantOf -> List((ed, body)))
+              vMappings =
+                vMappings + (vs -> (ed.variant.variantOf, List((ed, body))))
           }
         case _ =>
           errors = s"Invalid destructed item $splited" :: errors
@@ -397,11 +425,11 @@ class Env(pacMgr: cosmo.PackageManager) {
       return Match(lhs, Region(List()))
     }
 
-    val (e, cases) = vMappings.head
+    val (_, (e, cases)) = vMappings.head
 
     debugln(s"matchExpr mappings $e => $cases")
 
-    var matchBody = List[(EnumVariant, Item)]()
+    var matchBody = List[(EnumVariantIns, Item)]()
     for ((ed, body) <- cases) {
       val variant = ed.variant
       val bindings = ed.bindings
@@ -439,19 +467,67 @@ class Env(pacMgr: cosmo.PackageManager) {
     EnumMatch(lhs, e, matchBody, Unreachable)
   }
 
+  def matchCEnum(b: syntax.Match)(implicit level: Int): Item = {
+    val lhs = expr(b.lhs)
+
+    val rhs = b.rhs match {
+      case b: syntax.CaseBlock => b
+      case b: syntax.Block =>
+        if (b.stmts.isEmpty) syntax.CaseBlock(List())
+        else {
+          errors = s"match body contains non-case items" :: errors;
+          return Match(lhs, Region(List()))
+        }
+      case _ => {
+        errors = s"Invalid match body" :: errors;
+        return Match(lhs, Region(List()))
+      }
+    }
+
+    // val matchBody = cases.map { body =>
+    //   Region(
+    //     scopes.withScope {
+    //       List(valueExpr(body))
+    //     },
+    //   )
+    // }
+
+    // CEnumMatch
+
+    var defaultCase: Option[Item] = None
+
+    val cases = rhs.stmts.flatMap {
+      case syntax.Case(syntax.Ident("_"), body) =>
+        defaultCase = Some(body.map(valueExpr).getOrElse(NoneItem))
+        None
+      case syntax.Case(destructor, body) =>
+        Some((expr(destructor), body.map(valueExpr).getOrElse(NoneItem)))
+    }
+
+    CEnumMatch(lhs, cases, defaultCase)
+  }
+
   def destructItem(lhs: Item, destructor: syntax.Node)(implicit
       level: Int,
   ): Item = {
     destructor match {
       case name: (syntax.Ident | syntax.Select) => {
-        val variant = enumShape(expr(name)).get;
-        EnumDestruct(lhs, variant, List(), None)
+        val variant = enumShape(expr(name));
+        if (variant.isEmpty) {
+          errors = s"Invalid enum variant $name" :: errors
+          return lhs
+        }
+        EnumDestruct(lhs, variant.get, List(), None)
       }
       case syntax.Apply(name, rhs) => {
-        val variant = enumShape(expr(name)).get;
+        val variant = enumShape(expr(name));
+        if (variant.isEmpty) {
+          errors = s"Invalid enum variant $name" :: errors
+          return lhs
+        }
         EnumDestruct(
           lhs,
-          variant,
+          variant.get,
           rhs.map {
             case syntax.Ident(name) => name
             case _                  => ""
@@ -466,14 +542,14 @@ class Env(pacMgr: cosmo.PackageManager) {
     }
   }
 
-  def enumShape(ty: Item): Option[EnumVariant] = {
+  def enumShape(ty: Item): Option[EnumVariantIns] = {
     ty match {
       case iface: Interface => None
       case v: Variable if v.value.isEmpty =>
         enumShape(items.getOrElse(v.id, NoneItem))
       case Variable(_, _, _, Some(v)) => enumShape(v)
       case v: ir.EnumInstance         => Some(v.base)
-      case v: ir.EnumVariant          => Some(v)
+      case v: EnumVariantIns          => Some(v)
       case ty                         => None
     }
   }
@@ -483,14 +559,25 @@ class Env(pacMgr: cosmo.PackageManager) {
   ): Item = {
     debugln(s"applyItem $lhs |||| ${rhs}")
     lhs match {
+      case Variable(_, id, _, Some(Unresolved(id2)))
+          if id2 == DefId(CODE_FUNC) =>
+        return rhs.head match {
+          case Str(content) => Opaque.stmt(content)
+          case s: Opaque    => s
+          case _            => Opaque.expr("0 /* code */")
+        }
+      case Variable(_, id, _, Some(RefTy)) =>
+        assert(rhs.length == 1)
+        return RefItem(rhs.head)
       case Variable(_, id, _, Some(v)) if v.level > 0 => applyItem(v, rhs)
       case EnvItem(env, item) =>
         xEnv(env, env.applyItem(item, rhs.map(EnvItem(this, _))))
       case fn: Sig          => applyFunc(fn, rhs).getOrElse(Apply(fn, rhs))
       case fn: Fn           => applyFunc(fn.sig, rhs).getOrElse(Apply(fn, rhs))
       case cls: Class       => applyClassItem(cls, Some(rhs))
+      case cls: EnumClass   => applyEnumItem(cls, Some(rhs))
       case iface: Interface => applyInterface(iface, rhs)
-      case ev: EnumVariant  => applyEnumVariant(ev, rhs)
+      case ev: EnumVariantIns                   => applyEnumVariant(ev, rhs)
       case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
       case _                                    => Apply(lhs, rhs)
     }
@@ -516,15 +603,31 @@ class Env(pacMgr: cosmo.PackageManager) {
     val Sig(params, ret_ty, body) = fn
     ret_ty match {
       case Some(ir.Variable(_, id, _, Some(UniverseTy))) =>
-        // debugln(s"applyFunc at compile time")
+        implicit val level = 1;
         return scopes.withScope {
-          // debugln(s"applyFunc withScope")
-          Some(body.map(liftAsType).getOrElse(NoneItem))
+          params.iterator.flatten.zip(args).foreach { case (p, a) =>
+            val Param(name, id, ty) = p
+            scopes.set(name, id)
+            items += (id -> a)
+            defs(id).lowerBounds = defs(id).lowerBounds :+ ty
+          }
+          Some(body.map(liftAsType).map(evalExpr).getOrElse(NoneItem))
         }
       case _ =>
     }
 
     None
+  }
+
+  def evalExpr(item: Item)(implicit level: Int): Item = {
+    debugln(s"evalExpr $item $level")
+    val e = evalExpr;
+    item match {
+      case CppInsType(target, arguments) =>
+        CppInsType(target, arguments.map(e))
+      case Variable(nameHint, id, lvl, value) if level <= lvl => items(id)
+      case _                                                  => item
+    }
   }
 
   def applyClassItem(node: Class, args: Option[List[Item]]): Item = {
@@ -580,7 +683,7 @@ class Env(pacMgr: cosmo.PackageManager) {
     ClassInstance(iface, rhs)
   }
 
-  def applyEnumVariant(ev: EnumVariant, rhs: List[Item])(implicit
+  def applyEnumVariant(ev: EnumVariantIns, rhs: List[Item])(implicit
       level: Int,
   ): Item = {
     val baseResult = applyItem(ev.base, rhs);
@@ -595,7 +698,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def selectItem(lhs: Item, field: String)(implicit level: Int): Item = {
-    // logln(s"selectItem $lhs $field")
+    debugln(s"selectItem $lhs $field")
     var res = lhs match {
       case Variable(_, id, _, v) => v.map(selectItem(_, field))
       case NativeModule(id, env, fid) =>
@@ -606,7 +709,11 @@ class Env(pacMgr: cosmo.PackageManager) {
         return selectItem(applyEnumItem(rawCls, None), field)
       case cls: Class => return selectItem(applyClassItem(cls, None), field)
       case interface: Interface =>
+        // ir.Interface(this, ty, id, clsId, Map(mp: _*))
         interface.fields.get(field).map {
+          case TypeField(EnumVariant(id, _, base)) =>
+            EnumVariantIns(id, interface, field, base)
+          // todo: bound to interface
           case DefField(item)  => item
           case TypeField(item) => item
           case VarField(item)  => NoneItem
@@ -745,7 +852,8 @@ class Env(pacMgr: cosmo.PackageManager) {
         },
       )
     }
-    val f = Fn(id, sig, 0)
+    val tyLevel = (sig.ret_ty.map(_.level - 1).getOrElse(0)).max(0)
+    val f = Fn(id, sig, tyLevel)
     items += (id -> f)
     f
   }

@@ -4,7 +4,6 @@ import std.fs;
 
 def main() = {
   val content = fs.readFile("samples/DataProcessing/data.json");
-  println(content);
-  val j = json.parse(content);
-  // println(j("flag"));
+  var j = json.parse(content);
+  println(j.apply("flag"));
 }

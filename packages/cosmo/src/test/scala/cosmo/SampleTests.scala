@@ -21,6 +21,9 @@ class SampleTest extends munit.FunSuite:
   test("Class/basic") {
     runTestOnFile("samples/Class/basic.cos")
   }
+  test("Class/jsonValue") {
+    runTestOnFile("samples/Class/jsonValue.cos")
+  }
   test("Class/nat") {
     runTestOnFile("samples/Class/nat.cos")
   }

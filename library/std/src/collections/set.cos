@@ -1,8 +1,8 @@
 
 import setSys from "libc++/set"
 
-// def CxxVec(T: Type) = setSys.std.set(T)
+pub def CppSet(T: Type): Type = setSys.std.set(T)
 
 pub class Set(T: Type) {
-  var internal: setSys.std.set(T) = setSys.std.set(T)();
+  var internal: CppSet(T) = CppSet(T)();
 }

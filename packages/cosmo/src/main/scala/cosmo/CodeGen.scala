@@ -31,15 +31,29 @@ class CodeGen(implicit val env: Env) {
       case Fn(id, Sig(None, ret_ty, body), _) =>
         val name = id.defName(env, stem = true)
         s"/* cosmo function $name */"
+      case Fn(id, Sig(_, Some(UniverseTy), body), _) =>
+        val name = id.defName(env, stem = true)
+        s"/* cosmo function $name */"
+      case Fn(id, Sig(_, _, body), level) if level > 0 =>
+        val name = id.defName(env, stem = true)
+        s"/* cosmo function $name */"
       case Fn(id, Sig(Some(params), ret_ty, body), _) =>
         val defInfo = env.defs(id)
         val name = id.defName(env, stem = true)
         val hasSelf = params.exists(_.name == "self")
-        val paramCode =
-          params
-            .filter(_.name != "self")
-            .map(param => s"${paramTy(param.ty)} ${param.name}")
-            .mkString(", ")
+        val typeParams = params
+          .filter(_.name != "self")
+          .filter(e => e.ty.level > 1)
+          .map(param => s"typename ${param.name}")
+          .mkString(", ")
+        val templateCode =
+          if typeParams.isEmpty then "" else s"template <$typeParams> "
+        val paramCode = params
+          .filter(_.name != "self")
+          .filter(e => e.ty.level <= 1)
+          .map(param => s"${paramTy(param.ty)} ${param.name}")
+          .mkString(", ")
+
         val bodyCode = body match {
           case Some(body) => blockizeExpr(body, ValRecv.Return)
           case None       => ";"
@@ -50,7 +64,7 @@ class CodeGen(implicit val env: Env) {
           debugln(s"$ret_ty => $rt")
           val staticModifier =
             if (defInfo.inClass && !hasSelf) "static " else ""
-          s"inline $staticModifier$rt $name($paramCode) $bodyCode"
+          s"${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode"
       // case ir.TypeAlias(ret_ty) =>
       //   s"using $name = ${returnTy(ret_ty)};"
       case ir.NativeModule(id, _, fid) =>
@@ -273,16 +287,26 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
+  def moveExpr(ast: ir.Item): String = {
+    debugln(s"moveExpr: $ast")
+    ast match {
+      case RefItem(lhs) => expr(lhs)
+      case ast          => s"std::move(${expr(ast)})"
+    }
+  }
+
   def expr(ast: ir.Item): String = {
     exprWith(ast, ValRecv.None)
   }
 
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
-      case Lit(value)                => value.toString
-      case EnvItem(env, v: Variable) => env.varByRef(v)(false)
-      case Opaque(_, Some(stmt))     => stmt
-      case Opaque(Some(expr), _)     => expr
+      case Lit(value)                      => value.toString
+      case EnvItem(env, v: Variable)       => env.varByRef(v)(false)
+      case EnvItem(fEnv, v) if fEnv == env => return exprWith(v, recv)
+      case EnvItem(fEnv, v) if v.level > 0 => return fEnv.storeTy(v)(false)
+      case Opaque(_, Some(stmt))           => stmt
+      case Opaque(Some(expr), _)           => expr
       case Region(stmts) => {
         val (rests, last) = stmts.length match {
           case 0 => return "{}"
@@ -319,7 +343,12 @@ class CodeGen(implicit val env: Env) {
       case ir.BinOp(op, lhs, rhs) =>
         s"${expr(lhs)} $op ${expr(rhs)}"
       case ir.Apply(lhs, rhs) =>
-        s"${expr(lhs)}(${rhs.map(v => s"std::move(${expr(v)})").mkString(", ")})"
+        val rhsAnyTy = rhs.exists(_.level > 0)
+        if (rhsAnyTy) {
+          s"${expr(lhs)}<${rhs.map(storeTy).mkString(", ")}>"
+        } else {
+          s"${expr(lhs)}(${rhs.map(moveExpr).mkString(", ")})"
+        }
       case ir.Select(SelfVal, rhs) => rhs
       case ir.Select(lhs, rhs) =>
         if (lhsIsType(lhs)) {
@@ -330,6 +359,7 @@ class CodeGen(implicit val env: Env) {
         }
       case SelfVal             => "(*this)"
       case Unreachable         => return "unreachable();"
+      case ir.Str(s)           => s"""::std::string("$s")"""
       case ir.Semi(value)      => return exprWith(value, ValRecv.None)
       case v: ir.NativeType    => storeTy(v)
       case v: ir.CIdent        => storeTy(v)
@@ -381,7 +411,7 @@ class CodeGen(implicit val env: Env) {
         }
         val initArgs = vars.mkString(", ")
 
-        val base = v.base.variantOf.defName(env, stem = false)(false);
+        val base = storeTy(v.base.variantOf.ty);
         s"$base::${ty}_cons($initArgs)"
       }
       // case v: ir.Sig()
@@ -395,7 +425,7 @@ class CodeGen(implicit val env: Env) {
         // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
         // auto n = std::move(*nn);
 
-        val base = v.variant.variantOf.defName(env, stem = true)(false)
+        val base = storeTy(v.variant.variantOf.ty);
         val namelist = v.bindings
           .map {
             case "_" => ""
@@ -416,15 +446,15 @@ class CodeGen(implicit val env: Env) {
               val name = defInfo.nameStem(v.id.id)
               val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
               val mayDeref = if ty == SelfTy then "*" else ""
-              s"auto $s = std::move(*$namelist);"
+              s"auto $s = std::move(${mayDeref}_destructed_${s});"
             }
           }
           .mkString("\n")
-        s"auto [$namelist] = std::get<${base}::kIdx${v.variant.id
-            .defName(env, stem = true)(false)}>(std::move(${expr(v.item)}.data));$rebind"
+        val vname = v.variant.id.defName(env, stem = true)(false)
+        s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
       }
       case v: ir.EnumMatch => {
-        val clsName = v.meta.defName(env, stem = true)(false)
+        val clsName = storeTy(v.meta.ty)
         val cases = v.cases.map { case (variant, body) =>
           val name = variant.id.defName(env, stem = true)(false)
           s"case $clsName::kIdx$name: ${blockizeExpr(body, recv)}; break;"
@@ -436,6 +466,14 @@ class CodeGen(implicit val env: Env) {
         // todo: value receiver
         return s"switch(${expr(v.lhs)}.data.index()) {${cases.mkString("\n")}\n$orElse}"
       }
+      case v: ir.CEnumMatch =>
+        val cases = v.cases.map { case (cond, body) =>
+          val name = expr(cond)
+          s"case $name: ${blockizeExpr(body, recv)}; break;"
+        }
+        val orElse =
+          v.orElse.map(e => s"default: ${blockizeExpr(e, recv)}").getOrElse("")
+        return s"switch(${expr(v.lhs)}) {${cases.mkString("\n")}\n$orElse}"
       case a => {
         println(s"unhandled expr: $a")
         a.toString()

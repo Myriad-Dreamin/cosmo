@@ -4,11 +4,11 @@ import stdSys from "cosmo-std.h"
 import fstreamSys from "libc++/fstream"
 
 def Ifstream: Type = fstreamSys.std.ifstream;
-def IosFlag: Type = fstreamSys.std.ios;
+// def IosFlag: Type = fstreamSys.std.ios;
 
 def readFile(fileName: String): String = {
-  var file = Ifstream(fileName.internal, IosFlag.binary);
-  file.seekg(0, IosFlag.end);
+  var file = Ifstream(fileName.internal, fstreamSys.std.ios.binary);
+  file.seekg(0, fstreamSys.std.ios.end);
   val sz: i64 = file.tellg();
   if (sz < 0) {
     panic("Error reading file");

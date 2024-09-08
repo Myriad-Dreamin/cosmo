@@ -1,8 +1,12 @@
 
 import stringSys from "libc++/string"
 
-// def CxxBytes = stringSys.std.string
+pub def CppString: Type = stringSys.std.string
 
 pub class CString {
-  var internal: stringSys.std.string
+  var internal: CppString = stringSys.std.string();
 }
+
+code("""
+inline bool operator<(const CString &lhs, const CString &rhs) { return lhs.internal < rhs.internal; }
+""")

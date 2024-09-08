@@ -7,6 +7,7 @@ import cosmo.{DefId, Env}
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
+val CODE_FUNC = 1
 
 sealed abstract class Item {
   val level: Int = 0;
@@ -34,12 +35,16 @@ sealed abstract class Item {
 
 type Type = Item
 case class TopKind(override val level: Int) extends Item
+case class RefKind(override val level: Int) extends Item
 case class BottomKind(override val level: Int) extends Item
 case class SelfKind(override val level: Int) extends Item
 case class NoneKind(override val level: Int) extends Item
 case object Unreachable extends Item
 case class RuntimeKind(override val level: Int) extends Item
-final case class EnvItem(env: Env, v: Item) extends Item {}
+final case class EnvItem(env: Env, v: Item) extends Item {
+  // todo: looks unsafe
+  override val level: Int = v.level
+}
 final case class Unresolved(id: DefId) extends Item {}
 
 val NoneItem = NoneKind(0)
@@ -58,12 +63,18 @@ final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
 final case class Return(value: Item) extends Item {}
 final case class Semi(value: Item) extends Item {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item {}
+final case class RefItem(lhs: Item) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {}
 final case class KeyedArg(key: String, value: Item) extends Item {}
+final case class CEnumMatch(
+    lhs: Item,
+    cases: List[(Item, Item)],
+    orElse: Option[Item],
+) extends Item {}
 final case class EnumMatch(
     lhs: Item,
-    meta: DefId,
-    cases: List[(EnumVariant, Item)],
+    meta: Interface,
+    cases: List[(EnumVariantIns, Item)],
     orElse: Item,
 ) extends Item {}
 final case class Match(lhs: Item, rhs: Item) extends Item {}
@@ -126,9 +137,17 @@ final case class ClassInstance(
 ) extends Item {}
 final case class EnumInstance(
     iface: Interface,
-    base: EnumVariant,
+    base: EnumVariantIns,
     args: List[Item],
 ) extends Item {}
+final case class EnumVariantIns(
+    id: DefId,
+    variantOf: Interface,
+    name: String,
+    base: Item,
+) extends Item {
+  override val level: Int = 1
+}
 final case class EnumVariant(
     id: DefId,
     variantOf: DefId,
@@ -138,7 +157,7 @@ final case class EnumVariant(
 }
 final case class EnumDestruct(
     item: Item,
-    variant: EnumVariant,
+    variant: EnumVariantIns,
     bindings: List[String],
     orElse: Option[Item],
 ) extends Item {}
@@ -164,10 +183,14 @@ final case class EnumClass(
 
 // TopTy
 val TopTy = TopKind(1)
+val RefTy = RefKind(1)
 val BottomTy = BottomKind(1)
 val SelfTy = SelfKind(1)
 val SelfVal = SelfKind(0)
 val UniverseTy = TopKind(2)
+case object CEnumTy extends Type {
+  override val level = 1
+}
 case object BoolTy extends Type {
   override val level = 1
 }
@@ -215,7 +238,7 @@ final case class NativeType(val name: String) extends Type {
 }
 final case class CppInsType(val target: CIdent, val arguments: List[Type])
     extends Type {
-  override val level = 1
+  override val level = target.level
   override def toString: String = s"cpp(${repr(_.toString)})"
   def repr(rec: Type => String): String =
     target.repr + "<" + arguments

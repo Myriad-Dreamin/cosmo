@@ -1,10 +1,10 @@
 
 import vectorSys from "libc++/vector"
 
-// def CxxVec(T: Type) = vectorSys.std.vector(T)
+pub def CppVec(T: Type): Type = vectorSys.std.vector(T)
 
 pub class Vec(T: Type) {
-  var internal: vectorSys.std.vector(T) = vectorSys.std.vector(T)();
+  var internal: CppVec(T) = CppVec(T)();
 
   def push(self, value: T) = {
     self.internal.push_back(value);
@@ -13,3 +13,25 @@ pub class Vec(T: Type) {
     self.internal.size()
   }
 }
+
+// template <typename T, typename Ctx, typename Cond = void> struct CppVec {
+//   using type = std::vector<T>;
+// };
+
+// template <typename T> struct Vec;
+// template <typename T> struct CppVec<T, Vec<T>> {
+//   using type = std::vector<T>;
+// };
+// template <typename T> struct Vec {
+//   using CppVec_T = typename CppVec<T, Vec<T>>::type;
+//   static inline CppVec_T kInternalDefault = CppVec_T();
+//   CppVec_T internal = kInternalDefault;
+// };
+
+// int main() {
+//   Vec<int> vec;
+//   vec.push(1);
+//   vec.push(2);
+//   vec.push(3);
+//   return (vec.size());
+// }
