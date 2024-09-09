@@ -6,3 +6,4 @@ Cosmo is a language replacing awful C++'s compile-time magics. This is only some
 
 - #cross-link("/syntax.typ")[Syntax]
 - #cross-link("/syntax-bnf.typ")[BNF Specification]
+- #cross-link("/class.typ")[Class Design]

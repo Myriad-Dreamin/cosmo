@@ -9,6 +9,7 @@
     #prefix-chapter("intro.typ")[Introduction]
     #prefix-chapter("syntax.typ")[Syntax]
     #prefix-chapter("syntax-bnf.typ")[BNF Specification]
+    #prefix-chapter("class.typ")[Class Design]
   ],
 )
 
