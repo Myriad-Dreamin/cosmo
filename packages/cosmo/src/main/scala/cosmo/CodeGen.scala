@@ -28,18 +28,17 @@ class CodeGen(implicit val env: Env) {
     implicit val topLevel = tl;
     val res: String = ast match {
       case ir.Semi(value) => genDef(value, tl)
-      case Fn(id, Sig(None, ret_ty, body), _) =>
-        val name = id.defName(env, stem = true)
+      case Fn(defInfo, Sig(None, ret_ty, body), _) =>
+        val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(id, Sig(_, Some(UniverseTy), body), _) =>
-        val name = id.defName(env, stem = true)
+      case Fn(defInfo, Sig(_, Some(UniverseTy), body), _) =>
+        val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(id, Sig(_, _, body), level) if level > 0 =>
-        val name = id.defName(env, stem = true)
+      case Fn(defInfo, Sig(_, _, body), level) if level > 0 =>
+        val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(id, Sig(Some(params), ret_ty, body), _) =>
-        val defInfo = env.defs(id)
-        val name = id.defName(env, stem = true)
+      case Fn(defInfo, Sig(Some(params), ret_ty, body), _) =>
+        val name = defInfo.defName(stem = true)
         val hasSelf = params.exists(_.name == "self")
         val typeParams = params
           .filter(_.name != "self")
@@ -67,9 +66,8 @@ class CodeGen(implicit val env: Env) {
           s"${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode"
       // case ir.TypeAlias(ret_ty) =>
       //   s"using $name = ${returnTy(ret_ty)};"
-      case ir.NativeModule(id, _, fid) =>
-        val item = env.items(id)
-        val name = id.defName(env, stem = true)
+      case ir.NativeModule(info, env, fid) =>
+        val name = info.defName(stem = true)
         // fid.path (.cos -> .h)
         // todo: unreliable path conversion
         val path = fid.path.slice(0, fid.path.length - 4) + ".h"
@@ -83,9 +81,9 @@ class CodeGen(implicit val env: Env) {
           case ir.CModuleKind.Source =>
             s"""#include "$path" // IWYU pragma: keep"""
         }
-      case ir.Class(id, params, vars, defs) =>
-        val item = env.items(id)
-        val name = id.defName(env, stem = true)
+      case ir.Class(defInfo, params, vars, defs) =>
+        val item = env.items(defInfo.id)
+        val name = defInfo.defName(stem = true)
         val templateCode = params
           .map { ps =>
             s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
@@ -103,14 +101,14 @@ class CodeGen(implicit val env: Env) {
           else ""
         s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
       case ir.EnumClass(id, params, variants, default) =>
-        val item = env.items(id)
-        val name = id.defName(env, stem = true)
+        val item = env.items(id.id)
+        val name = id.defName(stem = true)
         val templateCode = params
           .map { ps =>
             s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
           }
           .getOrElse("")
-        val variantNames = variants.map(_.id.defName(env, stem = true))
+        val variantNames = variants.map(_.id.defName(stem = true))
         val variantVars = variants.map(e =>
           e.base match
             case c: ir.Class => c.vars
@@ -141,8 +139,8 @@ class CodeGen(implicit val env: Env) {
             .zipWithIndex
             .flatMap { case ((vn, vars), index) =>
               vars.map(v =>
-                val defInfo = env.defs(v.id)
-                val name = defInfo.nameStem(v.id.id)
+                val defInfo = v.id
+                val name = defInfo.nameStem(defInfo.id.id)
                 val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
                 val mayDeref = if ty == SelfTy then "*" else ""
                 s"""const ${returnTy(
@@ -158,8 +156,8 @@ class CodeGen(implicit val env: Env) {
             .map { case ((vn, vars), index) =>
               val clones = vars
                 .map(v =>
-                  val defInfo = env.defs(v.id)
-                  val name = defInfo.nameStem(v.id.id)
+                  val defInfo = v.id
+                  val name = defInfo.nameStem(defInfo.id.id)
                   val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
                   val mayClone = if ty == SelfTy then "->clone()" else ""
                   s"std::get<$index>(data).${name}$mayClone",
@@ -207,18 +205,16 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarParam(node: ir.Var) = {
-    val ir.Var(id, init, isContant, _) = node
-    val defInfo = env.defs(id)
-    val name = defInfo.nameStem(id.id)
+    val ir.Var(defInfo, init, isContant, _) = node
+    val name = defInfo.nameStem(defInfo.id.id)
     val ty = paramTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
     var constantStr = if isContant then "const " else ""
     s"${constantStr}${ty} ${name}_p"
   }
 
   def genVarCons(node: ir.Var) = {
-    val ir.Var(id, init, isContant, _) = node
-    val defInfo = env.defs(id)
-    val name = defInfo.nameStem(id.id)
+    val ir.Var(defInfo, init, isContant, _) = node
+    val name = defInfo.nameStem(defInfo.id.id)
     val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
     val p = s"std::move(${name}_p)"
     if ty == SelfTy then s"$name(std::make_unique<Self>($p))"
@@ -226,9 +222,8 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarStore(node: ir.Var) = {
-    val ir.Var(id, init, isContant, _) = node
-    val defInfo = env.defs(id)
-    val name = defInfo.nameStem(id.id)
+    val ir.Var(defInfo, init, isContant, _) = node
+    val name = defInfo.nameStem(defInfo.id.id)
     val ty = storeTy(defInfo.upperBounds.headOption.getOrElse(TopTy))
     var constantStr = if isContant then "const " else ""
     val kInit =
@@ -264,9 +259,8 @@ class CodeGen(implicit val env: Env) {
   // todo: analysis it concretely
   def mayClone(v: ir.VarField, value: String): String = {
     v.item match {
-      case ir.Var(id, _, _, _) =>
-        val ty = env.defs(id)
-        if (ty.upperBounds.headOption.getOrElse(TopTy) == SelfTy) {
+      case ir.Var(info, _, _, _) =>
+        if (info.upperBounds.headOption.getOrElse(TopTy) == SelfTy) {
           // todo: detect rvalue correctly
           if (value.endsWith(")")) {
             s"std::move($value)"
@@ -301,12 +295,9 @@ class CodeGen(implicit val env: Env) {
 
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
-      case Lit(value)                      => value.toString
-      case EnvItem(env, v: Variable)       => env.varByRef(v)(false)
-      case EnvItem(fEnv, v) if fEnv == env => return exprWith(v, recv)
-      case EnvItem(fEnv, v) if v.level > 0 => return fEnv.storeTy(v)(false)
-      case Opaque(_, Some(stmt))           => stmt
-      case Opaque(Some(expr), _)           => expr
+      case Lit(value)            => value.toString
+      case Opaque(_, Some(stmt)) => stmt
+      case Opaque(Some(expr), _) => expr
       case Region(stmts) => {
         val (rests, last) = stmts.length match {
           case 0 => return "{}"
@@ -325,8 +316,8 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Variable => env.varByRef(v)(false)
-      case v: Fn       => v.id.defName(env)(false)
+      case v: Variable => v.id.env.varByRef(v)(false)
+      case v: Fn       => v.id.defName()(false)
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name, iter, body) =>
@@ -365,7 +356,7 @@ class CodeGen(implicit val env: Env) {
       case v: ir.CIdent        => storeTy(v)
       case v: ir.NativeInsType => storeTy(v)
       case v: ir.CppInsType    => storeTy(v)
-      case v: ir.Var           => v.id.defName(env, stem = true)(false)
+      case v: ir.Var           => v.id.defName(stem = true)(false)
       case v: ir.ClassInstance => {
         val args = v.args.flatMap {
           case v: KeyedArg => Some((v.key, v.value))
@@ -442,21 +433,21 @@ class CodeGen(implicit val env: Env) {
           .map {
             case ("_", _) => ""
             case (s, v) => {
-              val defInfo = env.defs(v.id)
-              val name = defInfo.nameStem(v.id.id)
+              val defInfo = v.id
+              val name = defInfo.nameStem(defInfo.id.id)
               val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
               val mayDeref = if ty == SelfTy then "*" else ""
               s"auto $s = std::move(${mayDeref}_destructed_${s});"
             }
           }
           .mkString("\n")
-        val vname = v.variant.id.defName(env, stem = true)(false)
+        val vname = v.variant.id.defName(stem = true)(false)
         s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
       }
       case v: ir.EnumMatch => {
         val clsName = storeTy(v.meta.ty)
         val cases = v.cases.map { case (variant, body) =>
-          val name = variant.id.defName(env, stem = true)(false)
+          val name = variant.id.defName(stem = true)(false)
           s"case $clsName::kIdx$name: ${blockizeExpr(body, recv)}; break;"
         }
         val orElse = v.orElse match {

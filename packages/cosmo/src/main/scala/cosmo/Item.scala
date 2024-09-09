@@ -1,9 +1,9 @@
 package cosmo.ir
 
-import cosmo.{DefId, FileId}
+import cosmo.{DefInfo, FileId}
 
 import cosmo.ir.Value
-import cosmo.{DefId, Env}
+import cosmo.{DefInfo, Env}
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
@@ -12,13 +12,12 @@ val CODE_FUNC = 1
 sealed abstract class Item {
   val level: Int = 0;
 
-  def instantiate(implicit lvl: Int, ctx: cosmo.Env): Item = {
+  def instantiate(implicit lvl: Int): Item = {
     this match {
-      case Variable(_, id, lvl, v) =>
-        val info = ctx.defs(id)
+      case Variable(_, info, lvl, v) =>
         val ty = info.upperBounds.find {
-          case Variable(_, id, lvl, v) => false
-          case _                       => true
+          case Variable(_, info, lvl, v) => false
+          case _                         => true
         }
         val ty2 = ty.map { ty =>
           if ty.level > lvl then ty.instantiate
@@ -41,11 +40,7 @@ case class SelfKind(override val level: Int) extends Item
 case class NoneKind(override val level: Int) extends Item
 case object Unreachable extends Item
 case class RuntimeKind(override val level: Int) extends Item
-final case class EnvItem(env: Env, v: Item) extends Item {
-  // todo: looks unsafe
-  override val level: Int = v.level
-}
-final case class Unresolved(id: DefId) extends Item {}
+final case class Unresolved(id: DefInfo) extends Item {}
 
 val NoneItem = NoneKind(0)
 val Runtime = RuntimeKind(0)
@@ -94,42 +89,42 @@ final case class Sig(
 ) extends Item {}
 final case class As(lhs: Item, rhs: Item) extends Item {}
 
-final case class Param(name: String, id: DefId, ty: Type) extends Item {}
+final case class Param(name: String, id: DefInfo, ty: Type) extends Item {}
 final case class Var(
-    id: DefId,
+    id: DefInfo,
     init: Item,
     isContant: Boolean,
     override val level: Int,
 ) extends Item {}
 final case class Fn(
-    id: DefId,
+    id: DefInfo,
     sig: Sig,
     override val level: Int,
 ) extends Item {}
 
 final case class Variable(
     val nameHint: String,
-    val id: DefId,
+    val id: DefInfo,
     override val level: Int,
     val value: Option[Item] = None,
 ) extends Item {
-  override def toString: String = s"$nameHint:${id.id}"
+  override def toString: String = s"$nameHint:${id.id.id}"
 }
-final case class CModule(id: DefId, kind: CModuleKind, path: String)
+final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends Value {}
 enum CModuleKind {
   case Builtin, Error, Source
 }
-final case class NativeModule(id: DefId, env: cosmo.Env, fid: FileId)
+final case class NativeModule(id: DefInfo, env: Env, fid: FileId)
     extends Value {}
 final case class Interface(
-    env: Env,
     ty: Type,
-    id: DefId,
-    clsId: DefId,
+    id: DefInfo,
+    clsId: DefInfo,
     fields: Map[String, VField],
 ) extends Item {
   override val level: Int = 1
+  override def toString: String = s"interface(${id.defName(false)(false)})"
 }
 final case class ClassInstance(
     iface: Interface,
@@ -141,7 +136,7 @@ final case class EnumInstance(
     args: List[Item],
 ) extends Item {}
 final case class EnumVariantIns(
-    id: DefId,
+    id: DefInfo,
     variantOf: Interface,
     name: String,
     base: Item,
@@ -149,8 +144,8 @@ final case class EnumVariantIns(
   override val level: Int = 1
 }
 final case class EnumVariant(
-    id: DefId,
-    variantOf: DefId,
+    id: DefInfo,
+    variantOf: DefInfo,
     base: Item,
 ) extends Item {
   override val level: Int = 1
@@ -162,18 +157,20 @@ final case class EnumDestruct(
     orElse: Option[Item],
 ) extends Item {}
 final case class Class(
-    id: DefId,
+    id: DefInfo,
     params: Option[List[Param]],
     vars: List[Var],
     funcs: List[Fn],
 ) extends Item {
   override val level: Int = 1
+  override def toString: String = s"class(${id.defName(false)(false)})"
 }
 object Class {
-  lazy val empty = Class(DefId(CLASS_EMPTY), None, List.empty, List.empty)
+  def empty(env: Env) =
+    Class(DefInfo.just(CLASS_EMPTY, env), None, List.empty, List.empty)
 }
 final case class EnumClass(
-    id: DefId,
+    id: DefInfo,
     params: Option[List[Param]],
     variants: List[EnumVariant],
     default: Option[Class],

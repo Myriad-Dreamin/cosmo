@@ -2,18 +2,21 @@ package cosmo.eval
 
 import scala.scalajs.js
 
-import cosmo.{Scopes, DefId}
+import cosmo.{Scopes, DefInfo, Env, Cosmo}
 
 class ScopesTest extends munit.FunSuite:
   test("pushPop") {
     val scopes = new Scopes()
-    scopes.set("a", DefId(0))
-    assert(scopes.get("a") == Some(DefId(0)))
+    val env = new Env(new Cosmo())
+    val a = DefInfo.just(0, env)
+    val b = DefInfo.just(1, env)
+    scopes.set("a", a)
+    assert(scopes.get("a") == Some(a))
     scopes.push()
-    assert(scopes.get("a") == Some(DefId(0)))
-    scopes.set("a", DefId(1))
-    assert(scopes.get("a") == Some(DefId(1)))
+    assert(scopes.get("a") == Some(a))
+    scopes.set("a", b)
+    assert(scopes.get("a") == Some(b))
     scopes.pop()
-    assert(scopes.get("a") == Some(DefId(0)))
+    assert(scopes.get("a") == Some(a))
   }
 end ScopesTest

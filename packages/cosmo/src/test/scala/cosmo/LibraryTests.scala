@@ -15,7 +15,7 @@ class LibraryTest extends munit.FunSuite:
   test("std.str") {
     runTestOnFile("library/std/src/str.cos")
   }
-  // test("std.memory".only) {
+  // test("std.memory") {
   //   runTestOnFile("library/std/src/memory.cos")
   // }
   test("std.collections.vec") {
