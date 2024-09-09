@@ -20,7 +20,7 @@ class CodeGen(implicit val env: Env) {
     s"$prelude$itemCode\n#if 0\n$errorCode\n#endif$postlude"
   }
 
-  def genDef(ast: ir.Item, tl: Boolean): String = {
+  def genDef(ast: ir.Item, tl: Boolean = false): String = {
     mayGenDef(ast, tl).getOrElse(expr(ast))
   }
 
@@ -81,7 +81,9 @@ class CodeGen(implicit val env: Env) {
           case ir.CModuleKind.Source =>
             s"""#include "$path" // IWYU pragma: keep"""
         }
-      case ir.Class(defInfo, params, vars, defs) =>
+      case ir.Class(defInfo, params, vars, restFields) =>
+        val variants = restFields.filter(_.isInstanceOf[ir.TypeField])
+        val defs = restFields.filter(_.isInstanceOf[ir.DefField])
         val item = env.items(defInfo.id)
         val name = defInfo.defName(stem = true)
         val templateCode = params
@@ -89,33 +91,28 @@ class CodeGen(implicit val env: Env) {
             s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
           }
           .getOrElse("")
-        val emptyConstructable =
-          vars.forall(v => v.init != ir.NoneItem)
-        val varsCode = vars.map(genDef(_, false)).mkString("", ";\n", ";")
-        val defsCode = defs.map(genDef(_, false)).mkString("\n")
+        val emptyConstructable = vars.forall(v => v.item.init != ir.NoneItem)
+        val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
+        val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
         val consPref = if (vars.isEmpty) "" else s":"
         val consCode =
-          s"$name(${vars.map(genVarParam).mkString(", ")})$consPref${vars.map(genVarCons).mkString(", ")} {}"
+          s"$name(${vars.map(p => genVarParam(p.item)).mkString(", ")})$consPref${vars
+              .map(p => genVarCons(p.item))
+              .mkString(", ")} {}"
         val emptyConsCode =
-          if emptyConstructable && !vars.isEmpty then s"$name() = default;"
+          if variants.isEmpty && emptyConstructable && !vars.isEmpty then
+            s"$name() = default;"
           else ""
-        s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
-      case ir.EnumClass(id, params, variants, default) =>
-        val item = env.items(id.id)
-        val name = id.defName(stem = true)
-        val templateCode = params
-          .map { ps =>
-            s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
-          }
-          .getOrElse("")
-        val variantNames = variants.map(_.id.defName(stem = true))
-        val variantVars = variants.map(e =>
-          e.base match
-            case c: ir.Class => c.vars
-            case _           => List.empty,
+        val variantNames = variants.map(_.item.id.defName(stem = true))
+        val variantBases = variants.map(e =>
+          e.item match
+            case EnumVariant(_, _, base: ir.Class) => Some(base)
+            case _                                 => None,
         )
+        val variantVars =
+          variantBases.map(e => e.map(_.vars).getOrElse(List.empty))
         val bodyCode =
-          variants.map(id => genDef(id.base, false)).mkString(";\n")
+          variantBases.flatMap(id => id.map(genDef(_))).mkString(";\n")
         val enumIdxCode = variantNames.zipWithIndex
           .map { case (name, idx) =>
             s"kIdx$name = $idx"
@@ -139,7 +136,7 @@ class CodeGen(implicit val env: Env) {
             .zipWithIndex
             .flatMap { case ((vn, vars), index) =>
               vars.map(v =>
-                val defInfo = v.id
+                val defInfo = v.item.id
                 val name = defInfo.nameStem(defInfo.id.id)
                 val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
                 val mayDeref = if ty == SelfTy then "*" else ""
@@ -156,7 +153,7 @@ class CodeGen(implicit val env: Env) {
             .map { case ((vn, vars), index) =>
               val clones = vars
                 .map(v =>
-                  val defInfo = v.id
+                  val defInfo = v.item.id
                   val name = defInfo.nameStem(defInfo.id.id)
                   val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
                   val mayClone = if ty == SelfTy then "->clone()" else ""
@@ -166,12 +163,10 @@ class CodeGen(implicit val env: Env) {
               s"""case ${index}: return ${vn}_cons($clones);"""
             }
             .mkString("\n    ")
-        val defsCode =
-          default.iterator
-            .flatMap(_.funcs)
-            .map(genDef(_, false))
-            .mkString("\n")
-        s"""$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+        if (variants.isEmpty) {
+          s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
+        } else {
+          s"""$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
 
   enum { $enumIdxCode };
 
@@ -197,6 +192,7 @@ class CodeGen(implicit val env: Env) {
 
   $defsCode
 };"""
+        }
       case v: ir.Var => genVarStore(v)
       case a         => return None
     }
@@ -409,8 +405,6 @@ class CodeGen(implicit val env: Env) {
       case v: ir.EnumDestruct if v.bindings.isEmpty => {
         s""
       }
-      // todo: handle enum class
-      case v: ir.EnumClass => s""
       case v: ir.EnumDestruct => {
 
         // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
@@ -433,7 +427,7 @@ class CodeGen(implicit val env: Env) {
           .map {
             case ("_", _) => ""
             case (s, v) => {
-              val defInfo = v.id
+              val defInfo = v.item.id
               val name = defInfo.nameStem(defInfo.id.id)
               val ty = defInfo.upperBounds.headOption.getOrElse(TopTy)
               val mayDeref = if ty == SelfTy then "*" else ""

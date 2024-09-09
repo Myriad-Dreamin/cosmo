@@ -88,41 +88,44 @@ final case class Sig(
     body: Option[Item],
 ) extends Item {}
 final case class As(lhs: Item, rhs: Item) extends Item {}
+abstract class DeclLike extends Item {
+  val id: DefInfo
+}
 
-final case class Param(name: String, id: DefInfo, ty: Type) extends Item {}
+final case class Param(name: String, id: DefInfo, ty: Type) extends DeclLike {}
 final case class Var(
     id: DefInfo,
     init: Item,
     isContant: Boolean,
     override val level: Int,
-) extends Item {}
+) extends DeclLike {}
 final case class Fn(
     id: DefInfo,
     sig: Sig,
     override val level: Int,
-) extends Item {}
+) extends DeclLike {}
 
 final case class Variable(
     val nameHint: String,
     val id: DefInfo,
     override val level: Int,
     val value: Option[Item] = None,
-) extends Item {
+) extends DeclLike {
   override def toString: String = s"$nameHint:${id.id.id}"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
-    extends Value {}
+    extends DeclLike {}
 enum CModuleKind {
   case Builtin, Error, Source
 }
 final case class NativeModule(id: DefInfo, env: Env, fid: FileId)
-    extends Value {}
+    extends DeclLike {}
 final case class Interface(
     ty: Type,
     id: DefInfo,
     clsId: DefInfo,
     fields: Map[String, VField],
-) extends Item {
+) extends DeclLike {
   override val level: Int = 1
   override def toString: String = s"interface(${id.defName(false)(false)})"
 }
@@ -139,15 +142,15 @@ final case class EnumVariantIns(
     id: DefInfo,
     variantOf: Interface,
     name: String,
-    base: Item,
-) extends Item {
+    base: Class,
+) extends DeclLike {
   override val level: Int = 1
 }
 final case class EnumVariant(
     id: DefInfo,
     variantOf: DefInfo,
-    base: Item,
-) extends Item {
+    base: Class,
+) extends DeclLike {
   override val level: Int = 1
 }
 final case class EnumDestruct(
@@ -159,23 +162,17 @@ final case class EnumDestruct(
 final case class Class(
     id: DefInfo,
     params: Option[List[Param]],
-    vars: List[Var],
-    funcs: List[Fn],
+    vars: List[VarField],
+    restFields: List[VField],
 ) extends Item {
   override val level: Int = 1
   override def toString: String = s"class(${id.defName(false)(false)})"
+  def isPhantomClass: Boolean =
+    vars.isEmpty && restFields.forall(_.isInstanceOf[DefField])
 }
 object Class {
   def empty(env: Env) =
     Class(DefInfo.just(CLASS_EMPTY, env), None, List.empty, List.empty)
-}
-final case class EnumClass(
-    id: DefInfo,
-    params: Option[List[Param]],
-    variants: List[EnumVariant],
-    default: Option[Class],
-) extends Item {
-  override val level: Int = 1
 }
 
 // TopTy
@@ -267,7 +264,9 @@ sealed abstract class Value extends Item
 final case class Integer(value: Int) extends Value {}
 final case class Str(value: String) extends Value {}
 
-sealed abstract class VField
-final case class VarField(item: Item) extends VField
-final case class DefField(item: Item) extends VField
-final case class TypeField(item: Item) extends VField
+sealed abstract class VField {
+  val item: DeclLike
+}
+final case class VarField(item: Var) extends VField
+final case class DefField(item: DeclLike) extends VField
+final case class TypeField(item: DeclLike) extends VField
