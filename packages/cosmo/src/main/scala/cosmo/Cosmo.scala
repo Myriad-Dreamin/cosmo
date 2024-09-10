@@ -49,6 +49,11 @@ class Cosmo extends PackageManager {
     linker.assemblePkg(pkg, mayConvert, releaseDir)
   }
 
+  @JSExport
+  def parseAsJson(s: String): String = {
+    parse(s).map(syntax.toJson).getOrElse("")
+  }
+
   def mayConvert(src: String): Option[String] =
     loadModuleBySrc(src).map(cppBackend).flatten
 

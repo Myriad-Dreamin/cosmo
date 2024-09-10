@@ -1,0 +1,18 @@
+
+import std.os.exec;
+
+import std.collections.vec;
+import std.json;
+
+def main() = {
+  var args = vec.Vec(String)();
+  args.push("cmd/cosmo/main.js");
+  args.push("parse");
+  args.push("samples/CompileDriver/parse.cos");
+  var cmd = exec.Command("node", args);
+  var content = exec.Command.run(cmd);
+  println(content);
+  var j = json.parse(content);
+  println(j.clone().apply("kind"));
+  println(j.apply("stmts"));
+}

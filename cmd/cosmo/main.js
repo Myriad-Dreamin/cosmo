@@ -25,6 +25,9 @@ async function main() {
     });
 
     await asyncSpawn;
+  } else if (action === "parse") {
+    const inputData = readFileSync(input, 'utf8');
+    console.log(compiler.parseAsJson(inputData));
   } else {
     const inputData = readFileSync(input, 'utf8');
     const output = process.argv[4];

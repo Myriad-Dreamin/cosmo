@@ -1,0 +1,31 @@
+
+import cstdioSys from "libc++/cstdio"
+import memorySys from "libc++/memory"
+
+import std.collections.vec
+
+class Command {
+  val name: String;
+  val args: vec.Vec(String);
+
+  def run(cmd: Command): String = {
+    code("""
+    std::string shellCommand = cmd.name.internal;
+    auto args = cmd.args.internal;
+    for (int i = 0; i < args.size(); i++) {
+        shellCommand += " ";
+        shellCommand += args[i].internal;
+    }
+    std::shared_ptr<FILE> pipe(cosmoPopen(shellCommand.data(), "r"), cosmoPclose);
+    if (!pipe) return "ERROR";
+    char buffer[128];
+    std::string result = "";
+    while (!feof(pipe.get())) {
+        if (fgets(buffer, 128, pipe.get()) != NULL)
+            result += buffer;
+    }
+    return CString(result);
+    """);
+  }
+}
+
