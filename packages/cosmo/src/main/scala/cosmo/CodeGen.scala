@@ -91,7 +91,7 @@ class CodeGen(implicit val env: Env) {
             s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
           }
           .getOrElse("")
-        val emptyConstructable = vars.forall(v => v.item.init != ir.NoneItem)
+        val emptyConstructable = vars.forall(!_.item.init.isEmpty)
         val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
         val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
         val consPref = if (vars.isEmpty) "" else s":"
@@ -224,15 +224,16 @@ class CodeGen(implicit val env: Env) {
     var constantStr = if isContant then "const " else ""
     val kInit =
       if (defInfo.inClass) then
-        val initStr =
-          if (init == ir.NoneItem) then "{}"
-          else s"${expr(init)}"
+        val initStr = init match {
+          case Some(value) => s"${expr(value)}"
+          case None        => "{}"
+        }
         s"static inline $ty k${name.capitalize}Default = ${initStr};"
       else ""
     val initStr =
-      if (init == ir.NoneItem) then ""
+      if (init.isEmpty) then ""
       else if (defInfo.inClass) then s" = k${name.capitalize}Default"
-      else s" = ${expr(init)}"
+      else s" = ${expr(init.getOrElse(NoneItem))}"
     s"$kInit$constantStr$ty $name$initStr"
   }
 

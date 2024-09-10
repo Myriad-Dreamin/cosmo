@@ -95,7 +95,7 @@ abstract class DeclLike extends Item {
 final case class Param(name: String, id: DefInfo, ty: Type) extends DeclLike {}
 final case class Var(
     id: DefInfo,
-    init: Item,
+    init: Option[Item],
     isContant: Boolean,
     override val level: Int,
 ) extends DeclLike {}
