@@ -6,7 +6,7 @@
 
 == Restricted UFCS (Uniform Function Call Syntax)
 
-Cosmo interprets dots in restricted UFCS style. UFCS is a feature that allows you to call a method on a type that is not defined in the type itself.
+Cosmo interprets dots in restricted UFCS style. UFCS is a feature that allows you to call a method on a type that is not defined as method of the type.
 
 ```cos
 class Cat {
@@ -59,13 +59,13 @@ For ```cos meow1```, both ```cos Cat.meow1()``` and ```cos Cat().meow1()``` are 
 
 For ```cos meow2``` and ```cos meow3```, both ```cos Cat().meow2()``` and ```cos Cat.meow2(Cat())``` are legal. They will be translated to ```cos Cat().meow2()``` or ```cpp Cat::meow3(Cat())``` in C++.
 
-=== Forbidded UFCS Case 4
+=== Forbidden UFCS Case 4
 
 Note for ```cos meow4```, it is a function outside the class. It is not legal to call ```cos Cat().meow4()``` in Cosmo. This is because we forbid #link("https://en.wikipedia.org/wiki/Function_overloading")[_Function Overloading_] in Cosmo. Therefore, we have to call ```cos meow4(Cat())``` in Cosmo.
 
 == Self Sugar
 
-The only difference between `meow2` and `meow3` is the translated C++ code. In C++, `meow2` (self) is translated at member function in best efforts, while `meow3` is translated at static function.
+The only difference between `meow2` and `meow3` is the translated C++ code. In C++, `meow2` (self) is translated as member function in best efforts, while `meow3` is translated as static function.
 
 Note, you can also annotate type on `self`:
 

@@ -10,6 +10,7 @@
     #prefix-chapter("syntax.typ")[Syntax]
     #prefix-chapter("syntax-bnf.typ")[BNF Specification]
     #prefix-chapter("class.typ")[Class Design]
+    #prefix-chapter("trait.typ")[Trait Design]
     #prefix-chapter("ufcs.typ")[Method Call Design]
   ],
 )
