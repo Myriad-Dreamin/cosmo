@@ -1,0 +1,12 @@
+//! `T <: Self` means must be a subtype of Self
+
+trait MFormatter[T <: Self] {
+  def write(self: RefMut(T), s: AsRef(str)): io::Result();
+}
+
+impl[T <: String] MFormatter for T {
+  def write(self: RefMut(T), s: AsRef(str)): io::Result() = {
+    self.push_str(s);
+    Ok()
+  }
+}

@@ -1,0 +1,6 @@
+
+trait MAny {}
+
+def main() = {
+  println(bool <: MAny);
+}

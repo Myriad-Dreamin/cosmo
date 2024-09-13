@@ -109,13 +109,13 @@ class Cosmo extends PackageManager {
 
   def resolvePackage(path: syntax.Node): FileId = {
     var names = path match {
-      case syntax.Select(target, nn) =>
+      case syntax.Select(target, nn, _) =>
         // collect all the names in the target
         var names = List[String]()
         var current = target
         while (current != null) {
           current match {
-            case syntax.Select(target, nn) =>
+            case syntax.Select(target, nn, _) =>
               names = nn.name :: names
               current = target
             case syntax.Ident(name) =>

@@ -24,7 +24,7 @@ const path = require("path");
 
   let data = fs.readFileSync(srcPath, "utf8");
 
-  data = data.replace(/\?\<\=val\\s\*/g, "?<=val\\s")
+  data = data.replace(/\?\<\=val\\s\*/g, "?<=val\\s").replace(/\?\<\=def\\s\*/g, "?<=def\\s")
     .replace("name: cosmo", "name: cos");
 
   // (?<=val\s*)

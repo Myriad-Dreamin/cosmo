@@ -1,0 +1,38 @@
+
+import std::io;
+import (ExceptionBase, Exception, ExceptionEffect) from super::exception_base;
+
+trait MFormatter {
+  def write(&mut self, s: &AsRef(str)): io::Result<()>;
+}
+
+class CanThrowFormatter {
+}
+
+impl MFormatter for CanThrowFormatter {
+
+  def write(&mut self, s: &AsRef(str)): io::Result<()> = {
+    throw Exception("Not implemented");
+  }
+}
+
+def mprintln(s: &mut CanThrowFormatter) = {
+  std::handle(ExceptionEffect, (e: &ExceptionBase) => {
+    println("Caught exception Second: " + e.message());
+    abort();
+  });
+
+  s.write("Hello, world!");
+}
+
+// Will print "Caught exception Second: Not implemented"
+def main() = {
+  var s = CanThrowFormatter();
+
+  std::handle(ExceptionEffect, (e: &ExceptionBase) => {
+    println("Caught exception First: " + e.message());
+    abort();
+  });
+
+  mprintln(s);
+}

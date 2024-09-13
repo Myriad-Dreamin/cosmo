@@ -164,6 +164,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   def withNsParams[T](ns: String, params: Option[Either[SParams, List[Param]]])(
       f: => T,
   ): T = {
+    debugln(s"withNsParams $ns $params")
     withNs(ns) {
       scopes.withScope {
         params.foreach {
@@ -172,7 +173,7 @@ class Env(pacMgr: cosmo.PackageManager) {
               scopes.set(name, id)
             }
           case Left(params) =>
-            params.iterator.foreach { case SParam(name, ty, init) =>
+            params.iterator.foreach { case SParam(name, ty, init, _) =>
               varItem(ct(name), ty, init.map(valueExpr), false)(0)
             }
         }
@@ -276,9 +277,12 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.BinOp(op, lhs, rhs) => BinOp(op, expr(lhs), expr(rhs))
       case syntax.As(lhs, rhs)        => As(expr(lhs), typeExpr(rhs))
       case syntax.Apply(lhs, rhs)     => applyItem(expr(lhs), rhs.map(expr))
-      case syntax.Select(lhs, rhs)    => deref(selectItem(expr(lhs), rhs.name))
+      // todo: check is compile time
+      case syntax.Select(lhs, rhs, _) => deref(selectItem(expr(lhs), rhs.name))
       case syntax.Semi(None)          => ir.NoneKind(level)
       case syntax.Semi(Some(value))   => Semi(expr(value))
+      // todo: decorator
+      case syntax.Decorate(lhs, rhs) => expr(rhs)
       // declarations
       case syntax.Import(p, dest) => importItem(p, dest)
       case syntax.Val(x, ty, y)   => varItem(ct(x), ty, y.map(expr), true)
@@ -287,8 +291,9 @@ class Env(pacMgr: cosmo.PackageManager) {
       case d: syntax.Def          => defItem(d, ct(d.name))
       case c: syntax.Class        => classItem(c, Some(classItem(c, None)))
       case t: syntax.Trait        => Opaque.expr(s"0/* trait: ${t} */")
+      case i: syntax.Impl         => Opaque.expr(s"0/* impl: ${i} */")
       // syntax errors
-      case SParam(name, _, _)    => Opaque.expr(s"panic(\"param: $name\")")
+      case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
       case syntax.KeyedArg(k, v) => KeyedArg(castKey(k), expr(v))
       case syntax.TmplApply(Ident("a"), rhs) => Rune(rhs.head._1.head.toInt)
       case syntax.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt)
@@ -638,10 +643,10 @@ class Env(pacMgr: cosmo.PackageManager) {
 
   def importNative(p: syntax.Node, dest: Option[syntax.Node]): Item = {
     val defInfo = ct(p match {
-      case _ if (!dest.isEmpty)                   => "$module"
-      case syntax.Select(lhs, syntax.Ident(name)) => name
-      case syntax.Ident(name)                     => name
-      case _                                      => "$module"
+      case _ if (!dest.isEmpty)                      => "$module"
+      case syntax.Select(lhs, syntax.Ident(name), _) => name
+      case syntax.Ident(name)                        => name
+      case _                                         => "$module"
     })
     val moduleIns = pacMgr.loadModule(p) match {
       case Some((fid, env)) => NativeModule(defInfo, env, fid)

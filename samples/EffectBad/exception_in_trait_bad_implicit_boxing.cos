@@ -1,0 +1,43 @@
+
+import std::io;
+import (ExceptionBase, Exception, ExceptionEffect) from super::exception_base;
+
+trait MFormatter {
+  def write(&mut self, s: &AsRef(str)): io::Result<()>;
+}
+
+class CanNotBoxFormatter {
+}
+
+impl MFormatter for CanNotBoxFormatter {
+
+  def write(&mut self, s: &AsRef(str)): io::Result<()> = {
+    @expectError("""`ExceptionEffect` is not handled in lexical scopes.
+Stack of checked lexical scopes:
+- body of class CanNotBoxFormatter
+- fn main when boxing CanNotBoxFormatter // mprintln(s);
+""")
+    throw Exception("Not implemented");
+  }
+}
+
+def mprintln(s: &mut MFormatter) = {
+  std::handle(ExceptionEffect, (e: &ExceptionBase) => {
+    println("Caught exception Second: " + e.message());
+    abort();
+  });
+
+  s.write("Hello, world!");
+}
+
+// Will trigger compile error
+def main() = {
+  var s = CanNotBoxFormatter();
+
+  std::handle(ExceptionEffect, (e: &ExceptionBase) => {
+    println("Caught exception First: " + e.message());
+    abort();
+  });
+
+  mprintln(s);
+}

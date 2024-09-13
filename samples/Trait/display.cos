@@ -1,0 +1,37 @@
+
+import std::io;
+
+trait MFormatter {
+  def write(&mut self, s: &AsRef(str)): io::Result();
+}
+
+impl MFormatter for String {
+  def write(&mut self, s: &AsRef(str)): io::Result() = {
+    self.push_str(s);
+    Ok()
+  }
+}
+
+trait MDisplay {
+  def display(&self, f: &mut MFormatter): io::Result();
+}
+
+impl MDisplay for bool {
+  def display(&self, f: &mut MFormatter): io::Result() = {
+    if (*self) {
+      f.write("true")
+    } else {
+      f.write("false")
+    }
+  }
+}
+
+def mprintln(t: &MDisplay) = {
+  var s = String();
+  t.display(s.as_mut()).unwrap();
+  println(s);
+}
+
+def main() = {
+  mprintln(bool <: MDisplay);
+}

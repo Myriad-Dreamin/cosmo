@@ -1,0 +1,10 @@
+
+@nostd("all");
+
+class Option[T] {
+  case Some(v: T);
+  case None;
+}
+
+def main() = {
+}

@@ -39,6 +39,15 @@ class SampleTest extends munit.FunSuite:
   test("Class/staticMethod") {
     runTestOnFile("samples/Class/staticMethod.cos")
   }
+  test("Trait/empty") {
+    runTestOnFile("samples/Trait/empty.cos")
+  }
+  test("Trait/formatter") {
+    runTestOnFile("samples/Trait/formatter.cos")
+  }
+  test("Trait/formatter_t") {
+    runTestOnFile("samples/Trait/formatter_t.cos")
+  }
   test("ControlFlow/loop") {
     runTestOnFile("samples/ControlFlow/loop.cos")
   }
@@ -54,13 +63,19 @@ class SampleTest extends munit.FunSuite:
   test("Pattern/natAdd") {
     runTestOnFile("samples/Pattern/natAdd.cos")
   }
+  test("Pattern/option") {
+    runTestOnFile("samples/Pattern/option.cos")
+  }
+  test("Pattern/result".only) {
+    runTestOnFile("samples/Pattern/result.cos")
+  }
   test("Io/readFile") {
     runTestOnFile("samples/Io/readFile.cos")
   }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")
   }
-  test("PythonTutorial/a_calc".only) {
+  test("PythonTutorial/a_calc") {
     runTestOnFile("samples/PythonTutorial/a_calc.cos")
   }
 end SampleTest

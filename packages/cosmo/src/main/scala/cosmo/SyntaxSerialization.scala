@@ -37,6 +37,12 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append("""{"kind": "semi", "value": """)
       j(node, buf)
       buf.append("}")
+    case Decorate(lhs, rhs) =>
+      buf.append("""{"kind": "decorate", "lhs": """)
+      j(lhs, buf)
+      buf.append(""", "rhs": """)
+      j(rhs, buf)
+      buf.append("}")
     case Ident(name)    => buf.append(s"""{"kind": "ident", "name": "$name"}""")
     case BoolLit(value) => buf.append(s"""{"kind": "bool", "value": $value}""")
     case IntLit(value)  => buf.append(s"""{"kind": "int", "value": "$value"}""")
@@ -92,13 +98,25 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "body": """)
       j(body, buf)
       buf.append("}")
-    case Param(name, ty, init) =>
+    case Impl(item, tr, params, body) =>
+      buf.append("""{"kind": "impl", "item": """)
+      j(item, buf)
+      buf.append(""", "tr": """)
+      j(tr, buf)
+      buf.append(""", "params": """)
+      jpol(params, buf)
+      buf.append(""", "body": """)
+      j(body, buf)
+      buf.append("}")
+    case Param(name, ty, init, isCompileTime) =>
       buf.append("""{"kind": "param", "name": """)
       j(name, buf)
       buf.append(""", "ty": """)
       j(ty, buf)
       buf.append(""", "init": """)
       j(init, buf)
+      buf.append(""", "compileTime": """)
+      j(isCompileTime, buf)
       buf.append("}")
     case Def(name, params, ret, rhs) =>
       buf.append("""{"kind": "def", "name": """)
@@ -170,11 +188,13 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "rhs": """)
       j(rhs, buf)
       buf.append("}")
-    case Select(lhs, rhs) =>
+    case Select(lhs, rhs, isCompileTime) =>
       buf.append("""{"kind": "select", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": """)
       j(rhs, buf)
+      buf.append(""", "compileTime": """)
+      j(isCompileTime, buf)
       buf.append("}")
     case Apply(lhs, rhs) =>
       buf.append("""{"kind": "apply", "lhs": """)

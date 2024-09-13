@@ -1,0 +1,25 @@
+
+/// ExceptionBase is the base trait for all exceptions.
+/// It provides a method to get the exception message.
+trait ExceptionBase {
+  def message(&self): &str;
+}
+
+/// ExceptionEffect is the effect that handles exceptions.
+trait ExceptionEffect {
+  def apply(&self, e: &ExceptionBase): Nothing = ???;
+}
+
+/// Associate the `ExceptionEffect` with the `ExceptionBase`.
+impl Effect for ExceptionBase {
+  type EffectHandler = ExceptionEffect;
+}
+
+/// The basic concrete exception class.
+class Exception {
+  val msg: String;
+}
+
+impl ExceptionBase for Exception {
+  def message(&self) = &self.msg;
+}

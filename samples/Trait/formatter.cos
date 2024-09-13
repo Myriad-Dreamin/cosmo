@@ -1,0 +1,20 @@
+
+import std::io;
+
+trait MFormatter {
+  def write(&mut self, s: &AsRef(str)): io::Result();
+}
+
+impl MFormatter for String {
+  def write(&mut self, s: &AsRef(str)): io::Result() = {
+    self.push_str(s);
+    Ok()
+  }
+}
+
+def main() = {
+  println(String <: MFormatter);
+  var s = String();
+  s.write("Hello, world!").unwrap();
+  println(s);
+}

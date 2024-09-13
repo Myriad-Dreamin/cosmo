@@ -1,0 +1,52 @@
+
+trait Empty {}
+
+def Id2[A, A <: Type] = A;
+
+def printA[A](a: A) = {
+  println(a);
+}
+
+def printA2[A, A <: Empty](a: A) = {
+  println(a);
+}
+
+def printA2[A <: Empty](a: A) = {
+  println(a);
+}
+
+def eq[A, B <: AsRef(A)](a: &A, b: &B) = {
+  println(a == b.as_ref());
+}
+
+def eq2[A B: Type, B <: AsRef(A)](a: &A, b: &B) = {
+  println(a == b.as_ref());
+}
+
+def intersectCase[A, B](a: A, b: B, returnA: bool): (A & B) = {
+  if (returnA) {
+    a
+  } else {
+    b
+  }
+}
+
+def unionCase[A, B](a: A, b: B, returnA: bool): (A | B) = intersectCase(a, b, returnA);
+
+def borrowPath[A, B, C <: (A::c | B::d)](a: A, b: B, returnA: bool): C = {
+  if (returnA) {
+    a.c
+  } else {
+    b.d
+  }
+}
+
+type AorBorC = A | B | C;
+
+// <:, >:, =:, &, |
+
+// def borrowPath2[A, B, C <: Type(a.c) | Type(b.d)](a: A, b: B, returnA: bool): C = borrowPath(a, b)
+
+def main() {
+  println(Bool <: Empty);
+}

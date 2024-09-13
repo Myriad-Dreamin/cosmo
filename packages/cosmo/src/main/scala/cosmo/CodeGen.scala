@@ -27,6 +27,7 @@ class CodeGen(implicit val env: Env) {
   def mayGenDef(ast: ir.Item, tl: Boolean): Option[String] = {
     implicit val topLevel = tl;
     val res: String = ast match {
+      case ir.NoneItem    => ""
       case ir.Semi(value) => genDef(value, tl)
       case Fn(defInfo, Sig(None, ret_ty, body), _) =>
         val name = defInfo.defName(stem = true)

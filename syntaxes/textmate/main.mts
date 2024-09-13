@@ -64,13 +64,23 @@ const stringPattern = (p: RegExp): textmate.Pattern => ({
   ],
 });
 
+const constPre = /(?<=val\s*|\:\:)/.source + IDENTIFIER.source;
+const constPost = IDENTIFIER.source + /(?=\:\:)/.source;
 const constIdentifier: textmate.PatternMatch = {
-  match: /(?<=val\s*)/.source + IDENTIFIER.source,
+  match: new RegExp(`(?:${constPre})|(?:${constPost})`),
   name: "entity.name.type.cosmo",
 };
 
-const functionIdentifier: textmate.PatternMatch = {
-  match: IDENTIFIER.source + /(?=\(|\s*\{)/.source,
+const funcPre = /(?<=def\s*)/.source + IDENTIFIER.source;
+const functionPreIdentifier: textmate.PatternMatch = {
+  match: funcPre,
+  name: "entity.name.function.cosmo",
+};
+
+const funcPre2 = /(?<=\@)/.source + IDENTIFIER.source;
+const funcPost = IDENTIFIER.source + /(?=[\(\[]|\s*\{)/.source;
+const functionPostIdentifier: textmate.PatternMatch = {
+  match: new RegExp(`(?:${funcPre2})|(?:${funcPost})`),
   name: "entity.name.function.cosmo",
 };
 
@@ -79,7 +89,7 @@ const typeConvention = /(?<!\.)(?=[A-Z])/.source + IDENTIFIER.source;
 const typeIdentifier: textmate.PatternMatch = {
   match:
     `(?:${typeConvention})|` +
-    /\b(?:any|never|bool|f32|f64|f128|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize)\b/
+    /\b(?:any|never|bool|str|f32|f64|f128|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize)\b/
       .source,
   name: "entity.name.type.cosmo",
 };
@@ -102,7 +112,7 @@ const keywords: textmate.Pattern = {
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:extern|pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|Self|self|super|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not)\b/,
+        /\b(?:extern|pub|mut|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|Self|self|super|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not)\b/,
     },
   ],
 };
@@ -148,8 +158,9 @@ export const cosmo: textmate.Grammar = {
     contextualKeywords,
     keywords,
     typeIdentifier,
-    functionIdentifier,
     constIdentifier,
+    functionPreIdentifier,
+    functionPostIdentifier,
     identifier,
     escape,
     hexNumeric,
@@ -210,10 +221,13 @@ function generate() {
           include: "#typeIdentifier",
         },
         {
+          include: "#functionPostIdentifier",
+        },
+        {
           include: "#constIdentifier",
         },
         {
-          include: "#functionIdentifier",
+          include: "#functionPreIdentifier",
         },
         {
           include: "#identifier",
