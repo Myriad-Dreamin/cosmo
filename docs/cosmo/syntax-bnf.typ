@@ -137,6 +137,30 @@ BytesLiterals = "b" StringLit
 b"a", b"\x00"
 ```
 
+== Char Literals
+
+Creating a ascii literal by template with `a` prefix.
+
+```scala
+BytesLiterals = "a" StringLit
+```
+
+```example
+bc"a", bc"\x00"
+```
+
+== Rune Literals
+
+Creating a rune literal by template with `c` prefix.
+
+```scala
+BytesLiterals = "c" StringLit
+```
+
+```example
+bc"a", bc"\x00"
+```
+
 == Constant Literals
 
 ```scala

@@ -1,6 +1,6 @@
 
-import cstdioSys from "libc++/cstdio"
-import memorySys from "libc++/memory"
+import cstdioSys from "@lib/c++/cstdio"
+import memorySys from "@lib/c++/memory"
 
 import std.collections.vec
 

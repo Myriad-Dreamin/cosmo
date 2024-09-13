@@ -1,0 +1,44 @@
+
+import mathSys from "@lib/c++/cmath";
+
+def main() = {
+  println(2 + 2);
+  println(50 - 5 * 6);
+  println((50 - 5 * 6) / 4.0);
+  println(8 / 5);
+  println(8 / 5.0);
+
+  println(17 / 3.0);
+  println(17 / 3);
+  println(17 % 3);
+  println(5 * 3 + 2);
+  println(mathSys.pow(5, 2));
+  println(mathSys.pow(2, 7));
+
+  val width = 20;
+  val height = 5 * 9;
+  println(width * height);
+
+  println(4 * 3.75 - 1);
+
+  println("spam eggs");
+  println("""Paris rabbit got your back :)! Yay!""");
+  println("1975");
+
+  println("doesn't");
+  println("\"Yes,\" they said.");
+  println("First line.\nSecond line.");
+
+  // todo: string, array slice operations
+
+  var a = 0;
+  var b = 1;
+
+  while (a < 10) {
+    println(a);
+    val old_a = a;
+    // todo: destructuring assignment
+    a = b;
+    b = old_a + b;
+  }
+}

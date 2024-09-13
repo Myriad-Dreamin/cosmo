@@ -20,12 +20,11 @@ object Parser {
     P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
       !keywords(_),
     )
-  def selfLit[$: P] =
-    (keyword("self").map(_ => Self) | keyword("Self").map(_ => BigSelf))
   def booleanLit[$: P] =
     (P(keyword("true") | keyword("false"))).!.map(v => BoolLit(v == "true"))
   def numberLit[$: P] = P(
-    integer.map(IntLit.apply) | floatnumber.map(FloatLit.apply),
+    floatnumber.map(FloatLit.apply) |
+      integer.map(IntLit.apply),
   )
   def todoLit[$: P] = P("???").map(_ => TodoLit)
 
@@ -35,9 +34,11 @@ object Parser {
   def shortstring0[$: P](delimiter: String) = P(
     delimiter ~~/ (!"\"" ~~ shortstringitem).repX.! ~~ delimiter,
   )
-  def longstring[$: P]: P[String] = P(longstring0("\"\"\""))
+  def longstring[$: P]: P[String] = P(
+    "\"".repX(3).!./.flatMapX(longstring0),
+  )
   def longstring0[$: P](delimiter: String) = P(
-    delimiter ~~/ (!"\"\"\"" ~~ longstringitem).repX.! ~~ delimiter,
+    (!delimiter ~~ longstringitem).repX.! ~~ delimiter,
   )
   def shortstringitem[$: P]: P[Unit] = P(litCharsWhile("\\\n\"") | escapeseq)
   def longstringitem[$: P]: P[Unit] = P(lStringChars("\\\"").repX.!)
@@ -45,7 +46,7 @@ object Parser {
   def tmplLit[$: P] =
     P(tmplPath ~ &("\"") ~ tmplLitParts).map(TmplApply.apply.tupled)
   def tmplPath[$: P] = P(
-    (ident.filter(_ != "from") | selfIdent).map(Ident.apply) ~ (P(
+    ident.filter(_ != "from").map(Ident.apply) ~ (P(
       "." ~ identifier,
     )).rep,
   ).map { case (lhs, rhs) => rhs.foldLeft(lhs: Node)(Select.apply) }
@@ -112,7 +113,7 @@ object Parser {
 
   // Terms
   def term[$: P]: P[Node] = P(
-    ifItem | forItem | loopItem | caseClause | semiWrap | semi,
+    ifItem | forItem | whileItem | loopItem | caseClause | semiWrap | semi,
   )
   def semiWrap[$: P]: P[Node] = P(
     P(
@@ -139,7 +140,7 @@ object Parser {
     }
   }
   // Expressions
-  def literal[$: P] = P(numberLit | selfLit | booleanLit | stringLit | todoLit)
+  def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit)
   def identifier[$: P] = ident.map(Ident.apply)
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
@@ -163,6 +164,9 @@ object Parser {
   def forItem[$: P] = P(
     keyword("for") ~ "(" ~/ ident ~ keyword("in") ~ term ~ ")" ~ braces,
   ).map(For.apply.tupled)
+  def whileItem[$: P] = P(
+    keyword("while") ~/ parens ~ braces,
+  ).map(While.apply)
   def breakItem[$: P] = P(keyword("break")).map(_ => Break())
   def continueItem[$: P] = P(keyword("continue")).map(_ => Continue())
   def ifItem[$: P]: P[Node] = P(
@@ -204,9 +208,17 @@ object Parser {
   def addSub[$: P]: P[Node] = binOp(CharIn("+\\-"), divMul)
   def divMul[$: P]: P[Node] = binOp(CharIn("*/"), arithMod)
   def arithMod[$: P]: P[Node] = binOp(CharIn("%"), factor)
-  def unary[$: P]: P[Node] = P(P("!" | "~" | "-" | "+").! ~ factor).map(UnOp.apply.tupled)
+  def unary[$: P]: P[Node] =
+    P(P("!" | "~" | "-" | "+").! ~ factor).map(UnOp.apply.tupled)
+  def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
   // Clauses
-  def parens[$: P] = P("(" ~/ term ~ ")")
+  def parens[$: P] = P(
+    "(" ~/ arg.rep(sep = ",") ~ ("," ~ &(")")).map(_ => true).? ~ ")",
+  ).map(p => {
+    if p._2.isEmpty && p._1.size == 1 && !p._1.head.isInstanceOf[KeyedArg] then
+      p._1.head
+    else ArgsLit(p._1.toList)
+  })
   def braces[$: P]: P[Node] =
     P("{" ~/ term.rep.map(_.toList) ~ "}").map(body => {
       // check if all terms are cases
@@ -220,20 +232,24 @@ object Parser {
       else CaseBlock(caseItems)
     })
   def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
-  def arg[$: P] = P(keyedClause | compound)
+  def arg[$: P] = P(spread | keyedClause)
   def params[$: P] = P("(" ~/ P(param.rep(sep = ",")) ~ ")").map(_.toList)
   def param[$: P] =
-    P((ident | selfIdent) ~ typeAnnotation.? ~ initExpression.?)
+    P((ident) ~ typeAnnotation.? ~ initExpression.?)
       .map(Param.apply.tupled)
-  def selfIdent[$: P] = keyword("self").map(_ => "self")
   def typeAnnotation[$: P] = P(":" ~/ factor)
   def initExpression[$: P] = P("=" ~/ term)
   def matchClause[$: P] = P(keyword("match") ~/ braces)
   def caseClause[$: P] =
     P("case" ~/ term ~ ("=>" ~ term).?).map(Case.apply.tupled)
   def keyedClause[$: P] = P(
-    ((ident | selfIdent) ~ ":" ~/ compound)
-      .map(KeyedArg.apply.tupled),
+    (compound ~ (":" ~/ compound).?)
+      .map { case (lhs, rhs) =>
+        rhs match {
+          case Some(rhs) => KeyedArg(lhs, rhs)
+          case None      => lhs
+        }
+      },
   )
 
   // Keywords
@@ -257,13 +273,13 @@ object Parser {
       "return",
       "case",
       "def",
-      "self",
       "class",
       "trait",
       "type",
       "if",
       "else",
       "for",
+      "while",
       "loop",
       "val",
       "var",

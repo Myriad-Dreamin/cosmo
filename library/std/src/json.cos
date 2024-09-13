@@ -114,53 +114,53 @@ pub def parse(content: String): Value = NlohmannJsonImpl.parse(content)
 code("""
 
 template <> struct DisplayTrait<ValueT<NlohmannJsonImpl>> {
-  static void println(const ValueT<NlohmannJsonImpl> &x) {
+  static void print(const ValueT<NlohmannJsonImpl> &x) {
     switch (x.data.index()) {
     case ValueT<NlohmannJsonImpl>::kIdxNull: {
-      printf(std::move(::std::string("null\n").data()));
+      printf(std::move(::std::string("null").data()));
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxBool: {
-      printf(std::move(::std::string("%s\n").data()),
+      printf(std::move(::std::string("%s").data()),
              x.Bool_0() ? "true" : "false");
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxNumberSigned: {
-      printf(std::move(::std::string("%lld\n").data()), x.NumberSigned_0());
+      printf(std::move(::std::string("%lld").data()), x.NumberSigned_0());
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxNumberUnsigned: {
-      printf(std::move(::std::string("%llu\n").data()), x.NumberUnsigned_0());
+      printf(std::move(::std::string("%llu").data()), x.NumberUnsigned_0());
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxNumber: {
-      printf(std::move(::std::string("%f\n").data()), x.Number_0());
+      printf(std::move(::std::string("%f").data()), x.Number_0());
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxStr: {
-      printf(std::move(::std::string("%s\n").data()),
+      printf(std::move(::std::string("%s").data()),
              x.Str_0().internal.c_str());
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxArray: {
-      printf("[\n");
+      printf("[");
       auto first = true;
       for (const auto &i : x.Array_0().internal) {
         if (!first) {
-          printf(",\n..");
+          printf(", ..");
         } else {
           printf("..");
           first = false;
         }
       };
-      printf("]\n");
+      printf("]");
     }; break;
     case ValueT<NlohmannJsonImpl>::kIdxObject: {
-      printf("{\n");
+      printf("{");
       auto first = true;
       for (const auto &[k, v] : x.Object_0().internal) {
         if (!first) {
-          printf(",\n");
+          printf(", ");
         } else {
           first = false;
         }
-        printf(std::move(::std::string("%s: ..\n").data()), k.internal.c_str());
+        printf(std::move(::std::string("%s: ..").data()), k.internal.c_str());
       };
-      printf("}\n");
+      printf("}");
     }; break;
     default: {
       unreachable();

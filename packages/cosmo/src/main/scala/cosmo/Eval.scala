@@ -87,6 +87,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   implicit val system: CosmoSystem = new JsPhysicalSystem()
 
   def eval(ast: syntax.Block): Env = {
+    newBuiltin("print")
     newBuiltin("println")
     newBuiltin("panic")
 
@@ -233,16 +234,36 @@ class Env(pacMgr: cosmo.PackageManager) {
   def expr(ast: syntax.Node)(implicit level: Int): ir.Item = {
     ast match {
       // literals
-      case syntax.TodoLit          => TodoLit
-      case syntax.Self             => SelfVal
-      case syntax.BigSelf          => SelfTy
-      case syntax.BoolLit(value)   => Opaque.expr(value.toString)
-      case syntax.IntLit(value)    => Opaque.expr(value.toString)
+      case syntax.TodoLit        => TodoLit
+      case syntax.BoolLit(value) => Opaque.expr(value.toString)
+      case syntax.IntLit(value) =>
+        if (value.isValidInt) Integer(value.toInt)
+        else Opaque.expr(value.toString)
       case syntax.FloatLit(value)  => Opaque.expr(value.toString)
-      case syntax.StringLit(value) => Str(value)
+      case syntax.StringLit(value) => Str(unescapeStr(value))
       case syntax.Ident(name)      => byName(name)
+      case syntax.ArgsLit(values) => {
+        if (values.exists(_.isInstanceOf[syntax.KeyedArg])) {
+          var dict = Map[String, Item]();
+          for (v <- values) {
+            v match {
+              case syntax.KeyedArg(k, v) => dict += (castKey(k) -> expr(v))
+              case _ =>
+                errors = s"cannot mix pos arg with keyed args" :: errors
+            }
+          }
+          return DictLit(dict)
+        }
+
+        var arr = List[Item]();
+        for (v <- values) {
+          arr = arr :+ expr(v)
+        }
+        return TupleLit(arr)
+      }
       // control flow
       case l: syntax.Loop        => Loop(expr(l.body))
+      case w: syntax.While       => While(expr(w.cond), expr(w.body))
       case f: syntax.For         => For(f.name, expr(f.iter), expr(f.body))
       case syntax.Break()        => Break()
       case syntax.Continue()     => Continue()
@@ -268,7 +289,10 @@ class Env(pacMgr: cosmo.PackageManager) {
       case t: syntax.Trait        => Opaque.expr(s"0/* trait: ${t} */")
       // syntax errors
       case SParam(name, _, _)    => Opaque.expr(s"panic(\"param: $name\")")
-      case syntax.KeyedArg(k, v) => KeyedArg(k, expr(v))
+      case syntax.KeyedArg(k, v) => KeyedArg(castKey(k), expr(v))
+      case syntax.TmplApply(Ident("a"), rhs) => Rune(rhs.head._1.head.toInt)
+      case syntax.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt)
+      case syntax.TmplApply(Ident("b"), rhs) => Bytes(rhs.head._1.getBytes())
       case syntax.TmplApply(lhs, rhs) =>
         Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */")
       case b: syntax.CaseBlock =>
@@ -277,6 +301,15 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.Case(cond, body) =>
         errors = s"case clause without match" :: errors
         Opaque.expr(s"0/* error: case clause without match */")
+    }
+  }
+
+  def castKey(key: syntax.Node)(implicit level: Int): String = key match {
+    case syntax.Ident(name)  => name
+    case syntax.StringLit(s) => s
+    case _ => {
+      errors = s"Invalid key" :: errors;
+      ""
     }
   }
 
@@ -592,8 +625,8 @@ class Env(pacMgr: cosmo.PackageManager) {
         errors = s"Invalid import path" :: errors
         ""
     }
-    val (kind, includePath) = if path startsWith "libc++/" then {
-      (CModuleKind.Builtin, path.drop(7))
+    val (kind, includePath) = if path startsWith "@lib/c++/" then {
+      (CModuleKind.Builtin, path.drop(9))
     } else if path.isEmpty then {
       (CModuleKind.Error, "bad import path")
     } else {
@@ -795,7 +828,7 @@ class Env(pacMgr: cosmo.PackageManager) {
 
     val vars = params.zipWithIndex.map {
       case (n: syntax.Ident, index) =>
-        val ty = if (n.name == baseName) { syntax.BigSelf }
+        val ty = if (n.name == baseName) { syntax.Ident("Self") }
         else { n }
         syntax.Var(s"_${index}", Some(ty), None)
       // todo: replace self
@@ -839,19 +872,23 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def storeTy(ty: Type)(implicit topLevel: Boolean): String = {
-    debugln(s"storeTy $ty")
+    // logln(s"storeTy $ty")
     ty match {
       case IntegerTy(size, isUnsigned) =>
         s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case FloatTy(size)                  => s"float${size}_t"
-      case BoolTy                         => "bool"
-      case StringTy                       => "CString"
-      case SelfTy                         => "self_t"
-      case ty: CIdent                     => ty.repr
-      case ty: CppInsType                 => ty.repr(storeTy)
-      case ty: NativeType                 => ty.repr
-      case ty: Interface                  => storeTy(ty.ty)
-      case ty: NativeInsType              => ty.repr(storeTy)
+      case FloatTy(size)     => s"float${size}_t"
+      case BoolTy            => "bool"
+      case StringTy          => "CString"
+      case SelfTy            => "self_t"
+      case ty: Integer       => "int32_t"
+      case ty: Str           => "CString"
+      case ty: CIdent        => ty.repr
+      case ty: CppInsType    => ty.repr(storeTy)
+      case ty: NativeType    => ty.repr
+      case ty: Interface     => storeTy(ty.ty)
+      case ty: NativeInsType => ty.repr(storeTy)
+      case ty: TupleLit =>
+        s"std::tuple<${ty.elems.map(storeTy).mkString(", ")}>"
       case classTy: Class                 => classTy.id.defName(stem = true)
       case v: Variable if v.value.isEmpty => v.id.defName(stem = true)
       case v: Var if v.init.isEmpty       => v.id.defName(stem = true)

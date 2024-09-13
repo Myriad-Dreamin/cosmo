@@ -15,6 +15,9 @@ class SampleTest extends munit.FunSuite:
   test("HelloWorld") {
     runTestOnFile("samples/HelloWorld/main.cos")
   }
+  test("Syntax/literal") {
+    runTestOnFile("samples/Syntax/literal.cos")
+  }
   test("TypeAnnotation/add") {
     runTestOnFile("samples/TypeAnnotation/add.cos")
   }
@@ -48,7 +51,7 @@ class SampleTest extends munit.FunSuite:
   test("Format/templateLit") {
     runTestOnFile("samples/Format/templateLit.cos")
   }
-  test("Pattern/natAdd".only) {
+  test("Pattern/natAdd") {
     runTestOnFile("samples/Pattern/natAdd.cos")
   }
   test("Io/readFile") {
@@ -56,5 +59,8 @@ class SampleTest extends munit.FunSuite:
   }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")
+  }
+  test("PythonTutorial/a_calc".only) {
+    runTestOnFile("samples/PythonTutorial/a_calc.cos")
   }
 end SampleTest

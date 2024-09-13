@@ -1,7 +1,7 @@
 
 import stdSys from "cosmo-std.h"
 
-import fstreamSys from "libc++/fstream"
+import fstreamSys from "@lib/c++/fstream"
 
 def Ifstream: Type = fstreamSys.std.ifstream;
 // def IosFlag: Type = fstreamSys.std.ios;

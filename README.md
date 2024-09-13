@@ -39,6 +39,44 @@ yarn compile && node cmd/cosmo/main.js samples/HelloWorld/main.cos samples/Hello
 clang -std=c++17 samples/HelloWorld/main.cc -o test && test
 ```
 
+## Implementation Note
+
+- Literals
+  - [x] Integer
+  - [x] Float
+  - [x] Boolean
+  - [x] String
+- Compound Literals
+  - [ ] Template Literals
+  - [x] Char
+  - [x] Bytes
+  - [x] Byte
+  - [x] Array
+  - [x] Dict
+  - [ ] Lambda
+- Declarations and Statements
+  - [x] Variable
+  - [x] Function
+  - [x] Class
+  - [x] Enum Class
+  - [ ] Trait
+  - [ ] Impl
+  - [x] Import
+- Expressions
+  - [x] Binary
+  - [x] Unary
+  - [ ] As
+  - [x] Match
+  - [x] If
+  - [x] For
+  - [x] While
+  - [x] Loop
+  - [x] Break/Continue/Return
+  - [x] Block
+- Decorators/Macros
+  - [ ] Decorator
+  - [ ] Macro
+
 ## Syntax
 
 External types can be handled by builtin `external` function:

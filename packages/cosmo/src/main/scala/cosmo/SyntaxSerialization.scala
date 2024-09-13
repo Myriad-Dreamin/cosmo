@@ -31,8 +31,6 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append("]")
     }
 
-    case Self       => buf.append("""{"kind": "self"}""")
-    case BigSelf    => buf.append("""{"kind": "bigself"}""")
     case TodoLit    => buf.append("""{"kind": "todo"}""")
     case Semi(None) => buf.append("""{"kind": "semi"}""")
     case Semi(Some(node)) =>
@@ -46,6 +44,10 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(s"""{"kind": "float", "value": "$value"}""")
     case StringLit(value) =>
       buf.append(s"""{"kind": "string", "value": "$value"}""")
+    case ArgsLit(values) =>
+      buf.append("""{"kind": "args", "values": [""")
+      j(values, buf)
+      buf.append("]}")
     case Block(stmts) =>
       buf.append("""{"kind": "block", "stmts": """)
       j(stmts, buf)
@@ -116,6 +118,12 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append("}")
     case Loop(body) =>
       buf.append("""{"kind": "loop", "body": """)
+      j(body, buf)
+      buf.append("}")
+    case While(cond, body) =>
+      buf.append("""{"kind": "while", "cond": """)
+      j(cond, buf)
+      buf.append(""", "body": """)
       j(body, buf)
       buf.append("}")
     case For(name, iter, body) =>

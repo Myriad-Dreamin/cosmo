@@ -45,7 +45,6 @@ final case class Unresolved(id: DefInfo) extends Item {}
 val NoneItem = NoneKind(0)
 val Runtime = RuntimeKind(0)
 
-final case class Lit(value: Int) extends Item {}
 final case class Opaque(expr: Option[String], stmt: Option[String])
     extends Item {}
 object Opaque {
@@ -75,6 +74,7 @@ final case class EnumMatch(
 final case class Match(lhs: Item, rhs: Item) extends Item {}
 final case class Case(cond: Item, body: Item) extends Item {}
 final case class Loop(body: Item) extends Item {}
+final case class While(cond: Item, body: Item) extends Item {}
 final case class For(name: String, iter: Item, body: Item) extends Item {}
 final case class Break() extends Item {}
 final case class Continue() extends Item {}
@@ -263,6 +263,10 @@ final case class NativeInsType(
 sealed abstract class Value extends Item
 final case class Integer(value: Int) extends Value {}
 final case class Str(value: String) extends Value {}
+final case class Bytes(value: Array[Byte]) extends Value {}
+final case class Rune(value: Int) extends Value {}
+final case class DictLit(value: Map[String, Item]) extends Value {}
+final case class TupleLit(elems: List[Item]) extends Value {}
 
 sealed abstract class VField {
   val item: DeclLike

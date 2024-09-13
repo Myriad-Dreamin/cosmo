@@ -1,5 +1,5 @@
 
-import vectorSys from "libc++/vector"
+import vectorSys from "@lib/c++/vector"
 
 pub def CppVec(T: Type): Type = vectorSys.std.vector(T)
 

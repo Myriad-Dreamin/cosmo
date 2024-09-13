@@ -252,6 +252,35 @@ class CodeGen(implicit val env: Env) {
   }
 
   def storeTy(ty: Type): String = env.storeTy(ty)(false)
+  // // 2 args <-> dict
+  // println((a: 2, b: 4,))
+  // // 2 args <-> dict with string key
+  // println((a: 2, ":": 4,))
+  // // 1 arg <-> nested array
+  // println((a: (1, 2)));
+  //   println(std::move(std::map<std::string, int>{{"a", 2}, {"b", 4}}));
+  //   println(std::move(std::map<std::string, int>{{"a", 2}, {":", 4}}));
+  //   println(std::move(
+  //       std::map<std::string, std::tuple<int, int>>{{"a", std::tuple{1, 2}}}));
+
+  def solveDict(items: Map[String, ir.Item]): String = {
+
+    val (keyTy, valueTy) = items.headOption match {
+      case Some((k, v)) => ("std::string", storeTy(v))
+      case _            => ("std::string", "int")
+    }
+    s"std::map<$keyTy, $valueTy>"
+  }
+
+  def bytesRepr(s: ir.Bytes): String = {
+    var sb = new StringBuilder()
+    // \xbb
+    for (b <- s.value) {
+      sb.append(f"\\x${b}%02x")
+    }
+
+    sb.toString()
+  }
 
   // todo: analysis it concretely
   def mayClone(v: ir.VarField, value: String): String = {
@@ -267,7 +296,6 @@ class CodeGen(implicit val env: Env) {
         } else {
           value
         }
-      case _ => value
     }
   }
 
@@ -292,7 +320,7 @@ class CodeGen(implicit val env: Env) {
 
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
-      case Lit(value)            => value.toString
+      case Integer(value)        => value.toString
       case Opaque(_, Some(stmt)) => stmt
       case Opaque(Some(expr), _) => expr
       case Region(stmts) => {
@@ -317,6 +345,8 @@ class CodeGen(implicit val env: Env) {
       case v: Fn       => v.id.defName()(false)
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
+      case ir.While(cond, body) =>
+        return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name, iter, body) =>
         return s"for(auto $name : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
@@ -345,9 +375,19 @@ class CodeGen(implicit val env: Env) {
         } else {
           s"${expr(lhs)}.${rhs}"
         }
-      case SelfVal             => "(*this)"
-      case Unreachable         => return "unreachable();"
-      case ir.Str(s)           => s"""::std::string("$s")"""
+      case SelfVal     => "(*this)"
+      case Unreachable => return "unreachable();"
+      case ir.Str(s)   => s"""::std::string("${escapeStr(s)}")"""
+      case s: ir.Bytes => s"""Bytes("${bytesRepr(s)}")"""
+      case ir.Rune(s) if s < 0x80 && !s.toChar.isControl =>
+        s"Rune('${s.toChar}')"
+      case ir.Rune(s) => s"Rune($s)"
+      case ir.TupleLit(items) =>
+        s"std::tuple{${items.map(expr).mkString(", ")}}"
+      case ir.DictLit(items) =>
+        s"${solveDict(items)}{${items
+            .map { case (k, v) => s"""{"$k", ${expr(v)}}""" }
+            .mkString(", ")}}"
       case ir.Semi(value)      => return exprWith(value, ValRecv.None)
       case v: ir.NativeType    => storeTy(v)
       case v: ir.CIdent        => storeTy(v)
@@ -420,10 +460,7 @@ class CodeGen(implicit val env: Env) {
           .mkString(", ")
         val rebind = v.bindings
           .zip(
-            v.variant.base match {
-              case c: ir.Class => c.vars
-              case _           => List.empty
-            },
+            v.variant.base match { case c: ir.Class => c.vars },
           )
           .map {
             case ("_", _) => ""

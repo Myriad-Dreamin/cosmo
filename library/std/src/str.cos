@@ -1,12 +1,29 @@
 
-import stringSys from "libc++/string"
+import stringSys from "@lib/c++/string"
+import intSys from "@lib/c++/cstdint"
 
 pub def CppString: Type = stringSys.std.string
+
+pub class Rune {
+  var internal: u32;
+}
 
 pub class CString {
   var internal: CppString = stringSys.std.string();
 }
 
+pub class Bytes {
+  var internal: CppString = stringSys.std.string();
+}
+
 code("""
-inline bool operator<(const CString &lhs, const CString &rhs) { return lhs.internal < rhs.internal; }
+inline bool operator<(const CString &lhs, const CString &rhs) {
+  return lhs.internal < rhs.internal;
+}
+inline bool operator<(const Bytes &lhs, const Bytes &rhs) {
+  return lhs.internal < rhs.internal;
+}
+inline bool operator==(const Rune &lhs, const Rune &rhs) {
+  return lhs.internal == rhs.internal;
+}
 """)

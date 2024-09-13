@@ -1,0 +1,25 @@
+
+import mmSys from "@lib/c++/memory"
+
+pub class Box(T: Type) {
+  var internal: mmSys.std.unique_ptr(T)
+
+  // def new(t: T) = {
+  //   internal = mmSys.std.move(mmSys.std.make_unique(t));
+  // }
+}
+
+pub class Arc(T: Type) {
+  var internal: mmSys.std.shared_ptr(T)
+
+  // def new(t: T) = {
+  //   internal = mmSys.std.move(mmSys.std.make_shared(t));
+  // }
+}
+
+class AtomicOrdering {
+  case Relaxed
+  case Consume
+  case Acquire
+  case Release
+}

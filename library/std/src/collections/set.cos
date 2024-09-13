@@ -1,5 +1,5 @@
 
-import setSys from "libc++/set"
+import setSys from "@lib/c++/set"
 
 pub def CppSet(T: Type): Type = setSys.std.set(T)
 

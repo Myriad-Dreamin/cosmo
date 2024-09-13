@@ -1,6 +1,6 @@
 
-import mapSys from "libc++/map"
-import unorderedMapSys from "libc++/unordered_map"
+import mapSys from "@lib/c++/map"
+import unorderedMapSys from "@lib/c++/unordered_map"
 
 pub def CppMap(K: Type, V: Type): Type = mapSys.std.map(K, V)
 pub def CppHashMap(K: Type, V: Type): Type = unorderedMapSys.std.unordered_map(K, V)

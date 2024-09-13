@@ -74,7 +74,7 @@ const functionIdentifier: textmate.PatternMatch = {
   name: "entity.name.function.cosmo",
 };
 
-const typeConvention = /(?=[A-Z])/.source + IDENTIFIER.source;
+const typeConvention = /(?<!\.)(?=[A-Z])/.source + IDENTIFIER.source;
 
 const typeIdentifier: textmate.PatternMatch = {
   match:
@@ -102,9 +102,19 @@ const keywords: textmate.Pattern = {
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|Self|self|class|trait|type|if|else|for|loop|val|var|and|or|in|not)\b/,
+        /\b(?:extern|pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|Self|self|super|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not)\b/,
     },
   ],
+};
+
+const hexNumeric: textmate.Pattern = {
+  name: "constant.numeric.cosmo",
+  match: /\b0x[\da-fA-F]+\b/,
+};
+
+const octalNumeric: textmate.Pattern = {
+  name: "constant.numeric.cosmo",
+  match: /\b0o[0-7]+\b/,
 };
 
 const numeric: textmate.Pattern = {
@@ -128,11 +138,11 @@ export const cosmo: textmate.Grammar = {
     blockComment,
     lineComment,
     stringPattern: stringPattern(/"/),
-    stringPattern3: stringPattern(/"""/),
-    stringPattern4: stringPattern(/""""/),
-    stringPattern5: stringPattern(/"""""/),
-    stringPattern6: stringPattern(/""""""/),
-    stringPattern7: stringPattern(/"""""""/),
+    stringPattern3: stringPattern(/"""(?!")/),
+    stringPattern4: stringPattern(/""""(?!")/),
+    stringPattern5: stringPattern(/"""""(?!")/),
+    stringPattern6: stringPattern(/""""""(?!")/),
+    stringPattern7: stringPattern(/"""""""(?!")/),
     markers,
     literal,
     contextualKeywords,
@@ -142,6 +152,8 @@ export const cosmo: textmate.Grammar = {
     constIdentifier,
     identifier,
     escape,
+    hexNumeric,
+    octalNumeric,
     numeric,
   },
 };
@@ -205,6 +217,12 @@ function generate() {
         },
         {
           include: "#identifier",
+        },
+        {
+          include: "#hexNumeric",
+        },
+        {
+          include: "#octalNumeric",
         },
         {
           include: "#numeric",

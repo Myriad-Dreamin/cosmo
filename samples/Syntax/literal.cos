@@ -1,0 +1,42 @@
+
+def main() = {
+  // empty args <-> empty array
+  println(())
+  // parenthesized expression
+  println((1))
+  // 1 arg <-> array
+  println((1,))
+  // 2 args <-> array
+  println((1,"a",))
+  // 2 args <-> dict
+  println((a: 2, b: 4,))
+  // 2 args <-> dict with string key
+  println((a: 2, ":": 4,))
+  // 1 arg <-> nested array
+  println((a: (1, 2)));
+  // 2 args <-> nested dict
+  println(((a: 1), 2));
+
+  println("");
+  println("a");
+  println("""a """);
+  println("""""\"a\"""""");
+  println(""""" "a\"""""");
+  println(""""" "a" """"");
+  println("""""  "a"  """"");
+  println(""""" 
+"a"  """"");
+
+  // ascii char (char)
+  println(a"a");
+  // rune (int32_t)
+  println(c"a");
+  // rune (int32_t)
+  println(c"爱");
+  // bytes
+  println(b"ab");
+  // regex
+  // println(r"ab");
+  // error
+  // println(e"ab");
+}
