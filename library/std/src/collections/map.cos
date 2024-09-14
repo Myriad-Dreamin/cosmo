@@ -12,3 +12,28 @@ pub class Map(K: Type, V: Type) {
 pub class HashMap(K: Type, V: Type) {
   var internal: CppHashMap(K, V) = CppHashMap(K, V)();
 }
+
+code("""
+template <typename K, typename V> struct DisplayTrait<std::map<K, V>> {
+  static void print(const std::map<K, V> &x) {
+    printf("{");
+    bool first = true;
+    for (auto it = x.begin(); it != x.end(); ++it) {
+      if (!first) {
+        printf(", ");
+      } else {
+        first = false;
+      }
+
+      if constexpr (std::is_same_v<K, std::string>) {
+        printf("\"%s\"", it->first.c_str());
+      } else {
+        ::print(it->first);
+      }
+      printf(": ");
+      ::print(it->second);
+    }
+    printf("}");
+  }
+};
+""")

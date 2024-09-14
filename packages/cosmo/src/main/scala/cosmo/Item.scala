@@ -34,7 +34,6 @@ sealed abstract class Item {
 
 type Type = Item
 case class TopKind(override val level: Int) extends Item
-case class RefKind(override val level: Int) extends Item
 case class BottomKind(override val level: Int) extends Item
 case class SelfKind(override val level: Int) extends Item
 case class NoneKind(override val level: Int) extends Item
@@ -57,7 +56,7 @@ final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
 final case class Return(value: Item) extends Item {}
 final case class Semi(value: Item) extends Item {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item {}
-final case class RefItem(lhs: Item) extends Item {}
+final case class RefItem(lhs: Item, isMut: Boolean) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {}
 final case class KeyedArg(key: String, value: Item) extends Item {}
 final case class CEnumMatch(
@@ -177,7 +176,6 @@ object Class {
 
 // TopTy
 val TopTy = TopKind(1)
-val RefTy = RefKind(1)
 val BottomTy = BottomKind(1)
 val SelfTy = SelfKind(1)
 val SelfVal = SelfKind(0)
@@ -189,6 +187,9 @@ case object BoolTy extends Type {
   override val level = 1
 }
 case object StringTy extends Type {
+  override val level = 1
+}
+final case class RefTy(val isRef: Boolean, val isMut: Boolean) extends Type {
   override val level = 1
 }
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)

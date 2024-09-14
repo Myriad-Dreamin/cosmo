@@ -1,0 +1,12 @@
+
+class VecGADT[n: u32, T] {
+  case Nil: VecGADT[0, T]
+  case Cons(T, VecGADT[n - 1, T]): VecGADT[n, T]
+}
+
+impl[n: u32, T] VecGADT[n, T] {
+  def concat[m: u32](self, v: VecGADT[m, T]): VecGADT[n + m, T] = self match {
+    case Nil => v
+    case Cons(h, t /* n - 1 */) => Cons(h, t.concat(v) /* n - 1 + m */) // n + m
+  }
+}

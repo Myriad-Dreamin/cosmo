@@ -36,7 +36,7 @@ class Cosmo extends PackageManager {
 
   @JSExport
   def convert(src: String): String = {
-    mayConvert(src).getOrElse("#if 0\nCompilation failed\n#endif")
+    mayConvert(src).map(_._1).getOrElse("#if 0\nCompilation failed\n#endif")
   }
 
   @JSExport
@@ -54,12 +54,12 @@ class Cosmo extends PackageManager {
     parse(s).map(syntax.toJson).getOrElse("")
   }
 
-  def mayConvert(src: String): Option[String] =
-    loadModuleBySrc(src).map(cppBackend).flatten
+  def mayConvert(src: String): Option[(String, Boolean)] =
+    loadModuleBySrc(src).flatMap(cppBackend)
 
-  def cppBackend(e: Env): Option[String] = {
+  def cppBackend(e: Env): Option[(String, Boolean)] = {
     implicit val env = e
-    Some(new CodeGen().gen())
+    Some((new CodeGen().gen(), env.noCore))
   }
 
   def loadPackage(source: PackageMetaSource): Unit = {
@@ -173,9 +173,21 @@ object NodeFs extends js.Object {
   def unlinkSync(path: String): Unit = js.native
 }
 
+final class SpawnSyncResult extends js.Object {
+  var pid: Int = _
+  var status: js.UndefOr[Int] = _
+  var stdout: Array[Byte] | String = _
+  var stderr: Array[Byte] | String = _
+  var error: js.Error = _
+}
+
 @js.native
 @JSImport("child_process", JSImport.Namespace)
 object NodeChildProcess extends js.Object {
-  def spawnSync(command: String): js.Dynamic = js.native
   def execSync(command: String, options: js.Dynamic): js.Dynamic = js.native
+  def spawnSync(
+      command: String,
+      args: js.Array[String],
+      options: js.Dynamic,
+  ): SpawnSyncResult = js.native
 }

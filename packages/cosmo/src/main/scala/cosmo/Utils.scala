@@ -5,8 +5,8 @@ package cosmo
 def debugln(f: => Any): Unit = {}
 def logln(f: => Any): Unit = println(f)
 
-val escapeStrPattern = "(\\r\\n|[\"\\\\\\t\\f\\r\\n])".r
-val unescapeStrPattern = "(\\\\[\\\\tfrn\\\"])".r
+private val escapeStrPattern = "((?:\\r\\n)|[\"\\\\\\t\\f\\r\\n])".r
+private val unescapeStrPattern = "(\\\\[\\\\tfrn\\\"])".r
 
 def escapeStr(s: String): String = {
   escapeStrPattern.replaceAllIn(
@@ -14,13 +14,13 @@ def escapeStr(s: String): String = {
     (m) => {
       m.group(1) match {
         case "\""   => "\\\\\""
-        case "\\"   => "\\\\\\"
+        case "\\"   => "\\\\\\\\"
         case "\n"   => "\\\\n"
         case "\t"   => "\\\\t"
         case "\r"   => "\\\\r"
         case "\f"   => "\\\\f"
         case "\r\n" => "\\\\n"
-        case other  => other
+        case other  => "\\" + other
       }
     },
   )

@@ -4,6 +4,16 @@ import memorySys from "@lib/c++/memory"
 
 import std.collections.vec
 
+code("""
+// #ifdef WIN_32
+// #else
+// #define cosmoPopen popen
+// #define cosmoPclose pclose
+// #endif
+#define cosmoPopen _popen
+#define cosmoPclose _pclose
+""")
+
 class Command {
   val name: String;
   val args: vec.Vec(String);

@@ -1,6 +1,6 @@
 
+import "@lib/c++/cctype"
 import stringSys from "@lib/c++/string"
-import intSys from "@lib/c++/cstdint"
 
 pub def CppString: Type = stringSys.std.string
 
@@ -26,4 +26,26 @@ inline bool operator<(const Bytes &lhs, const Bytes &rhs) {
 inline bool operator==(const Rune &lhs, const Rune &rhs) {
   return lhs.internal == rhs.internal;
 }
+
+template <> struct DisplayTrait<Rune> {
+  static void print(const Rune &x) {
+    if (x.internal < 0x80 && std::isprint(x.internal)) {
+      printf("'%c'", x.internal);
+    } else {
+      printf("c\"\\u{%x}\"", x.internal);
+    }
+  }
+};
+template <> struct DisplayTrait<CString> {
+  static void print(const CString &x) { printf("%s", x.internal.c_str()); }
+};
+template <> struct DisplayTrait<Bytes> {
+  static void print(const Bytes &x) {
+    printf("b\"");
+    for (char c : x.internal) {
+      printf("\\x%02x", (unsigned char)c);
+    }
+    printf("\"");
+  }
+};
 """)

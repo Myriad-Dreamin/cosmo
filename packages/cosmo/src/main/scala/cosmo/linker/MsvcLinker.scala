@@ -17,7 +17,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
   def assemblePkg(
       pkg: Package,
-      loader: String => Option[String],
+      loader: String => Option[(String, Boolean)],
       releaseDir: String,
   ): Unit = {
     val destDir = releaseDir + "/" + pkg.namespace + "/" + pkg.name + "/src"
@@ -43,7 +43,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
         var subIdentifier =
           (identifier + "_" + pathWithoutExt.replace("/", "_")).toUpperCase
 
-        var generated = loader(src.source).map { content =>
+        var generated = loader(src.source).map { case (content, noCore) =>
           s"""#ifndef ${subIdentifier}_H\n#define ${subIdentifier}_H\n\n""" + content + s"\n\n#endif // ${subIdentifier}_H\n"
         }
 
@@ -75,10 +75,6 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
     var absReleaseDir = system.absPath(destDir + "/..").replace("\\", "\\\\")
 
-    var cosmoRtDir = system
-      .absPath("target/cosmo/externals/cosmo-rt/include")
-      .replace("\\", "\\\\")
-
     var nlJsonDir = system
       .absPath("target/cosmo/externals/json/single_include")
       .replace("\\", "\\\\")
@@ -86,7 +82,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
     var releaseRoot =
       system.absPath("target/cosmo/release").replace("\\", "\\\\")
 
-    var includeFlags = s"-I$cosmoRtDir -I$nlJsonDir -I$releaseRoot"
+    var includeFlags = s"-I$nlJsonDir -I$releaseRoot"
 
     var compilationCommandsPath = destDir + "/../compile_commands.json"
     var compilationCommands = (sources :+ allCCPath)
@@ -100,17 +96,14 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
   def compile(
       path: String,
-      loader: String => Option[String],
+      loader: String => Option[(String, Boolean)],
       releaseDir: String,
   ): Option[String] = {
     val src = system.readFile(path)
-    val generated = loader(src).map { content =>
-      s"""#include "cosmo-rt.h" // IWYU pragma: keep\n\n""" + content
+    val generated = loader(src).map { case (content, noCore) =>
+      var suf = if (noCore) "/lang" else ""
+      s"""#include <cosmo/std/src/prelude${suf}.h> // IWYU pragma: keep\n\n${content}"""
     }
-
-    var cosmoRtDir = system
-      .absPath("target/cosmo/externals/cosmo-rt/include")
-      .replace("\\", "\\\\")
 
     var nlJsonDir = system
       .absPath("target/cosmo/externals/json/single_include")
@@ -119,14 +112,20 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
     var releaseDir =
       system.absPath("target/cosmo/release").replace("\\", "\\\\")
 
-    var includeFlags = s"/I\"$cosmoRtDir\" /I\"$nlJsonDir\" /I\"$releaseDir\""
+    var includeFlags = js.Array(
+      s"/I$nlJsonDir",
+      s"/I$releaseDir",
+    )
 
-    var linkFlags =
-      s"/LIBPATH:\"$sdkPath/lib/${sdkVersion}/ucrt/x64\" /LIBPATH:\"$sdkPath/lib/${sdkVersion}/um/x64\" /LIBPATH:\"$systemLibPath\""
+    var linkFlags = js.Array(
+      s"/LIBPATH:$sdkPath/lib/${sdkVersion}/ucrt/x64",
+      s"/LIBPATH:$sdkPath/lib/${sdkVersion}/um/x64",
+      s"/LIBPATH:$systemLibPath",
+    )
 
     val pathWithoutExt = path.substring(0, path.length - 4)
 
-    val programPath = generated.map { content =>
+    generated.flatMap { content =>
       val destDir = releaseDir + "/package-less"
       val destPath = destDir + "/" + path.substring(0, path.length - 4) + ".cc"
       val dirPath = destPath.substring(0, destPath.lastIndexOf("/"))
@@ -139,32 +138,40 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
         cosmo.NodeFs.unlinkSync(programPath)
       }
 
-      val clCommand =
-        s""""$clPath" /O2 /std:c++17 /EHsc /I"$windowsSdkIncludePath" /I"$systemIncludePath" $includeFlags /I. /Fe:"$programPath" "$destPath" /link $linkFlags"""
+      val clCommand = clPath
+      val clArgs = js.Array(
+        "/O2",
+        "/std:c++17",
+        "/EHsc",
+        s"/I$windowsSdkIncludePath",
+        s"/I$systemIncludePath",
+      ) ++ includeFlags ++ js.Array(
+        "/I.",
+        s"/Fe:$programPath",
+        destPath,
+        "/link",
+      ) ++ linkFlags
 
-      try {
-        val result = cosmo.NodeChildProcess.execSync(
-          clCommand,
-          js.Dynamic.literal(
-            encoding = "utf8",
-            stdio = "pipe",
-            // stdio = js.Tuple3("pipe", 2, "pipe"),
-            cwd = dirPath,
-          ),
-        )
-      } catch {
-        case e: js.JavaScriptException =>
-          throw new Exception(s"Compilation failed: ${e.getMessage()}")
+      val result = cosmo.NodeChildProcess.spawnSync(
+        clCommand,
+        clArgs,
+        js.Dynamic.literal(
+          encoding = "utf8",
+          stdio = "pipe",
+          // stdio = js.Tuple3("pipe", 2, "pipe"),
+          cwd = dirPath,
+        ),
+      )
+
+      result.status.toOption match {
+        case Some(0) => Some(programPath)
+        case None    => Some(programPath)
+        case Some(status) =>
+          println(result.stdout.toString().trim())
+          println(s"Compilation failed: cl.exe Exit with status: ${status}")
+          None
       }
-
-      // if (result.status.asInstanceOf[Int] != 0) {
-      //   throw new Exception(s"Compilation failed: ${result.stderr}")
-      // }
-
-      programPath
     }
-
-    programPath
   }
 
   def findInstallationPath: String = {

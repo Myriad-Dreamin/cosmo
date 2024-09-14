@@ -43,9 +43,9 @@ const escape: textmate.Pattern = {
   match: /\\./,
 };
 
-const stringPattern = (p: RegExp): textmate.Pattern => ({
+const stringPattern = (p: RegExp, escape = false): textmate.Pattern => ({
   name: "string.quoted.double.cosmo",
-  begin: p,
+  begin: p.source + `(?=$|[^"]|${p.source})`,
   end: p,
   beginCaptures: {
     "0": {
@@ -57,11 +57,7 @@ const stringPattern = (p: RegExp): textmate.Pattern => ({
       name: "punctuation.definition.string.end.cosmo",
     },
   },
-  patterns: [
-    {
-      include: "#escape",
-    },
-  ],
+  patterns: [...(escape ? [{ include: "#escape" }] : [])],
 });
 
 const constPre = /(?<=val\s*|\:\:)/.source + IDENTIFIER.source;
@@ -89,7 +85,7 @@ const typeConvention = /(?<!\.)(?=[A-Z])/.source + IDENTIFIER.source;
 const typeIdentifier: textmate.PatternMatch = {
   match:
     `(?:${typeConvention})|` +
-    /\b(?:any|never|bool|str|f32|f64|f128|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize)\b/
+    /(?<!\.)\b(?:any|never|bool|str|f32|f64|f128|i8|i16|i32|i64|i128|u8|u16|u32|u64|u128|isize|usize)\b/
       .source,
   name: "entity.name.type.cosmo",
 };
@@ -147,12 +143,12 @@ export const cosmo: textmate.Grammar = {
     comments,
     blockComment,
     lineComment,
-    stringPattern: stringPattern(/"/),
-    stringPattern3: stringPattern(/"""(?!")/),
-    stringPattern4: stringPattern(/""""(?!")/),
-    stringPattern5: stringPattern(/"""""(?!")/),
-    stringPattern6: stringPattern(/""""""(?!")/),
-    stringPattern7: stringPattern(/"""""""(?!")/),
+    stringPattern: stringPattern(/"/, true),
+    stringPattern3: stringPattern(/"""/),
+    stringPattern5: stringPattern(/"""""/),
+    stringPattern7: stringPattern(/"""""""/),
+    stringPattern9: stringPattern(/"""""""""/),
+    stringPattern11: stringPattern(/"""""""""""/),
     markers,
     literal,
     contextualKeywords,
@@ -188,16 +184,16 @@ function generate() {
           include: "#comments",
         },
         {
+          include: "#stringPattern11",
+        },
+        {
+          include: "#stringPattern9",
+        },
+        {
           include: "#stringPattern7",
         },
         {
-          include: "#stringPattern6",
-        },
-        {
           include: "#stringPattern5",
-        },
-        {
-          include: "#stringPattern4",
         },
         {
           include: "#stringPattern3",

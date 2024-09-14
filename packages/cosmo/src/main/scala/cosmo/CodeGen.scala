@@ -310,8 +310,8 @@ class CodeGen(implicit val env: Env) {
   def moveExpr(ast: ir.Item): String = {
     debugln(s"moveExpr: $ast")
     ast match {
-      case RefItem(lhs) => expr(lhs)
-      case ast          => s"std::move(${expr(ast)})"
+      case RefItem(lhs, isMut) => expr(lhs)
+      case ast                 => s"std::move(${expr(ast)})"
     }
   }
 

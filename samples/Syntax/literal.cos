@@ -17,12 +17,19 @@ def main() = {
   // 2 args <-> nested dict
   println(((a: 1), 2));
 
+  // even-length string are empty strings
   println("");
+  println("""");
+  println("""""");
   println("a");
+  println("a\n");
+  println("a\x");
+  println("""a""");
   println("""a """);
-  println("""""\"a\"""""");
-  println(""""" "a\"""""");
-  println(""""" "a" """"");
+  println("\"" + """""a" """"");
+  println(""""" "a""""" + "\"");
+  println(""""" "a"\n""""");
+  println(""""" "a"\x""""");
   println("""""  "a"  """"");
   println(""""" 
 "a"  """"");

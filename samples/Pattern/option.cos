@@ -1,8 +1,8 @@
 
-@nostd("all");
+@noCore();
 
 class Option[T] {
-  case Some(v: T);
+  case Some(T);
   case None;
 }
 

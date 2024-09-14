@@ -112,6 +112,11 @@ pub def Value: Type = ValueT(NlohmannJsonImpl)
 pub def parse(content: String): Value = NlohmannJsonImpl.parse(content)
 
 code("""
+template <> struct DisplayTrait<nlohmann::json> {
+  static void print(const nlohmann::json &x) {
+    std::cout << x.dump(1) << std::endl;
+  }
+};
 
 template <> struct DisplayTrait<ValueT<NlohmannJsonImpl>> {
   static void print(const ValueT<NlohmannJsonImpl> &x) {

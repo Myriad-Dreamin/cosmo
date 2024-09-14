@@ -83,6 +83,7 @@ class Env(pacMgr: cosmo.PackageManager) {
   var errors: List[String] = List()
   var module: ir.Region = Region(List())
   var ns: List[String] = List()
+  var noCore = false
 
   implicit val system: CosmoSystem = new JsPhysicalSystem()
 
@@ -92,12 +93,14 @@ class Env(pacMgr: cosmo.PackageManager) {
     newBuiltin("panic")
 
     newType("c_enum", CEnumTy)
-    newType("Ref", RefTy)
     newType("Type", UniverseTy)
     newType("String", StringTy)
     newType("bool", BoolTy)
     newType("self", SelfVal)
     newType("Self", SelfTy)
+    newType("Ref", RefTy(true, false))
+    newType("Mut", RefTy(false, true))
+    newType("RefMut", RefTy(true, true))
     // todo: size_t
     newType("usize", IntegerTy(64, true))
     newType("isize", IntegerTy(64, false))
@@ -241,7 +244,7 @@ class Env(pacMgr: cosmo.PackageManager) {
         if (value.isValidInt) Integer(value.toInt)
         else Opaque.expr(value.toString)
       case syntax.FloatLit(value)  => Opaque.expr(value.toString)
-      case syntax.StringLit(value) => Str(unescapeStr(value))
+      case syntax.StringLit(value) => Str(value)
       case syntax.Ident(name)      => byName(name)
       case syntax.ArgsLit(values) => {
         if (values.exists(_.isInstanceOf[syntax.KeyedArg])) {
@@ -282,6 +285,9 @@ class Env(pacMgr: cosmo.PackageManager) {
       case syntax.Semi(None)          => ir.NoneKind(level)
       case syntax.Semi(Some(value))   => Semi(expr(value))
       // todo: decorator
+      case syntax.Decorate(syntax.Apply(Ident("noCore"), _), _) =>
+        noCore = true
+        NoneItem
       case syntax.Decorate(lhs, rhs) => expr(rhs)
       // declarations
       case syntax.Import(p, dest) => importItem(p, dest)
@@ -509,9 +515,13 @@ class Env(pacMgr: cosmo.PackageManager) {
           case s: Opaque    => s
           case _            => Opaque.expr("0 /* code */")
         }
-      case Variable(_, id, _, Some(RefTy)) =>
+      case Variable(_, id, _, Some(RefTy(isRef, isMut))) =>
         assert(rhs.length == 1)
-        return RefItem(rhs.head)
+        if (isRef) {
+          return RefItem(rhs.head, isMut)
+        } else {
+          return rhs.head
+        }
       case Variable(_, id, _, Some(v)) if v.level > 0 =>
         id.env.applyItem(v, rhs)
       case fn: Sig          => applyFunc(fn, rhs).getOrElse(Apply(fn, rhs))

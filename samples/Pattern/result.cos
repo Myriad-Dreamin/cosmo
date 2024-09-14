@@ -1,21 +1,14 @@
 
-// @nostd("all");
-
-class Option[T] {
-  case Some(v: T);
-  case None;
-}
+@noCore();
 
 class Result[T, E] {
-  case Ok(v: T);
-  case Err(e: E);
+  case Ok(T);
+  case Err(E);
 }
 
 def main() = {
-  val x = Option::Some(42);
-  val y = Option::None;
-  val z = Result::Ok(42);
-  val w = Result::Err("error");
+  val z = Result(i32, i32)::Ok(42);
+  val w = Result(i32, String)::Err("error");
   // println(x.unwrap());
   // println(y.is_none());
   // println(z.unwrap());

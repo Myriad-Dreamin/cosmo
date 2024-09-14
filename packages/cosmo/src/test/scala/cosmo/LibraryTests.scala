@@ -12,6 +12,9 @@ class LibraryTest extends munit.FunSuite:
     println(result)
   }
 
+  test("std.core".only) {
+    runTestOnFile("library/std/src/core.cos")
+  }
   test("std.str") {
     runTestOnFile("library/std/src/str.cos")
   }
@@ -27,7 +30,7 @@ class LibraryTest extends munit.FunSuite:
   test("std.collections.map") {
     runTestOnFile("library/std/src/collections/map.cos")
   }
-  test("std.json".only) {
+  test("std.json") {
     runTestOnFile("library/std/src/json.cos")
   }
   test("std.fs") {

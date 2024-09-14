@@ -36,18 +36,23 @@ object Parser {
 
   def stringLit[$: P]: P[StringLit] =
     P(longstring | shortstring).map(StringLit.apply)
-  def shortstring[$: P]: P[String] = P(shortstring0("\""))
+  def shortstring[$: P]: P[String] = P(shortstring0("\"").map(unescapeStr))
   def shortstring0[$: P](delimiter: String) = P(
     delimiter ~~/ (!"\"" ~~ shortstringitem).repX.! ~~ delimiter,
   )
   def longstring[$: P]: P[String] = P(
-    "\"".repX(3).!./.flatMapX(longstring0),
+    "\"".repX(3).!./.flatMapX { delimiter =>
+      if delimiter.length() % 2 == 1 then longstring0(delimiter)
+      else P("".map(_ => ""))
+    },
   )
   def longstring0[$: P](delimiter: String) = P(
-    (!delimiter ~~ longstringitem).repX.! ~~ delimiter,
+    (!delimiter ~~ longstringitem(delimiter)).repX.! ~~ delimiter,
   )
   def shortstringitem[$: P]: P[Unit] = P(litCharsWhile("\\\n\"") | escapeseq)
-  def longstringitem[$: P]: P[Unit] = P(lStringChars("\\\"").repX.!)
+  def longstringitem[$: P](delimiter: String): P[Unit] = P(
+    lStringChars("\"", delimiter).repX.!,
+  )
 
   def tmplLit[$: P] =
     P(tmplPath ~ &("\"") ~ tmplLitParts).map(TmplApply.apply.tupled)
@@ -63,18 +68,20 @@ object Parser {
     "\"" ~~/ (!"\"" ~~ shortTmplLitItem).repX ~~ "\"",
   ).map(_.toList)
   def longTmplLit[$: P]: P[List[(String, Option[(Node, Option[String])])]] = P(
-    "\"\"\"" ~~/ (!"\"\"\"" ~~ longTmplLitItem).repX ~~ "\"\"\"",
+    "\"\"\"" ~~/ (!"\"\"\"" ~~ longTmplLitItem("\"\"\"")).repX ~~ "\"\"\"",
   ).map(_.toList)
   def shortTmplLitItem[$: P]: P[(String, Option[(Node, Option[String])])] = P(
-    (litCharsWhile("\n\"$") | escapeseq).repX.! ~~/ tmplExpr,
+    (litCharsWhile("\\\n\"$") | escapeseq).repX.! ~~/ tmplExpr,
   )
-  def longTmplLitItem[$: P] = P(lStringChars("\\\"$").repX.! ~~/ tmplExpr)
+  def longTmplLitItem[$: P](delimiter: String) = P(
+    lStringChars("\"$", delimiter).repX.! ~~/ tmplExpr,
+  )
 
-  def lStringChars[$: P](mores: String): P[Unit] = P(
-    litCharsWhile(mores) | escapeseq | !"\"\"\"" ~~ "\"\"\"".take(1),
+  def lStringChars[$: P](mores: String, delimiter: String): P[Unit] = P(
+    litCharsWhile(mores) | !delimiter ~~ delimiter.take(1),
   )
   def litCharsWhile[$: P](mores: String) = P(
-    CharsWhile(!s"\\${mores}".contains(_)),
+    CharsWhile(!mores.contains(_)),
   )
   def escapeseq[$: P]: P[Unit] = P("\\" ~ AnyChar)
   def tmplExpr[$: P]: P[Option[(Node, Option[String])]] = P(
@@ -163,14 +170,12 @@ object Parser {
   def classItem[$: P] = P(sigItem("class") ~ termU).map(Class.apply.tupled)
   def traitItem[$: P] = P(sigItem("trait") ~ termU).map(Trait.apply.tupled)
   def implItem[$: P] = P(
-    keyword("impl") ~ params.? ~/ factor ~/ (keyword(
-      "for",
-    ) ~/ factor).? ~ braces,
+    keyword("impl") ~ params ~/ factor ~/ (keyword("for") ~/ factor).? ~ braces,
   ).map {
     case (params, lhs, Some(rhs), body) => Impl(rhs, Some(lhs), params, body)
     case (params, lhs, None, body)      => Impl(lhs, None, params, body)
   }
-  def sigItem[$: P](kw: String) = P(keyword(kw) ~/ ident ~ params.?)
+  def sigItem[$: P](kw: String) = P(keyword(kw) ~/ ident ~ params)
   def valItem[$: P] = P(varLike("val")).map(Val.apply.tupled)
   def varItem[$: P] = P(varLike("var")).map(Var.apply.tupled)
   def typeItem[$: P] = P(varLike("type")).map(Typ.apply.tupled)
@@ -260,7 +265,9 @@ object Parser {
   def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
   def arg[$: P] = P(spread | keyedClause)
   def params[$: P] =
-    (P(paramsCt.map(_.flatten) | paramsRt).rep).map(_.flatten.toList)
+    (P(paramsCt.map(_.flatten) | paramsRt).rep).map { seq =>
+      if seq.isEmpty then None else Some(seq.flatten.toList)
+    }
   def paramsCt[$: P] =
     P("[" ~/ P(introTy | constraint.map(e => Seq(e))).rep(sep = ",") ~ "]")
   def paramsRt[$: P] =

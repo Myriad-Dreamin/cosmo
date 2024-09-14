@@ -14,6 +14,7 @@ async function main() {
     const executable = compiler.getExecutable(input);
 
     const asyncSpawn = new Promise((resolve, reject) => {
+      if (!executable) return;
       const process = spawn(executable, [], { stdio: "inherit" });
       process.on("close", (code) => {
         if (code === 0) {
