@@ -34,7 +34,7 @@ class Command {
         if (fgets(buffer, 128, pipe.get()) != NULL)
             result += buffer;
     }
-    return CString(result);
+    return String(result);
     """);
   }
 }

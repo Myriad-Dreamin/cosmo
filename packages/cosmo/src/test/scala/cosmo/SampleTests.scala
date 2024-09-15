@@ -42,7 +42,7 @@ class SampleTest extends munit.FunSuite:
   test("Trait/empty") {
     runTestOnFile("samples/Trait/empty.cos")
   }
-  test("Trait/formatter") {
+  test("Trait/formatter".only) {
     runTestOnFile("samples/Trait/formatter.cos")
   }
   test("Trait/formatter_t") {
@@ -66,7 +66,7 @@ class SampleTest extends munit.FunSuite:
   test("Pattern/option") {
     runTestOnFile("samples/Pattern/option.cos")
   }
-  test("Pattern/result".only) {
+  test("Pattern/result") {
     runTestOnFile("samples/Pattern/result.cos")
   }
   test("Io/readFile") {

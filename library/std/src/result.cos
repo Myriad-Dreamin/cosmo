@@ -1,0 +1,5 @@
+
+class Result[T, E] {
+  case Ok(T);
+  case Err(E);
+}

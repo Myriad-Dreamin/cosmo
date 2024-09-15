@@ -142,7 +142,7 @@ object Parser {
   def semi[$: P] = P(";").map(_ => Semi(None))
   def canExportItem[$: P]: P[Node] =
     (keyword("pub") | keyword("private")).? ~ P(
-      defItem | valItem | varItem | classItem | traitItem | importItem,
+      defItem | valItem | varItem | classItems | importItem,
     )
   def primaryExpr[$: P] = P(tmplLit | identifier | literal | parens | braces)
   def factor[$: P] = P(unary | factorBase)
@@ -167,8 +167,9 @@ object Parser {
   def identifier[$: P] = ident.map(Ident.apply)
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
-  def classItem[$: P] = P(sigItem("class") ~ termU).map(Class.apply.tupled)
-  def traitItem[$: P] = P(sigItem("trait") ~ termU).map(Trait.apply.tupled)
+  def classItems[$: P] = classItem("class", false) | classItem("trait", true)
+  def classItem[$: P](kw: String, abc: Boolean) =
+    P(sigItem(kw) ~ termU ~ "".map(_ => abc)).map(Class.apply.tupled)
   def implItem[$: P] = P(
     keyword("impl") ~ params ~/ factor ~/ (keyword("for") ~/ factor).? ~ braces,
   ).map {

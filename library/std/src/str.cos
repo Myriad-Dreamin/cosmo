@@ -1,15 +1,21 @@
 
 import "@lib/c++/cctype"
 import stringSys from "@lib/c++/string"
+import stringViewSys from "@lib/c++/string_view"
 
 pub def CppString: Type = stringSys.std.string
+pub def CppStringView: Type = stringViewSys.std.string_view
 
 pub class Rune {
   var internal: u32;
 }
 
-pub class CString {
+pub class String {
   var internal: CppString = stringSys.std.string();
+}
+
+pub class str {
+  var internal: CppStringView = stringViewSys.std.string_view();
 }
 
 pub class Bytes {
@@ -17,7 +23,7 @@ pub class Bytes {
 }
 
 code("""
-inline bool operator<(const CString &lhs, const CString &rhs) {
+inline bool operator<(const String &lhs, const String &rhs) {
   return lhs.internal < rhs.internal;
 }
 inline bool operator<(const Bytes &lhs, const Bytes &rhs) {
@@ -36,8 +42,8 @@ template <> struct DisplayTrait<Rune> {
     }
   }
 };
-template <> struct DisplayTrait<CString> {
-  static void print(const CString &x) { printf("%s", x.internal.c_str()); }
+template <> struct DisplayTrait<String> {
+  static void print(const String &x) { printf("%s", x.internal.c_str()); }
 };
 template <> struct DisplayTrait<Bytes> {
   static void print(const Bytes &x) {

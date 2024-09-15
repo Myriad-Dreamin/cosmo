@@ -23,8 +23,7 @@ final case class Val(name: Str, ty: No, init: No) extends Node
 final case class Var(name: Str, ty: No, init: No) extends Node
 final case class Typ(name: Str, ty: No, init: No) extends Node
 final case class Param(name: Str, ty: No, init: No, ct: Boolean) extends Node
-final case class Class(name: Str, params: Pol, body: Node) extends Node
-final case class Trait(name: Str, params: Pol, body: Node) extends Node
+final case class Class(name: Str, ps: Pol, body: Node, ab: Boolean) extends Node
 final case class Impl(item: Node, tr: No, params: Pol, body: Node) extends Node
 final case class Def(name: Str, params: Pol, ret: No, rhs: No) extends Node
 final case class Import(path: Node, dest: No) extends Node

@@ -1,0 +1,5 @@
+
+class Option[T] {
+  case Some(T);
+  case None;
+}

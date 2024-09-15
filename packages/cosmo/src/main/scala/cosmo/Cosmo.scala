@@ -7,6 +7,7 @@ import fastparse.Parsed
 
 import cosmo.system._
 import cosmo.linker._
+import cosmo.formatter.formatCode
 
 @main
 def CosmoMain() = {}
@@ -55,11 +56,12 @@ class Cosmo extends PackageManager {
   }
 
   def mayConvert(src: String): Option[(String, Boolean)] =
-    loadModuleBySrc(src).flatMap(cppBackend)
+    loadModuleBySrc(new Env(this), src).flatMap(cppBackend)
 
   def cppBackend(e: Env): Option[(String, Boolean)] = {
     implicit val env = e
-    Some((new CodeGen().gen(), env.noCore))
+    val code = new CodeGen().gen()
+    Some((formatCode(code), env.noCore))
   }
 
   def loadPackage(source: PackageMetaSource): Unit = {
@@ -69,17 +71,21 @@ class Cosmo extends PackageManager {
       packages + (package_.namespace -> (nsPackages + (package_.name -> package_)))
   }
 
-  def loadModuleByDotPath(s: String): Option[Env] = {
+  def loadModuleByDotPath(s: String): Option[(FileId, Env)] = {
     loadModule(parsePackagePath(s) match {
       case Some(path) => path
       case None       => throw new Exception("Invalid package path")
-    }).map(_._2)
+    })
   }
 
   def loadModule(path: syntax.Node): Option[(FileId, Env)] = {
     val fid = resolvePackage(path)
+    val env = new Env(this);
+    if (fid._1.toString().startsWith("@cosmo/std:")) {
+      env.noCore = true
+    }
     // println(s"Loading module $fid")
-    loadModuleBySrc(fid.pkg.sources(fid.path).source).map((fid, _))
+    loadModuleBySrc(env, fid.pkg.sources(fid.path).source).map((fid, _))
   }
 
   def parse(s: String): Option[syntax.Block] = {
@@ -144,15 +150,16 @@ class Cosmo extends PackageManager {
       .flatMap(_.get(name))
       .getOrElse(throw new Exception(s"Package @$ns/$name not found"))
 
-    val pathInPkg = names
-      .drop(dropped)
-      .mkString("/", "/", ".cos")
+    val pathInPkg = names.drop(dropped) match {
+      case List() => "/lib.cos"
+      case paths  => paths.mkString("/", "/", ".cos")
+    }
 
     FileId(pkg, pathInPkg)
   }
 
-  def loadModuleBySrc(src: String): Option[Env] = {
-    val env = new Env(this).eval(parse(src).get)
+  def loadModuleBySrc(env: Env, src: String): Option[Env] = {
+    env.eval(parse(src).get)
     for (error <- env.errors) {
       println(error)
     }
@@ -164,7 +171,7 @@ class Cosmo extends PackageManager {
 @js.native
 @JSImport("fs", JSImport.Namespace)
 object NodeFs extends js.Object {
-  def existsSync(path: String): js.Any = js.native
+  def existsSync(path: String): Boolean = js.native
   def readFileSync(path: String, encoding: String): js.Any = js.native
   def readdirSync(path: String): js.Any = js.native
   def mkdirSync(path: String, options: js.Any): Unit = js.native

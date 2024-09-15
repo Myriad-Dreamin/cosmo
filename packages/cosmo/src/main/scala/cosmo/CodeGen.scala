@@ -29,13 +29,12 @@ class CodeGen(implicit val env: Env) {
     val res: String = ast match {
       case ir.NoneItem    => ""
       case ir.Semi(value) => genDef(value, tl)
+      case Fn(defInfo, Sig(params, retTy, body), level) if level > 0 =>
+        val name = defInfo.defName(stem = true)
+        val templateCode = dependentParams(params);
+        val bodyCode = if defInfo.isDependent then "" else expr(body.get)
+        s"${templateCode} struct $name {using Self = $name; using type = $bodyCode; $name() = delete;};"
       case Fn(defInfo, Sig(None, ret_ty, body), _) =>
-        val name = defInfo.defName(stem = true)
-        s"/* cosmo function $name */"
-      case Fn(defInfo, Sig(_, Some(UniverseTy), body), _) =>
-        val name = defInfo.defName(stem = true)
-        s"/* cosmo function $name */"
-      case Fn(defInfo, Sig(_, _, body), level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
       case Fn(defInfo, Sig(Some(params), ret_ty, body), _) =>
@@ -61,7 +60,7 @@ class CodeGen(implicit val env: Env) {
         if (name == "main") s"int main(int argc, char **argv) { $bodyCode }"
         else
           val rt = ret_ty.map(returnTy).getOrElse("auto")
-          debugln(s"$ret_ty => $rt")
+          logln(s"$ret_ty => $rt")
           val staticModifier =
             if (defInfo.inClass && !hasSelf) "static " else ""
           s"${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode"
@@ -82,7 +81,13 @@ class CodeGen(implicit val env: Env) {
           case ir.CModuleKind.Source =>
             s"""#include "$path" // IWYU pragma: keep"""
         }
-      case ir.Class(defInfo, params, vars, restFields) =>
+      case ir.Class(defInfo, params, vars, restFields, true) =>
+        val templateCode = dependentParams(params);
+        val defsCode = restFields.map(p => genDef(p.item)).mkString("\n  ")
+        s"""$templateCode struct ${defInfo.name} {\n  $defsCode
+  virtual ~${defInfo.name}() = default;
+};"""
+      case ir.Class(defInfo, params, vars, restFields, false) =>
         val variants = restFields.filter(_.isInstanceOf[ir.TypeField])
         val defs = restFields.filter(_.isInstanceOf[ir.DefField])
         val item = env.items(defInfo.id)
@@ -201,6 +206,13 @@ class CodeGen(implicit val env: Env) {
     Some(res)
   }
 
+  def dependentParams(params: Option[List[ir.Param]]): String = {
+    val ps = params.getOrElse(List.empty);
+    val d = if ps.isEmpty then "" else ", ";
+    ps.map(p => s"typename ${p.name}")
+      .mkString("template <", ", ", d + "typename Cond = void> ");
+  }
+
   def genVarParam(node: ir.Var) = {
     val ir.Var(defInfo, init, isContant, _) = node
     val name = defInfo.nameStem(defInfo.id.id)
@@ -253,22 +265,12 @@ class CodeGen(implicit val env: Env) {
   }
 
   def storeTy(ty: Type): String = env.storeTy(ty)(false)
-  // // 2 args <-> dict
-  // println((a: 2, b: 4,))
-  // // 2 args <-> dict with string key
-  // println((a: 2, ":": 4,))
-  // // 1 arg <-> nested array
-  // println((a: (1, 2)));
-  //   println(std::move(std::map<std::string, int>{{"a", 2}, {"b", 4}}));
-  //   println(std::move(std::map<std::string, int>{{"a", 2}, {":", 4}}));
-  //   println(std::move(
-  //       std::map<std::string, std::tuple<int, int>>{{"a", std::tuple{1, 2}}}));
 
   def solveDict(items: Map[String, ir.Item]): String = {
 
     val (keyTy, valueTy) = items.headOption match {
-      case Some((k, v)) => ("std::string", storeTy(v))
-      case _            => ("std::string", "int")
+      case Some((k, v)) => ("::std::string", storeTy(v))
+      case _            => ("::std::string", "int")
     }
     s"std::map<$keyTy, $valueTy>"
   }
@@ -378,11 +380,12 @@ class CodeGen(implicit val env: Env) {
         }
       case SelfVal     => "(*this)"
       case Unreachable => return "unreachable();"
-      case ir.Str(s)   => s"""::std::string("${escapeStr(s)}")"""
-      case s: ir.Bytes => s"""Bytes("${bytesRepr(s)}")"""
-      case ir.Rune(s) if s < 0x80 && !s.toChar.isControl =>
+      case Bool(v)     => v.toString
+      case Str(s)      => s"""str("${escapeStr(s)}")"""
+      case s: Bytes    => s"""Bytes("${bytesRepr(s)}")"""
+      case Rune(s) if s < 0x80 && !s.toChar.isControl =>
         s"Rune('${s.toChar}')"
-      case ir.Rune(s) => s"Rune($s)"
+      case Rune(s) => s"Rune($s)"
       case ir.TupleLit(items) =>
         s"std::tuple{${items.map(expr).mkString(", ")}}"
       case ir.DictLit(items) =>
@@ -498,6 +501,7 @@ class CodeGen(implicit val env: Env) {
         val orElse =
           v.orElse.map(e => s"default: ${blockizeExpr(e, recv)}").getOrElse("")
         return s"switch(${expr(v.lhs)}) {${cases.mkString("\n")}\n$orElse}"
+      case v: Interface => storeTy(v.ty)
       case a => {
         println(s"unhandled expr: $a")
         a.toString()

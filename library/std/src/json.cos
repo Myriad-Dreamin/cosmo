@@ -37,7 +37,7 @@ pub class ValueT(T: Type) {
         }
         case ValueT(T).Object(obj) => {
           code("""
-          if constexpr (std::is_same_v<Ty, CString> || std::is_same_v<Ty, std::string>) {
+          if constexpr (std::is_same_v<Ty, String> || std::is_same_v<Ty, std::string>) {
             return T::pack(obj.internal[index]);
           } else {
             panic("invalid index type for object");
@@ -65,9 +65,7 @@ class NlohmannJsonImpl {
     self.pack(NlohmannJsonImpl(NlohmannJsonValue.parse(content.internal)))
   }
   
-  def getAs(Ty: Type, self): Ty = {
-    return self.internal.get(Ty)();
-  }
+  def getAs(Ty: Type, self): Ty = self.internal.get(Ty)()
 
   // todo: Self != NlohmannJsonImpl...
   def pack(j: NlohmannJsonImpl): ValueT(NlohmannJsonImpl) = {
@@ -81,7 +79,7 @@ class NlohmannJsonImpl {
       case NlohmannJsonTag.number_unsigned => ValueT(NlohmannJsonImpl).NumberUnsigned(j.getAs(u64)())
       case NlohmannJsonTag.number_float => ValueT(NlohmannJsonImpl).Number(j.getAs(f64)())
       case NlohmannJsonTag.string => {
-        val s = str.CString(j.getAs(str.CppString)())
+        val s = str.String(j.getAs(str.CppString)())
         ValueT(NlohmannJsonImpl).Str(s)
       }
       case NlohmannJsonTag.array => {
@@ -96,7 +94,7 @@ class NlohmannJsonImpl {
         var o = map.Map(String, NlohmannJsonImpl)();
         code("""
         for (const auto &[k, v] : j.internal.items()) {
-          o.internal.insert({CString(k), NlohmannJsonImpl(v)});
+          o.internal.insert({String(k), NlohmannJsonImpl(v)});
         }""");
         ValueT(NlohmannJsonImpl).Object(o)
       }

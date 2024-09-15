@@ -82,21 +82,15 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "init": """)
       j(init, buf)
       buf.append("}")
-    case Class(name, params, body) =>
+    case Class(name, params, body, isAbstracted) =>
       buf.append("""{"kind": "class", "name": """)
       j(name, buf)
       buf.append(""", "params": """)
       jpol(params, buf)
       buf.append(""", "body": """)
       j(body, buf)
-      buf.append("}")
-    case Trait(name, params, body) =>
-      buf.append("""{"kind": "trait", "name": """)
-      j(name, buf)
-      buf.append(""", "params": """)
-      jpol(params, buf)
-      buf.append(""", "body": """)
-      j(body, buf)
+      buf.append(""", "abstracted": """)
+      j(isAbstracted, buf)
       buf.append("}")
     case Impl(item, tr, params, body) =>
       buf.append("""{"kind": "impl", "item": """)

@@ -85,7 +85,9 @@ final case class Sig(
     params: Option[List[Param]],
     ret_ty: Option[Type],
     body: Option[Item],
-) extends Item {}
+) extends Item {
+  def resolveLevel = (ret_ty.map(_.level - 1).getOrElse(0)).max(0)
+}
 final case class As(lhs: Item, rhs: Item) extends Item {}
 abstract class DeclLike extends Item {
   val id: DefInfo
@@ -163,6 +165,7 @@ final case class Class(
     params: Option[List[Param]],
     vars: List[VarField],
     restFields: List[VField],
+    isAbstract: Boolean,
 ) extends Item {
   override val level: Int = 1
   override def toString: String = s"class(${id.defName(false)(false)})"
@@ -170,8 +173,9 @@ final case class Class(
     vars.isEmpty && restFields.forall(_.isInstanceOf[DefField])
 }
 object Class {
-  def empty(env: Env) =
-    Class(DefInfo.just(CLASS_EMPTY, env), None, List.empty, List.empty)
+  def empty(env: Env, isAbstract: Boolean) =
+    val id = DefInfo.just(CLASS_EMPTY, env)
+    Class(id, None, List.empty, List.empty, isAbstract)
 }
 
 // TopTy
@@ -186,7 +190,10 @@ case object CEnumTy extends Type {
 case object BoolTy extends Type {
   override val level = 1
 }
-case object StringTy extends Type {
+case object StrTy extends Type {
+  override val level = 1
+}
+case object UnitTy extends Type {
   override val level = 1
 }
 final case class RefTy(val isRef: Boolean, val isMut: Boolean) extends Type {
@@ -262,6 +269,7 @@ final case class NativeInsType(
 }
 
 sealed abstract class Value extends Item
+final case class Bool(value: Boolean) extends Value {}
 final case class Integer(value: Int) extends Value {}
 final case class Str(value: String) extends Value {}
 final case class Bytes(value: Array[Byte]) extends Value {}

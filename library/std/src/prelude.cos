@@ -1,4 +1,5 @@
 
-import std.prelude.lang
-import std.core
-import std.str
+@noCore();
+
+import _ from std.prelude.lang
+import _ from std.prelude.core

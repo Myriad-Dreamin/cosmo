@@ -30,8 +30,6 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
   def name: String = meta.name
   def version: String = meta.version
 
-//   "@cosmo/std"
-
   private def loadMeta: PackageMeta = {
     metaSource match {
       case PackageMetaSource.ProjectPath(path) =>
@@ -47,6 +45,8 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
     // println(s"loading sources for $namespace/$name")
     scanDir(system, meta.path + "/src", "")
   }
+
+  override def toString: String = s"@$namespace/$name:$version"
 }
 
 class Source(val source: String) {}

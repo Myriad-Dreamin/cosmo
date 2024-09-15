@@ -1,38 +1,42 @@
 
 import "@lib/c++/cstdio"
-import "@lib/c++/cstdlib"
+import cSys from "@lib/c++/cstdlib"
 import "@lib/c++/string"
 import "@lib/c++/utility"
 import "@lib/c++/iostream"
 
-class Option[T] {
-  case Some(T);
-  case None;
+import _ from std::prelude::lang
+
+code("""
+template <typename T, typename Cond = void> struct DisplayTrait {};
+""")
+
+import _ from std::option
+import _ from std::result
+import _ from std::str
+
+def unreachable(): Nothing = {
+  code("""
+  fprintf(stderr, "unreachable\n");
+  """)
+  cSys.abort();
 }
 
-class Result[T, E] {
-  case Ok(T);
-  case Err(E);
+def unimplemented(): Nothing = {
+  code("""
+  fprintf(stderr, "unimplemented\n");
+  """)
+  cSys.abort();
+}
+
+def panic(msg: str): Nothing = {
+  code("""
+  fprintf(stderr, "unreachable: %s\n", std::string(msg.internal).c_str());
+  """)
+  cSys.abort();
 }
 
 code("""
-[[noreturn]] inline void unreachable() {
-  fprintf(stderr, "unreachable\n");
-  abort();
-}
-[[noreturn]] inline void unimplemented() {
-  fprintf(stderr, "unimplemented\n");
-  abort();
-}
-[[noreturn]] inline void panic(const char *msg) {
-  fprintf(stderr, "unreachable: %s\n", msg);
-  abort();
-}
-[[noreturn]] inline void panic(std::string msg) {
-  fprintf(stderr, "unreachable: %s\n", msg.c_str());
-  abort();
-}
-
 template <typename... Tys> inline void compile_time_error(const char msg[]) {
   static_assert(false);
 }
@@ -97,13 +101,13 @@ template <typename V> struct LoopRange {
 
   static V calcEnd(V start, V stop, V step) {
     if (step == 0) {
-      cosmoPanic("step must be non-zero");
+      panic("step must be non-zero");
     }
     if (step > 0 && start >= stop) {
-      cosmoPanic("start must be less than stop for positive step");
+      panic("start must be less than stop for positive step");
     }
     if (step < 0 && start <= stop) {
-      cosmoPanic("start must be greater than stop for negative step");
+      panic("start must be greater than stop for negative step");
     }
     V diff = stop - start;
     V mod = diff % step;
@@ -116,7 +120,6 @@ template <typename V> struct LoopRange {
 """)
 
 code("""
-template <typename T, typename Cond = void> struct DisplayTrait {};
 
 template <typename T> inline void print(const T &x) {
   using TT = std::decay_t<T>;

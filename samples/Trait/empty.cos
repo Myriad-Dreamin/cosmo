@@ -1,6 +1,8 @@
 
-trait MAny {}
+@noCore();
+
+trait Any {}
 
 def main() = {
-  println(bool <: MAny);
+  println(bool <: Any);
 }

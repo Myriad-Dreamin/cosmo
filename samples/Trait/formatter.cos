@@ -1,19 +1,19 @@
 
 import std::io;
 
-trait MFormatter {
-  def write(&mut self, s: &AsRef(str)): io::Result();
+trait Formatter {
+  def write(&mut self, s: &str): io::Result(());
 }
 
-impl MFormatter for String {
-  def write(&mut self, s: &AsRef(str)): io::Result() = {
+impl Formatter for String {
+  def write(&mut self, s: &str): io::Result(()) = {
     self.push_str(s);
-    Ok()
+    Ok(())
   }
 }
 
 def main() = {
-  println(String <: MFormatter);
+  println(String <: Formatter);
   var s = String();
   s.write("Hello, world!").unwrap();
   println(s);

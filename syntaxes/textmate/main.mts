@@ -60,10 +60,30 @@ const stringPattern = (p: RegExp, escape = false): textmate.Pattern => ({
   patterns: [...(escape ? [{ include: "#escape" }] : [])],
 });
 
+const codePattern = (p: RegExp): textmate.Pattern => ({
+  begin: `\\b(code)\\((${p.source}(?=$|[^"]|${p.source}))`,
+  end: `(${p.source})\\)`,
+  beginCaptures: {
+    "1": {
+      name: "entity.name.function.cosmo",
+    },
+    "2": {
+      name: "punctuation.definition.string.begin.cosmo",
+    },
+  },
+  endCaptures: {
+    "1": {
+      name: "punctuation.definition.string.end.cosmo",
+    },
+  },
+  contentName: "meta.embedded.cpp",
+  patterns: [{ include: "source.cpp" }],
+});
+
 const constPre = /(?<=val\s*|\:\:)/.source + IDENTIFIER.source;
 const constPost = IDENTIFIER.source + /(?=\:\:)/.source;
 const constIdentifier: textmate.PatternMatch = {
-  match: new RegExp(`(?:${constPre})|(?:${constPost})`),
+  match: new RegExp(`(?:\\b_\\b)|(?:${constPre})|(?:${constPost})`),
   name: "entity.name.type.cosmo",
 };
 
@@ -149,6 +169,11 @@ export const cosmo: textmate.Grammar = {
     stringPattern7: stringPattern(/"""""""/),
     stringPattern9: stringPattern(/"""""""""/),
     stringPattern11: stringPattern(/"""""""""""/),
+    codePattern3: codePattern(/"""/),
+    codePattern5: codePattern(/"""""/),
+    codePattern7: codePattern(/"""""""/),
+    codePattern9: codePattern(/"""""""""/),
+    codePattern11: codePattern(/"""""""""""/),
     markers,
     literal,
     contextualKeywords,
@@ -182,6 +207,21 @@ function generate() {
       patterns: [
         {
           include: "#comments",
+        },
+        {
+          include: "#codePattern11",
+        },
+        {
+          include: "#codePattern9",
+        },
+        {
+          include: "#codePattern7",
+        },
+        {
+          include: "#codePattern5",
+        },
+        {
+          include: "#codePattern3",
         },
         {
           include: "#stringPattern11",

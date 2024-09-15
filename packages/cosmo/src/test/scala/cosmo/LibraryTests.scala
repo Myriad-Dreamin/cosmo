@@ -12,8 +12,17 @@ class LibraryTest extends munit.FunSuite:
     println(result)
   }
 
-  test("std.core".only) {
-    runTestOnFile("library/std/src/core.cos")
+  test("std.prelude") {
+    runTestOnFile("library/std/src/prelude.cos")
+  }
+  test("std.prelude.core".only) {
+    runTestOnFile("library/std/src/prelude/core.cos")
+  }
+  test("std.result") {
+    runTestOnFile("library/std/src/result.cos")
+  }
+  test("std.io") {
+    runTestOnFile("library/std/src/io.cos")
   }
   test("std.str") {
     runTestOnFile("library/std/src/str.cos")
