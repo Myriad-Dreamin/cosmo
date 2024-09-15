@@ -42,10 +42,7 @@ class Cosmo extends PackageManager {
 
   @JSExport
   def preloadPackage(name: String): Unit = {
-    val FileId(pkg, pathInPkg) = resolvePackage(parsePackagePath(name) match {
-      case Some(path) => path
-      case None       => throw new Exception("Invalid package path")
-    })
+    val FileId(pkg, pathInPkg) = resolvePackage(libPath(name))
     val releaseDir = "target/cosmo/release"
     linker.assemblePkg(pkg, mayConvert, releaseDir)
   }
@@ -72,10 +69,7 @@ class Cosmo extends PackageManager {
   }
 
   def loadModuleByDotPath(s: String): Option[(FileId, Env)] = {
-    loadModule(parsePackagePath(s) match {
-      case Some(path) => path
-      case None       => throw new Exception("Invalid package path")
-    })
+    loadModule(libPath(s))
   }
 
   def loadModule(path: syntax.Node): Option[(FileId, Env)] = {
@@ -90,10 +84,6 @@ class Cosmo extends PackageManager {
 
   def parse(s: String): Option[syntax.Block] = {
     Some(parseBase(s, "r")).map(_.asInstanceOf[syntax.Block])
-  }
-
-  def parsePackagePath(s: String): Option[syntax.Node] = {
-    Some(parseBase(s, "f"))
   }
 
   def parseBase(src: String, kind: String): syntax.Node = {

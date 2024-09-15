@@ -12,11 +12,11 @@ class ScopesTest extends munit.FunSuite:
     val b = DefInfo.just(1, env)
     scopes.set("a", a)
     assert(scopes.get("a") == Some(a))
-    scopes.push()
-    assert(scopes.get("a") == Some(a))
-    scopes.set("a", b)
-    assert(scopes.get("a") == Some(b))
-    scopes.pop()
+    scopes.withScope {
+      assert(scopes.get("a") == Some(a))
+      scopes.set("a", b)
+      assert(scopes.get("a") == Some(b))
+    }
     assert(scopes.get("a") == Some(a))
   }
 end ScopesTest

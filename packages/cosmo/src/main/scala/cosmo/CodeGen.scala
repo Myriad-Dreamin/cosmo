@@ -57,10 +57,10 @@ class CodeGen(implicit val env: Env) {
           case Some(body) => blockizeExpr(body, ValRecv.Return)
           case None       => ";"
         }
-        if (name == "main") s"int main(int argc, char **argv) { $bodyCode }"
+        if (name == "main") s"int main(int argc, char **argv) $bodyCode"
         else
           val rt = ret_ty.map(returnTy).getOrElse("auto")
-          logln(s"$ret_ty => $rt")
+          debugln(s"$ret_ty => $rt")
           val staticModifier =
             if (defInfo.inClass && !hasSelf) "static " else ""
           s"${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode"
@@ -82,7 +82,7 @@ class CodeGen(implicit val env: Env) {
             s"""#include "$path" // IWYU pragma: keep"""
         }
       case ir.Class(defInfo, params, vars, restFields, true) =>
-        val templateCode = dependentParams(params);
+        val templateCode = typeParams(params).getOrElse("");
         val defsCode = restFields.map(p => genDef(p.item)).mkString("\n  ")
         s"""$templateCode struct ${defInfo.name} {\n  $defsCode
   virtual ~${defInfo.name}() = default;
@@ -92,11 +92,7 @@ class CodeGen(implicit val env: Env) {
         val defs = restFields.filter(_.isInstanceOf[ir.DefField])
         val item = env.items(defInfo.id)
         val name = defInfo.defName(stem = true)
-        val templateCode = params
-          .map { ps =>
-            s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>"
-          }
-          .getOrElse("")
+        val templateCode = typeParams(params).getOrElse("")
         val emptyConstructable = vars.forall(!_.item.init.isEmpty)
         val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
         val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
@@ -199,6 +195,12 @@ class CodeGen(implicit val env: Env) {
   $defsCode
 };"""
         }
+      case ir.Impl(defInfo, params, iface, cls, defs) =>
+        val (ifaceTy, that) = (storeTy(iface), storeTy(cls))
+        val name = s"::cosmo::Impl<$that, $ifaceTy>"
+        val templateCode = typeParams(params).getOrElse("template<>");
+        val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
+        s"${templateCode} struct $name final: public $ifaceTy {using Self = $name; using That = $that; That &self; Impl(That &self): self(self) {} ~Impl() override {} $defsCode};"
       case v: ir.Var => genVarStore(v)
       case a         => return None
     }
@@ -212,6 +214,11 @@ class CodeGen(implicit val env: Env) {
     ps.map(p => s"typename ${p.name}")
       .mkString("template <", ", ", d + "typename Cond = void> ");
   }
+
+  def typeParams(params: Option[List[ir.Param]]): Option[String] =
+    params.map(ps =>
+      s"template <${ps.map(p => s"typename ${p.name}").mkString(", ")}>",
+    )
 
   def genVarParam(node: ir.Var) = {
     val ir.Var(defInfo, init, isContant, _) = node
@@ -447,9 +454,7 @@ class CodeGen(implicit val env: Env) {
         s"$base::${ty}_cons($initArgs)"
       }
       // case v: ir.Sig()
-      case v: ir.EnumDestruct if v.bindings.isEmpty => {
-        s""
-      }
+      case v: ir.EnumDestruct if v.bindings.isEmpty => s""
       case v: ir.EnumDestruct => {
 
         // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
@@ -463,9 +468,7 @@ class CodeGen(implicit val env: Env) {
           }
           .mkString(", ")
         val rebind = v.bindings
-          .zip(
-            v.variant.base match { case c: ir.Class => c.vars },
-          )
+          .zip(v.variant.base.vars)
           .map {
             case ("_", _) => ""
             case (s, v) => {
@@ -503,7 +506,7 @@ class CodeGen(implicit val env: Env) {
         return s"switch(${expr(v.lhs)}) {${cases.mkString("\n")}\n$orElse}"
       case v: Interface => storeTy(v.ty)
       case a => {
-        println(s"unhandled expr: $a")
+        logln(s"unhandled expr: $a")
         a.toString()
       }
     }
@@ -528,3 +531,30 @@ enum ValRecv {
   case None, Return
   case Var(name: String)
 }
+
+var _ = """
+
+struct Formatter {
+  virtual void write(std::string_view &s);
+  virtual ~Formatter() = default;
+};
+/* impl:
+     Impl(Ident(std::string),Some(Ident(Formatter)),None,Block(List(Def(write,Some(List(Param(self,Some(Apply(Ident(RefMut),List(Ident(Self)))),None,false),
+     Param(s,Some(UnOp(&,Ident(str))),None,false))),Some(Apply(Select(Ident(io),Ident(Result),true),List(ArgsLit(List())))),Some(Block(List(Semi(Some(Apply(Select(Ident(self),Ident(push_str),false),List(Ident(s))))),
+     Apply(Ident(Ok),List(ArgsLit(List())))))))))) */
+
+struct StringFormatter final: public Formatter {
+    std::string &self;
+    StringFormatter(std::string &self): self(self) {}
+     ~StringFormatter() override {}
+    void write(std::string_view &s) override {
+        self += s;
+    }
+}; 
+
+int main(int argc, char **argv) {
+  std::string s = std::string();
+  StringFormatter(s).write(std::move(std::string_view("Hello, world!")));
+  printf("%s", s.c_str());
+}
+"""

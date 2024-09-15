@@ -67,7 +67,7 @@ final case class CEnumMatch(
 final case class EnumMatch(
     lhs: Item,
     meta: Interface,
-    cases: List[(EnumVariantIns, Item)],
+    cases: List[(EnumCon, Item)],
     orElse: Item,
 ) extends Item {}
 final case class Match(lhs: Item, rhs: Item) extends Item {}
@@ -130,16 +130,11 @@ final case class Interface(
   override val level: Int = 1
   override def toString: String = s"interface(${id.defName(false)(false)})"
 }
-final case class ClassInstance(
-    iface: Interface,
-    args: List[Item],
-) extends Item {}
-final case class EnumInstance(
-    iface: Interface,
-    base: EnumVariantIns,
-    args: List[Item],
-) extends Item {}
-final case class EnumVariantIns(
+final case class ClassInstance(iface: Interface, args: List[Item])
+    extends Item {}
+final case class EnumInstance(iface: Interface, base: EnumCon, args: List[Item])
+    extends Item {}
+final case class EnumCon(
     id: DefInfo,
     variantOf: Interface,
     name: String,
@@ -156,7 +151,7 @@ final case class EnumVariant(
 }
 final case class EnumDestruct(
     item: Item,
-    variant: EnumVariantIns,
+    variant: EnumCon,
     bindings: List[String],
     orElse: Option[Item],
 ) extends Item {}
@@ -176,6 +171,15 @@ object Class {
   def empty(env: Env, isAbstract: Boolean) =
     val id = DefInfo.just(CLASS_EMPTY, env)
     Class(id, None, List.empty, List.empty, isAbstract)
+}
+final case class Impl(
+    id: DefInfo,
+    params: Option[List[Param]],
+    iface: Type,
+    cls: Type,
+    fields: List[VField],
+) extends DeclLike {
+  override val level: Int = 1
 }
 
 // TopTy

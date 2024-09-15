@@ -60,9 +60,7 @@ object Parser {
     ident.filter(_ != "from").map(Ident.apply) ~ (P(
       ("." | "::") ~ identifier,
     )).rep,
-  ).map { case (lhs, rhs) =>
-    rhs.foldLeft(lhs: Node)((a, b) => Select(a, b, true))
-  }
+  ).map { case (lhs, rhs) => rhs.foldLeft(lhs: Node)(Select(_, _, true)) }
   def tmplLitParts[$: P] = P(longTmplLit | shortTmplLit)
   def shortTmplLit[$: P]: P[List[(String, Option[(Node, Option[String])])]] = P(
     "\"" ~~/ (!"\"" ~~ shortTmplLitItem).repX ~~ "\"",
@@ -169,7 +167,7 @@ object Parser {
     .map(Def.apply.tupled)
   def classItems[$: P] = classItem("class", false) | classItem("trait", true)
   def classItem[$: P](kw: String, abc: Boolean) =
-    P(sigItem(kw) ~ termU ~ "".map(_ => abc)).map(Class.apply.tupled)
+    P(sigItem(kw) ~ termU).map(Class(_, _, _, abc))
   def implItem[$: P] = P(
     keyword("impl") ~ params ~/ factor ~/ (keyword("for") ~/ factor).? ~ braces,
   ).map {
@@ -290,8 +288,7 @@ object Parser {
     Param("self", Some(decorated), None, false)
   })
   def param[$: P] =
-    P((ident) ~ typeAnnotation.? ~ initExpression.? ~ "".map(_ => false))
-      .map(Param.apply.tupled)
+    P((ident) ~ typeAnnotation.? ~ initExpression.?).map(Param(_, _, _, false))
   def typeAnnotation[$: P] = P(":" ~/ factor)
   def initExpression[$: P] = P("=" ~/ term)
   def matchClause[$: P] = P(keyword("match") ~/ braces)

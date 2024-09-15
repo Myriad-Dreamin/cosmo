@@ -8,7 +8,7 @@ trait Formatter {
 impl Formatter for String {
   def write(&mut self, s: &str): io::Result(()) = {
     self.push_str(s);
-    Ok(())
+    io::Result(())::Ok(())
   }
 }
 

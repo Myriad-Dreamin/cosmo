@@ -8,4 +8,10 @@ code("""
 using float32_t = float;
 using float64_t = double;
 using float128_t = long double;
+
+namespace cosmo {
+template<typename T, typename I, typename Cond = void>
+struct Impl;
+} // namespace cosmo
+
 """);
