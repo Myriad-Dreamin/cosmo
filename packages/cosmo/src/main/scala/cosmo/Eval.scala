@@ -440,36 +440,25 @@ class Env(pacMgr: cosmo.PackageManager) {
   }
 
   def destruct(lhs: Item, by: syntax.Node)(implicit level: Int): Item = {
-    by match {
-      case name: (syntax.Ident | syntax.Select) => {
-        val variant = enumShape(expr(name));
-        if (variant.isEmpty) {
-          errors = s"Invalid enum variant $name" :: errors
-          return lhs
-        }
-        EnumDestruct(lhs, variant.get, List(), None)
-      }
-      case syntax.Apply(name, rhs) => {
-        val variant = enumShape(expr(name));
-        if (variant.isEmpty) {
-          errors = s"Invalid enum variant $name" :: errors
-          return lhs
-        }
-        EnumDestruct(
-          lhs,
-          variant.get,
-          rhs.map {
-            case syntax.Ident(name) => name
-            case _                  => ""
-          },
-          None,
-        )
-      }
+    val (name, rhs) = by match {
+      case name: (syntax.Ident | syntax.Select) => (name, List())
+      case syntax.Apply(name, rhs)              => (name, rhs)
       case _ => {
         errors = s"Invalid destructor $by" :: errors
-        lhs
+        return lhs
       }
     }
+    val variant = enumShape(expr(name)) match {
+      case Some(v) => v
+      case None =>
+        errors = s"Invalid enum variant $name" :: errors
+        return lhs
+    }
+    val binding = rhs.map {
+      case syntax.Ident(name) => name
+      case _                  => ""
+    }
+    EnumDestruct(lhs, variant, binding, None)
   }
 
   def $apply(lhs: Item, rhs: List[Item])(implicit level: Int): Item = {
@@ -484,24 +473,24 @@ class Env(pacMgr: cosmo.PackageManager) {
         }
       case Variable(_, id, _, Some(RefTy(isRef, isMut))) =>
         assert(rhs.length == 1)
-        if (isRef) {
-          return RefItem(rhs.head, isMut)
+        return if (isRef) {
+          RefItem(rhs.head, isMut)
         } else {
-          return rhs.head
+          rhs.head
         }
       case Variable(_, id, _, Some(v)) if v.level > 0 =>
         id.env.$apply(v, rhs)
-      case fn: Sig          => applyS(fn, rhs).getOrElse(Apply(fn, rhs))
-      case fn: Fn           => applyS(fn.sig, rhs).getOrElse(Apply(fn, rhs))
-      case cls: Class       => applyC(cls, Some(rhs))
-      case iface: Interface => applyI(iface, rhs)
-      case ev: EnumCon      => applyE(ev, rhs)
+      case f: Sig       => applyF(f, rhs).getOrElse(Apply(f, rhs))
+      case f: Fn        => applyF(f.sig, rhs).getOrElse(Apply(f, rhs))
+      case c: Class     => applyC(c, Some(rhs))
+      case i: Interface => applyI(i, rhs)
+      case e: EnumCon   => applyE(e, rhs)
       case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
       case _                                    => Apply(lhs, rhs)
     }
   }
 
-  def applyS(fn: Sig, args: List[Item])(implicit level: Int): Option[Item] = {
+  def applyF(fn: Sig, args: List[Item])(implicit level: Int): Option[Item] = {
     val Sig(params, ret_ty, body) = fn
     ret_ty match {
       case Some(ir.Variable(_, id, _, Some(UniverseTy))) =>

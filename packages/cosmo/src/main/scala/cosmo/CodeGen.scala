@@ -531,30 +531,3 @@ enum ValRecv {
   case None, Return
   case Var(name: String)
 }
-
-var _ = """
-
-struct Formatter {
-  virtual void write(std::string_view &s);
-  virtual ~Formatter() = default;
-};
-/* impl:
-     Impl(Ident(std::string),Some(Ident(Formatter)),None,Block(List(Def(write,Some(List(Param(self,Some(Apply(Ident(RefMut),List(Ident(Self)))),None,false),
-     Param(s,Some(UnOp(&,Ident(str))),None,false))),Some(Apply(Select(Ident(io),Ident(Result),true),List(ArgsLit(List())))),Some(Block(List(Semi(Some(Apply(Select(Ident(self),Ident(push_str),false),List(Ident(s))))),
-     Apply(Ident(Ok),List(ArgsLit(List())))))))))) */
-
-struct StringFormatter final: public Formatter {
-    std::string &self;
-    StringFormatter(std::string &self): self(self) {}
-     ~StringFormatter() override {}
-    void write(std::string_view &s) override {
-        self += s;
-    }
-}; 
-
-int main(int argc, char **argv) {
-  std::string s = std::string();
-  StringFormatter(s).write(std::move(std::string_view("Hello, world!")));
-  printf("%s", s.c_str());
-}
-"""
