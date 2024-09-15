@@ -8,6 +8,8 @@ import "@lib/c++/iostream"
 import _ from std::prelude::lang
 
 code("""
+// pub def str: Type = stringSys::std::string
+using str = std::string;
 template <typename T, typename Cond = void> struct DisplayTrait {};
 """)
 
@@ -31,7 +33,7 @@ def unimplemented(): Nothing = {
 
 def panic(msg: str): Nothing = {
   code("""
-  fprintf(stderr, "unreachable: %s\n", std::string(msg.internal).c_str());
+  fprintf(stderr, "unreachable: %s\n", msg.c_str());
   """)
   cSys.abort();
 }
@@ -135,9 +137,10 @@ template <typename T> inline void println(const T &x) {
 """)
 
 code("""
-template <> struct DisplayTrait<std::string> {
-  static void print(const std::string &x) { printf("%s", x.c_str()); }
+template <> struct DisplayTrait<str> {
+  static void print(const str &x) { printf("%s", x.c_str()); }
 };
+
 template <typename T>
 struct DisplayTrait<
     T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {

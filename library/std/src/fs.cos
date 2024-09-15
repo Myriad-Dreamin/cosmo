@@ -1,4 +1,6 @@
 
+import _ from std.prelude
+
 import fstreamSys from "@lib/c++/fstream"
 
 def Ifstream: Type = fstreamSys.std.ifstream;

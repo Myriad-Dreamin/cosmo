@@ -91,6 +91,7 @@ class Env(pacMgr: cosmo.PackageManager) {
     newType("self", SelfVal)
     newType("Self", SelfTy)
     newType("Nothing", BottomTy)
+    newType("str", StrTy)
     newType("Ref", RefTy(true, false))
     newType("Mut", RefTy(false, true))
     newType("RefMut", RefTy(true, true))
@@ -233,6 +234,8 @@ class Env(pacMgr: cosmo.PackageManager) {
         else Opaque.expr(value.toString)
       case syntax.FloatLit(value)  => Opaque.expr(value.toString)
       case syntax.StringLit(value) => Str(value)
+      case syntax.Ident("self")    => SelfVal
+      case syntax.Ident("Self")    => SelfTy
       case syntax.Ident(name)      => byName(name)
       case syntax.ArgsLit(values) => {
         if (values.exists(_.isInstanceOf[syntax.KeyedArg])) {
