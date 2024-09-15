@@ -45,6 +45,9 @@ template <> struct DisplayTrait<Rune> {
 template <> struct DisplayTrait<String> {
   static void print(const String &x) { printf("%s", x.internal.c_str()); }
 };
+template <> struct DisplayTrait<str> {
+  static void print(const str &x) { printf("%s", std::string(x.internal).c_str()); }
+};
 template <> struct DisplayTrait<Bytes> {
   static void print(const Bytes &x) {
     printf("b\"");
