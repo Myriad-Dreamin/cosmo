@@ -1,17 +1,9 @@
 package cosmo.linker
 
-import cosmo.Package
+import cosmo.{Transpiler, Package}
 
 trait Linker {
-  def assemblePkg(
-      pkg: Package,
-      loader: String => Option[(String, Boolean)],
-      releaseDir: String,
-  ): Unit
+  def assemblePkg(pkg: Package, t: Transpiler, releaseDir: String): Unit
 
-  def compile(
-      path: String,
-      loader: String => Option[(String, Boolean)],
-      releaseDir: String,
-  ): Option[String]
+  def compile(path: String, t: Transpiler, releaseDir: String): Option[String]
 }

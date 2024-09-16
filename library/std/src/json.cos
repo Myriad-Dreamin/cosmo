@@ -30,25 +30,25 @@ pub class ValueT(T: Type) {
           if constexpr (std::is_unsigned_v<Ty>) {
               return T::pack(arr.internal[index]);
           } else {
-            panic("invalid index type for array");
-            return ValueT<T>::Null_cons();
+            cosmo_std::prelude::core::panic("invalid index type for array");
+            return cosmo_std::json::ValueT<T>::Null_cons();
           }
           """);
         }
         case ValueT(T).Object(obj) => {
           code("""
-          if constexpr (std::is_same_v<Ty, String> || std::is_same_v<Ty, std::string>) {
+          if constexpr (std::is_same_v<Ty, cosmo_std::str::String> || std::is_same_v<Ty, std::string>) {
             return T::pack(obj.internal[index]);
           } else {
-            panic("invalid index type for object");
-            return ValueT<T>::Null_cons();
+            cosmo_std::prelude::core::panic("invalid index type for object");
+            return cosmo_std::json::ValueT<T>::Null_cons();
           }
           """);
         }
       }
 
       code("""
-      return ValueT<T>::Null_cons();
+      return cosmo_std::json::ValueT<T>::Null_cons();
       """);
     }
   }
@@ -61,7 +61,7 @@ class NlohmannJsonImpl {
   var internal: NlohmannJsonValue = NlohmannJsonValue();
   // lazy def value: ValueT(Self) = Self.pack(internal);
 
-  def parse(content: String) = {
+  def parse(content: String): any = {
     self.pack(NlohmannJsonImpl(NlohmannJsonValue.parse(content.internal)))
   }
   
@@ -86,7 +86,7 @@ class NlohmannJsonImpl {
         var a = vec.Vec(NlohmannJsonImpl)()
         code("""
         for (const auto &i : j.internal) {
-          a.push(NlohmannJsonImpl(i));
+          a.push(cosmo_std::json::NlohmannJsonImpl(i));
         }""");
         ValueT(NlohmannJsonImpl).Array(a)
       }
@@ -94,7 +94,7 @@ class NlohmannJsonImpl {
         var o = map.Map(String, NlohmannJsonImpl)();
         code("""
         for (const auto &[k, v] : j.internal.items()) {
-          o.internal.insert({String(k), NlohmannJsonImpl(v)});
+          o.internal.insert({cosmo_std::str::String(k), cosmo_std::json::NlohmannJsonImpl(v)});
         }""");
         ValueT(NlohmannJsonImpl).Object(o)
       }
@@ -116,30 +116,32 @@ template <> struct DisplayTrait<nlohmann::json> {
   }
 };
 
-template <> struct DisplayTrait<ValueT<NlohmannJsonImpl>> {
-  static void print(const ValueT<NlohmannJsonImpl> &x) {
+using cosmo_stdJSON = cosmo_std::json::ValueT<cosmo_std::json::NlohmannJsonImpl>;
+
+template <> struct DisplayTrait<cosmo_stdJSON> {
+  static void print(const cosmo_stdJSON &x) {
     switch (x.data.index()) {
-    case ValueT<NlohmannJsonImpl>::kIdxNull: {
+    case cosmo_stdJSON::kIdxNull: {
       printf(std::move(::std::string("null").data()));
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxBool: {
+    case cosmo_stdJSON::kIdxBool: {
       printf(std::move(::std::string("%s").data()),
              x.Bool_0() ? "true" : "false");
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxNumberSigned: {
+    case cosmo_stdJSON::kIdxNumberSigned: {
       printf(std::move(::std::string("%lld").data()), x.NumberSigned_0());
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxNumberUnsigned: {
+    case cosmo_stdJSON::kIdxNumberUnsigned: {
       printf(std::move(::std::string("%llu").data()), x.NumberUnsigned_0());
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxNumber: {
+    case cosmo_stdJSON::kIdxNumber: {
       printf(std::move(::std::string("%f").data()), x.Number_0());
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxStr: {
+    case cosmo_stdJSON::kIdxStr: {
       printf(std::move(::std::string("%s").data()),
              x.Str_0().internal.c_str());
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxArray: {
+    case cosmo_stdJSON::kIdxArray: {
       printf("[");
       auto first = true;
       for (const auto &i : x.Array_0().internal) {
@@ -152,7 +154,7 @@ template <> struct DisplayTrait<ValueT<NlohmannJsonImpl>> {
       };
       printf("]");
     }; break;
-    case ValueT<NlohmannJsonImpl>::kIdxObject: {
+    case cosmo_stdJSON::kIdxObject: {
       printf("{");
       auto first = true;
       for (const auto &[k, v] : x.Object_0().internal) {
@@ -166,7 +168,7 @@ template <> struct DisplayTrait<ValueT<NlohmannJsonImpl>> {
       printf("}");
     }; break;
     default: {
-      unreachable();
+      cosmo_std::prelude::core::unreachable();
     }
     };
   }

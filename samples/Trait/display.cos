@@ -8,7 +8,7 @@ trait Formatter {
 impl Formatter for String {
   def write(&mut self, s: &str): io::Result(()) = {
     self.push_str(s);
-    Ok()
+    io::Result(())::Ok(())
   }
 }
 
@@ -28,7 +28,7 @@ impl Display for bool {
 
 def mprintln(t: &Display) = {
   var s = String();
-  t.display(s.as_mut()).unwrap();
+  t.display(&mut s).unwrap();
   println(s);
 }
 

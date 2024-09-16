@@ -55,9 +55,18 @@ final case class UnOp(op: String, lhs: Item) extends Item {}
 final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
 final case class Return(value: Item) extends Item {}
 final case class Semi(value: Item) extends Item {}
-final case class Apply(lhs: Item, rhs: List[Item]) extends Item {}
+final case class Apply(lhs: Item, rhs: List[Item]) extends Item {
+  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+}
+final case class Dispatch(lhs: Item, by: Item, field: VField, rhs: List[Item])
+    extends Item {
+  override def toString: String =
+    s"dispatch($lhs, $by, $field, ${rhs.mkString(", ")})"
+}
 final case class RefItem(lhs: Item, isMut: Boolean) extends Item {}
-final case class Select(lhs: Item, rhs: String) extends Item {}
+final case class Select(lhs: Item, rhs: String) extends Item {
+  override def toString: String = s"$lhs.$rhs"
+}
 final case class KeyedArg(key: String, value: Item) extends Item {}
 final case class CEnumMatch(
     lhs: Item,
@@ -80,13 +89,8 @@ final case class Continue() extends Item {}
 case object TodoLit extends Item {}
 final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
     extends Item {}
-final case class Region(stmts: List[Item]) extends Item {}
-final case class Sig(
-    params: Option[List[Param]],
-    ret_ty: Option[Type],
-    body: Option[Item],
-) extends Item {
-  def resolveLevel = (ret_ty.map(_.level - 1).getOrElse(0)).max(0)
+final case class Region(stmts: List[Item]) extends Item {
+  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
 }
 final case class As(lhs: Item, rhs: Item) extends Item {}
 abstract class DeclLike extends Item {
@@ -99,12 +103,25 @@ final case class Var(
     init: Option[Item],
     isContant: Boolean,
     override val level: Int,
-) extends DeclLike {}
+) extends DeclLike {
+  override def toString: String =
+    val mod = if isContant then "val" else "var"
+    s"$mod ${id.defName(false)(false)}:${id.id.id} = ${init.getOrElse(NoneItem)}"
+}
 final case class Fn(
     id: DefInfo,
     sig: Sig,
     override val level: Int,
-) extends DeclLike {}
+) extends DeclLike {
+  override def toString: String = s"fn(${id.defName(false)(false)})"
+}
+final case class Sig(
+    params: Option[List[Param]],
+    ret_ty: Option[Type],
+    body: Option[Item],
+) extends Item {
+  def resolveLevel = (ret_ty.map(_.level - 1).getOrElse(0)).max(0)
+}
 
 final case class Variable(
     val nameHint: String,
@@ -132,6 +149,12 @@ final case class Interface(
 }
 final case class ClassInstance(iface: Interface, args: List[Item])
     extends Item {}
+final case class HKTInstance(ty: Type, id: DefInfo, args: List[Item])
+    extends Item {
+  override val level: Int = 1
+  def repr(rec: Type => String): String =
+    s"${id.defName(false)(false)}<${args.map(rec).mkString(", ")}>::type"
+}
 final case class EnumInstance(iface: Interface, base: EnumCon, args: List[Item])
     extends Item {}
 final case class EnumCon(
@@ -237,10 +260,10 @@ final case class CIdent(
   override def toString: String = s"cpp($repr)"
   def repr: String = (ns :+ name).mkString("::")
 }
-final case class NativeType(val name: String) extends Type {
+final case class NativeType(val id: DefInfo) extends Type {
   override val level = 1
   override def toString: String = s"native($repr)"
-  def repr: String = name
+  def repr: String = id.defName(stem = false)(false)
 }
 final case class CppInsType(val target: CIdent, val arguments: List[Type])
     extends Type {
@@ -279,7 +302,9 @@ final case class Str(value: String) extends Value {}
 final case class Bytes(value: Array[Byte]) extends Value {}
 final case class Rune(value: Int) extends Value {}
 final case class DictLit(value: Map[String, Item]) extends Value {}
-final case class TupleLit(elems: List[Item]) extends Value {}
+final case class TupleLit(elems: List[Item]) extends Value {
+  override def toString: String = elems.mkString("tup(", ", ", ")")
+}
 
 sealed abstract class VField {
   val item: DeclLike

@@ -8,7 +8,7 @@ class SampleTest extends munit.FunSuite:
       cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var compiler = new Cosmo();
     compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
-    var result = compiler.mayConvert(src)
+    var result = compiler.transpile(src)
     println(result)
   }
 
@@ -42,11 +42,17 @@ class SampleTest extends munit.FunSuite:
   test("Trait/empty") {
     runTestOnFile("samples/Trait/empty.cos")
   }
-  test("Trait/formatter".only) {
+  test("Trait/resultProblem") {
+    runTestOnFile("samples/Trait/resultProblem.cos")
+  }
+  test("Trait/formatter") {
     runTestOnFile("samples/Trait/formatter.cos")
   }
   test("Trait/formatter_t") {
     runTestOnFile("samples/Trait/formatter_t.cos")
+  }
+  test("Trait/display".only) {
+    runTestOnFile("samples/Trait/display.cos")
   }
   test("ControlFlow/loop") {
     runTestOnFile("samples/ControlFlow/loop.cos")

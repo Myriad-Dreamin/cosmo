@@ -5,6 +5,7 @@ import scala.scalajs.js.annotation._
 import scala.scalajs.js.JSON
 
 import cosmo.system.CosmoSystem
+import cosmo.FileId
 
 enum PackageMetaSource {
   case ProjectPath(path: String)
@@ -43,13 +44,16 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
 
   private def loadSources: Map[String, Source] = {
     // println(s"loading sources for $namespace/$name")
-    scanDir(system, meta.path + "/src", "")
+    scanDir(system, this, meta.path + "/src", "")
   }
 
   override def toString: String = s"@$namespace/$name:$version"
 }
+object Package {
+  val any = new Package(PackageMetaSource.ProjectPath(""), null)
+}
 
-class Source(val source: String) {}
+class Source(val fid: FileId, val source: String) {}
 
 def parsePackageName(name: String): (String, String) = {
   val parts = name.split("/")
@@ -65,6 +69,7 @@ def parsePackageName(name: String): (String, String) = {
 
 def scanDir(
     system: CosmoSystem,
+    pkg: Package,
     path: String,
     relPaths: String,
 ): Map[String, Source] = {
@@ -74,10 +79,11 @@ def scanDir(
     val fullPath = path + "/" + file
     val relPath = relPaths + "/" + file
     if (file.endsWith(".cos")) {
+      val fid = FileId(pkg, relPath)
       val source = system.readFile(fullPath)
-      sources = sources + (relPath -> new Source(source))
+      sources = sources + (relPath -> new Source(fid, source))
     } else {
-      sources = sources ++ scanDir(system, fullPath, relPath)
+      sources = sources ++ scanDir(system, pkg, fullPath, relPath)
     }
   }
   sources

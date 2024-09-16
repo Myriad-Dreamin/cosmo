@@ -15,6 +15,6 @@ impl Formatter for String {
 def main() = {
   println(String <: Formatter);
   var s = String();
-  s.write("Hello, world!").unwrap();
+  s.write("Formatter trait in C++!").unwrap();
   println(s);
 }

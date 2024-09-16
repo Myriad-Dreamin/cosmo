@@ -10,6 +10,10 @@ pub class Rune {
 
 pub class String {
   var internal: CppString = stringSys.std.string();
+
+  def push_str(&mut self, s: &str) = {
+    internal += s;
+  }
 }
 
 
@@ -18,7 +22,7 @@ pub class Bytes {
 }
 
 code("""
-
+namespace cosmo_std::str {
 inline bool operator<(const String &lhs, const String &rhs) {
   return lhs.internal < rhs.internal;
 }
@@ -28,9 +32,10 @@ inline bool operator<(const Bytes &lhs, const Bytes &rhs) {
 inline bool operator==(const Rune &lhs, const Rune &rhs) {
   return lhs.internal == rhs.internal;
 }
+}  // namespace cosmo_std::str
 
-template <> struct DisplayTrait<Rune> {
-  static void print(const Rune &x) {
+template <> struct DisplayTrait<cosmo_std::str::Rune> {
+  static void print(const cosmo_std::str::Rune &x) {
     if (x.internal < 0x80 && std::isprint(x.internal)) {
       printf("'%c'", x.internal);
     } else {
@@ -38,11 +43,11 @@ template <> struct DisplayTrait<Rune> {
     }
   }
 };
-template <> struct DisplayTrait<String> {
-  static void print(const String &x) { printf("%s", x.internal.c_str()); }
+template <> struct DisplayTrait<cosmo_std::str::String> {
+  static void print(const cosmo_std::str::String &x) { printf("%s", x.internal.c_str()); }
 };
-template <> struct DisplayTrait<Bytes> {
-  static void print(const Bytes &x) {
+template <> struct DisplayTrait<cosmo_std::str::Bytes> {
+  static void print(const cosmo_std::str::Bytes &x) {
     printf("b\"");
     for (char c : x.internal) {
       printf("\\x%02x", (unsigned char)c);

@@ -12,14 +12,30 @@ import cosmo.formatter.formatCode
 @main
 def CosmoMain() = {}
 
-case class FileId(val pkg: Package, val path: String) {}
+case class FileId(val pkg: Package, val path: String) {
+  lazy val ns = calcNs
+  def calcNs =
+    val pns = List(pkg.namespace + "_" + pkg.name)
+    val fns = path.stripPrefix("/").stripSuffix(".cos").split("/").toList
+    pns ::: fns
+}
+object FileId {
+  def any = FileId(Package.any, "")
+}
 
 trait PackageManager {
   def loadModule(path: syntax.Node): Option[(FileId, Env)]
 }
 
+trait Transpiler {
+  def transpile(
+      src: String,
+      fid: Option[FileId] = None,
+  ): Option[(String, Boolean)]
+}
+
 @JSExportTopLevel("Cosmo")
-class Cosmo extends PackageManager {
+class Cosmo extends PackageManager, Transpiler {
   var packages: Map[String, Map[String, Package]] = Map()
   val system: CosmoSystem = new JsPhysicalSystem()
   val linker: Linker = new MsvcLinker(system)
@@ -32,19 +48,20 @@ class Cosmo extends PackageManager {
   @JSExport
   def getExecutable(path: String): String = {
     val releaseDir = "target/cosmo/release"
-    linker.compile(path, mayConvert, releaseDir).getOrElse("")
+    linker.compile(path, this, releaseDir).getOrElse("")
   }
 
   @JSExport
   def convert(src: String): String = {
-    mayConvert(src).map(_._1).getOrElse("#if 0\nCompilation failed\n#endif")
+    val fid = None
+    transpile(src, fid).map(_._1).getOrElse("#if 0\nCompilation failed\n#endif")
   }
 
   @JSExport
   def preloadPackage(name: String): Unit = {
     val FileId(pkg, pathInPkg) = resolvePackage(libPath(name))
     val releaseDir = "target/cosmo/release"
-    linker.assemblePkg(pkg, mayConvert, releaseDir)
+    linker.assemblePkg(pkg, this, releaseDir)
   }
 
   @JSExport
@@ -52,8 +69,8 @@ class Cosmo extends PackageManager {
     parse(s).map(syntax.toJson).getOrElse("")
   }
 
-  def mayConvert(src: String): Option[(String, Boolean)] =
-    loadModuleBySrc(new Env(this), src).flatMap(cppBackend)
+  def transpile(src: String, fid: Option[FileId]): Option[(String, Boolean)] =
+    loadModuleBySrc(new Env(fid, this), src).flatMap(cppBackend)
 
   def cppBackend(e: Env): Option[(String, Boolean)] = {
     implicit val env = e
@@ -74,7 +91,7 @@ class Cosmo extends PackageManager {
 
   def loadModule(path: syntax.Node): Option[(FileId, Env)] = {
     val fid = resolvePackage(path)
-    val env = new Env(this);
+    val env = new Env(Some(fid), this);
     if (fid._1.toString().startsWith("@cosmo/std:")) {
       env.noCore = true
     }

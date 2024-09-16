@@ -8,7 +8,7 @@ class SelfHostTest extends munit.FunSuite:
       cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var compiler = new Cosmo();
     compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
-    var result = compiler.mayConvert(src)
+    var result = compiler.transpile(src)
     println(result)
   }
 

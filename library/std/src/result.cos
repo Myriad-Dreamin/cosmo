@@ -1,5 +1,17 @@
 
+import _ from std::prelude::lang;
+
 class Result[T, E] {
   case Ok(T);
   case Err(E);
+  case _ => {
+    def unwrap(self): T = self match {
+      case Result(T, E).Ok(t) => t;
+      case Result(T, E).Err(e) => {
+        println("called `Result::unwrap()` on an `Err`");
+        println(e);
+        unreachable();
+      }
+    }
+  }
 }

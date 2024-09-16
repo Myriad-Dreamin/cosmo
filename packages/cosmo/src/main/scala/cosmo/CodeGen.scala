@@ -4,12 +4,13 @@ import scala.compiletime.ops.boolean
 import ir._
 
 class CodeGen(implicit val env: Env) {
-  val prelude = """
+  val fns = env.fid.map(f => s"${f.ns.mkString("::")}")
+  val nsb_ = fns.map(n => s"\nnamespace ${n} {\n").getOrElse("")
+  val prelude = s"""
 // NOLINTBEGIN(readability-identifier-naming,llvm-else-after-return)
-
 """
-
-  val postlude = """
+  val nse_ = fns.map(n => s"\n} // namespace ${n}\n").getOrElse("")
+  val postlude = s"""
 // NOLINTEND(readability-identifier-naming,llvm-else-after-return)
 """
 
@@ -26,14 +27,25 @@ class CodeGen(implicit val env: Env) {
 
   def mayGenDef(ast: ir.Item, tl: Boolean): Option[String] = {
     implicit val topLevel = tl;
+    val info = ast match {
+      case ir.Var(info, _, _, _) => Some(info)
+      case ir.Fn(info, _, _)     => Some(info)
+      case ir.Class(info, _, _, _, _) =>
+        Some(info)
+      case ir.Impl(info, _, _, _, _) => Some(info)
+      case _                         => None
+    }
+    val inClass = info.exists(_.inClass)
+    val nsb = if inClass then "" else nsb_
+    val nse = if inClass then "" else nse_
     val res: String = ast match {
       case ir.NoneItem    => ""
-      case ir.Semi(value) => genDef(value, tl)
+      case ir.Semi(value) => return mayGenDef(value, tl)
       case Fn(defInfo, Sig(params, retTy, body), level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
         val bodyCode = if defInfo.isDependent then "" else expr(body.get)
-        s"${templateCode} struct $name {using Self = $name; using type = $bodyCode; $name() = delete;};"
+        s"$nsb${templateCode} struct $name {using Self = $name; using type = $bodyCode; $name() = delete;};$nse"
       case Fn(defInfo, Sig(None, ret_ty, body), _) =>
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
@@ -63,7 +75,7 @@ class CodeGen(implicit val env: Env) {
           debugln(s"$ret_ty => $rt")
           val staticModifier =
             if (defInfo.inClass && !hasSelf) "static " else ""
-          s"${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode"
+          s"$nsb${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode$nse"
       // case ir.TypeAlias(ret_ty) =>
       //   s"using $name = ${returnTy(ret_ty)};"
       case ir.NativeModule(info, env, fid) =>
@@ -166,9 +178,9 @@ class CodeGen(implicit val env: Env) {
             }
             .mkString("\n    ")
         if (variants.isEmpty) {
-          s"$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};"
+          s"$nsb$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};$nse"
         } else {
-          s"""$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+          s"""$nsb$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
 
   enum { $enumIdxCode };
 
@@ -188,12 +200,12 @@ class CodeGen(implicit val env: Env) {
     switch (data.index()) {
     $variantClones
     default:
-      unreachable();
+      cosmo_std::prelude::lang::unreachable();
     }
   }
 
   $defsCode
-};"""
+};$nse"""
         }
       case ir.Impl(defInfo, params, iface, cls, defs) =>
         val (ifaceTy, that) = (storeTy(iface), storeTy(cls))
@@ -370,6 +382,15 @@ class CodeGen(implicit val env: Env) {
         s"Range(${expr(lhs)}, ${expr(rhs)})"
       case ir.BinOp(op, lhs, rhs) =>
         s"${expr(lhs)} $op ${expr(rhs)}"
+      case ir.Dispatch(SelfVal, by: Class, field, rhs) =>
+        s"self.${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+      case ir.Dispatch(lhs, impl: Impl, field, rhs) =>
+        val iface = storeTy(impl.iface)
+        val cls = storeTy(impl.cls)
+        val dispatcher = s"::cosmo::Impl<$cls, $iface>"
+        s"$dispatcher(${expr(lhs)}).${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+      case ir.Dispatch(lhs, by, field, rhs) =>
+        s"${expr(lhs)}.${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(lhs, rhs) =>
         val rhsAnyTy = rhs.exists(_.level > 0)
         if (rhsAnyTy) {
@@ -386,10 +407,10 @@ class CodeGen(implicit val env: Env) {
           s"${expr(lhs)}.${rhs}"
         }
       case SelfVal     => "(*this)"
-      case Unreachable => return "unreachable();"
+      case Unreachable => return "cosmo_std::prelude::lang::unreachable();"
       case Bool(v)     => v.toString
-      case Str(s)      => s"""str("${escapeStr(s)}")"""
-      case s: Bytes    => s"""Bytes("${bytesRepr(s)}")"""
+      case Str(s)      => s"""::str("${escapeStr(s)}")"""
+      case s: Bytes    => s"""cosmo_std::str::Bytes("${bytesRepr(s)}")"""
       case Rune(s) if s < 0x80 && !s.toChar.isControl =>
         s"Rune('${s.toChar}')"
       case Rune(s) => s"Rune($s)"
@@ -404,7 +425,7 @@ class CodeGen(implicit val env: Env) {
       case v: ir.CIdent        => storeTy(v)
       case v: ir.NativeInsType => storeTy(v)
       case v: ir.CppInsType    => storeTy(v)
-      case v: ir.Var           => v.id.defName(stem = true)(false)
+      case v: ir.Var           => v.id.defName(stem = false)(false)
       case v: ir.ClassInstance => {
         val args = v.args.flatMap {
           case v: KeyedArg => Some((v.key, v.value))
@@ -435,7 +456,7 @@ class CodeGen(implicit val env: Env) {
           case v: KeyedArg => None
           case v           => Some(v)
         }.iterator
-        val ty = storeTy(v.iface.ty)
+        val ty = v.iface.id.defName(stem = true)(false)
         val vars = v.iface.fields.iterator.flatMap {
           case (s, v: VarField) => {
             val value = args.get(s).orElse(positions.nextOption)

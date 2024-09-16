@@ -3,6 +3,7 @@ import "@lib/c++/cstdint"
 import "@lib/c++/memory"
 import "@lib/c++/variant"
 import "@lib/c++/tuple"
+import cSys from "@lib/c++/cstdlib"
 
 code("""
 using float32_t = float;
@@ -15,3 +16,17 @@ struct Impl;
 } // namespace cosmo
 
 """);
+
+def unreachable(): Nothing = {
+  code("""
+  fprintf(stderr, "unreachable\n");
+  """)
+  cSys.abort();
+}
+
+def unimplemented(): Nothing = {
+  code("""
+  fprintf(stderr, "unimplemented\n");
+  """)
+  cSys.abort();
+}

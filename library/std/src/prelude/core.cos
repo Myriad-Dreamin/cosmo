@@ -1,9 +1,9 @@
 
 import "@lib/c++/cstdio"
-import cSys from "@lib/c++/cstdlib"
 import "@lib/c++/string"
 import "@lib/c++/utility"
 import "@lib/c++/iostream"
+import cSys from "@lib/c++/cstdlib"
 
 import _ from std::prelude::lang
 
@@ -16,20 +16,6 @@ template <typename T, typename Cond = void> struct DisplayTrait {};
 import _ from std::option
 import _ from std::result
 import _ from std::str
-
-def unreachable(): Nothing = {
-  code("""
-  fprintf(stderr, "unreachable\n");
-  """)
-  cSys.abort();
-}
-
-def unimplemented(): Nothing = {
-  code("""
-  fprintf(stderr, "unimplemented\n");
-  """)
-  cSys.abort();
-}
 
 def panic(msg: str): Nothing = {
   code("""
@@ -141,6 +127,15 @@ template <> struct DisplayTrait<str> {
   static void print(const str &x) { printf("%s", x.c_str()); }
 };
 
+template <> struct DisplayTrait<bool> {
+  static void print(bool x) {
+    if (x) {
+      printf("true");
+    } else {
+      printf("false");
+    }
+   }
+};
 template <typename T>
 struct DisplayTrait<
     T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {

@@ -2,6 +2,8 @@ package cosmo.linker
 
 import cosmo.system._
 import cosmo.Package
+import cosmo.Transpiler
+import cosmo.FileId
 
 import scala.scalajs.js
 
@@ -17,7 +19,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
   def assemblePkg(
       pkg: Package,
-      loader: String => Option[(String, Boolean)],
+      t: Transpiler,
       releaseDir: String,
   ): Unit = {
     val destDir = releaseDir + "/" + pkg.namespace + "/" + pkg.name + "/src"
@@ -43,9 +45,10 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
         var subIdentifier =
           (identifier + "_" + pathWithoutExt.replace("/", "_")).toUpperCase
 
-        var generated = loader(src.source).map { case (content, noCore) =>
-          s"""#ifndef ${subIdentifier}_H\n#define ${subIdentifier}_H\n\n""" + content + s"\n\n#endif // ${subIdentifier}_H\n"
-        }
+        var generated =
+          t.transpile(src.source, Some(src.fid)).map { case (content, noCore) =>
+            s"""#ifndef ${subIdentifier}_H\n#define ${subIdentifier}_H\n\n""" + content + s"\n\n#endif // ${subIdentifier}_H\n"
+          }
 
         generated.map(system.writeFile(hPath, _))
         generated.map(_ =>
@@ -96,11 +99,11 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
   def compile(
       path: String,
-      loader: String => Option[(String, Boolean)],
+      t: Transpiler,
       releaseDir: String,
   ): Option[String] = {
     val src = system.readFile(path)
-    val generated = loader(src).map { case (content, noCore) =>
+    val generated = t.transpile(src).map { case (content, noCore) =>
       var suf = if (noCore) "/lang" else ""
       s"""#include <cosmo/std/src/prelude${suf}.h> // IWYU pragma: keep\n\n${content}"""
     }
