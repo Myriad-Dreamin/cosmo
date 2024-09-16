@@ -9,10 +9,13 @@ It sees cosmo functions and evaluate the type parts in the functions. The result
 ## Example
 
 ```scala
-def Vec(Ty: Type) = std.cpp.ty(std.vector(Ty));
+import "@lib/c++/vector";
+
+// A function returning a type
+def CppVec[T]: Type = cstd.vector(T);
 
 def main() = {
-  val vec = Vec(u8)();
+  val vec = CppVec(u8)();
   vec.push_back(1);
   vec.push_back(2);
   vec.push_back(3);
@@ -32,11 +35,11 @@ Requirements:
 
 - scala 3.3.3
 - sbt
-- any clang supporting C++17
+- C++ compiler supporting C++17
+  - MSVC, Clang, or GCC
 
 ```
-yarn compile && node cmd/cosmo/main.js samples/HelloWorld/main.cos samples/HelloWorld/main.cc
-clang -std=c++17 samples/HelloWorld/main.cc -o test && test
+yarn compile && node cmd/cosmo/main.js run samples/HelloWorld/main.cos
 ```
 
 ## Implementation Note
@@ -59,8 +62,8 @@ clang -std=c++17 samples/HelloWorld/main.cc -o test && test
   - [x] Function
   - [x] Class
   - [x] Enum Class
-  - [ ] Trait
-  - [ ] Impl
+  - [x] Trait
+  - [x] Impl
   - [x] Import
 - Expressions
   - [x] Binary
@@ -74,15 +77,19 @@ clang -std=c++17 samples/HelloWorld/main.cc -o test && test
   - [x] Break/Continue/Return
   - [x] Block
 - Decorators/Macros
-  - [ ] Decorator
+  - [x] Decorator
   - [ ] Macro
 
-## Syntax
+## Documentation
+
+See [Design Docs.](https://myriad-dreamin.github.io/cosmo/)
+
+## Syntax: Function
 
 External types can be handled by builtin `external` function:
 
 ```scala
-def Vec(Ty: Type) = std.cpp.ty(std.vector(Ty));
+def CppVec(T: Type): Type = cstd.vector(T);
 ```
 
 Function body can be a type:
@@ -97,50 +104,72 @@ def Pair(Lhs: Type, Rhs: Type) /* inferred as : Type */ = (Lhs, Rhs);
 Lifted values must be known and evaluated at compile-time
 
 ```scala
-val lift(implicit T: Type)(val v: T) = Type;
+def lift(implicit T: Type)(v: T) = Type(v);
 val True = lift(true);
 // or
 val False = Type(false);
 ```
 
+The signature of `lift` looks a bit unfamiliar, but when we _rewrite_ this with constraint list syntax, it looks like this:
+
+```scala
+def lift[T](v: T) = Type(v);
+```
+
+Or simply as:
+
+```scala
+type lift = Type;
+```
+
+This tells us the "template arguments" in Cosmo, such as `[T]`, are the first arguments. The `T` is the first parameter of `lift` and has the type `Type`, which is the type of all cosmo types of values. When parameters are given, the cosmo compiler will evaluate these parameters at compile time and generate remaining part as a runtime function. In particular, functions whose parameters are all types, like `lift`, will be evaluated at compile time completely.
+
+## Syntax: Trait
+
 Traits are classes containing unimplemented methods, while you can provide default impls:
 
 ```scala
-trait Unsigned(T: Type) {
-  def asUint64(self): u64 = staticCast(u64)(self);
+trait Unsigned[T] {
+  def asUint64(&self): u64 = staticCast(u64)(self);
 }
 ```
 
 Constraints are compile-time assertions containing type expressions:
 
 ```scala
-trait Unsigned(T: Type) {
+trait Unsigned[T] {
   assert(T == u8 or T == u16 or T == u32 or T == u64);
+  def asUint64(&self): u64 = staticCast(u64)(self);
 }
 ```
 
-The `Truthy` predicate can convert any type to either `True` or `False`:
+You can also put constraints inside of the constraint list:
 
 ```scala
-def IsUnsigned(T: Type) = {
-  assert(Truthy(Unsigned(T)));
-  True
-}
-// or
-def IsUnsigned(T: Unsigned(T)) = True;
+trait Unsigned[T, T == u8 or T == u16 or T == u32 or T == u64] {}
 ```
+
+or simply as:
+
+```scala
+trait Unsigned[T <: u8 | u16 | u32 | u64] {}
+```
+
+## Syntax: Higher-Kinded Types
 
 Constructing a type from a type expression:
 
 ```scala
-def RoundBits(T: Type) = if (IsUnsigned(T)) {
+def RoundBits[T] = if (IsUnsigned(T)) {
   u64
 } else {
   i64
 }
 ```
 
-Enum and pattern matching:
+## Syntax: ADT and Pattern Matching
+
+Enum classes and pattern matching share a same syntax:
 
 ```scala
 // Enum class will be translated into tagged union
@@ -155,16 +184,20 @@ def add(A: Nat, B: Nat): Nat = A match {
 }
 ```
 
-Inference and specialization:
+GADT is also supported:
 
 ```scala
-// implicit type parameters are inferred automatically
-val identity(implicit T: Type)(val v: T) = v;
-// Since they are currying functions, grouped braces are not necessary
-val identity(implicit T: Type, val v: T) = v;
+class VecGADT[n: u32, T] {
+  case Nil: VecGADT[0, T]
+  case Cons(T, VecGADT[n - 1, T]): VecGADT[n, T]
+}
 
-// partial specialization
-val identityU8 = identity(implicit u8);
+impl[n: u32, T] VecGADT[n, T] {
+  def concat[m: u32](self, v: VecGADT[m, T]): VecGADT[n + m, T] = self match {
+    case Nil => v
+    case Cons(h, t /* n - 1 */) => Cons(h, t.concat(v) /* n - 1 + m */) // n + m
+  }
+}
 ```
 
 ## Semantics
