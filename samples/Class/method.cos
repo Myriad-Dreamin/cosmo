@@ -1,7 +1,7 @@
 
 class Basic {
   var data: i32 = 42
-  def method(self) = self.data
+  def method(&self) = self.data
 }
 
 def main() = {

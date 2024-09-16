@@ -3,7 +3,7 @@ package cosmo.ir
 import cosmo.{DefInfo, FileId}
 
 import cosmo.ir.Value
-import cosmo.{DefInfo, Env}
+import cosmo.{DefId, DefInfo, Env}
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
@@ -13,22 +13,23 @@ sealed abstract class Item {
   val level: Int = 0;
 
   def instantiate(implicit lvl: Int): Item = {
-    this match {
-      case Variable(_, info, lvl, v) =>
-        val ty = info.upperBounds.find {
-          case Variable(_, info, lvl, v) => false
-          case _                         => true
-        }
-        val ty2 = ty.map { ty =>
-          if ty.level > lvl then ty.instantiate
-          else ty
-        }
-        ty2.getOrElse(TopKind(lvl))
-      case TopKind(level)    => TopKind((level - 1).min(lvl))
-      case BottomKind(level) => BottomKind((level - 1).min(lvl))
-      case SelfKind(level)   => SelfKind((level - 1).min(lvl))
-      case ty                => ty
-    }
+    // this match {
+    //   case Variable(info, lvl, v) =>
+    //     val ty = info.upperBounds.find {
+    //       case Variable(_, info, lvl, v) => false
+    //       case _                         => true
+    //     }
+    //     val ty2 = ty.map { ty =>
+    //       if ty.level > lvl then ty.instantiate
+    //       else ty
+    //     }
+    //     ty2.getOrElse(TopKind(lvl))
+    //   case TopKind(level)    => TopKind((level - 1).min(lvl))
+    //   case BottomKind(level) => BottomKind((level - 1).min(lvl))
+    //   case SelfKind(level)   => SelfKind((level - 1).min(lvl))
+    //   case ty                => ty
+    // }
+    ???
   }
 }
 
@@ -57,6 +58,10 @@ final case class Return(value: Item) extends Item {}
 final case class Semi(value: Item) extends Item {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+}
+final case class BoundField(lhs: Item, by: Option[Item], rhs: VField)
+    extends Item {
+  override def toString: String = s"($lhs as $by).$rhs"
 }
 final case class Dispatch(lhs: Item, by: Item, field: VField, rhs: List[Item])
     extends Item {
@@ -97,7 +102,9 @@ abstract class DeclLike extends Item {
   val id: DefInfo
 }
 
-final case class Param(name: String, id: DefInfo, ty: Type) extends DeclLike {}
+final case class Param(id: DefInfo) extends DeclLike {
+  def name = id.name
+}
 final case class Var(
     id: DefInfo,
     init: Option[Item],
@@ -106,7 +113,7 @@ final case class Var(
 ) extends DeclLike {
   override def toString: String =
     val mod = if isContant then "val" else "var"
-    s"$mod ${id.defName(false)(false)}:${id.id.id} = ${init.getOrElse(NoneItem)}"
+    s"($mod ${id.defName(false)(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
 }
 final case class Fn(
     id: DefInfo,
@@ -124,12 +131,11 @@ final case class Sig(
 }
 
 final case class Variable(
-    val nameHint: String,
     val id: DefInfo,
     override val level: Int,
     val value: Option[Item] = None,
 ) extends DeclLike {
-  override def toString: String = s"$nameHint:${id.id.id}"
+  override def toString: String = s"var(${id.defName(false)(false)})"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclLike {}
@@ -247,7 +253,14 @@ object FloatTy {
     Some(new FloatTy(s.stripPrefix("f").toInt))
   }
 }
-
+final case class InferVar(
+    var info: DefInfo,
+    var upperBounds: List[Type] = List(),
+    var lowerBounds: List[Type] = List(),
+    override val level: Int,
+) extends Type {
+  override def toString: String = s"${info.name}:${info.id.id}"
+}
 final case class ValueTy(val value: Value) extends Type {
   override val level = 1
   override def toString: String = value.toString
@@ -272,9 +285,9 @@ final case class CppInsType(val target: CIdent, val arguments: List[Type])
   def repr(rec: Type => String): String =
     target.repr + "<" + arguments
       .map {
-        case Variable(nameHint, defId, level, None) => nameHint
-        case Variable(nameHint, id, level, Some(v)) => rec(v)
-        case ty                                     => rec(ty)
+        case Variable(defId, level, None) => defId.name
+        case Variable(id, level, Some(v)) => rec(v)
+        case ty                           => rec(ty)
       }
       .mkString(", ") + ">"
 }
@@ -288,9 +301,9 @@ final case class NativeInsType(
   def repr(rec: Type => String): String =
     rec(target) + "<" + arguments
       .map {
-        case Variable(nameHint, defId, level, None) => nameHint
-        case Variable(nameHint, id, level, Some(v)) => rec(v)
-        case ty                                     => rec(ty)
+        case Variable(defId, level, None) => defId.name
+        case Variable(id, level, Some(v)) => rec(v)
+        case ty                           => rec(ty)
       }
       .mkString(", ") + ">"
 }
