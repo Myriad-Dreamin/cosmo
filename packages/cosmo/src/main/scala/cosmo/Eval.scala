@@ -5,6 +5,7 @@ import cosmo.system._
 import cosmo.FileId
 import cosmo.syntax.Ident
 import cosmo.syntax.CaseBlock
+import cosmo.syntax.FloatLit
 
 type SParam = syntax.Param;
 type SParams = List[SParam];
@@ -41,6 +42,9 @@ class DefInfo(
     var inClass: Boolean = false,
     var isBuiltin: Boolean = false,
     var isDependent: Boolean = true,
+    var isOverride: Boolean = false,
+    var isVirtual: Boolean = false,
+    var isConstantVal: Boolean = true,
 ) {
   def defName(stem: Boolean = false): String = {
     if (noMangle) this.name
@@ -74,23 +78,21 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   var module: ir.Region = Region(List())
   var ns: List[String] = List()
   var noCore = false
+  var builtinClasses = Map[Item, Class]()
   var selfRef: Option[Item] = None
+  var selfImplRef: Option[Item] = None
 
   implicit val system: CosmoSystem = new JsPhysicalSystem()
 
-  def eval(ast: syntax.Block): Env = {
-    if (!noCore) {
-      importNative(libPath("std.prelude"), Some(Ident("_")))
-    }
-
+  def builtins() = {
     newBuiltin("print")
     newBuiltin("println")
 
     newType("c_enum", CEnumTy)
     newType("Type", UniverseTy)
     newType("bool", BoolTy)
-    newType("self", SelfVal)
-    newType("Self", SelfTy)
+    newType("self", SelfVal, SelfTy)
+    newType("Self", SelfTy, UniverseTy)
     newType("Nothing", BottomTy)
     newType("str", StrTy)
     newType("any", TopTy)
@@ -108,6 +110,13 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       newType(s"f$width", FloatTy(width))
     }
     newType("code", Unresolved(DefInfo.just(CODE_FUNC, this)))
+    this
+  }
+
+  def eval(ast: syntax.Block): Env = {
+    if (!noCore) {
+      importNative(libPath("std.prelude"), Some(Ident("_")))
+    }
 
     module = Region(ast.stmts.map(valueExpr))
 
@@ -142,8 +151,10 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     items += (info.id -> Opaque.expr(s"$name"))
   }
 
-  def newType(name: String, ty: Type) = {
+  def newType(name: String, ty: Type, tyty: Type = UniverseTy) = {
     val info = ct(name); info.noMangle = true; info.isBuiltin = true
+    info.ty = tyty
+    builtinClasses += (ty -> Class.empty(this, false).copy(id = info))
     items += (info.id -> ty)
   }
 
@@ -220,14 +231,21 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
   }
 
+  def derefPtr(lhs: syntax.Node)(implicit level: Int): Item = {
+    lhs match {
+      case Ident("self") => SelfVal
+      case lhs           => UnOp("*", expr(lhs))
+    }
+  }
+
   def deref(lhs: Item)(implicit level: Int): Item = {
     lhs match {
       case (f: Sig) if f.params.isEmpty    => $apply(f, List())
       case Fn(_, f, _) if f.params.isEmpty => $apply(f, List())
       case BoundField(_, by, _, TypeField(ev: EnumVariant))
-          if ev.base.params.isEmpty && ev.base.isPhantomClass =>
+          if ev.base.justInit =>
         $apply(lhs, List())
-      case cls: Class if cls.params.isEmpty && cls.isPhantomClass =>
+      case cls: Class if cls.justInit =>
         $apply(cls, List())
       case _ => lhs
     }
@@ -239,7 +257,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     ast match {
       // literals
       case syntax.TodoLit        => TodoLit
-      case syntax.BoolLit(value) => Opaque.expr(value.toString)
+      case syntax.BoolLit(value) => Bool(value)
       case syntax.IntLit(value) =>
         if (value.isValidInt) Integer(value.toInt)
         else Opaque.expr(value.toString)
@@ -282,6 +300,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case syntax.UnOp("&", lhs) => RefItem(expr(lhs), false)
       case syntax.UnOp("mut", lhs) =>
         errors = s"mut must be used after &" :: errors; expr(lhs)
+      case syntax.UnOp("*", lhs)      => derefPtr(lhs)
       case syntax.UnOp(op, lhs)       => UnOp(op, expr(lhs))
       case syntax.BinOp(op, lhs, rhs) => binOp(op, expr(lhs), expr(rhs))
       case syntax.As(lhs, rhs)        => As(expr(lhs), typeExpr(rhs))
@@ -475,9 +494,9 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   def select(lhs: Item, field: String)(implicit level: Int): Item = {
     debugln(s"selectItem $lhs ${lhs.getClass().getName()} $field")
-    val x = dispatch(lhs, lhs, field, false).getOrElse(Select(lhs, field))
+    val x = dispatch(lhs, lhs, field, false)
     debugln(s"selectItem $lhs $field => $x")
-    x
+    x.getOrElse(Select(lhs, field))
   }
 
   def dispatch(lhs: Item, by: Item, field: String, casted: Boolean)(implicit
@@ -488,15 +507,36 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       if (nextCasted && casted) then None
       else dispatch(lhs, by, field, nextCasted)
 
+    def ls(b: BoundField) = b match {
+      case b @ BoundField(s @ SelfVal, _, _, DefField(f)) =>
+        val s2 = f.sig.selfIsMut match {
+          case Some(true)  => RefItem(s, true) // todo: check self mutability
+          case Some(false) => RefItem(s, false)
+          case _           => SelfTy
+        }
+        b.copy(lhs = s2)
+      case b @ BoundField(RefItem(s @ SelfVal, isMut), _, _, DefField(f)) =>
+        val s2 = f.sig.selfIsMut match {
+          case Some(true) =>
+            if (!isMut) {
+              errors = s"self is not mutable" :: errors
+            }
+            RefItem(s, isMut)
+          case Some(false) => RefItem(s, isMut)
+          case _           => SelfTy
+        }
+        b.copy(lhs = s2)
+      case b => b
+    }
     def dFields(by: Item, v: Iterable[VField]) =
-      v.find(_.item.id.name == field).map(BoundField(lhs, by, casted, _))
+      v.find(_.name == field).map(BoundField(lhs, by, casted, _)).map(ls)
 
     def dImpls(id: DefInfo): Option[Item] = {
       val impls = id.impls.flatMap { i =>
-        i.fields.find(_.item.id.name == field).map(BoundField(lhs, i, true, _))
+        i.fields.find(_.name == field).map(BoundField(lhs, i, true, _)).map(ls)
       }
-      if (impls.headOption.isDefined && !impls.tails.isEmpty) {
-        errors = s"multiple impls for $field" :: errors
+      if (impls.headOption.isDefined && !impls.tail.isEmpty) {
+        errors = s"multiple impls for $field $impls" :: errors
       }
       impls.headOption
     }
@@ -508,6 +548,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
           case None =>
             errors = s"no self target in this scope" :: errors; None
         }
+      case RefItem(r, isMut)   => dispatch(lhs, r, field, casted)
       case Term(_, _, Some(v)) => dispatch(lhs, v, field, casted)
       case Term(id, _, None)   => dispatch(lhs, id.ty, field, casted)
       case NativeModule(info, env, fid) =>
@@ -517,7 +558,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
         })
       case CModule(id, kind, path) => return Some(CIdent(field, List(), level))
       case CIdent(ns0, ns, lvl)    => return Some(CIdent(field, ns :+ ns0, lvl))
-      case i: Var   => i.init.flatMap(dispatch(lhs, _, field, casted))
+      case i: Var                  => dispatch(lhs, i.id.ty, field, casted)
       case i: Impl  => dFields(i, i.fields).orElse(contDispatch(i.cls, true))
       case c: Class => dFields(c, c.fields).orElse(dImpls(c.id))
       case ClassInstance(con, _) =>
@@ -542,18 +583,21 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case Term(id, _, Some(RefTy(isRef, isMut))) =>
         assert(rhs.length == 1)
         return if (isRef) {
-          RefItem(rhs.head, isMut)
+          val r = rhs.head;
+          checkMutability(r, isMut);
+          RefItem(r, isMut)
         } else {
           rhs.head
         }
-      case Term(id, _, Some(v)) if v.level > 0 =>
-        id.env.$apply(v, rhs)
+      case Term(id, _, Some(v))                 => $apply(v, rhs)
       case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
       case f: Sig                               => applyF(f, None, rhs)
       case f: Fn                                => applyF(f.sig, Some(f), rhs)
       case c: Class                             => applyC(c, Some(rhs))
       case BoundField(_, by, _, TypeField(ev: EnumVariant)) =>
         $apply(ev.base.copy(variantOf = Some(by)), rhs)
+      case BoundField(that, by, _, DefField(f)) =>
+        Apply(lhs, castArgs(f.sig.params, rhs, Some(Right(that))))
       case HKTInstance(ty, syntax) =>
         val res = hktTranspose(syntax, $apply(ty, rhs))
         if (res.level == 0) {
@@ -666,13 +710,13 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       defInfo: DefInfo,
       oty: Option[syntax.Node],
       initExprE: Option[Item],
-      isContant: Boolean,
+      isConstant: Boolean,
   )(implicit level: Int): ir.Var = {
     defInfo.isVar = true;
     val initExpr = initExprE.map(normalizeExpr)
     val initTy = (oty.map(typeExpr), defInfo.name) match {
       case (Some(ty), _)  => Some(ty)
-      case (None, "self") => Some(SelfTy)
+      case (None, "self") => Some(RefItem(SelfTy, false))
       case _ => {
         initExpr match {
           case Some(initExpr) => tyOf(initExpr)
@@ -684,7 +728,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       }
     }
     val valLvl = (initTy.map(_.level).getOrElse(0) - 1).max(0)
-    val res = ir.Var(defInfo, initExpr, isContant, valLvl)
+    val res = ir.Var(defInfo, initExpr, isConstant, valLvl)
+    defInfo.isConstantVal = isConstant
     defInfo.ty = initTy.getOrElse(createInfer(defInfo, valLvl + 1))
     items += (defInfo.id -> initExpr.getOrElse(res))
     items += (defInfo.id -> byRef(defInfo))
@@ -745,6 +790,12 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
         case _ =>
           val kind = if isAbstract then "trait" else "class"
           errors = s"Invalid $kind body" :: errors; (List(), List())
+      if (isAbstract) {
+        restFields.foreach {
+          case DefField(f) => f.id.isVirtual = true
+          case _           =>
+        }
+      }
       Class(defInfo, resolveParams(params), None, vars, restFields, isAbstract)
     }
     defInfo.ty = cls
@@ -753,10 +804,10 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
     // Check conflict
     var existings = Map[String, VField]();
-    def addField(f: VField) = if (existings.contains(f.item.id.name)) {
-      errors = s"conflict field ${f.item.id.name}" :: errors
+    def addField(f: VField) = if (existings.contains(f.name)) {
+      errors = s"conflict field ${f.name}" :: errors
     } else {
-      existings += (f.item.id.name -> f)
+      existings += (f.name -> f)
     }
     cls.fields.foreach(addField)
 
@@ -877,29 +928,39 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   def implItem(ast: syntax.Impl) = {
     val syntax.Impl(rhs, lhs, params, body) = ast
     val defInfo = ct("$impl", hidden = true)
-    val ss = selfRef
+    val ss = selfImplRef
+    val ss2 = selfRef
     val impl = withNsParams("", params.map(Left(_))) {
       val (iface, cls) = (lhs.map(typeExpr), typeExpr(rhs))
+      selfRef = Some(cls)
       val defs = body match {
         case body: syntax.Block =>
+          selfImplRef =
+            Some(Impl(defInfo, resolveParams(params), iface.get, cls, List()))
           val (vars, decls) = baseClass(body, None)
           if (!vars.isEmpty) {
             errors = s"impl cannot have vars" :: errors
           }
-          selfRef =
+          selfImplRef =
             Some(Impl(defInfo, resolveParams(params), iface.get, cls, decls))
           baseClass(body, Some(vars ::: decls))._2
         case _ => errors = s"Invalid impl body" :: errors; List()
       }
+      defs.foreach { d => d.item.id.isOverride = true }
       Impl(defInfo, resolveParams(params), iface.get, cls, defs)
     }
-    selfRef = ss
+    selfRef = ss2
+    selfImplRef = ss
     items += (defInfo.id -> impl)
     associateImpl(impl, impl.cls)
     impl
   }
 
   def associateImpl(impl: Impl, cls: Type): Unit = {
+    if (canonicalTy(cls).isBuilitin) {
+      return associateImpl(impl, classRepr(cls))
+    }
+
     debugln(s"associateImpl $impl to $cls")
     val id = cls match {
       case cls: Class => cls.id
@@ -940,21 +1001,24 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   def castArgs(
       eParams: Option[List[Param]],
-      args: List[Item],
+      eArgs: List[Item],
       self: Option[Either[Unit, Item]] = None,
   ): List[Item] = {
-    val params = eParams.map { p =>
+    val params = eParams.map(_.filter(_.level == 0)).map { p =>
       self match {
         case None => p
-        case Some(Left(())) =>
+        case Some(_) =>
           if (p.headOption.exists(_.id.name == "self")) {
             p.tail
           } else {
             p
           }
-        case Some(Right(self)) => ???
       }
     }
+
+    val firstArgs = eArgs.takeWhile(_.level > 0)
+    val args = eArgs.drop(firstArgs.length)
+
     val paramsLength = params.map(_.length).getOrElse(0)
     if (paramsLength != args.length) {
       println(("self", self))
@@ -964,18 +1028,63 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
 
     var argsPair = params.iterator.flatten.zip(args);
-    argsPair.map { case (p, a) =>
+    firstArgs ::: (argsPair.map { case (p, a) =>
       val info = p.id
       val casted = castTo(a, info.ty)
       items += (info.id -> casted)
       // todo: cast type
       casted
-    }.toList
+    }.toList)
   }
 
-  def castTo(item: Item, ty: Type): Item = {
-    debugln(s"castTo $item to $ty")
-    item
+  def castTo(item: Item, nty: Type): Item = {
+    val ty = canonicalTy(nty)
+    debugln(s"castTo $item to $nty ($ty)")
+    ty match {
+      case TopTy | UniverseTy => item
+      case RefItem(rty, rhsIsMut) =>
+        item match {
+          case l: RefItem => {
+            if (rhsIsMut) {
+              checkMutability(item, rhsIsMut);
+            }
+            if (rhsIsMut && !l.isMut) {
+              errors = s"Cannot cast to mut ref" :: errors
+              return Opaque.expr(
+                s"\n#error \"Cannot cast to mut ref\"\n /* ref $item */",
+              )
+            }
+            val lty = canonicalTy(item)
+            val lIsR = isSubtype(lty, rty);
+            val rIsL = isSubtype(rty, lty);
+            debugln(s"castTo $item to $rty ($lty) $lIsR $rIsL")
+            if (lIsR && rIsL) {
+              debugln(s"$item is exact $rty")
+              return item
+            }
+            if (!lIsR) {
+              errors = s"No way to cast $item ($lty) to $nty ($rty)" :: errors
+              return Opaque.expr(
+                s"\n#error \"No way to cast\"\n /* ref $item */",
+              )
+            }
+
+            rty match {
+              case tr: Class if tr.isAbstract => {
+                As(item, implClass(lty, tr).get)
+              }
+              case _ =>
+                As(item, nty)
+            }
+          }
+          case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
+          case l if !rhsIsMut                  => castTo(RefItem(l, false), nty)
+          case _ =>
+            errors = s"Must ref item $item" :: errors;
+            Opaque.expr(s"\n#error \"Must ref item\"\n /* ref $item */")
+        }
+      case _ => return item
+    }
   }
 
   def exprOpa(ast: syntax.Node): String = {
@@ -1038,6 +1147,20 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
   }
 
+  def checkMutability(item: Item, isMut: Boolean): Unit = {
+    debugln(s"checkMutability $item $isMut")
+    val lhsIsMut = item match {
+      case RefItem(lhs, rhsIsMut) => return checkMutability(lhs, rhsIsMut)
+      case SelfTy                 => return
+      case v: Term                => !v.id.isConstantVal
+      case v: Var                 => !v.id.isConstantVal
+      case _                      => return
+    }
+    if (!lhsIsMut && isMut) {
+      errors = s"Cannot cast to mut ref" :: errors
+    }
+  }
+
   // : Normalization Part
 
   def evalExpr(item: Item)(implicit level: Int): Item = {
@@ -1076,9 +1199,86 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     case _                          => false
   }
 
+  def eqType(lhs: Item, rhs: Item): Boolean = {
+    val lty = canonicalTy(lhs)
+    val rty = canonicalTy(rhs)
+    isSubtype(lty, rty) && isSubtype(rty, lty)
+  }
+
+  def canonicalTy(rhs: Item): Item = {
+    debugln(s"canonicalTy $rhs")
+    rhs match {
+      case SelfVal if selfImplRef.isDefined =>
+        selfRef.map(canonicalTy).getOrElse(TopTy)
+      case SelfVal                               => SelfTy
+      case Term(_, level, Some(v)) if level == 1 => canonicalTy(v)
+      case v: Term                               => canonicalTy(v.id.ty)
+      case v: Var                                => canonicalTy(v.id.ty)
+      case RefItem(lhs, isMut) => RefItem(canonicalTy(lhs), isMut)
+      case _                   => rhs
+    }
+  }
+
   def isSubtype(lhs: Item, rhs: Item): Boolean = {
     debugln(s"isSubtype $lhs $rhs")
-    true
+    rhs match {
+      case Term(_, _, Some(v)) => isSubtype(lhs, v)
+      case RefItem(rhs, isMut) => isSubtype(lhs, rhs)
+      // todo: same level
+      case cls: Class         => implClass(lhs, cls).isDefined
+      case TopTy | UniverseTy => true
+      case BottomTy           => false
+      case StrTy | BoolTy if isBuiltin(lhs, rhs) => true
+      case _ => {
+        lhs match {
+          case Term(_, _, Some(v)) => isSubtype(v, rhs)
+          case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
+          case BottomTy            => true
+          case StrTy | BoolTy      => isBuiltin(lhs, rhs)
+          case _                   => false
+        }
+      }
+    }
+  }
+
+  def isBuiltin(lhs: Item, rhs: Item): Boolean = {
+    debugln(s"isBuiltin $lhs $rhs")
+    lhs match {
+      case Term(_, _, Some(v)) => isBuiltin(v, rhs)
+      case TopTy | UniverseTy  => true
+      case BottomTy            => true
+      case Bool(_)             => lhs == rhs || rhs == BoolTy
+      case Str(_)              => lhs == rhs || rhs == StrTy
+      case _                   => lhs == rhs
+    }
+  }
+
+  def classRepr(lhs: Type): Class = {
+    lhs match {
+      case ClassInstance(con, _) => con
+      case v: Class              => v
+      case Term(_, _, Some(v))   => classRepr(v)
+      case RefItem(lhs, isMut)   => classRepr(lhs)
+      case _ if lhs.isBuilitin   => builtinClasses(lhs)
+      case l @ (Bool(_))         => builtinClasses(l.ty)
+      case l @ (Str(_))          => builtinClasses(l.ty)
+      case l @ (Integer(_))      => builtinClasses(l.ty)
+      case _ => throw new Exception(s"cannot get class $lhs")
+    }
+  }
+
+  def implClass(lhs: Item, goal: Class): Option[Item] = {
+    val cls = classRepr(lhs)
+    debugln(
+      s"implClass? $goal(${goal.isAbstract}) for $lhs ($cls) impls ${cls.id.impls} ",
+    )
+    if (cls.id == goal.id) {
+      return Some(cls)
+    }
+    if (!goal.isAbstract) {
+      return None;
+    }
+    cls.id.impls.find { i => isSubtype(i.iface, goal) }
   }
 
   def enumShape(ty: Item): Option[Class] = {
@@ -1106,11 +1306,14 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case Unreachable                                => Some(BottomTy)
       case _: (CIdent | Class | CppInsType) =>
         Some(UniverseTy)
+      case RefItem(lhs, isMut)              => tyOf(lhs).map(RefItem(_, isMut))
       case v: ClassInstance                 => Some(v.con)
       case BoundField(_, _, _, VarField(v)) => Some(v.id.ty)
       case b: BinOp             => coerceTy(tyOf(b.lhs), tyOf(b.rhs))
       case If(_, x, y)          => coerceTy(tyOf(x), y.flatMap(tyOf))
+      case SelfVal              => Some(SelfTy)
       case Term(id, _, Some(v)) => tyOf(v)
+      case Term(id, level, _) if level == 0 => Some(id.ty)
       case v: Var =>
         debugln(s"tyOf(Var) ${v.id.ty}")
         Some(v.id.ty)

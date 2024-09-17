@@ -31,15 +31,35 @@ sealed abstract class Item {
     // }
     ???
   }
+  val isBuilitin: Boolean = false
 }
 
 type Type = Item
-case class TopKind(override val level: Int) extends Item
-case class BottomKind(override val level: Int) extends Item
-case class SelfKind(override val level: Int) extends Item
-case class NoneKind(override val level: Int) extends Item
+case class TopKind(
+    override val level: Int,
+) extends Item {
+  override val isBuilitin: Boolean = true
+}
+case class BottomKind(
+    override val level: Int,
+) extends Item {
+  override val isBuilitin: Boolean = true
+}
+case class SelfKind(
+    override val level: Int,
+) extends Item {
+  override val isBuilitin: Boolean = true
+}
+case class NoneKind(
+    override val level: Int,
+) extends Item {
+  override val isBuilitin: Boolean = true
+}
 case object Unreachable extends Item
-case class RuntimeKind(override val level: Int) extends Item
+case class RuntimeKind(
+    override val level: Int,
+    override val isBuilitin: Boolean = true,
+) extends Item
 final case class Unresolved(id: DefInfo) extends Item {}
 
 val NoneItem = NoneKind(0)
@@ -59,19 +79,10 @@ final case class Semi(value: Item) extends Item {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
 }
-final case class TypeApply(lhs: Item, rhs: List[Item], ty: Type) extends Item {
-  override val level: Int = 1
-  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
-  // def repr(rec: Type => String): String =
-  //   s"${id.defName(false)(false)}<${args.map(rec).mkString(", ")}>::type"
-  def repr(rec: Type => String): String =
-    s"${lhs}(${rhs.map(rec).mkString(", ")})::type"
-}
 final case class BoundField(lhs: Item, by: Type, casted: Boolean, rhs: VField)
     extends Item {
   override def toString: String =
-    if casted then s"($lhs as $by).$rhs"
-    else s"$lhs.$rhs"
+    if casted then s"($lhs as $by).$rhs" else s"$lhs.$rhs"
 }
 final case class RefItem(lhs: Item, isMut: Boolean) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {
@@ -105,11 +116,10 @@ final case class Region(stmts: List[Item]) extends Item {
 final case class As(lhs: Item, rhs: Item) extends Item {}
 abstract class DeclLike extends Item {
   val id: DefInfo
-}
-
-final case class Param(id: DefInfo, override val level: Int) extends DeclLike {
   def name = id.name
 }
+
+final case class Param(id: DefInfo, override val level: Int) extends DeclLike {}
 final case class Var(
     id: DefInfo,
     init: Option[Item],
@@ -126,6 +136,7 @@ final case class Fn(
     override val level: Int,
 ) extends DeclLike {
   override def toString: String = s"fn(${id.defName(false)})"
+
 }
 final case class Sig(
     params: Option[List[Param]],
@@ -133,6 +144,12 @@ final case class Sig(
     body: Option[Item],
 ) extends Item {
   def resolveLevel = (ret_ty.map(_.level - 1).getOrElse(0)).max(0)
+  def selfParam: Option[Param] =
+    params.iterator.flatten.find(_.id.name == "self")
+  def selfIsMut: Option[Boolean] = selfParam.map(_.id.ty).map {
+    case RefItem(lhs, isMut) => isMut
+    case _                   => false
+  }
 }
 
 final case class Term(
@@ -195,6 +212,7 @@ final case class Class(
   override def toString: String = s"class(${repr()})"
   def isPhantomClass: Boolean =
     vars.isEmpty && restFields.forall(_.isInstanceOf[DefField])
+  def justInit: Boolean = !isAbstract && params.isEmpty && isPhantomClass
   def fields = vars ::: restFields
 
   def repr(rec: Type => String = _.toString): String =
@@ -224,15 +242,19 @@ val SelfVal = SelfKind(0)
 val UniverseTy = TopKind(2)
 case object CEnumTy extends Type {
   override val level = 1
+  override val isBuilitin: Boolean = true;
 }
 case object BoolTy extends Type {
   override val level = 1
+  override val isBuilitin: Boolean = true;
 }
 case object StrTy extends Type {
   override val level = 1
+  override val isBuilitin: Boolean = true;
 }
 case object UnitTy extends Type {
   override val level = 1
+  override val isBuilitin: Boolean = true;
 }
 final case class RefTy(val isRef: Boolean, val isMut: Boolean) extends Type {
   override val level = 1
@@ -240,6 +262,7 @@ final case class RefTy(val isRef: Boolean, val isMut: Boolean) extends Type {
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)
     extends Type {
   override val level = 1
+  override val isBuilitin: Boolean = true;
   override def toString: String = s"${if (isUnsigned) "u" else "i"}$width"
 }
 object IntegerTy {
@@ -252,6 +275,7 @@ object IntegerTy {
 final case class FloatTy(val width: Int) extends Type {
   override val level = 1
   override def toString: String = s"f$width"
+  override val isBuilitin: Boolean = true
 }
 object FloatTy {
   def parse(s: String): Option[FloatTy] = {
@@ -293,9 +317,15 @@ final case class CppInsType(val target: CIdent, val arguments: List[Type])
 }
 
 sealed abstract class Value extends Item
-final case class Bool(value: Boolean) extends Value {}
-final case class Integer(value: Int) extends Value {}
-final case class Str(value: String) extends Value {}
+final case class Bool(value: Boolean) extends Value {
+  val ty = BoolTy
+}
+final case class Integer(value: Int) extends Value {
+  val ty = IntegerTy(32, false)
+}
+final case class Str(value: String) extends Value {
+  val ty = StrTy
+}
 final case class Bytes(value: Array[Byte]) extends Value {}
 final case class Rune(value: Int) extends Value {}
 final case class DictLit(value: Map[String, Item]) extends Value {}
@@ -305,7 +335,8 @@ final case class TupleLit(elems: List[Item]) extends Value {
 
 sealed abstract class VField {
   val item: DeclLike
+  def name = item.name
 }
 final case class VarField(item: Var) extends VField
-final case class DefField(item: DeclLike) extends VField
+final case class DefField(item: Fn) extends VField
 final case class TypeField(item: DeclLike) extends VField

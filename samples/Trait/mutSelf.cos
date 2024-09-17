@@ -1,0 +1,31 @@
+
+import std::io;
+
+import std::io;
+
+trait Formatter {
+  def write(&mut self, s: &str): io::Result(());
+}
+
+trait MutTest {
+  def test(&mut self): i32;
+  def test2(&self): i32;
+}
+
+impl MutTest for String {
+  def test(&mut self): i32 = 0;
+  def test2(&self): i32 = {
+    self.write("test");
+    0
+  }
+}
+
+def r(v: &mut MutTest) = {
+  v.test2();
+}
+
+def main() = {
+  var x: String = "";
+  r(&mut x);
+  println(x);
+}

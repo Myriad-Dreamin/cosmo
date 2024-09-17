@@ -13,12 +13,13 @@ class CodeGen(implicit val env: Env) {
   val postlude = s"""
 // NOLINTEND(readability-identifier-naming,llvm-else-after-return)
 """
+  var genInImpl = false
 
   // Generate Cxx code from the env
   def gen(): String = {
     val itemCode = env.module.stmts.map(genDef(_, true)).mkString("\n")
     val errorCode = env.errors.mkString("\n")
-    s"$prelude$itemCode\n#if 0\n$errorCode\n#endif$postlude"
+    s"$prelude$itemCode\n#if (${errorCode.length} > 0)\n#error \"cosmo finds some error\"\n#endif\n#if 0\n$errorCode\n#endif$postlude"
   }
 
   def genDef(ast: ir.Item, tl: Boolean = false): String = {
@@ -45,7 +46,8 @@ class CodeGen(implicit val env: Env) {
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
         val bodyCode =
-          if defInfo.isDependent then "" else s" using type =${expr(body.get)};"
+          if defInfo.isDependent then s" using type =${storeTy(body.get)};"
+          else ""
         s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
       case Fn(defInfo, Sig(None, ret_ty, body), _) =>
         val name = defInfo.defName(stem = true)
@@ -53,6 +55,13 @@ class CodeGen(implicit val env: Env) {
       case Fn(defInfo, Sig(Some(params), ret_ty, body), _) =>
         val name = defInfo.defName(stem = true)
         val hasSelf = params.exists(_.id.name == "self")
+        val selfIsConst = defInfo.inClass && hasSelf && {
+          val self = params.find(_.id.name == "self").get
+          self.id.ty match {
+            case RefItem(lhs, isMut) => !isMut
+            case _                   => false
+          }
+        }
         val typeParams = params
           .filter(_.id.name != "self")
           .filter(param => param.level > 0)
@@ -67,16 +76,24 @@ class CodeGen(implicit val env: Env) {
           .mkString(", ")
 
         val bodyCode = body match {
-          case Some(body) => blockizeExpr(body, ValRecv.Return)
-          case None       => ";"
+          case Some(body)                => blockizeExpr(body, ValRecv.Return)
+          case None if defInfo.isVirtual => " = 0;"
+          case None                      => ";"
         }
         if (name == "main") s"int main(int argc, char **argv) $bodyCode"
         else
+          // val needDynAssertMut = !selfIsConst && defInfo.isOverride
           val rt = ret_ty.map(returnTy).getOrElse("auto")
+          // val ret =
+          //   if needDynAssertMut then s"std::enable_if_t<isMut, $rt>" else rt
           debugln(s"$ret_ty => $rt")
-          val staticModifier =
-            if (defInfo.inClass && !hasSelf) "static " else ""
-          s"$nsb${templateCode}inline $staticModifier$rt $name($paramCode) $bodyCode$nse"
+          val isStatic = defInfo.inClass && !hasSelf
+          val staticModifier = if (isStatic) " static" else ""
+          val constModifier = if selfIsConst then " const" else ""
+          val virtualModifier = if defInfo.isVirtual then " virtual" else ""
+          val overrideModifier = if defInfo.isOverride then " override" else ""
+          val inlineModifier = if !defInfo.inClass then " inline" else ""
+          s"$nsb${templateCode}$inlineModifier$staticModifier$virtualModifier $rt $name($paramCode)$constModifier$overrideModifier $bodyCode$nse"
       // case ir.TypeAlias(ret_ty) =>
       //   s"using $name = ${returnTy(ret_ty)};"
       case ir.NativeModule(info, env, fid) =>
@@ -95,13 +112,18 @@ class CodeGen(implicit val env: Env) {
             s"""#include "$path" // IWYU pragma: keep"""
         }
       case ir.Class(defInfo, params, _, vars, restFields, true, _, _) =>
+        val gii = genInImpl
+        genInImpl = false
         val name = defInfo.defName(stem = true);
         val templateCode = typeParams(params).getOrElse("");
         val defsCode = restFields.map(p => genDef(p.item)).mkString("\n  ")
-        s"""$templateCode struct ${defInfo.name} {using Self = $name;  $defsCode
+        genInImpl = gii
+        s"""$nsb$templateCode struct ${defInfo.name} {using Self = $name;  $defsCode
   virtual ~${defInfo.name}() = default;
-};"""
+};$nse"""
       case ir.Class(defInfo, params, _, vars, restFields, false, _, _) =>
+        val gii = genInImpl
+        genInImpl = false
         val variants = restFields.filter(_.isInstanceOf[ir.TypeField])
         val defs = restFields.filter(_.isInstanceOf[ir.DefField])
         val item = env.items(defInfo.id)
@@ -179,6 +201,7 @@ class CodeGen(implicit val env: Env) {
               s"""case ${index}: return ${vn}_cons($clones);"""
             }
             .mkString("\n    ")
+        genInImpl = gii
         if (variants.isEmpty) {
           s"$nsb$templateCode struct $name {using Self = $name;$varsCode$emptyConsCode$consCode$defsCode};$nse"
         } else {
@@ -210,11 +233,24 @@ class CodeGen(implicit val env: Env) {
 };$nse"""
         }
       case ir.Impl(defInfo, params, iface, cls, defs) =>
+        val gii = genInImpl
+        genInImpl = true
         val (ifaceTy, that) = (storeTy(iface), storeTy(cls))
-        val name = s"::cosmo::Impl<$that, $ifaceTy>"
-        val templateCode = typeParams(params).getOrElse("template<>");
+        val name = s"::cosmo::Impl<$that, $ifaceTy, isMut>"
+        val templateCode =
+          typeParams(params)
+            .map(p => p.stripSuffix(">") + ", bool isMut>")
+            .getOrElse("template<bool isMut>");
         val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
-        s"${templateCode} struct $name final: public $ifaceTy {using Self = $name; using That = $that; That &self; Impl(That &self): self(self) {} ~Impl() override {} $defsCode};"
+        genInImpl = gii
+        s"""${templateCode} struct $name final: public $ifaceTy {using Self = $name;
+  using That = $that;
+  That & self_;
+  Impl(That &self_): self_(self_) {}
+  template<bool isMutW = isMut> 
+  Impl(const That &self_, typename std::enable_if<!isMutW, int>::type* = 0): self_(const_cast<That&>(self_)) {} ~Impl() override {}
+  const That &self() const { return self_; }
+  That &self() { if (!isMut) {cosmo_std::prelude::lang::unreachable();} return self_; } $defsCode};"""
       case v: ir.Var => genVarStore(v)
       case a         => return None
     }
@@ -330,12 +366,30 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
-  def moveExpr(ast: ir.Item): String = {
+  var tmpRegister = 0
+  def moveExpr(
+      ast: ir.Item,
+  )(implicit defaultMove: Boolean = true): (String, String) = {
     debugln(s"moveExpr: $ast")
     ast match {
-      case RefItem(lhs, isMut) => expr(lhs)
-      case ast                 => s"std::move(${expr(ast)})"
+      case RefItem(lhs, _) if isConst(lhs) => mutExpr(lhs);
+      case ir.As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
+        val (x, y) = mutExpr(lhs);
+        val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true), rhs))(false);
+        (x + z, w)
+      case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
+      case RefItem(lhs, _)                 => ("", expr(lhs));
+      case ir.As(lhs, rhs: Impl)           => mutExpr(Opaque.expr(expr(ast)))
+      case ast if isConst(ast) || !defaultMove => ("", expr(ast))
+      case ast => ("", s"std::move(${expr(ast)})")
     }
+  }
+
+  def mutExpr(rhs: ir.Item): (String, String) = {
+    val name = s"tmp${tmpRegister}"
+    tmpRegister += 1
+    val (defCode, moveCode) = moveExpr(rhs)(false);
+    (s"${defCode}auto $name = ${moveCode};", name)
   }
 
   def expr(ast: ir.Item): String = {
@@ -380,39 +434,52 @@ class CodeGen(implicit val env: Env) {
         return s"if(${expr(cond)}) ${blockizeExpr(cont_bb, recv)}${else_bb
             .map(e => s" else ${blockizeExpr(e, recv)}")
             .getOrElse("")}"
-      case ir.BinOp("..", lhs, rhs) =>
-        s"Range(${expr(lhs)}, ${expr(rhs)})"
-      case ir.BinOp(op, lhs, rhs) =>
-        s"${expr(lhs)} $op ${expr(rhs)}"
-      case ir.RefItem(lhs, _) =>
-        s"::cosmo::ref(${expr(lhs)})"
-      case ir.UnOp("*", SelfVal) =>
-        s"*this"
-      case ir.UnOp(op, lhs) =>
-        s"$op ${expr(lhs)}"
+      case ir.BinOp("..", lhs, rhs) => s"Range(${expr(lhs)}, ${expr(rhs)})"
+      case ir.BinOp(op, lhs, rhs)   => s"${expr(lhs)} $op ${expr(rhs)}"
+      case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
+      case ir.RefItem(SelfVal, _)              => s"*this"
+      case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"
+      case ir.UnOp("*", SelfVal) if genInImpl  => s"self()"
+      case ir.UnOp("*", SelfVal)               => s"*this"
+      case ir.UnOp(op, lhs)                    => s"$op ${expr(lhs)}"
+      case ir.As(lhs, rhs: Impl) =>
+        val iface = storeTy(rhs.iface)
+        val cls = storeTy(rhs.cls)
+        val lhsIsMut = lhs match {
+          case RefItem(lhs, isMut) => isMut
+          case _                   => false
+        }
+        return literalCall(
+          s"::cosmo::Impl<$cls, $iface, $lhsIsMut>",
+          List(lhs),
+          recv,
+        )
       case ir.Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
         val iface = storeTy(impl.iface)
         val cls = storeTy(impl.cls)
-        val casted = s"::cosmo::Impl<$cls, $iface>"
+        val lhsIsMut = lhs match {
+          case RefItem(lhs, isMut) => isMut
+          case _                   => false
+        }
+        val casted = s"::cosmo::Impl<$cls, $iface, $lhsIsMut>"
         val castedOp =
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
-        s"$castedOp${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+        return literalCall(s"$castedOp${field.item.id.name}", rhs, recv)
       case ir.Apply(BoundField(lhs, _: Class, true, field), rhs) =>
-        val op = dispatchOp(lhs, field, true)
-        s"$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+        return literalCall(
+          s"${dispatchOp(lhs, field, true)}${field.item.id.name}",
+          rhs,
+          recv,
+        )
       case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
-        val op = dispatchOp(lhs, field)
-        s"$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
-      case ir.Apply(lhs, rhs) =>
-        val rhsAnyTy = rhs.exists(_.level > 0)
-        if (rhsAnyTy) {
-          s"${expr(lhs)}<${rhs.map(storeTy).mkString(", ")}>"
-        } else {
-          s"${expr(lhs)}(${rhs.map(moveExpr).mkString(", ")})"
-        }
+        return literalCall(
+          s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}",
+          rhs,
+          recv,
+        )
+      case ir.Apply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
       case BoundField(lhs, by, false, field) =>
-        val op = dispatchOp(lhs, field)
-        s"$op${field.item.id.name}"
+        s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
       case ir.Select(lhs, rhs) =>
         if (lhsIsType(lhs)) {
@@ -421,7 +488,8 @@ class CodeGen(implicit val env: Env) {
         } else {
           s"${expr(lhs)}.${rhs}"
         }
-      case SelfVal     => "(*this)"
+      case SelfVal if genInImpl => "self()"
+      case SelfVal              => "(*this)"
       case Unreachable => return "cosmo_std::prelude::lang::unreachable();"
       case Bool(v)     => v.toString
       case Str(s)      => s"""::str("${escapeStr(s)}")"""
@@ -552,6 +620,24 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
+  def literalCall(lhs: String, rhs: List[Item], recv: ValRecv): String = {
+    val rhsAnyTy = rhs.exists(_.level > 0)
+    if (rhsAnyTy) {
+      s"$lhs<${rhs.map(storeTy).mkString(", ")}>"
+    } else {
+      val xys = rhs.map(moveExpr);
+      debugln(s"literalCall: $lhs, $xys")
+      val (xs, ys) = (xys.map(_._1), xys.map(_._2));
+      val call = s"$lhs(${ys.mkString(", ")})";
+      // s"${xs.mkString(";")}"
+      recv match {
+        case ValRecv.None      => s"${xs.mkString(";")} $call"
+        case ValRecv.Return    => s"${xs.mkString(";")} return $call"
+        case ValRecv.Var(name) => s"${xs.mkString(";")} $name = $call"
+      }
+    }
+  }
+
   def dispatchOp(
       lhs: ir.Item,
       field: VField,
@@ -564,7 +650,8 @@ class CodeGen(implicit val env: Env) {
       case _                                     => false
     }
     val lhsV = lhs match {
-      case SelfVal if inImpl => "self"
+      case SelfVal if inImpl => "self()"
+      case SelfVal           => "*this"
       case v if isStatic =>
         env.liftAsType(v) match {
           case RefItem(lhs, isMut) => returnTy(lhs)
@@ -592,6 +679,13 @@ def lhsIsType(lhs: ir.Item): Boolean = {
     case ir.Term(_, _, _) if lhs.level >= 1 => true
     case ir.Select(lhs, _)                  => lhsIsType(lhs)
     case _                                  => false
+  }
+}
+
+def isConst(lhs: ir.Item): Boolean = {
+  lhs match {
+    case Str(_) | Integer(_) | Bool(_) | Rune(_) | Bytes(_) => true
+    case _                                                  => false
   }
 }
 
