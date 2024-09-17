@@ -24,7 +24,7 @@ class SampleTest extends munit.FunSuite:
   test("Class/basic") {
     runTestOnFile("samples/Class/basic.cos")
   }
-  test("Class/jsonValue") {
+  test("Class/jsonValue".only) {
     runTestOnFile("samples/Class/jsonValue.cos")
   }
   test("Class/nat") {
@@ -42,7 +42,7 @@ class SampleTest extends munit.FunSuite:
   test("Trait/empty") {
     runTestOnFile("samples/Trait/empty.cos")
   }
-  test("Trait/resultProblem".only) {
+  test("Trait/resultProblem") {
     runTestOnFile("samples/Trait/resultProblem.cos")
   }
   test("Trait/formatter") {

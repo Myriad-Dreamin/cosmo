@@ -73,11 +73,6 @@ final case class BoundField(lhs: Item, by: Type, casted: Boolean, rhs: VField)
     if casted then s"($lhs as $by).$rhs"
     else s"$lhs.$rhs"
 }
-final case class Dispatch(lhs: Item, by: Item, field: VField, rhs: List[Item])
-    extends Item {
-  override def toString: String =
-    s"dispatch($lhs, $by, $field, ${rhs.mkString(", ")})"
-}
 final case class RefItem(lhs: Item, isMut: Boolean) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {
   override def toString: String = s"$lhs.$rhs"
@@ -123,14 +118,14 @@ final case class Var(
 ) extends DeclLike {
   override def toString: String =
     val mod = if isContant then "val" else "var"
-    s"($mod ${id.defName(false)(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
+    s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
 }
 final case class Fn(
     id: DefInfo,
     sig: Sig,
     override val level: Int,
 ) extends DeclLike {
-  override def toString: String = s"fn(${id.defName(false)(false)})"
+  override def toString: String = s"fn(${id.defName(false)})"
 }
 final case class Sig(
     params: Option[List[Param]],
@@ -145,7 +140,7 @@ final case class Term(
     override val level: Int,
     val value: Option[Item] = None,
 ) extends DeclLike {
-  override def toString: String = s"term(${id.defName(false)(false)})"
+  override def toString: String = s"term(${id.defName(false)})"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclLike {}
@@ -176,7 +171,6 @@ final case class ClassInstance(
 }
 final case class EnumVariant(
     id: DefInfo,
-    variantOf: DefInfo,
     base: Class,
 ) extends DeclLike {
   override val level: Int = 1
@@ -205,7 +199,7 @@ final case class Class(
 
   def repr(rec: Type => String = _.toString): String =
     val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
-    id.defName(false)(false) + argList
+    id.defName(false) + argList
 }
 object Class {
   def empty(env: Env, isAbstract: Boolean) =

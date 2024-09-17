@@ -120,8 +120,8 @@ class CodeGen(implicit val env: Env) {
         val variantNames = variants.map(_.item.id.defName(stem = true))
         val variantBases = variants.map(e =>
           e.item match
-            case EnumVariant(_, _, base: ir.Class) => Some(base)
-            case _                                 => None,
+            case EnumVariant(_, base: ir.Class) => Some(base)
+            case _                              => None,
         )
         val variantVars =
           variantBases.map(e => e.map(_.vars).getOrElse(List.empty))
@@ -364,7 +364,7 @@ class CodeGen(implicit val env: Env) {
         }
       }
       case v: Term => v.id.env.varByRef(v)(false)
-      case v: Fn   => v.id.defName()(false)
+      case v: Fn   => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.While(cond, body) =>
@@ -388,8 +388,6 @@ class CodeGen(implicit val env: Env) {
         s"*this"
       case ir.UnOp(op, lhs) =>
         s"$op ${expr(lhs)}"
-      case ir.Dispatch(SelfVal, by: Class, field, rhs) =>
-        s"self.${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
         val iface = storeTy(impl.iface)
         val cls = storeTy(impl.cls)
@@ -397,8 +395,15 @@ class CodeGen(implicit val env: Env) {
         val castedOp =
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
         s"$castedOp${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+      case ir.Apply(BoundField(lhs, _: Class, true, field), rhs) =>
+        val op = dispatchOp(lhs, field)
+        val lhsV = lhs match {
+          case SelfVal => "self"
+          case _       => expr(lhs)
+        }
+        s"$lhsV$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
-        val op = if lhsIsType(lhs) then "::" else "."
+        val op = dispatchOp(lhs, field)
         s"${expr(lhs)}$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(lhs, rhs) =>
         val rhsAnyTy = rhs.exists(_.level > 0)
@@ -408,7 +413,7 @@ class CodeGen(implicit val env: Env) {
           s"${expr(lhs)}(${rhs.map(moveExpr).mkString(", ")})"
         }
       case BoundField(lhs, by, false, field) =>
-        val op = if lhsIsType(lhs) then "::" else "."
+        val op = dispatchOp(lhs, field)
         s"${expr(lhs)}$op${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
       case ir.Select(lhs, rhs) =>
@@ -435,7 +440,7 @@ class CodeGen(implicit val env: Env) {
       case ir.Semi(value)   => return exprWith(value, ValRecv.None)
       case v: ir.CIdent     => storeTy(v)
       case v: ir.CppInsType => storeTy(v)
-      case v: ir.Var        => v.id.defName(stem = false)(false)
+      case v: ir.Var        => v.id.defName(stem = false)
       case v: ClassInstance if v.con.variantOf.isDefined => {
         val args = v.args.flatMap {
           case v: KeyedArg => Some((v.key, v.value))
@@ -445,7 +450,7 @@ class CodeGen(implicit val env: Env) {
           case v: KeyedArg => None
           case v           => Some(v)
         }.iterator
-        val ty = v.con.id.defName(stem = true)(false)
+        val ty = v.con.id.defName(stem = true)
         val vars = v.con.vars.map { v =>
           {
             val name = v.item.id.name;
@@ -464,7 +469,7 @@ class CodeGen(implicit val env: Env) {
 
         val base = v.con.resolvedAs match {
           case Some(t) => storeTy(HKTInstance(v.con, t))
-          case None => s"${storeTy(v.con.variantOf.get)}::${ty}_cons($initArgs)"
+          case None    => s"${storeTy(v.con.variantOf.get)}::${ty}"
         }
         s"${base}_cons($initArgs)"
       }
@@ -477,7 +482,7 @@ class CodeGen(implicit val env: Env) {
           case v: KeyedArg => None
           case v           => Some(v)
         }.iterator
-        val ty = storeTy(v.con.id.ty)
+        val ty = storeTy(v.con)
         val vars = v.con.vars.map { v =>
           val s = v.item.id.name
           val value = args.get(s).orElse(positions.nextOption)
@@ -514,13 +519,13 @@ class CodeGen(implicit val env: Env) {
             }
           }
           .mkString("\n")
-        val vname = v.variant.id.defName(stem = true)(false)
+        val vname = v.variant.id.defName(stem = true)
         s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
       }
       case v: ir.EnumMatch => {
         val clsName = storeTy(v.by)
         val cases = v.cases.map { case (variant, body) =>
-          val name = variant.id.defName(stem = true)(false)
+          val name = variant.id.defName(stem = true)
           s"case $clsName::kIdx$name: ${blockizeExpr(body, recv)}; break;"
         }
         val orElse = v.orElse match {
@@ -550,6 +555,22 @@ class CodeGen(implicit val env: Env) {
       case ValRecv.Var(name) => s"$name = ($res)"
     }
   }
+}
+
+def dispatchOp(lhs: ir.Item, field: VField): String = {
+  (field, lhsIsType(lhs)) match {
+    case (_, true)                             => "::"
+    case (DefField(f), _) if isStaticMethod(f) => "::"
+    case (TypeField(_), _)                     => "::"
+    case _                                     => "."
+  }
+}
+
+def isStaticMethod(f: ir.Item): Boolean = f match {
+  case ir.Fn(_, sig, _) => isStaticMethod(sig)
+  case ir.Sig(params, _, _) =>
+    !params.iterator.flatten.exists(p => p.id.name == "self")
+  case _ => false
 }
 
 def lhsIsType(lhs: ir.Item): Boolean = {

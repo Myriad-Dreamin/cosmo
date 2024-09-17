@@ -11,5 +11,7 @@ pub class ValueT(T: Type) {
 def main() = {
   val null = ValueT(i64).Null;
   val bool = ValueT(i64).Bool(true);
+  var a = vec.Vec(i64)();
+  val v = ValueT(i64).Array(a);
 }
 
