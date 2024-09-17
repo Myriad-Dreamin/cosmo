@@ -107,7 +107,7 @@ abstract class DeclLike extends Item {
   val id: DefInfo
 }
 
-final case class Param(id: DefInfo) extends DeclLike {
+final case class Param(id: DefInfo, override val level: Int) extends DeclLike {
   def name = id.name
 }
 final case class Var(

@@ -165,7 +165,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       scopes.withScope {
         params.foreach {
           case Right(params) =>
-            params.iterator.foreach { case Param(info) =>
+            params.iterator.foreach { case Param(info, _) =>
               scopes.set(info.name, info)
             }
           case Left(params) =>
@@ -183,12 +183,12 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       params.map(p =>
         val info = scopes.get(p.name).get;
         // todo: compute canonical type
-        Param(info),
+        Param(info, (info.ty.level - 1).max(0)),
       )
     }
   }
 
-  def liftAsType(item: Item)(implicit level: Int): Type = {
+  def liftAsType(item: Item): Type = {
     debugln(s"liftAsType $item")
     item match {
       case Semi(value)  => liftAsType(value)
@@ -198,7 +198,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
           liftAsType(item.target).asInstanceOf[CIdent],
           item.arguments.map(liftAsType),
         )
-      case _ => item
+      case SelfVal => SelfTy
+      case _       => item
     }
   }
 

@@ -8,6 +8,10 @@ pub class ValueT(T: Type) {
   case Array(vec.Vec(T))
 }
 
+class NlohmannJsonImpl {
+  def getAs(Ty: Type, self): Ty = self.internal.get(Ty)()
+}
+
 def main() = {
   val null = ValueT(i64).Null;
   val bool = ValueT(i64).Bool(true);

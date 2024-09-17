@@ -44,8 +44,9 @@ class CodeGen(implicit val env: Env) {
       case Fn(defInfo, Sig(params, retTy, body), level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
-        val bodyCode = if defInfo.isDependent then "" else expr(body.get)
-        s"$nsb${templateCode} struct $name {using Self = $name; using type = $bodyCode; $name() = delete;};$nse"
+        val bodyCode =
+          if defInfo.isDependent then "" else s" using type =${expr(body.get)};"
+        s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
       case Fn(defInfo, Sig(None, ret_ty, body), _) =>
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
@@ -94,9 +95,10 @@ class CodeGen(implicit val env: Env) {
             s"""#include "$path" // IWYU pragma: keep"""
         }
       case ir.Class(defInfo, params, _, vars, restFields, true, _, _) =>
+        val name = defInfo.defName(stem = true);
         val templateCode = typeParams(params).getOrElse("");
         val defsCode = restFields.map(p => genDef(p.item)).mkString("\n  ")
-        s"""$templateCode struct ${defInfo.name} {\n  $defsCode
+        s"""$templateCode struct ${defInfo.name} {using Self = $name;  $defsCode
   virtual ~${defInfo.name}() = default;
 };"""
       case ir.Class(defInfo, params, _, vars, restFields, false, _, _) =>
@@ -178,7 +180,7 @@ class CodeGen(implicit val env: Env) {
             }
             .mkString("\n    ")
         if (variants.isEmpty) {
-          s"$nsb$templateCode struct $name {$varsCode$emptyConsCode$consCode$defsCode};$nse"
+          s"$nsb$templateCode struct $name {using Self = $name;$varsCode$emptyConsCode$consCode$defsCode};$nse"
         } else {
           s"""$nsb$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
 
@@ -396,15 +398,11 @@ class CodeGen(implicit val env: Env) {
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
         s"$castedOp${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(BoundField(lhs, _: Class, true, field), rhs) =>
-        val op = dispatchOp(lhs, field)
-        val lhsV = lhs match {
-          case SelfVal => "self"
-          case _       => expr(lhs)
-        }
-        s"$lhsV$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+        val op = dispatchOp(lhs, field, true)
+        s"$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
         val op = dispatchOp(lhs, field)
-        s"${expr(lhs)}$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
+        s"$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(lhs, rhs) =>
         val rhsAnyTy = rhs.exists(_.level > 0)
         if (rhsAnyTy) {
@@ -414,7 +412,7 @@ class CodeGen(implicit val env: Env) {
         }
       case BoundField(lhs, by, false, field) =>
         val op = dispatchOp(lhs, field)
-        s"${expr(lhs)}$op${field.item.id.name}"
+        s"$op${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
       case ir.Select(lhs, rhs) =>
         if (lhsIsType(lhs)) {
@@ -455,13 +453,11 @@ class CodeGen(implicit val env: Env) {
           {
             val name = v.item.id.name;
             val value = args.get(name).orElse(positions.nextOption)
-            Some(
-              mayClone(
-                v,
-                value
-                  .map(expr)
-                  .getOrElse(s"$ty::k${name.capitalize}Default"),
-              ),
+            mayClone(
+              v,
+              value
+                .map(expr)
+                .getOrElse(s"$ty::k${name.capitalize}Default"),
             )
           }
         }
@@ -486,7 +482,7 @@ class CodeGen(implicit val env: Env) {
         val vars = v.con.vars.map { v =>
           val s = v.item.id.name
           val value = args.get(s).orElse(positions.nextOption)
-          Some(value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"))
+          value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default")
         }
         val initArgs = vars.mkString(", ")
 
@@ -555,14 +551,32 @@ class CodeGen(implicit val env: Env) {
       case ValRecv.Var(name) => s"$name = ($res)"
     }
   }
-}
 
-def dispatchOp(lhs: ir.Item, field: VField): String = {
-  (field, lhsIsType(lhs)) match {
-    case (_, true)                             => "::"
-    case (DefField(f), _) if isStaticMethod(f) => "::"
-    case (TypeField(_), _)                     => "::"
-    case _                                     => "."
+  def dispatchOp(
+      lhs: ir.Item,
+      field: VField,
+      inImpl: Boolean = false,
+  ): String = {
+    val isStatic = (field, lhsIsType(lhs)) match {
+      case (_, true)                             => true
+      case (DefField(f), _) if isStaticMethod(f) => true
+      case (TypeField(_), _)                     => true
+      case _                                     => false
+    }
+    val lhsV = lhs match {
+      case SelfVal if inImpl => "self"
+      case v if isStatic =>
+        env.liftAsType(v) match {
+          case RefItem(lhs, isMut) => returnTy(lhs)
+          case ty                  => returnTy(ty)
+        }
+      case _ => expr(lhs)
+    }
+    if (isStatic) {
+      lhsV + "::"
+    } else {
+      lhsV + "."
+    }
   }
 }
 
