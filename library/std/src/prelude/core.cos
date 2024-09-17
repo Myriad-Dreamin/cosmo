@@ -5,6 +5,13 @@ import "@lib/c++/utility"
 import "@lib/c++/iostream"
 import cSys from "@lib/c++/cstdlib"
 
+// Notes: <:, >:, =:, &, |
+// <: is a subtype relation
+// >: is a supertype relation
+// =: is an equality relation
+// & is a conjunction synthesis
+// | is a disjunction synthesis
+
 import _ from std::prelude::lang
 
 code("""
@@ -22,6 +29,20 @@ def panic(msg: str): Nothing = {
   fprintf(stderr, "unreachable: %s\n", msg.c_str());
   """)
   cSys.abort();
+}
+
+import std::fmt
+
+trait Formatter {
+  def write(&mut self, s: &str): fmt::Result(());
+}
+
+trait Display {
+  def display(&self, f: &mut Formatter): fmt::Result(());
+}
+
+trait ToString {
+  def toString(&self): String;
 }
 
 code("""
@@ -122,6 +143,52 @@ template <typename T> inline void println(const T &x) {
 }
 """)
 
+impl Display for bool {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    if (*self) {
+      f.write("true")
+    } else {
+      f.write("false")
+    }
+  }
+}
+
+impl Display for str {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    f.write(&self)
+  }
+}
+
+impl Display for f32 {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    // cSys
+    val t: str = cSys.std::to_string(*self);
+    f.write(&t)
+  }
+}
+
+impl Display for f64 {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    // cSys
+    val t: str = cSys.std::to_string(*self);
+    f.write(&t)
+  }
+}
+
+impl Formatter for String {
+  def write(&mut self, s: &str): fmt::Result(()) = {
+    self.push_str(s);
+    fmt::Result(())::Ok(())
+  }
+}
+
+// todo: correct signature is [T <: Display]
+def mprintln(t: &Display) = {
+  var s = String();
+  t.display(&mut s).unwrap();
+  println(s);
+}
+
 code("""
 template <> struct DisplayTrait<str> {
   static void print(const str &x) { printf("%s", x.c_str()); }
@@ -141,6 +208,7 @@ struct DisplayTrait<
     T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {
   static void print(T x) { printf("%lld", static_cast<long long>(x)); }
 };
+
 template <typename T>
 struct DisplayTrait<
     T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>>> {

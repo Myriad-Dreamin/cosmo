@@ -33,5 +33,6 @@ def mprintln(t: &Display) = {
 }
 
 def main() = {
-  mprintln(bool <: Display);
+  mprintln(&(bool <: Display));
+  mprintln(&(Display <: bool));
 }

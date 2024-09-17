@@ -276,8 +276,9 @@ object Parser {
       e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
     )
   def constraint[$: P] = compare.map(e => Param("_", Some(e), None, true))
+  def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
   def selfSugar[$: P] = P(
-    "&".?.map(jt) ~ keyword("mut").?.map(jt) ~ keyword("self") ~ &("," | ")"),
+    chk("&") ~ chk(keyword("mut")) ~ keyword("self") ~ &("," | ")"),
   ).map((isRef, isMut) => {
     val ty1 = Ident("Self")
     val decorated = (isRef, isMut) match {

@@ -1,0 +1,5 @@
+
+import std::result;
+import std::str;
+
+def Result[T] = result::Result(T, str::String);

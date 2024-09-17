@@ -39,6 +39,7 @@ class Cosmo extends PackageManager, Transpiler {
   var packages: Map[String, Map[String, Package]] = Map()
   val system: CosmoSystem = new JsPhysicalSystem()
   val linker: Linker = new MsvcLinker(system)
+  val envBase = new Env(None, this).builtins()
 
   @JSExport
   def loadPackageByPath(path: String): Unit = {
@@ -70,7 +71,7 @@ class Cosmo extends PackageManager, Transpiler {
   }
 
   def transpile(src: String, fid: Option[FileId]): Option[(String, Boolean)] =
-    loadModuleBySrc(new Env(fid, this), src).flatMap(cppBackend)
+    loadModuleBySrc(createEnv(fid), src).flatMap(cppBackend)
 
   def cppBackend(e: Env): Option[(String, Boolean)] = {
     implicit val env = e
@@ -91,7 +92,7 @@ class Cosmo extends PackageManager, Transpiler {
 
   def loadModule(path: syntax.Node): Option[(FileId, Env)] = {
     val fid = resolvePackage(path)
-    val env = new Env(Some(fid), this);
+    val env = createEnv(Some(fid));
     if (fid._1.toString().startsWith("@cosmo/std:")) {
       env.noCore = true
     }
@@ -172,6 +173,15 @@ class Cosmo extends PackageManager, Transpiler {
     }
 
     Some(env)
+  }
+
+  def createEnv(fid: Option[FileId]): Env = {
+    val env = new Env(fid, this)
+    env.defAlloc = envBase.defAlloc
+    env.scopes.scopes = envBase.scopes.scopes
+    env.builtinClasses = envBase.builtinClasses
+    env.items = envBase.items
+    env
   }
 }
 

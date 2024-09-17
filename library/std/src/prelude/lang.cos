@@ -11,7 +11,7 @@ using float64_t = double;
 using float128_t = long double;
 
 namespace cosmo {
-template<typename T, typename I, typename Cond = void>
+template<typename T, typename I, bool isMut = false, typename Cond = void>
 struct Impl;
 } // namespace cosmo
 
