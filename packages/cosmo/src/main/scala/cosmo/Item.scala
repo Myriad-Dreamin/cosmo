@@ -14,9 +14,9 @@ sealed abstract class Item {
 
   def instantiate(implicit lvl: Int): Item = {
     // this match {
-    //   case Variable(info, lvl, v) =>
+    //   case Term(info, lvl, v) =>
     //     val ty = info.upperBounds.find {
-    //       case Variable(_, info, lvl, v) => false
+    //       case Term(_, info, lvl, v) => false
     //       case _                         => true
     //     }
     //     val ty2 = ty.map { ty =>
@@ -59,9 +59,19 @@ final case class Semi(value: Item) extends Item {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Item {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
 }
-final case class BoundField(lhs: Item, by: Option[Item], rhs: VField)
+final case class TypeApply(lhs: Item, rhs: List[Item], ty: Type) extends Item {
+  override val level: Int = 1
+  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+  // def repr(rec: Type => String): String =
+  //   s"${id.defName(false)(false)}<${args.map(rec).mkString(", ")}>::type"
+  def repr(rec: Type => String): String =
+    s"${lhs}(${rhs.map(rec).mkString(", ")})::type"
+}
+final case class BoundField(lhs: Item, by: Type, casted: Boolean, rhs: VField)
     extends Item {
-  override def toString: String = s"($lhs as $by).$rhs"
+  override def toString: String =
+    if casted then s"($lhs as $by).$rhs"
+    else s"$lhs.$rhs"
 }
 final case class Dispatch(lhs: Item, by: Item, field: VField, rhs: List[Item])
     extends Item {
@@ -80,8 +90,8 @@ final case class CEnumMatch(
 ) extends Item {}
 final case class EnumMatch(
     lhs: Item,
-    meta: Interface,
-    cases: List[(EnumCon, Item)],
+    by: Type,
+    cases: List[(Class, Item)],
     orElse: Item,
 ) extends Item {}
 final case class Match(lhs: Item, rhs: Item) extends Item {}
@@ -130,12 +140,12 @@ final case class Sig(
   def resolveLevel = (ret_ty.map(_.level - 1).getOrElse(0)).max(0)
 }
 
-final case class Variable(
+final case class Term(
     val id: DefInfo,
     override val level: Int,
     val value: Option[Item] = None,
 ) extends DeclLike {
-  override def toString: String = s"var(${id.defName(false)(false)})"
+  override def toString: String = s"term(${id.defName(false)(false)})"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclLike {}
@@ -144,32 +154,25 @@ enum CModuleKind {
 }
 final case class NativeModule(id: DefInfo, env: Env, fid: FileId)
     extends DeclLike {}
-final case class Interface(
-    ty: Type,
-    id: DefInfo,
-    clsId: DefInfo,
-    fields: Map[String, VField],
-) extends DeclLike {
+final case class HKTInstance(ty: Type, syntax: Item) extends Item {
   override val level: Int = 1
-  override def toString: String = s"interface(${id.defName(false)(false)})"
+  override def toString(): String = s"(hkt($syntax)::type as $ty)"
+  def repr(rec: Type => String): String = syntax match {
+    case t: (Term | Fn) => rec(t)
+    case Apply(lhs, rhs) =>
+      s"${rec(HKTInstance(ty, lhs))}<${rhs.map(rec).mkString(", ")}>::type"
+    case Select(lhs, rhs) => s"${rec(HKTInstance(ty, lhs))}::$rhs"
+    case _                => syntax.toString
+  }
 }
-final case class ClassInstance(iface: Interface, args: List[Item])
-    extends Item {}
-final case class HKTInstance(ty: Type, id: DefInfo, args: List[Item])
-    extends Item {
-  override val level: Int = 1
-  def repr(rec: Type => String): String =
-    s"${id.defName(false)(false)}<${args.map(rec).mkString(", ")}>::type"
-}
-final case class EnumInstance(iface: Interface, base: EnumCon, args: List[Item])
-    extends Item {}
-final case class EnumCon(
-    id: DefInfo,
-    variantOf: Interface,
-    name: String,
-    base: Class,
-) extends DeclLike {
-  override val level: Int = 1
+final case class ClassInstance(
+    con: Class,
+    args: List[Item],
+) extends Item {
+  override def toString: String =
+    val conAs =
+      if con.resolvedAs.isDefined then s"${con.resolvedAs.get} as " else ""
+    s"(${conAs}${con})(${args.mkString(", ")})"
 }
 final case class EnumVariant(
     id: DefInfo,
@@ -180,26 +183,34 @@ final case class EnumVariant(
 }
 final case class EnumDestruct(
     item: Item,
-    variant: EnumCon,
+    variant: Class,
     bindings: List[String],
     orElse: Option[Item],
 ) extends Item {}
 final case class Class(
     id: DefInfo,
     params: Option[List[Param]],
+    args: Option[List[Item]],
     vars: List[VarField],
     restFields: List[VField],
     isAbstract: Boolean,
+    variantOf: Option[Type] = None,
+    resolvedAs: Option[Type] = None,
 ) extends Item {
   override val level: Int = 1
-  override def toString: String = s"class(${id.defName(false)(false)})"
+  override def toString: String = s"class(${repr()})"
   def isPhantomClass: Boolean =
     vars.isEmpty && restFields.forall(_.isInstanceOf[DefField])
+  def fields = vars ::: restFields
+
+  def repr(rec: Type => String = _.toString): String =
+    val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
+    id.defName(false)(false) + argList
 }
 object Class {
   def empty(env: Env, isAbstract: Boolean) =
     val id = DefInfo.just(CLASS_EMPTY, env)
-    Class(id, None, List.empty, List.empty, isAbstract)
+    Class(id, None, None, List.empty, List.empty, isAbstract)
 }
 final case class Impl(
     id: DefInfo,
@@ -273,11 +284,6 @@ final case class CIdent(
   override def toString: String = s"cpp($repr)"
   def repr: String = (ns :+ name).mkString("::")
 }
-final case class NativeType(val id: DefInfo) extends Type {
-  override val level = 1
-  override def toString: String = s"native($repr)"
-  def repr: String = id.defName(stem = false)(false)
-}
 final case class CppInsType(val target: CIdent, val arguments: List[Type])
     extends Type {
   override val level = target.level
@@ -285,25 +291,9 @@ final case class CppInsType(val target: CIdent, val arguments: List[Type])
   def repr(rec: Type => String): String =
     target.repr + "<" + arguments
       .map {
-        case Variable(defId, level, None) => defId.name
-        case Variable(id, level, Some(v)) => rec(v)
-        case ty                           => rec(ty)
-      }
-      .mkString(", ") + ">"
-}
-
-final case class NativeInsType(
-    val target: Type,
-    val arguments: List[Type],
-) extends Type {
-  override val level = 1
-  override def toString: String = s"native(${repr(_.toString)})"
-  def repr(rec: Type => String): String =
-    rec(target) + "<" + arguments
-      .map {
-        case Variable(defId, level, None) => defId.name
-        case Variable(id, level, Some(v)) => rec(v)
-        case ty                           => rec(ty)
+        case Term(defId, level, None) => defId.name
+        case Term(id, level, Some(v)) => rec(v)
+        case ty                       => rec(ty)
       }
       .mkString(", ") + ">"
 }

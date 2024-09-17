@@ -30,7 +30,7 @@ class CodeGen(implicit val env: Env) {
     val info = ast match {
       case ir.Var(info, _, _, _) => Some(info)
       case ir.Fn(info, _, _)     => Some(info)
-      case ir.Class(info, _, _, _, _) =>
+      case ir.Class(info, _, _, _, _, _, _, _) =>
         Some(info)
       case ir.Impl(info, _, _, _, _) => Some(info)
       case _                         => None
@@ -93,13 +93,13 @@ class CodeGen(implicit val env: Env) {
           case ir.CModuleKind.Source =>
             s"""#include "$path" // IWYU pragma: keep"""
         }
-      case ir.Class(defInfo, params, vars, restFields, true) =>
+      case ir.Class(defInfo, params, _, vars, restFields, true, _, _) =>
         val templateCode = typeParams(params).getOrElse("");
         val defsCode = restFields.map(p => genDef(p.item)).mkString("\n  ")
         s"""$templateCode struct ${defInfo.name} {\n  $defsCode
   virtual ~${defInfo.name}() = default;
 };"""
-      case ir.Class(defInfo, params, vars, restFields, false) =>
+      case ir.Class(defInfo, params, _, vars, restFields, false, _, _) =>
         val variants = restFields.filter(_.isInstanceOf[ir.TypeField])
         val defs = restFields.filter(_.isInstanceOf[ir.DefField])
         val item = env.items(defInfo.id)
@@ -363,8 +363,8 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Variable => v.id.env.varByRef(v)(false)
-      case v: Fn       => v.id.defName()(false)
+      case v: Term => v.id.env.varByRef(v)(false)
+      case v: Fn   => v.id.defName()(false)
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.While(cond, body) =>
@@ -390,14 +390,14 @@ class CodeGen(implicit val env: Env) {
         s"$op ${expr(lhs)}"
       case ir.Dispatch(SelfVal, by: Class, field, rhs) =>
         s"self.${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
-      case ir.Apply(BoundField(lhs, Some(impl: Impl), field), rhs) =>
+      case ir.Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
         val iface = storeTy(impl.iface)
         val cls = storeTy(impl.cls)
         val casted = s"::cosmo::Impl<$cls, $iface>"
         val castedOp =
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
         s"$castedOp${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
-      case ir.Apply(BoundField(lhs, by, field), rhs) =>
+      case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
         val op = if lhsIsType(lhs) then "::" else "."
         s"${expr(lhs)}$op${field.item.id.name}(${rhs.map(moveExpr).mkString(", ")})"
       case ir.Apply(lhs, rhs) =>
@@ -407,7 +407,7 @@ class CodeGen(implicit val env: Env) {
         } else {
           s"${expr(lhs)}(${rhs.map(moveExpr).mkString(", ")})"
         }
-      case BoundField(lhs, by, field) =>
+      case BoundField(lhs, by, false, field) =>
         val op = if lhsIsType(lhs) then "::" else "."
         s"${expr(lhs)}$op${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
@@ -432,12 +432,42 @@ class CodeGen(implicit val env: Env) {
         s"${solveDict(items)}{${items
             .map { case (k, v) => s"""{"$k", ${expr(v)}}""" }
             .mkString(", ")}}"
-      case ir.Semi(value)      => return exprWith(value, ValRecv.None)
-      case v: ir.NativeType    => storeTy(v)
-      case v: ir.CIdent        => storeTy(v)
-      case v: ir.NativeInsType => storeTy(v)
-      case v: ir.CppInsType    => storeTy(v)
-      case v: ir.Var           => v.id.defName(stem = false)(false)
+      case ir.Semi(value)   => return exprWith(value, ValRecv.None)
+      case v: ir.CIdent     => storeTy(v)
+      case v: ir.CppInsType => storeTy(v)
+      case v: ir.Var        => v.id.defName(stem = false)(false)
+      case v: ClassInstance if v.con.variantOf.isDefined => {
+        val args = v.args.flatMap {
+          case v: KeyedArg => Some((v.key, v.value))
+          case v           => None
+        }.toMap
+        val positions = v.args.iterator.flatMap {
+          case v: KeyedArg => None
+          case v           => Some(v)
+        }.iterator
+        val ty = v.con.id.defName(stem = true)(false)
+        val vars = v.con.vars.map { v =>
+          {
+            val name = v.item.id.name;
+            val value = args.get(name).orElse(positions.nextOption)
+            Some(
+              mayClone(
+                v,
+                value
+                  .map(expr)
+                  .getOrElse(s"$ty::k${name.capitalize}Default"),
+              ),
+            )
+          }
+        }
+        val initArgs = vars.mkString(", ")
+
+        val base = v.con.resolvedAs match {
+          case Some(t) => storeTy(HKTInstance(v.con, t))
+          case None => s"${storeTy(v.con.variantOf.get)}::${ty}_cons($initArgs)"
+        }
+        s"${base}_cons($initArgs)"
+      }
       case v: ir.ClassInstance => {
         val args = v.args.flatMap {
           case v: KeyedArg => Some((v.key, v.value))
@@ -447,44 +477,15 @@ class CodeGen(implicit val env: Env) {
           case v: KeyedArg => None
           case v           => Some(v)
         }.iterator
-        val ty = storeTy(v.iface.ty)
-        val vars = v.iface.fields.iterator.flatMap {
-          case (s, v: VarField) => {
-            val value = args.get(s).orElse(positions.nextOption)
-            Some(value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"))
-          };
-          case _ => None
+        val ty = storeTy(v.con.id.ty)
+        val vars = v.con.vars.map { v =>
+          val s = v.item.id.name
+          val value = args.get(s).orElse(positions.nextOption)
+          Some(value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"))
         }
         val initArgs = vars.mkString(", ")
 
         s"$ty($initArgs)"
-      }
-      case v: ir.EnumInstance => {
-        val args = v.args.flatMap {
-          case v: KeyedArg => Some((v.key, v.value))
-          case v           => None
-        }.toMap
-        val positions = v.args.iterator.flatMap {
-          case v: KeyedArg => None
-          case v           => Some(v)
-        }.iterator
-        val ty = v.iface.id.defName(stem = true)(false)
-        val vars = v.iface.fields.iterator.flatMap {
-          case (s, v: VarField) => {
-            val value = args.get(s).orElse(positions.nextOption)
-            Some(
-              mayClone(
-                v,
-                value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default"),
-              ),
-            )
-          };
-          case _ => None
-        }
-        val initArgs = vars.mkString(", ")
-
-        val base = storeTy(v.base.variantOf.ty);
-        s"$base::${ty}_cons($initArgs)"
       }
       // case v: ir.Sig()
       case v: ir.EnumDestruct if v.bindings.isEmpty => s""
@@ -493,7 +494,7 @@ class CodeGen(implicit val env: Env) {
         // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
         // auto n = std::move(*nn);
 
-        val base = storeTy(v.variant.variantOf.ty);
+        val base = storeTy(v.variant.variantOf.get);
         val namelist = v.bindings
           .map {
             case "_" => ""
@@ -501,7 +502,7 @@ class CodeGen(implicit val env: Env) {
           }
           .mkString(", ")
         val rebind = v.bindings
-          .zip(v.variant.base.vars)
+          .zip(v.variant.vars)
           .map {
             case ("_", _) => ""
             case (s, v) => {
@@ -517,7 +518,7 @@ class CodeGen(implicit val env: Env) {
         s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
       }
       case v: ir.EnumMatch => {
-        val clsName = storeTy(v.meta.ty)
+        val clsName = storeTy(v.by)
         val cases = v.cases.map { case (variant, body) =>
           val name = variant.id.defName(stem = true)(false)
           s"case $clsName::kIdx$name: ${blockizeExpr(body, recv)}; break;"
@@ -537,7 +538,6 @@ class CodeGen(implicit val env: Env) {
         val orElse =
           v.orElse.map(e => s"default: ${blockizeExpr(e, recv)}").getOrElse("")
         return s"switch(${expr(v.lhs)}) {${cases.mkString("\n")}\n$orElse}"
-      case v: Interface => storeTy(v.ty)
       case a => {
         logln(s"unhandled expr: $a")
         a.toString()
@@ -554,9 +554,9 @@ class CodeGen(implicit val env: Env) {
 
 def lhsIsType(lhs: ir.Item): Boolean = {
   lhs match {
-    case ir.Variable(_, _, _) if lhs.level >= 1 => true
-    case ir.Select(lhs, _)                      => lhsIsType(lhs)
-    case _                                      => false
+    case ir.Term(_, _, _) if lhs.level >= 1 => true
+    case ir.Select(lhs, _)                  => lhsIsType(lhs)
+    case _                                  => false
   }
 }
 
