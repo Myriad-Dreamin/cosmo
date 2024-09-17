@@ -1,9 +1,11 @@
 
 class Basic {
   def staticMethod() = 42
+  def staticMethod2(x: i32) = x
 }
 
 def main() = {
-  println(Basic.staticMethod())
+  println(Basic.staticMethod());
+  println(Basic.staticMethod2(45));
 }
 
