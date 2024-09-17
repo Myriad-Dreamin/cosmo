@@ -238,7 +238,7 @@ object Parser {
   def divMul[$: P]: P[Node] = binOp(CharIn("*/") ~~ !"=", arithMod)
   def arithMod[$: P]: P[Node] = binOp(CharIn("%") ~~ !"=", factor)
   def unary[$: P]: P[Node] =
-    P(P("!" | "~" | "-" | "+" | "&" | keyword("mut")).! ~ factor)
+    P(P("!" | "~" | "-" | "+" | "&" | "*" | keyword("mut")).! ~ factor)
       .map(UnOp.apply.tupled)
   def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
   // Clauses

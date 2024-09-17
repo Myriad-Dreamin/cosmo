@@ -168,7 +168,7 @@ template <> struct DisplayTrait<cosmo_stdJSON> {
       printf("}");
     }; break;
     default: {
-      cosmo_std::prelude::core::unreachable();
+      cosmo_std::prelude::lang::unreachable();
     }
     };
   }

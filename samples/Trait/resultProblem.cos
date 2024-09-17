@@ -3,5 +3,4 @@ import std::io;
 
 def main() = {
   val x = io::Result(())::Ok(());
-
 }
