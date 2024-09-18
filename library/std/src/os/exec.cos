@@ -3,15 +3,16 @@ import cstdioSys from "@lib/c++/cstdio"
 import memorySys from "@lib/c++/memory"
 
 import std.collections.vec
+import _ from std.str
 
 code("""
-// #ifdef WIN_32
-// #else
-// #define cosmoPopen popen
-// #define cosmoPclose pclose
-// #endif
+#ifdef WIN_32
 #define cosmoPopen _popen
 #define cosmoPclose _pclose
+#else
+#define cosmoPopen popen
+#define cosmoPclose pclose
+#endif
 """)
 
 class Command {
@@ -27,14 +28,14 @@ class Command {
         shellCommand += args[i].internal;
     }
     std::shared_ptr<FILE> pipe(cosmoPopen(shellCommand.data(), "r"), cosmoPclose);
-    if (!pipe) return "ERROR";
+    if (!pipe) return str::String("ERROR");
     char buffer[128];
     std::string result = "";
     while (!feof(pipe.get())) {
         if (fgets(buffer, 128, pipe.get()) != NULL)
             result += buffer;
     }
-    return String(result);
+    return str::String(result);
     """);
   }
 }

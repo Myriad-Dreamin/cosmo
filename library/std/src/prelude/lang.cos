@@ -1,5 +1,7 @@
 
 import "@lib/c++/cstdint"
+import "@lib/c++/cinttypes"
+import "@lib/c++/cstdio"
 import "@lib/c++/memory"
 import "@lib/c++/variant"
 import "@lib/c++/tuple"
@@ -15,18 +17,14 @@ template<typename T, typename I, bool isMut = false, typename Cond = void>
 struct Impl;
 } // namespace cosmo
 
-""");
-
-def unreachable(): Nothing = {
-  code("""
+[[noreturn]] void unreachable() {
   fprintf(stderr, "unreachable\n");
-  """)
-  cSys.abort();
+  abort();
 }
 
-def unimplemented(): Nothing = {
-  code("""
+[[noreturn]] void unimplemented() {
   fprintf(stderr, "unimplemented\n");
-  """)
-  cSys.abort();
+  abort();
 }
+
+""");

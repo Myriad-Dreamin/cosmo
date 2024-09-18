@@ -30,7 +30,7 @@ pub class ValueT(T: Type) {
           if constexpr (std::is_unsigned_v<Ty>) {
               return T::pack(arr.internal[index]);
           } else {
-            cosmo_std::prelude::core::panic("invalid index type for array");
+            panic("invalid index type for array");
             return cosmo_std::json::ValueT<T>::Null_cons();
           }
           """);
@@ -40,7 +40,7 @@ pub class ValueT(T: Type) {
           if constexpr (std::is_same_v<Ty, cosmo_std::str::String> || std::is_same_v<Ty, std::string>) {
             return T::pack(obj.internal[index]);
           } else {
-            cosmo_std::prelude::core::panic("invalid index type for object");
+            panic("invalid index type for object");
             return cosmo_std::json::ValueT<T>::Null_cons();
           }
           """);
@@ -122,24 +122,22 @@ template <> struct DisplayTrait<cosmo_stdJSON> {
   static void print(const cosmo_stdJSON &x) {
     switch (x.data.index()) {
     case cosmo_stdJSON::kIdxNull: {
-      printf(std::move(::std::string("null").data()));
+      printf("null");
     }; break;
     case cosmo_stdJSON::kIdxBool: {
-      printf(std::move(::std::string("%s").data()),
-             x.Bool_0() ? "true" : "false");
+      printf(x.Bool_0() ? "true" : "false");
     }; break;
     case cosmo_stdJSON::kIdxNumberSigned: {
-      printf(std::move(::std::string("%lld").data()), x.NumberSigned_0());
+      printf("%" PRId64, x.NumberSigned_0());
     }; break;
     case cosmo_stdJSON::kIdxNumberUnsigned: {
-      printf(std::move(::std::string("%llu").data()), x.NumberUnsigned_0());
+      printf("%" PRIu64, x.NumberUnsigned_0());
     }; break;
     case cosmo_stdJSON::kIdxNumber: {
-      printf(std::move(::std::string("%f").data()), x.Number_0());
+      printf("%f", x.Number_0());
     }; break;
     case cosmo_stdJSON::kIdxStr: {
-      printf(std::move(::std::string("%s").data()),
-             x.Str_0().internal.c_str());
+      printf("%s", x.Str_0().internal.c_str());
     }; break;
     case cosmo_stdJSON::kIdxArray: {
       printf("[");
@@ -168,7 +166,7 @@ template <> struct DisplayTrait<cosmo_stdJSON> {
       printf("}");
     }; break;
     default: {
-      cosmo_std::prelude::lang::unreachable();
+      unreachable();
     }
     };
   }
