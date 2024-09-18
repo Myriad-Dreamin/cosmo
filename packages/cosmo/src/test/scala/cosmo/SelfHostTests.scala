@@ -8,8 +8,12 @@ class SelfHostTest extends munit.FunSuite:
       cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var compiler = new Cosmo();
     compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
-    var result = compiler.transpile(src)
-    println(result)
+    compiler.preloadPackage("std");
+
+    val prog = compiler.mayGetExecutable(path);
+    prog.foreach(
+      NodeChildProcess.execSync(_, js.Dynamic.literal(stdio = "inherit")),
+    )
   }
 
   test("CompileDriver/callNode") {

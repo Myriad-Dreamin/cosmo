@@ -9,10 +9,14 @@ pub class Rune {
 }
 
 pub class String {
-  var internal: CppString = stringSys.std.string();
+  var internal: str = "";
 
   def push_str(&mut self, s: &str) = {
     internal += s;
+  }
+
+  def as_str(&self): &str = {
+    internal
   }
 }
 

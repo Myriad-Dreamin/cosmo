@@ -48,8 +48,7 @@ class Cosmo extends PackageManager, Transpiler {
 
   @JSExport
   def getExecutable(path: String): String = {
-    val releaseDir = "target/cosmo/release"
-    linker.compile(path, this, releaseDir).getOrElse("")
+    mayGetExecutable(path).getOrElse("") // js hate Option[T]
   }
 
   @JSExport
@@ -68,6 +67,11 @@ class Cosmo extends PackageManager, Transpiler {
   @JSExport
   def parseAsJson(s: String): String = {
     parse(s).map(syntax.toJson).getOrElse("")
+  }
+
+  def mayGetExecutable(path: String): Option[String] = {
+    val releaseDir = "target/cosmo/release"
+    linker.compile(path, this, releaseDir)
   }
 
   def transpile(src: String, fid: Option[FileId]): Option[(String, Boolean)] =

@@ -118,10 +118,18 @@ target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
         case Some(0) => programPath
         case None    => programPath
         case Some(status) =>
-          println(result.stdout.toString().trim())
-          println(result.stderr.toString().trim())
-          println(result.error.toString().trim())
+          val logPath = inRelPath("CMakeErrors.log")
+          system.writeFile(
+            logPath,
+            List(
+              result.stdout.toString().trim(),
+              result.stderr.toString().trim(),
+              result.error.toString().trim(),
+              s"Compilation failed: cmake Exit with status: ${status}",
+            ).mkString("\n"),
+          )
           println(s"Compilation failed: cmake.exe Exit with status: ${status}")
+          println(s"Log written to ${logPath}")
           None
       }
     }
