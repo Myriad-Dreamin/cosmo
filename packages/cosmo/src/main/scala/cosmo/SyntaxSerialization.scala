@@ -16,6 +16,11 @@ private def jpol(node: Pol, buf: StringBuilder): Unit = {
 }
 private def j(node: NodeKinds, buf: StringBuilder): Unit = {
   node match {
+  case n: Node =>
+    buf.append(s"{\"pos\":[${n.offset},${n.end}], \"kind\":")
+  case _ =>
+  } 
+  node match {
     case n: No      => if n.isEmpty then buf.append("null") else j(n.get, buf)
     case s: Str     => buf.append(s""""$s"""")
     case b: Boolean => buf.append(b)
@@ -31,35 +36,35 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append("]")
     }
 
-    case TodoLit    => buf.append("""{"kind": "todo"}""")
-    case Semi(None) => buf.append("""{"kind": "semi"}""")
+    case TodoLit    => buf.append(""" "todo"}""")
+    case Semi(None) => buf.append(""" "semi"}""")
     case Semi(Some(node)) =>
-      buf.append("""{"kind": "semi", "value": """)
+      buf.append(""" "semi", "value": """)
       j(node, buf)
       buf.append("}")
     case Decorate(lhs, rhs) =>
-      buf.append("""{"kind": "decorate", "lhs": """)
+      buf.append(""" "decorate", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": """)
       j(rhs, buf)
       buf.append("}")
-    case Ident(name)    => buf.append(s"""{"kind": "ident", "name": "$name"}""")
-    case BoolLit(value) => buf.append(s"""{"kind": "bool", "value": $value}""")
-    case IntLit(value)  => buf.append(s"""{"kind": "int", "value": "$value"}""")
+    case Ident(name)    => buf.append(s""" "ident", "name": "$name"}""")
+    case BoolLit(value) => buf.append(s""" "bool", "value": $value}""")
+    case IntLit(value)  => buf.append(s""" "int", "value": "$value"}""")
     case FloatLit(value) =>
-      buf.append(s"""{"kind": "float", "value": "$value"}""")
+      buf.append(s""" "float", "value": "$value"}""")
     case StringLit(value) =>
-      buf.append(s"""{"kind": "string", "value": "$value"}""")
+      buf.append(s""" "string", "value": "$value"}""")
     case ArgsLit(values) =>
-      buf.append("""{"kind": "args", "values": [""")
+      buf.append(""" "args", "values": [""")
       j(values, buf)
       buf.append("]}")
     case Block(stmts) =>
-      buf.append("""{"kind": "block", "stmts": """)
+      buf.append(""" "block", "stmts": """)
       j(stmts, buf)
       buf.append("}")
     case Val(name, ty, init) =>
-      buf.append("""{"kind": "val", "name": """)
+      buf.append(""" "val", "name": """)
       j(name, buf)
       buf.append(""", "ty": """)
       j(ty, buf)
@@ -67,7 +72,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(init, buf)
       buf.append("}")
     case Var(name, ty, init) =>
-      buf.append("""{"kind": "var", "name": """)
+      buf.append(""" "var", "name": """)
       j(name, buf)
       buf.append(""", "ty": """)
       j(ty, buf)
@@ -75,7 +80,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(init, buf)
       buf.append("}")
     case Typ(name, ty, init) =>
-      buf.append("""{"kind": "typ", "name": """)
+      buf.append(""" "typ", "name": """)
       j(name, buf)
       buf.append(""", "ty": """)
       j(ty, buf)
@@ -83,7 +88,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(init, buf)
       buf.append("}")
     case Class(name, params, body, isAbstracted) =>
-      buf.append("""{"kind": "class", "name": """)
+      buf.append(""" "class", "name": """)
       j(name, buf)
       buf.append(""", "params": """)
       jpol(params, buf)
@@ -93,7 +98,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(isAbstracted, buf)
       buf.append("}")
     case Impl(item, tr, params, body) =>
-      buf.append("""{"kind": "impl", "item": """)
+      buf.append(""" "impl", "item": """)
       j(item, buf)
       buf.append(""", "tr": """)
       j(tr, buf)
@@ -103,7 +108,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(body, buf)
       buf.append("}")
     case Param(name, ty, init, isCompileTime) =>
-      buf.append("""{"kind": "param", "name": """)
+      buf.append(""" "param", "name": """)
       j(name, buf)
       buf.append(""", "ty": """)
       j(ty, buf)
@@ -113,7 +118,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(isCompileTime, buf)
       buf.append("}")
     case Def(name, params, ret, rhs) =>
-      buf.append("""{"kind": "def", "name": """)
+      buf.append(""" "def", "name": """)
       j(name, buf)
       buf.append(""", "params": """)
       jpol(params, buf)
@@ -123,33 +128,33 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(rhs, buf)
       buf.append("}")
     case Import(path, dest) =>
-      buf.append("""{"kind": "import", "path": """)
+      buf.append(""" "import", "path": """)
       j(path, buf)
       buf.append(""", "dest": """)
       j(dest, buf)
       buf.append("}")
     case Loop(body) =>
-      buf.append("""{"kind": "loop", "body": """)
+      buf.append(""" "loop", "body": """)
       j(body, buf)
       buf.append("}")
     case While(cond, body) =>
-      buf.append("""{"kind": "while", "cond": """)
+      buf.append(""" "while", "cond": """)
       j(cond, buf)
       buf.append(""", "body": """)
       j(body, buf)
       buf.append("}")
     case For(name, iter, body) =>
-      buf.append("""{"kind": "for", "name": """)
+      buf.append(""" "for", "name": """)
       j(name, buf)
       buf.append(""", "iter": """)
       j(iter, buf)
       buf.append(""", "body": """)
       j(body, buf)
       buf.append("}")
-    case Break()    => buf.append("""{"kind": "break"}""")
-    case Continue() => buf.append("""{"kind": "continue"}""")
+    case Break()    => buf.append(""" "break"}""")
+    case Continue() => buf.append(""" "continue"}""")
     case If(cond, cont_bb, else_bb) =>
-      buf.append("""{"kind": "if", "cond": """)
+      buf.append(""" "if", "cond": """)
       j(cond, buf)
       buf.append(""", "cont_bb": """)
       j(cont_bb, buf)
@@ -157,13 +162,13 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(else_bb, buf)
       buf.append("}")
     case UnOp(op, lhs) =>
-      buf.append("""{"kind": "unop", "op": """)
+      buf.append(""" "unop", "op": """)
       j(op, buf)
       buf.append(""", "lhs": """)
       j(lhs, buf)
       buf.append("}")
     case BinOp(op, lhs, rhs) =>
-      buf.append("""{"kind": "binop", "op": """)
+      buf.append(""" "binop", "op": """)
       j(op, buf)
       buf.append(""", "lhs": """)
       j(lhs, buf)
@@ -171,19 +176,19 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(rhs, buf)
       buf.append("}")
     case Match(lhs, rhs) =>
-      buf.append("""{"kind": "match", "lhs": """)
+      buf.append(""" "match", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": """)
       j(rhs, buf)
       buf.append("}")
     case As(lhs, rhs) =>
-      buf.append("""{"kind": "as", "lhs": """)
+      buf.append(""" "as", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": """)
       j(rhs, buf)
       buf.append("}")
     case Select(lhs, rhs, isCompileTime) =>
-      buf.append("""{"kind": "select", "lhs": """)
+      buf.append(""" "select", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": """)
       j(rhs, buf)
@@ -191,13 +196,13 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(isCompileTime, buf)
       buf.append("}")
     case Apply(lhs, rhs) =>
-      buf.append("""{"kind": "apply", "lhs": """)
+      buf.append(""" "apply", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": [""")
       j(rhs, buf)
       buf.append("]}")
     case TmplApply(lhs, rhs) =>
-      buf.append("""{"kind": "tmplapply", "lhs": """)
+      buf.append(""" "tmplapply", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": [""")
       var first = true
@@ -226,21 +231,21 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       }
       buf.append("]}")
     case KeyedArg(key, value) =>
-      buf.append("""{"kind": "keyedarg", "key": """)
+      buf.append(""" "keyedarg", "key": """)
       j(key, buf)
       buf.append(""", "value": """)
       j(value, buf)
       buf.append("}")
     case Return(value) =>
-      buf.append("""{"kind": "return", "value": """)
+      buf.append(""" "return", "value": """)
       j(value, buf)
       buf.append("}")
     case CaseBlock(stmts) =>
-      buf.append("""{"kind": "caseblock", "stmts": [""")
+      buf.append(""" "caseblock", "stmts": [""")
       j(stmts, buf)
       buf.append("]}")
     case Case(cond, body) =>
-      buf.append("""{"kind": "case", "cond": """)
+      buf.append(""" "case", "cond": """)
       j(cond, buf)
       buf.append(""", "body": """)
       j(body, buf)

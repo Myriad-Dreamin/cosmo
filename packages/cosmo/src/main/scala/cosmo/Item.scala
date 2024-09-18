@@ -4,6 +4,7 @@ import cosmo.{DefInfo, FileId}
 
 import cosmo.ir.Value
 import cosmo.{DefId, DefInfo, Env}
+import cosmo.syntax.Ident
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
@@ -104,7 +105,7 @@ final case class Match(lhs: Item, rhs: Item) extends Item {}
 final case class Case(cond: Item, body: Item) extends Item {}
 final case class Loop(body: Item) extends Item {}
 final case class While(cond: Item, body: Item) extends Item {}
-final case class For(name: String, iter: Item, body: Item) extends Item {}
+final case class For(name: Ident, iter: Item, body: Item) extends Item {}
 final case class Break() extends Item {}
 final case class Continue() extends Item {}
 case object TodoLit extends Item {}

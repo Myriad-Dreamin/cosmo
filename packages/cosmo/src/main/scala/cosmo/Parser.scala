@@ -5,6 +5,7 @@ import scala.util.TupledFunction
 import fastparse._, fastparse.ScalaWhitespace._
 
 import cosmo.syntax._
+import cosmo.syntax.NodeParse._
 
 def jt(x: Unit) = true
 def us(x: Node) = x match {
@@ -15,14 +16,14 @@ def us(x: Node) = x match {
 object Parser {
   // Entry point
   def root[$: P]: P[Block] =
-    P(("" ~ term).rep.map(_.toList) ~ End).map(Block.apply)
+    P(("" ~ term).rep.map(_.toList) ~ End).map(Block.apply).m
   // Lexer
   def keyword[$: P](s: String) = s ~~ !(letter | digit | "_" | "'")
   def letter[$: P] = P(lowercase | uppercase)
   def lowercase[$: P] = P(CharIn("a-z"))
   def uppercase[$: P] = P(CharIn("A-Z"))
   def digit[$: P] = P(CharIn("0-9"))
-  def ident[$: P]: P[String] =
+  def ident_[$: P]: P[String] =
     P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
       !keywords(_),
     )
@@ -55,10 +56,10 @@ object Parser {
   )
 
   def tmplLit[$: P] =
-    P(tmplPath ~ &("\"") ~ tmplLitParts).map(TmplApply.apply.tupled)
+    P(tmplPath ~ &("\"") ~ tmplLitParts).map(TmplApply.apply.tupled).m
   def tmplPath[$: P] = P(
-    ident.filter(_ != "from").map(Ident.apply) ~ (P(
-      ("." | "::") ~ identifier,
+    ident_.filter(_ != "from").map(Ident.apply).m ~ (P(
+      ("." | "::") ~ ident,
     )).rep,
   ).map { case (lhs, rhs) => rhs.foldLeft(lhs: Node)(Select(_, _, true)) }
   def tmplLitParts[$: P] = P(longTmplLit | shortTmplLit)
@@ -131,23 +132,23 @@ object Parser {
   def termU[$: P] = P(term.map(us))
   def decorator[$: P]: P[Node] = P("@" ~/ factor)
   def decorated[$: P] =
-    ifItem | forItem | whileItem | loopItem | caseClause | semiWrap | semi
+    (ifItem | forItem | whileItem | loopItem | caseClause | semiWrap | semi).m
   def semiWrap[$: P]: P[Node] = P(
     P(
       canExportItem | implItem | breakItem | continueItem | returnItem | compound,
-    ) ~/ semi.?,
+    ).m ~/ semi.?,
   ).map((item, isSemi) => if isSemi.isEmpty then item else Semi(Some(item)))
   def semi[$: P] = P(";").map(_ => Semi(None))
   def canExportItem[$: P]: P[Node] =
     (keyword("pub") | keyword("private")).? ~ P(
-      defItem | valItem | varItem | classItems | importItem,
+      defItem | valItem | varItem | typeItem | classItems | importItem,
     )
-  def primaryExpr[$: P] = P(tmplLit | identifier | literal | parens | braces)
+  def primaryExpr[$: P] = P(tmplLit | ident | literal | parens | braces).m
   def factor[$: P] = P(unary | factorBase)
   def factorBase[$: P]: P[Node] = P(
     primaryExpr ~ (
-      P(".".map(_ => ".") ~ identifier) |
-        P("::".map(_ => ":") ~ identifier) |
+      P(".".map(_ => ".") ~ ident) |
+        P("::".map(_ => ":") ~ ident) |
         args.map(a => ("(", a))
     ).rep,
   ).map { case (lhs, parts) =>
@@ -161,8 +162,8 @@ object Parser {
   }
 
   // Expressions
-  def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit)
-  def identifier[$: P] = ident.map(Ident.apply)
+  def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit).m
+  def ident[$: P] = ident_.map(Ident.apply).m
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
   def classItems[$: P] = classItem("class", false) | classItem("trait", true)
@@ -173,7 +174,7 @@ object Parser {
   ).map {
     case (params, lhs, Some(rhs), body) => Impl(rhs, Some(lhs), params, body)
     case (params, lhs, None, body)      => Impl(lhs, None, params, body)
-  }
+  }.m
   def sigItem[$: P](kw: String) = P(keyword(kw) ~/ ident ~ params)
   def valItem[$: P] = P(varLike("val")).map(Val.apply.tupled)
   def varItem[$: P] = P(varLike("var")).map(Var.apply.tupled)
@@ -262,7 +263,7 @@ object Parser {
       else CaseBlock(caseItems)
     })
   def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
-  def arg[$: P] = P(spread | keyedClause)
+  def arg[$: P] = P(spread | keyedClause).m
   def params[$: P] =
     (P(paramsCt.map(_.flatten) | paramsRt).rep).map { seq =>
       if seq.isEmpty then None else Some(seq.flatten.toList)
@@ -275,23 +276,23 @@ object Parser {
     P(ident.rep(1, sep = " ") ~ typeAnnotation.? ~ &("," | "]")).map((e, t) =>
       e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
     )
-  def constraint[$: P] = compare.map(e => Param("_", Some(e), None, true))
+  def constraint[$: P] = compare.map(e => Param(Ident("_"), Some(e), None, true)).m
   def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
   def selfSugar[$: P] = P(
-    chk("&") ~ chk(keyword("mut")) ~ keyword("self") ~ &("," | ")"),
-  ).map((isRef, isMut) => {
+    chk("&") ~ chk(keyword("mut")) ~ keyword("self").!.map(Ident.apply).m ~ &("," | ")"),
+  ).map(( isRef, isMut, self) => {
     val ty1 = Ident("Self")
     val decorated = (isRef, isMut) match {
       case (true, true)  => Apply(Ident("RefMut"), List(ty1))
       case (true, false) => Apply(Ident("Ref"), List(ty1))
       case _             => ty1
     }
-    Param("self", Some(decorated), None, false)
-  })
+    Param(self, Some(decorated), None, false)
+  }).m
   def param[$: P] =
-    P((ident) ~ typeAnnotation.? ~ initExpression.?).map(Param(_, _, _, false))
-  def typeAnnotation[$: P] = P(":" ~/ factor)
-  def initExpression[$: P] = P("=" ~/ term)
+    P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param(_, _, _, false)).m
+  def typeAnnotation[$: P] = P(":" ~/ factor).m
+  def initExpression[$: P] = P("=" ~/ term).m
   def matchClause[$: P] = P(keyword("match") ~/ braces)
   def caseClause[$: P] =
     P("case" ~/ termU ~ ("=>" ~ term).?).map(Case.apply.tupled)
