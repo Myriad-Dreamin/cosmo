@@ -25,12 +25,26 @@ struct ptr {
   ptr() : internal(nullptr) {}
   ptr(T *p) : internal(p) {}
   ptr(T &r) : internal(&r) {}
+
+  
 };
+// FIXME: This is a hack to move value to head ptr.
+// FIXME: Should be member function of ptr.
+template <typename T, typename U>
+ptr<T> allocRawPtr(U &&u) {
+  return ptr<T>{new T(std::forward<U>(u))};
+}
 } // namespace cosmo
 """)
 
 pub class Ptr[T] {
   var internal: mmSys.cosmo.ptr(T) = mmSys.cosmo.ptr(T)();
+
+  def alloc(t: T): Ptr(T) = {
+    var res = Ptr(T)();
+    res.internal = mmSys.cosmo.allocRawPtr(T)(t);
+    res
+  }
 }
 
 class AtomicOrdering {

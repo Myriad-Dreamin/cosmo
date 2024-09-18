@@ -7,6 +7,10 @@ import std.json;
 
 class Arena[T] {
   var pointers = Vec(Ptr(T))();
+
+  def alloc(&mut self, t: T) = {
+    self.pointers.push(Ptr(T).alloc(t));
+  }
 }
 
 class Node {
@@ -18,11 +22,28 @@ class Ast {
   var arena = Arena(Node)();
   var root = Ptr(Node)();
 
+  def resolve(&mut self, j: &json::Value): Ptr(Node) = {
+    if (j.apply("kind") == "block") {
+      var stmts = j.apply("stmts") match {
+        case json::Value::Array(arr) => arr
+        // case _ => ???
+      };
+      var children = Vec(Ptr(Node))();
+      for (stmt in stmts) {
+        children.push(Ast.resolve(stmt));
+      }
+      self.arena.alloc(Node.Block(0, children))
+    } else {
+      ???
+    }
+  }
+
   def get(j: json::Value) = {
-    println(j.clone().apply("kind"));
-    println(j.apply("stmts"));
+    // println(j.apply("kind"));
+    // println(j.apply("stmts"));
 
     var ast = Ast();
+    ast.root = ast.resolve(j);
 
     ast
   }
@@ -32,7 +53,7 @@ def main() = {
   var args = Vec(String)();
   args.push("cmd/cosmo/main.js");
   args.push("parse");
-  args.push("packages/cosmoc/src/parser.cos");
+  args.push("samples/HelloWorld/main.cos");
   var cmd = exec.Command("node", args);
   var content = exec.Command.run(cmd);
   println(content);
