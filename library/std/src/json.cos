@@ -17,6 +17,13 @@ pub class ValueT(T: Type) {
   case Object(map.Map(String, T))
   // case Object(map.HashMap(String, T))
   case _ => {
+    def expectStr(self): String = {
+      self match {
+        case ValueT(T).Str(s) => s
+        case _ => panic("value is not a string");
+      }
+    }
+
     def apply(Ty: Type, &self, index: Ty): ValueT(T) = {
       self match {
         case ValueT(T).Null => {panic("value is null");}

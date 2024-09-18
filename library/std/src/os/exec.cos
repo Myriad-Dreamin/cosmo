@@ -6,7 +6,7 @@ import std.collections.vec
 import _ from std.str
 
 code("""
-#ifdef WIN_32
+#ifdef _WIN32
 #define cosmoPopen _popen
 #define cosmoPclose _pclose
 #else

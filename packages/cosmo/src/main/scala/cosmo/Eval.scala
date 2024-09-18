@@ -127,7 +127,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     this
   }
 
-  def newDefWithInfoOr(name: Ident|String, id: Option[DefInfo]) = {
+  def newDefWithInfoOr(name: Ident | String, id: Option[DefInfo]) = {
     id.foreach(scopes.set(xId(name), _))
     id.getOrElse(ct(name))
   }
@@ -174,7 +174,10 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     result
   }
 
-  def withNsParams[T](ns: Ident|String, params: Option[Either[SParams, List[Param]]])(
+  def withNsParams[T](
+      ns: Ident | String,
+      params: Option[Either[SParams, List[Param]]],
+  )(
       f: => T,
   ): T = {
     debugln(s"withNsParams $ns $params")
@@ -387,22 +390,34 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     var vMappings =
       Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
 
-    for (syntax.Case(destructor, body) <- rhs.stmts) {
-      val splited = destruct(lhs, destructor);
+    var defaultCase: Option[Item] = None
 
-      splited match {
-        case ed: EnumDestruct =>
-          // todo: stable toString
-          val variantBase = ed.variant.variantOf.get
-          val vs = storeTy(variantBase)(false)
-          vMappings.get(vs) match {
-            case Some(lst) =>
-              vMappings = vMappings + (vs -> (lst :+ (ed, body)))
+    for (syntax.Case(destructor, body) <- rhs.stmts) {
+      destructor match {
+        case Ident("_") =>
+          defaultCase match {
+            case Some(_) =>
+              errors = s"multiple default cases" :: errors
             case None =>
-              vMappings = vMappings + (vs -> List((ed, body)))
+              defaultCase = Some(body.map(valueExpr).getOrElse(NoneItem))
           }
-        case _ =>
-          errors = s"Invalid destructed item $splited" :: errors
+        case destructor =>
+          val splited = destruct(lhs, destructor);
+
+          splited match {
+            case ed: EnumDestruct =>
+              // todo: stable toString
+              val variantBase = ed.variant.variantOf.get
+              val vs = storeTy(variantBase)(false)
+              vMappings.get(vs) match {
+                case Some(lst) =>
+                  vMappings = vMappings + (vs -> (lst :+ (ed, body)))
+                case None =>
+                  vMappings = vMappings + (vs -> List((ed, body)))
+              }
+            case _ =>
+              errors = s"Invalid destructed item $splited" :: errors
+          }
       }
     }
 
@@ -415,6 +430,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     val (_, cases) = vMappings.head
     val ty = cases.head._1.variant.variantOf.get
 
+    debugln(s"matchExpr mappings default $defaultCase")
     debugln(s"matchExpr mappings $ty => $cases")
 
     var matchBody = List[(Class, Item)]()
@@ -440,7 +456,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
     }
 
-    EnumMatch(lhs, ty, matchBody, Unreachable)
+    val defaultCaseItem = defaultCase.getOrElse(Unreachable)
+    EnumMatch(lhs, ty, matchBody, defaultCaseItem)
   }
 
   def matchCEnum(b: syntax.Match)(implicit level: Int): Item = {
@@ -825,7 +842,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     var vars = List[VarField]();
     var rests = List[VField]();
 
-    val nn = (name: Ident|String) => {
+    val nn = (name: Ident | String) => {
       // todo: high complexity
       val oid = fields.iterator.flatten.map(_.item.id).find(x => x.name == name)
       val info = ct(name); info.inClass = true;
@@ -901,7 +918,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     val (subName, params) = cond match {
       case name: syntax.Ident                       => (name, List())
       case syntax.Apply(name: syntax.Ident, params) => (name, params)
-      case _                                        => (Ident("invalid"), List())
+      case _ => (Ident("invalid"), List())
     }
 
     val vars = params.zipWithIndex.map {
@@ -1355,11 +1372,11 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 }
 
 def xId(src: syntax.Ident | String) = src match {
-      case node @ syntax.Ident(name) => name
-      case name: String       => name
-    }
+  case node @ syntax.Ident(name) => name
+  case name: String              => name
+}
 
 def xId_(src: syntax.Ident | String) = src match {
-      case node @ syntax.Ident(name) => (name, Some(node.offset, node.end))
-      case name: String       => (name, None)
-    }
+  case node @ syntax.Ident(name) => (name, Some(node.offset, node.end))
+  case name: String              => (name, None)
+}
