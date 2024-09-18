@@ -1,13 +1,26 @@
 package cosmo.syntax
 
 import cosmo.DefId
+import fastparse._
 
+private type N = Ident
 private type Str = String
 private type Pol = Option[List[Param]]
 private type No = Option[Node]
 type TmplExp = Option[(Node, Option[String])]
 
-sealed abstract class Node
+sealed abstract class Node {
+  var offset: Int = -1;
+  var end: Int = -1;
+}
+
+object NodeParse {
+  implicit class Mapper[T <: Node](n: => P[T])(implicit  ctx: P[_]) {
+    def m = {val l = ctx.index; val r = n.map(node => {node.offset = l; node.end = ctx.index; node}); ctx.asInstanceOf[P[T]]}
+  }
+}
+
+
 // Kind: Decorators
 // A node that is terminated by a semicolon
 final case class Semi(semi: No) extends Node
@@ -18,7 +31,7 @@ final case class Decorate(lhs: Node, rhs: Node) extends Node
 // Just panic on problematic impls
 object TodoLit extends Node
 // Identifier
-final case class Ident(name: Str) extends Node
+final case class Ident(name: Str) extends Node 
 // Boolean Literal
 final case class BoolLit(value: Boolean) extends Node
 // Integer Literal
@@ -37,28 +50,28 @@ final case class Block(stmts: List[Node]) extends Node
 final case class CaseBlock(stmts: List[Case]) extends Node
 // Kind: Var Decls
 // constant level-0 variable
-final case class Val(name: Str, ty: No, init: No) extends Node
+final case class Val(name: N, ty: No, init: No) extends Node
 // mutable  level-0 variable
-final case class Var(name: Str, ty: No, init: No) extends Node
+final case class Var(name: N, ty: No, init: No) extends Node
 // constant level-1 variable
-final case class Typ(name: Str, ty: No, init: No) extends Node
+final case class Typ(name: N, ty: No, init: No) extends Node
 // mutable  level-0 parameter (ct: must evaluated at compile-time)
-final case class Param(name: Str, ty: No, init: No, ct: Boolean) extends Node
+final case class Param(name: N, ty: No, init: No, ct: Boolean) extends Node
 // `import dest from path`
 final case class Import(path: Node, dest: No) extends Node
 // Kind: Def Decls
 // ab = true:  `trait name(params) body`
 // ab = false: `class name(params) body`
-final case class Class(name: Str, ps: Pol, body: Node, ab: Boolean) extends Node
+final case class Class(name: N, ps: Pol, body: Node, ab: Boolean) extends Node
 // Impl Definition
 // Either: `impl rhs {}`
 // Or:     `impl lhs for rhs {}`
 final case class Impl(rhs: Node, lhs: No, params: Pol, body: Node) extends Node
-final case class Def(name: Str, params: Pol, ret: No, rhs: No) extends Node
+final case class Def(name: N, params: Pol, ret: No, rhs: No) extends Node
 // Kind: Control Flow
 final case class Loop(body: Node) extends Node
 final case class While(cond: Node, body: Node) extends Node
-final case class For(name: Str, iter: Node, body: Node) extends Node
+final case class For(name: N, iter: Node, body: Node) extends Node
 final case class If(cond: Node, cont_bb: Node, else_bb: No) extends Node
 final case class Break() extends Node
 final case class Continue() extends Node

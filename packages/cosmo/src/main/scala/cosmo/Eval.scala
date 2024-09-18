@@ -37,6 +37,7 @@ class DefInfo(
     var env: Env,
     var ty: Type = TopTy,
     var impls: List[Impl] = List(),
+    var pos: Option[(Int, Int)] = None,
     var noMangle: Boolean = false,
     var isVar: Boolean = false,
     var inClass: Boolean = false,
@@ -87,6 +88,9 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   def builtins() = {
     newBuiltin("print")
     newBuiltin("println")
+    newBuiltin("unreachable")
+    newBuiltin("unimplemented")
+    newBuiltin("panic")
 
     newType("c_enum", CEnumTy)
     newType("Type", UniverseTy)
@@ -123,8 +127,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     this
   }
 
-  def newDefWithInfoOr(name: String, id: Option[DefInfo]) = {
-    id.foreach(scopes.set(name, _))
+  def newDefWithInfoOr(name: Ident|String, id: Option[DefInfo]) = {
+    id.foreach(scopes.set(xId(name), _))
     id.getOrElse(ct(name))
   }
 
@@ -135,11 +139,13 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
   }
 
-  def ct(name: String, hidden: Boolean = false): DefInfo = {
+  def ct(src: syntax.Ident | String, hidden: Boolean = false): DefInfo = {
+    val (name, pos) = xId_(src)
     defAlloc += 1
     val id = new DefId(defAlloc)
     val info =
       new DefInfo(name, ns, id, this)
+    info.pos = pos
     if (!hidden) {
       scopes.set(name, info)
     }
@@ -168,11 +174,11 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     result
   }
 
-  def withNsParams[T](ns: String, params: Option[Either[SParams, List[Param]]])(
+  def withNsParams[T](ns: Ident|String, params: Option[Either[SParams, List[Param]]])(
       f: => T,
   ): T = {
     debugln(s"withNsParams $ns $params")
-    withNs(ns) {
+    withNs(xId(ns)) {
       scopes.withScope {
         params.foreach {
           case Right(params) =>
@@ -192,7 +198,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   def resolveParams(params: Option[SParams]) = {
     params.map { params =>
       params.map(p =>
-        val info = scopes.get(p.name).get;
+        val info = scopes.get(p.name.name).get;
         // todo: compute canonical type
         Param(info, (info.ty.level - 1).max(0)),
       )
@@ -819,11 +825,11 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     var vars = List[VarField]();
     var rests = List[VField]();
 
-    val nn = (name: String) => {
+    val nn = (name: Ident|String) => {
       // todo: high complexity
       val oid = fields.iterator.flatten.map(_.item.id).find(x => x.name == name)
       val info = ct(name); info.inClass = true;
-      oid.foreach { scopes.set(name, _) }
+      oid.foreach { scopes.set(xId(name), _) }
       oid.getOrElse(info)
     }
 
@@ -893,20 +899,20 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   ) = {
     val syntax.Case(cond, body) = node;
     val (subName, params) = cond match {
-      case syntax.Ident(name)                       => (name, List())
-      case syntax.Apply(syntax.Ident(name), params) => (name, params)
-      case _                                        => ("invalid", List())
+      case name: syntax.Ident                       => (name, List())
+      case syntax.Apply(name: syntax.Ident, params) => (name, params)
+      case _                                        => (Ident("invalid"), List())
     }
 
     val vars = params.zipWithIndex.map {
       case (n: syntax.Ident, index) =>
         val ty = if (n.name == baseName) { syntax.Ident("Self") }
         else { n }
-        syntax.Var(s"_${index}", Some(ty), None)
+        syntax.Var(Ident(s"_${index}"), Some(ty), None)
       // todo: replace self
       case (n: syntax.Apply, index) =>
-        syntax.Var(s"_${index}", Some(n), None)
-      case (_, index) => syntax.Var(s"_${index}", None, None)
+        syntax.Var(Ident(s"_${index}"), Some(n), None)
+      case (_, index) => syntax.Var(Ident(s"_${index}"), None, None)
     }
 
     val b = (body, vars) match {
@@ -1346,3 +1352,13 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     lhs.orElse(rhs)
   }
 }
+
+def xId(src: syntax.Ident | String) = src match {
+      case node @ syntax.Ident(name) => name
+      case name: String       => name
+    }
+
+def xId_(src: syntax.Ident | String) = src match {
+      case node @ syntax.Ident(name) => (name, Some(node.offset, node.end))
+      case name: String       => (name, None)
+    }
