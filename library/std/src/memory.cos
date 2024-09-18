@@ -17,6 +17,22 @@ pub class Arc(T: Type) {
   // }
 }
 
+code("""
+namespace cosmo {
+template <typename T>
+struct ptr {
+  T *internal;
+  ptr() : internal(nullptr) {}
+  ptr(T *p) : internal(p) {}
+  ptr(T &r) : internal(&r) {}
+};
+} // namespace cosmo
+""")
+
+pub class Ptr[T] {
+  var internal: mmSys.cosmo.ptr(T) = mmSys.cosmo.ptr(T)();
+}
+
 class AtomicOrdering {
   case Relaxed
   case Consume

@@ -1,18 +1,40 @@
 
-import std.os.exec;
 
-import std.collections.vec;
+import _ from std.collections.vec;
+import _ from std.memory;
+import std.os.exec;
 import std.json;
 
+class Arena[T] {
+  var pointers = Vec(Ptr(T))();
+}
+
+class Node {
+  case Block(i64,Vec(Ptr(Node)))
+
+}
+
+class Ast {
+  var arena = Arena(Node)();
+  var root = Ptr(Node)();
+
+  def get(j: json::Value) = {
+    println(j.clone().apply("kind"));
+    println(j.apply("stmts"));
+
+    var ast = Ast();
+
+    ast
+  }
+}
+
 def main() = {
-  var args = vec.Vec(String)();
+  var args = Vec(String)();
   args.push("cmd/cosmo/main.js");
   args.push("parse");
-  args.push("samples/CompileDriver/parse.cos");
+  args.push("packages/cosmoc/src/parser.cos");
   var cmd = exec.Command("node", args);
   var content = exec.Command.run(cmd);
   println(content);
-  var j = json.parse(content);
-  println(j.clone().apply("kind"));
-  println(j.apply("stmts"));
+  var j = Ast::get(json.parse(content));
 }
