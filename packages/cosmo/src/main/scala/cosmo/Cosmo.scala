@@ -197,6 +197,16 @@ object NodeFs extends js.Object {
   def unlinkSync(path: String): Unit = js.native
 }
 
+@js.native
+@JSImport("path", JSImport.Namespace)
+object NodePath extends js.Object {
+  def join(paths: String*): String = js.native
+  def resolve(path: String*): String = js.native
+  def relative(from: String, to: String): String = js.native
+  def dirname(path: String): String = js.native
+  def basename(path: String): String = js.native
+}
+
 final class SpawnSyncResult extends js.Object {
   var pid: Int = _
   var status: js.UndefOr[Int] = _
