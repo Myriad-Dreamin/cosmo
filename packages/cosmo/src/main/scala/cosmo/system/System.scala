@@ -8,4 +8,7 @@ trait CosmoSystem {
   def writeFile(path: String, content: String): Unit
 
   def absPath(path: String): String
+
+  def exists(path: String): Boolean
+  def unlink(path: String): Unit
 }

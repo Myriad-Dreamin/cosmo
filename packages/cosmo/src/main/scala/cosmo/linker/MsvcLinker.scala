@@ -17,49 +17,16 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
   lazy val windowsSdkIncludePath = findWindowsSdkIncludePath
   lazy val sdkVersion = findSdkVersion
 
+  def writeIfDiff(path: String, content: String): Unit =
+    cosmo.linker.writeIfDiff(system, path, content)
+
   def assemblePkg(
       pkg: Package,
       t: Transpiler,
-      releaseDir: String,
+      relReleaseDir: String,
   ): Unit = {
-    val destDir = releaseDir + "/" + pkg.namespace + "/" + pkg.name + "/src"
-    var sources = List[String]()
+    val (destDir, sources) = headOnlyPkg(pkg, t, relReleaseDir, writeIfDiff)
     val identifier = (pkg.namespace + "_" + pkg.name).toUpperCase
-    for ((path, src) <- pkg.sources) {
-      if (!path.endsWith("staging.cos")) {
-        // .cos -> .cc, .h
-        var pathWithoutExt = path.substring(0, path.length - 4)
-        var ccPath = destDir + pathWithoutExt + ".cc"
-        var hPath = destDir + pathWithoutExt + ".h"
-        // println(s"Preloading $path => $hPath");
-
-        var dirPath = destDir + pathWithoutExt.substring(
-          0,
-          pathWithoutExt.lastIndexOf("/"),
-        )
-        system.mkdir(dirPath)
-        var fileName = pathWithoutExt.substring(
-          pathWithoutExt.lastIndexOf("/") + 1,
-        )
-
-        var subIdentifier =
-          (identifier + "_" + pathWithoutExt.replace("/", "_")).toUpperCase
-
-        var generated =
-          t.transpile(src.source, Some(src.fid)).map { case (content, noCore) =>
-            s"""#ifndef ${subIdentifier}_H\n#define ${subIdentifier}_H\n\n""" + content + s"\n\n#endif // ${subIdentifier}_H\n"
-          }
-
-        generated.map(system.writeFile(hPath, _))
-        generated.map(_ =>
-          system.writeFile(
-            ccPath,
-            s"#include \"$fileName.h\" // IWYU pragma: keep\n",
-          ),
-        )
-        sources = sources :+ ccPath
-      }
-    }
 
     // generate all in one file
     var allHPath = destDir + "/../index.h"
@@ -83,7 +50,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       .replace("\\", "\\\\")
 
     var releaseRoot =
-      system.absPath("target/cosmo/release").replace("\\", "\\\\")
+      system.absPath(relReleaseDir).replace("\\", "\\\\")
 
     var includeFlags = s"-I$nlJsonDir -I$releaseRoot"
 
@@ -100,7 +67,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
   def compile(
       path: String,
       t: Transpiler,
-      releaseDir: String,
+      relReleaseDir: String,
   ): Option[String] = {
     val src = system.readFile(path)
     val generated = t.transpile(src).map { case (content, noCore) =>
@@ -113,7 +80,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       .replace("\\", "\\\\")
 
     var releaseDir =
-      system.absPath("target/cosmo/release").replace("\\", "\\\\")
+      system.absPath(relReleaseDir).replace("\\", "\\\\")
 
     var includeFlags = js.Array(
       s"/I$nlJsonDir",

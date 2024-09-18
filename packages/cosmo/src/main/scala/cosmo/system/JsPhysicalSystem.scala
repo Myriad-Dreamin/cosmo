@@ -24,4 +24,12 @@ case class JsPhysicalSystem() extends CosmoSystem {
   def absPath(path: String): String = {
     cosmo.NodeFs.realpathSync(path).asInstanceOf[String]
   }
+
+  def exists(path: String): Boolean = {
+    cosmo.NodeFs.existsSync(path).asInstanceOf[Boolean]
+  }
+
+  def unlink(path: String): Unit = {
+    cosmo.NodeFs.unlinkSync(path)
+  }
 }

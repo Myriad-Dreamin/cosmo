@@ -7,3 +7,20 @@ trait Linker {
 
   def compile(path: String, t: Transpiler, releaseDir: String): Option[String]
 }
+
+def writeIfDiff(
+    system: cosmo.system.CosmoSystem,
+    path: String,
+    content: String,
+): Unit = {
+  if (system.exists(path)) {
+    val oldContent = system.readFile(path)
+    if (oldContent != content) {
+      system.writeFile(path, content)
+    }
+  } else {
+    val dirPath = path.substring(0, path.lastIndexOf("/"))
+    system.mkdir(dirPath)
+    system.writeFile(path, content)
+  }
+}

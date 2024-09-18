@@ -1,0 +1,32 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 16,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "relwithdebinfo-ninja-clang",
+      "displayName": "RelWithDebInfo and Ninja",
+      "description": "build with Clang Toolchain and Ninja build system",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/cmake-build-relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "relwithdebinfo-vs-clang",
+      "displayName": "RelWithDebInfo and Visual Studio",
+      "description": "build with Clang Toolchain and Visual Studio build system",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "${sourceDir}/cmake-build-relwithdebinfo",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    }
+  ]
+}
