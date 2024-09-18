@@ -17,7 +17,7 @@ pub class ValueT(T: Type) {
   case Object(map.Map(String, T))
   // case Object(map.HashMap(String, T))
   case _ => {
-    def apply(Ty: Type, self, index: Ty): ValueT(T) = {
+    def apply(Ty: Type, &self, index: Ty): ValueT(T) = {
       self match {
         case ValueT(T).Null => {panic("value is null");}
         case ValueT(T).Bool(b) => {panic("value is a boolean");}
