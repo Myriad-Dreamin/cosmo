@@ -1,17 +1,16 @@
 package cosmo.linker
 
-import cosmo.system._
-import cosmo.{Package, Transpiler, FileId}
-import cosmo.{debugln, logln}
-
 import scala.scalajs.js
 
-import cosmo.NodePath
+import cosmo.system._
+import cosmo.{Package, Transpiler, FileId, NodePath}
+import cosmo.{debugln, logln}
 
 class CmakeLinker(system: CosmoSystem) extends Linker {
   lazy val buildDir = "cmake-build-relwithdebinfo";
-        // is windows
-        lazy val isWin = js.Dynamic.global.process.platform.asInstanceOf[String] == "win32"
+  // is windows
+  lazy val isWin =
+    js.Dynamic.global.process.platform.asInstanceOf[String] == "win32"
 
   def writeIfDiff(path: String, content: String): Unit =
     cosmo.linker.writeIfDiff(system, path, content)
@@ -58,6 +57,8 @@ target_link_libraries(cosmo_json INTERFACE cosmo_std)
       t: cosmo.Transpiler,
       relReleaseDir: String,
   ): Option[String] = {
+    def inRelPath(path: String) = NodePath.resolve(relReleaseDir, path)
+
     val start = System.currentTimeMillis()
     val src = system.readFile(path)
     val generated = t.transpile(src).map { case (content, noCore) =>
@@ -65,32 +66,18 @@ target_link_libraries(cosmo_json INTERFACE cosmo_std)
       s"""#include <cosmo/std/src/prelude${suf}.h> // IWYU pragma: keep\n\n${content}"""
     }
 
-    var nlJsonDir = system
-      .absPath("target/cosmo/externals/json/single_include")
-      .replace("\\", "\\\\")
-
-    var releaseDir =
-      system.absPath(relReleaseDir).replace("\\", "\\\\")
-
-    var includeFlags = js.Array(
-      s"/I$nlJsonDir",
-      s"/I$releaseDir",
-    )
-
-    val fileName = path.substring(0, path.length - 4)
-    val destDir = "package-less"
-    val destPath = destDir + "/" + fileName + ".cc"
-    
+    val destPath =
+      NodePath.join("package-less", path.stripSuffix(".cos") + ".cc")
     val dirPath = NodePath.dirname(destPath)
 
     generated.flatMap { content =>
-      system.mkdir(releaseDir + "/" + dirPath)
-      system.writeFile(releaseDir + "/" + destPath, content)
+      system.mkdir(inRelPath(dirPath))
+      system.writeFile(inRelPath(destPath), content)
 
       writeIfDiff(
-        s"$relReleaseDir/packageOnly.cmake",
+        inRelPath("packageOnly.cmake"),
         s"""
-add_executable(cosmo-user-prog $destPath)
+add_executable(cosmo-user-prog ${replaceSep(destPath)})
 target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
 """,
       );
@@ -122,6 +109,7 @@ target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
 
         // todo: this only works with ninja
         val programPath = s"$buildDir/$relReleaseDir/$target$execSuffix"
+        logln(s"programPath: $programPath")
         Some(NodePath.resolve(programPath))
       }
 
@@ -137,5 +125,9 @@ target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
           None
       }
     }
+  }
+
+  def replaceSep(path: String): String = {
+    if (isWin) path.replace('\\', '/') else path
   }
 }
