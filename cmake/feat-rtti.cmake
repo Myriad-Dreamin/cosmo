@@ -1,0 +1,16 @@
+
+# Disable RTTI.
+message(STATUS "Disabling C++ RTTI")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    if ("${CMAKE_CXX_FLAGS} " STREQUAL " ")
+    else ()
+        string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    endif ()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
+else (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    if ("${CMAKE_CXX_FLAGS} " STREQUAL " ")
+    else ()
+        string(REGEX REPLACE "-frtti" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+    endif ()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+endif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")

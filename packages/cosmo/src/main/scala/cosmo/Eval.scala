@@ -1263,6 +1263,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case l @ (Bool(_))         => builtinClasses(l.ty)
       case l @ (Str(_))          => builtinClasses(l.ty)
       case l @ (Integer(_))      => builtinClasses(l.ty)
+      case Unresolved(_)         => Class.empty(this, false)
       case _ => throw new Exception(s"cannot get class $lhs")
     }
   }

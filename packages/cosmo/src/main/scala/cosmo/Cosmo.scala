@@ -38,7 +38,7 @@ trait Transpiler {
 class Cosmo extends PackageManager, Transpiler {
   var packages: Map[String, Map[String, Package]] = Map()
   val system: CosmoSystem = new JsPhysicalSystem()
-  val linker: Linker = new MsvcLinker(system)
+  val linker: Linker = new CmakeLinker(system)
   val envBase = new Env(None, this).builtins()
 
   @JSExport

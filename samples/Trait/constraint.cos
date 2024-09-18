@@ -1,0 +1,11 @@
+
+def mprintln[T <: Display](t: &T) = {
+  var s = String();
+  t.display(&mut s).unwrap();
+  println(s);
+}
+
+def main() = {
+  mprintln(&(bool <: Display));
+  mprintln(&(Display <: bool));
+}

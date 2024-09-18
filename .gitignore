@@ -5,6 +5,7 @@ node_modules
 .bloop
 dist
 target
+cmake-build-*
 *.log
 
 config.json

@@ -283,7 +283,7 @@ class CodeGen(implicit val env: Env) {
     val name = defInfo.nameStem(defInfo.id.id)
     val ty = defInfo.instantiateTy
     val p = s"std::move(${name}_p)"
-    if ty == SelfTy then s"$name(std::make_unique<Self>($p))"
+    if ty == SelfTy then s"$name(std::move(std::make_unique<Self>($p)))"
     else s"$name($p)"
   }
 
@@ -627,9 +627,8 @@ class CodeGen(implicit val env: Env) {
     } else {
       val xys = rhs.map(moveExpr);
       debugln(s"literalCall: $lhs, $xys")
-      val (xs, ys) = (xys.map(_._1), xys.map(_._2));
+      val (xs, ys) = (xys.map(_._1).filter(_.nonEmpty), xys.map(_._2));
       val call = s"$lhs(${ys.mkString(", ")})";
-      // s"${xs.mkString(";")}"
       recv match {
         case ValRecv.None      => s"${xs.mkString(";")} $call"
         case ValRecv.Return    => s"${xs.mkString(";")} return $call"
