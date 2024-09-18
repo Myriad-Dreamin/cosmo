@@ -1324,6 +1324,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case v: Var =>
         debugln(s"tyOf(Var) ${v.id.ty}")
         Some(v.id.ty)
+      case TodoLit => Some(BottomTy)
       case reg: Region => {
         reg.stmts.lastOption match {
           case Some(Semi(_)) | None => Some(UnitTy)
