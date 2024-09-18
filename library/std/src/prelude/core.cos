@@ -20,16 +20,55 @@ using str = std::string;
 template <typename T, typename Cond = void> struct DisplayTrait {};
 """)
 
+code("""
+
+template <typename T> inline void print(const T &x) {
+  using TT = std::decay_t<T>;
+  DisplayTrait<TT>::print(x);
+}
+
+template <typename T> inline void println(const T &x) {
+  using TT = std::decay_t<T>;
+  // todo: atomic print
+  DisplayTrait<TT>::print(x);
+  printf("\n");
+}
+
+template <> struct DisplayTrait<str> {
+  static void print(const str &x) { printf("%s", x.c_str()); }
+};
+
+template <> struct DisplayTrait<bool> {
+  static void print(bool x) {
+    if (x) {
+      printf("true");
+    } else {
+      printf("false");
+    }
+   }
+};
+template <typename T>
+struct DisplayTrait<
+    T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {
+  static void print(T x) { printf("%lld", static_cast<long long>(x)); }
+};
+
+template <typename T>
+struct DisplayTrait<
+    T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>>> {
+  static void print(T x) { printf("%llu", static_cast<unsigned long long>(x)); }
+};
+template <> struct DisplayTrait<float32_t> {
+  static void print(float32_t x) { printf("%f", x); }
+};
+template <> struct DisplayTrait<float64_t> {
+  static void print(float64_t x) { printf("%lf", x); }
+};
+""")
+
 import _ from std::option
 import _ from std::result
 import _ from std::str
-
-def panic(msg: str): Nothing = {
-  code("""
-  fprintf(stderr, "unreachable: %s\n", msg.c_str());
-  """)
-  cSys.abort();
-}
 
 import std::fmt
 
@@ -46,9 +85,14 @@ trait ToString {
 }
 
 code("""
-template <typename... Tys> inline void compile_time_error(const char msg[]) {
-  static_assert(false);
+
+[[noreturn]] inline void panic(const std::string& msg) {
+  fprintf(stderr, "unreachable: %s\n", msg.data());
+  abort();
 }
+
+template <typename... Tys> inline void compile_time_error_(const char msg[]);
+#define compile_time_error(msg, ...) compile_time_error_<##__VA_ARGS__>(msg)
 
 template <typename V> struct Range {
   const V start_v;
@@ -128,98 +172,53 @@ template <typename V> struct LoopRange {
 };
 """)
 
-code("""
+// impl Display for bool {
+//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
+//     if (*self) {
+//       f.write("true")
+//     } else {
+//       f.write("false")
+//     }
+//   }
+// }
 
-template <typename T> inline void print(const T &x) {
-  using TT = std::decay_t<T>;
-  DisplayTrait<TT>::print(x);
-}
+// impl Display for str {
+//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
+//     f.write(&self)
+//   }
+// }
 
-template <typename T> inline void println(const T &x) {
-  using TT = std::decay_t<T>;
-  // todo: atomic print
-  DisplayTrait<TT>::print(x);
-  printf("\n");
-}
-""")
+// impl Display for f32 {
+//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
+//     // cSys
+//     val t: str = cSys.std::to_string(*self);
+//     f.write(&t)
+//   }
+// }
 
-impl Display for bool {
-  def display(&self, f: &mut Formatter): fmt::Result(()) = {
-    if (*self) {
-      f.write("true")
-    } else {
-      f.write("false")
-    }
-  }
-}
+// impl Display for f64 {
+//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
+//     // cSys
+//     val t: str = cSys.std::to_string(*self);
+//     f.write(&t)
+//   }
+// }
 
-impl Display for str {
-  def display(&self, f: &mut Formatter): fmt::Result(()) = {
-    f.write(&self)
-  }
-}
+// impl Formatter for String {
+//   def write(&mut self, s: &str): fmt::Result(()) = {
+//     self.push_str(s);
+//     fmt::Result(())::Ok(())
+//   }
+// }
 
-impl Display for f32 {
-  def display(&self, f: &mut Formatter): fmt::Result(()) = {
-    // cSys
-    val t: str = cSys.std::to_string(*self);
-    f.write(&t)
-  }
-}
-
-impl Display for f64 {
-  def display(&self, f: &mut Formatter): fmt::Result(()) = {
-    // cSys
-    val t: str = cSys.std::to_string(*self);
-    f.write(&t)
-  }
-}
-
-impl Formatter for String {
-  def write(&mut self, s: &str): fmt::Result(()) = {
-    self.push_str(s);
-    fmt::Result(())::Ok(())
-  }
-}
-
-// todo: correct signature is [T <: Display]
-def mprintln(t: &Display) = {
-  var s = String();
-  t.display(&mut s).unwrap();
-  println(s);
-}
+// // todo: correct signature is [T <: Display]
+// def mprintln(t: &Display) = {
+//   var s = String();
+//   t.display(&mut s).unwrap();
+//   println(s);
+// }
 
 code("""
-template <> struct DisplayTrait<str> {
-  static void print(const str &x) { printf("%s", x.c_str()); }
-};
-
-template <> struct DisplayTrait<bool> {
-  static void print(bool x) {
-    if (x) {
-      printf("true");
-    } else {
-      printf("false");
-    }
-   }
-};
-template <typename T>
-struct DisplayTrait<
-    T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {
-  static void print(T x) { printf("%lld", static_cast<long long>(x)); }
-};
-
-template <typename T>
-struct DisplayTrait<
-    T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>>> {
-  static void print(T x) { printf("%llu", static_cast<unsigned long long>(x)); }
-};
-template <> struct DisplayTrait<float32_t> {
-  static void print(float32_t x) { printf("%f", x); }
-};
-template <> struct DisplayTrait<float64_t> {
-  static void print(float64_t x) { printf("%lf", x); }
-};
 
 template <typename... Args> struct DisplayTrait<std::tuple<Args...>> {
   static void print(const std::tuple<Args...> &x) {

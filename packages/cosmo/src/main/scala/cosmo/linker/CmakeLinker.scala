@@ -8,6 +8,8 @@ import scala.scalajs.js
 
 class CmakeLinker(system: CosmoSystem) extends Linker {
   lazy val buildDir = "cmake-build-relwithdebinfo";
+        // is windows
+        lazy val isWin = js.Dynamic.global.process.platform.asInstanceOf[String] == "win32"
 
   def writeIfDiff(path: String, content: String): Unit =
     cosmo.linker.writeIfDiff(system, path, content)
@@ -32,6 +34,11 @@ include(packageOnly.cmake)
 
 add_library(cosmo_std INTERFACE)
 target_include_directories(cosmo_std INTERFACE .)
+
+add_library(cosmo_json INTERFACE)
+target_include_directories(cosmo_json INTERFACE ../externals/json/single_include)
+target_link_libraries(cosmo_json INTERFACE cosmo_std)
+
 """,
     );
 
@@ -81,7 +88,7 @@ target_include_directories(cosmo_std INTERFACE .)
         s"$relReleaseDir/packageOnly.cmake",
         s"""
 add_executable(cosmo-user-prog $destPath)
-target_link_libraries(cosmo-user-prog PUBLIC cosmo_std)
+target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
 """,
       );
 
@@ -108,8 +115,10 @@ target_link_libraries(cosmo-user-prog PUBLIC cosmo_std)
       )
 
       def programPath = {
+        val execSuffix = if (isWin) ".exe" else ""
+
         // todo: this only works with ninja
-        Some(s"$buildDir/$relReleaseDir/$target.exe")
+        Some(s"$buildDir/$relReleaseDir/$target$execSuffix")
       }
 
       debugln(s"Compilation time: ${System.currentTimeMillis() - start}ms")

@@ -12,6 +12,7 @@
     "watch": "sbt ~fullLinkJS",
     "watch:test": "sbt ~test",
     "compile:dev": "sbt fastLinkJS",
+    "cosmo": "node ./cmd/cosmo/main.js",
     "docs": "shiroa serve --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ -w . docs/cosmo",
     "build:syntax": "cd editors/vscode && yarn build:syntax",
     "build:vscode": "cd editors/vscode && yarn build:syntax && yarn package"

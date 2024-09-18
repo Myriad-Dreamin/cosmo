@@ -225,7 +225,7 @@ class CodeGen(implicit val env: Env) {
     switch (data.index()) {
     $variantClones
     default:
-      cosmo_std::prelude::lang::unreachable();
+      unreachable();
     }
   }
 
@@ -250,7 +250,7 @@ class CodeGen(implicit val env: Env) {
   template<bool isMutW = isMut> 
   Impl(const That &self_, typename std::enable_if<!isMutW, int>::type* = 0): self_(const_cast<That&>(self_)) {} ~Impl() override {}
   const That &self() const { return self_; }
-  That &self() { if (!isMut) {cosmo_std::prelude::lang::unreachable();} return self_; } $defsCode};"""
+  That &self() { if (!isMut) {unreachable();} return self_; } $defsCode};"""
       case v: ir.Var => genVarStore(v)
       case a         => return None
     }
@@ -437,10 +437,10 @@ class CodeGen(implicit val env: Env) {
       case ir.BinOp("..", lhs, rhs) => s"Range(${expr(lhs)}, ${expr(rhs)})"
       case ir.BinOp(op, lhs, rhs)   => s"${expr(lhs)} $op ${expr(rhs)}"
       case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
-      case ir.RefItem(SelfVal, _)              => s"*this"
+      case ir.RefItem(SelfVal, _)              => s"(*this)"
       case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"
       case ir.UnOp("*", SelfVal) if genInImpl  => s"self()"
-      case ir.UnOp("*", SelfVal)               => s"*this"
+      case ir.UnOp("*", SelfVal)               => s"(*this)"
       case ir.UnOp(op, lhs)                    => s"$op ${expr(lhs)}"
       case ir.As(lhs, rhs: Impl) =>
         val iface = storeTy(rhs.iface)
@@ -490,7 +490,7 @@ class CodeGen(implicit val env: Env) {
         }
       case SelfVal if genInImpl => "self()"
       case SelfVal              => "(*this)"
-      case Unreachable => return "cosmo_std::prelude::lang::unreachable();"
+      case Unreachable => return "unreachable();"
       case Bool(v)     => v.toString
       case Str(s)      => s"""::str("${escapeStr(s)}")"""
       case s: Bytes    => s"""cosmo_std::str::Bytes("${bytesRepr(s)}")"""
@@ -650,7 +650,7 @@ class CodeGen(implicit val env: Env) {
     }
     val lhsV = lhs match {
       case SelfVal if inImpl => "self()"
-      case SelfVal           => "*this"
+      case SelfVal           => "(*this)"
       case v if isStatic =>
         env.liftAsType(v) match {
           case RefItem(lhs, isMut) => returnTy(lhs)
