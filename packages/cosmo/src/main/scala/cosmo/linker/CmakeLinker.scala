@@ -6,6 +6,8 @@ import cosmo.{debugln, logln}
 
 import scala.scalajs.js
 
+import cosmo.NodePath
+
 class CmakeLinker(system: CosmoSystem) extends Linker {
   lazy val buildDir = "cmake-build-relwithdebinfo";
         // is windows
@@ -78,7 +80,8 @@ target_link_libraries(cosmo_json INTERFACE cosmo_std)
     val fileName = path.substring(0, path.length - 4)
     val destDir = "package-less"
     val destPath = destDir + "/" + fileName + ".cc"
-    val dirPath = destPath.substring(0, destPath.lastIndexOf("/"))
+    
+    val dirPath = NodePath.dirname(destPath)
 
     generated.flatMap { content =>
       system.mkdir(releaseDir + "/" + dirPath)
@@ -118,7 +121,8 @@ target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
         val execSuffix = if (isWin) ".exe" else ""
 
         // todo: this only works with ninja
-        Some(s"$buildDir/$relReleaseDir/$target$execSuffix")
+        val programPath = s"$buildDir/$relReleaseDir/$target$execSuffix"
+        Some(NodePath.resolve(programPath))
       }
 
       debugln(s"Compilation time: ${System.currentTimeMillis() - start}ms")
