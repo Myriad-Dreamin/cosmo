@@ -1,7 +1,8 @@
-package cosmo
+package cosmo.artifact
 
 import scala.compiletime.ops.boolean
-import ir._
+import cosmo._
+import cosmo.ir._
 
 class CodeGen(implicit val env: Env) {
   val fns = env.fid.map(f => s"${f.ns.mkString("::")}")
