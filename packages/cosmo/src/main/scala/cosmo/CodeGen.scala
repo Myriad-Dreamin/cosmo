@@ -96,10 +96,11 @@ class CodeGen(implicit val env: Env) {
           s"$nsb${templateCode}$inlineModifier$staticModifier$virtualModifier $rt $name($paramCode)$constModifier$overrideModifier $bodyCode$nse"
       // case ir.TypeAlias(ret_ty) =>
       //   s"using $name = ${returnTy(ret_ty)};"
-      case ir.NativeModule(info, env, fid) =>
+      case ir.NativeModule(info, env) =>
         val name = info.defName(stem = true)
         // fid.path (.cos -> .h)
         // todo: unreliable path conversion
+        val fid = env.fid.get
         val path = fid.path.slice(0, fid.path.length - 4) + ".h"
         s"#include <${fid.pkg.namespace}/${fid.pkg.name}/src${path}>"
       case ir.CModule(id, kind, path) =>
@@ -490,10 +491,10 @@ class CodeGen(implicit val env: Env) {
         }
       case SelfVal if genInImpl => "self()"
       case SelfVal              => "(*this)"
-      case Unreachable => return "unreachable();"
-      case Bool(v)     => v.toString
-      case Str(s)      => s"""::str("${escapeStr(s)}")"""
-      case s: Bytes    => s"""cosmo_std::str::Bytes("${bytesRepr(s)}")"""
+      case Unreachable          => return "unreachable();"
+      case Bool(v)              => v.toString
+      case Str(s)               => s"""::str("${escapeStr(s)}")"""
+      case s: Bytes => s"""cosmo_std::str::Bytes("${bytesRepr(s)}")"""
       case Rune(s) if s < 0x80 && !s.toChar.isControl =>
         s"Rune('${s.toChar}')"
       case Rune(s) => s"Rune($s)"

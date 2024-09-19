@@ -586,7 +586,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case RefItem(r, isMut)   => dispatch(lhs, r, field, casted)
       case Term(_, _, Some(v)) => dispatch(lhs, v, field, casted)
       case Term(id, _, None)   => dispatch(lhs, id.ty, field, casted)
-      case NativeModule(info, env, fid) =>
+      case NativeModule(info, env) =>
         return Some(env.scopes.get(field).map(env.byRef).getOrElse {
           errors = s"Undefined item $field in ${info.name}" :: errors
           Unresolved(ct(field))
@@ -707,8 +707,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case syntax.Ident(name)                        => name
       case _                                         => "$module"
     })
-    val moduleIns = pacMgr.loadModule(p) match {
-      case Some((fid, env)) => NativeModule(defInfo, env, fid)
+    val moduleIns = pacMgr.loadModuleBySyntax(p) match {
+      case Some(env) => NativeModule(defInfo, env)
       case None => {
         errors = s"Failed to load module $p" :: errors
         Unresolved(defInfo)

@@ -61,8 +61,8 @@ target_link_libraries(cosmo_json INTERFACE cosmo_std)
 
     val start = System.currentTimeMillis()
     val src = system.readFile(path)
-    val generated = t.transpile(src).map { case (content, noCore) =>
-      var suf = if (noCore) "/lang" else ""
+    val generated = t.transpile(src).map { case (content, env) =>
+      var suf = if (env.noCore) "/lang" else ""
       s"""#include <cosmo/std/src/prelude${suf}.h> // IWYU pragma: keep\n\n${content}"""
     }
 

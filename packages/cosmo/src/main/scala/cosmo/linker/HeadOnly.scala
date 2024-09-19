@@ -27,8 +27,10 @@ def headOnlyPkg(
       var subIdentifier =
         (identifier + "_" + pathWithoutExt.replace("/", "_")).toUpperCase
 
+      val s = t.transpileByFid(src.fid)
+
       var generated =
-        t.transpile(src.source, Some(src.fid)).map { case (content, noCore) =>
+        s.map { case (content, env) =>
           s"""#ifndef ${subIdentifier}_H\n#define ${subIdentifier}_H\n\n""" + content + s"\n\n#endif // ${subIdentifier}_H\n"
         }
 
