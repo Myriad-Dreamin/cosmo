@@ -1,0 +1,215 @@
+package cosmo.artifact
+
+import cosmo._
+import cosmo.ir._
+
+class IRCache(val env: Env) {
+  import env._
+
+  lazy val toIR: String = {
+    val sb = new StringBuilder()
+
+    def fid(fid: Option[FileId]): String = fid match {
+      case Some(fid) => s"Some(fid(\"${fid}\"))"
+      case None      => s"None"
+    }
+    def d(d: DefInfo): String = s"di(${d.id.id})"
+    type R = Item | VField | Option[Item] | List[Item | VField] |
+      Option[List[Item]]
+    def itemRepr(k: R): String =
+      val t = k match {
+        case Some(v) => s"Some(${itemRepr(v.asInstanceOf[R])})"
+        case None    => "None"
+        case v: List[R] =>
+          s"(${v.map(itemRepr).mkString("\n ", ",\n ", "")})"
+        case Apply(lhs, rhs) =>
+          s"(${itemRepr(lhs)}(${rhs.map(itemRepr).mkString(", ")}))"
+        case s: Select =>
+          s"""select(lhs: ${itemRepr(s.lhs)}, rhs: "${s.rhs}")"""
+        case HKTInstance(ty, syntax) =>
+          s"${itemRepr(ty)}(${itemRepr(syntax)})"
+        case As(lhs, rhs) => s"${itemRepr(lhs)} as ${itemRepr(rhs)}"
+        case RefItem(lhs, isMut) =>
+          s"&${if (isMut) "mut " else ""}${itemRepr(lhs)}"
+        case TopKind(_) | BottomKind(_) | SelfKind(_) | NoneKind(_) |
+            Unreachable | RefTy(_, _) =>
+          k.toString()
+        case i: IntegerTy  => i.toString
+        case f: FloatTy    => f.toString
+        case s @ StrTy     => s.toString
+        case b @ BoolTy    => b.toString
+        case u @ UnitTy    => u.toString
+        case c @ CEnumTy   => c.toString
+        case u: Unresolved => s"unresolved(${d(u.id)})"
+        case o: Opaque     => s"opaque(${o.expr})"
+        case str: Str      => s"str(${str.value})"
+        case b: Bool       => s"bool(${b.value})"
+        case i: Integer    => s"int(${i.value})"
+        case ir.UnOp(op, v) =>
+          s"$op(${itemRepr(v)})"
+        case ir.BinOp(op, lhs, rhs) =>
+          s"(${itemRepr(lhs)} $op ${itemRepr(rhs)})"
+        case c: ir.Class =>
+          s"""ClassRef(id: ${d(c.id)}, name: "${c.id.name}", args: ${itemRepr(
+              c.args,
+            )})"""
+        // case c: ir.Class =>
+        //   s"""Class(id: ${d(c.id)}, name: "${c.id.name}", params: ${itemRepr(
+        //       c.params,
+        //     )}, args: ${itemRepr(c.args)}, vars: ${itemRepr(
+        //       c.vars,
+        //     )}, restFields: ${itemRepr(
+        //       c.restFields,
+        //     )}, isAbstract: ${c.isAbstract}, variantOf: ${itemRepr(
+        //       c.variantOf,
+        //     )}, resolvedAs: ${itemRepr(c.resolvedAs)})"""
+        case i: ir.Impl =>
+          s"""impl(id: ${d(i.id)}, params: ${itemRepr(
+              i.params,
+            )}, iface: ${itemRepr(i.iface)}, iface: ${itemRepr(
+              i.iface,
+            )}, fields: ${itemRepr(i.fields)})"""
+        case i: ir.Var =>
+          s"""Var(id: ${d(i.id)}, init: ${itemRepr(
+              i.init,
+            )}, isConstant: ${i.isConstant}, level: ${i.level})"""
+        case i: ir.Fn =>
+          // s"""fn(id: ${d(i.id)}, sig: ${itemRepr(i.sig)}, level: ${i.level})"""
+          s"""FnRef(id: ${d(i.id)}, level: ${i.level})"""
+        case i: ir.CModule =>
+          s"""CModule(id: ${d(i.id)}, kind: ${i.kind}, path: "${i.path}")"""
+        case i: ir.NativeModule =>
+          s"""NativeModule(id: ${d(i.id)}, env: ${fid(i.env.fid)})"""
+        case i: ir.ClassInstance =>
+          s"""ClassIns(con: ${itemRepr(i.con)}, args: ${itemRepr(
+              i.args,
+            )})"""
+        case i: ir.EnumVariant =>
+          s"""EnumVariant(base: ${itemRepr(i.base)})"""
+        case e: ir.EnumDestruct =>
+          s"""EnumDestruct(item: ${itemRepr(e.item)}, variant: ${itemRepr(
+              e.variant,
+            )}, bindings: ${e.bindings}, orElse: ${itemRepr(e.orElse)})"""
+        case i: ir.DefField =>
+          s"""DefField(item: ${itemRepr(i.item)})"""
+        case i: ir.VarField =>
+          s"""VarField(item: ${itemRepr(i.item)})"""
+        case i: ir.TypeField =>
+          s"""TypeField(item: ${itemRepr(i.item)})"""
+        case i: ir.BoundField =>
+          s"""BoundField(lhs: ${itemRepr(i.lhs)}, by: ${itemRepr(
+              i.by,
+            )}, rhs: "${i.rhs}")"""
+        case i: ir.Sig =>
+          s"""sig(params: ${itemRepr(i.params)}, ret_ty: ${itemRepr(
+              i.ret_ty,
+            )}, body: ${itemRepr(i.body)})"""
+        case i: ir.Region =>
+          s"""region(stmts: ${itemRepr(i.stmts)})"""
+        case i: Param =>
+          s"""param(id: ${d(i.id)}, level: ${i.level})"""
+        case i: Term =>
+          s"""term(id: ${d(i.id)}, level: ${i.level}, value: ${itemRepr(
+              i.value,
+            )})"""
+        case i: Match =>
+          s"""match(lhs: ${itemRepr(i.lhs)}, rhs: ${itemRepr(
+              i.rhs,
+            )})"""
+        case i: EnumMatch =>
+          s"""enummatch(lhs: ${itemRepr(i.lhs)}, by: ${itemRepr(
+              i.by,
+            )}, cases: ${i.cases.map(x => itemRepr(x._2))}, orElse: ${itemRepr(
+              i.orElse,
+            )})"""
+        case i: CEnumMatch =>
+          s"""cenummatch(lhs: ${itemRepr(i.lhs)}, cases: ${i.cases
+              .map(x => (itemRepr(x._1), itemRepr(x._2)))}, orElse: ${itemRepr(
+              i.orElse,
+            )})"""
+        case i: While =>
+          s"""while(cond: ${itemRepr(i.cond)}, body: ${itemRepr(i.body)})"""
+        case i: Loop =>
+          s"""loop(body: ${itemRepr(i.body)})"""
+        case i: For =>
+          s"""for(name: ${i.name.name}, iter: ${itemRepr(
+              i.iter,
+            )}, body: ${itemRepr(i.body)})"""
+        case i: Break =>
+          s"""break()"""
+        case i: Continue =>
+          s"""continue()"""
+        case r: Return =>
+          s"""return(value: ${itemRepr(r.value)})"""
+        case i: If =>
+          s"""if(cond: ${itemRepr(i.cond)}, cont_bb: ${itemRepr(
+              i.cont_bb,
+            )}, else_bb: ${itemRepr(i.else_bb)})"""
+        case i: Semi =>
+          s"""semi(value: ${itemRepr(i.value)})"""
+        case c: CppInsType =>
+          s"""cppinstype(target: ${c.target}, arguments: ${itemRepr(
+              c.arguments,
+            )})"""
+        case i: CIdent =>
+          s"""cident(repr: "${i.repr}")"""
+        case t: TupleLit =>
+          s"""tuplelit(elems: ${itemRepr(t.elems)})"""
+      };
+      // t.replace("\n", "\n ")
+      t
+
+    sb.append(s"val noCore = $noCore\n")
+    sb.append(s"val defAlloc = $defAlloc\n")
+    sb.append(s"val defStart = $DEF_ALLOC_START\n")
+    sb.append(s"val defs = Defs(\n")
+    defs.foreach { k =>
+      sb.append(s"""  "${k.id.id}": xid(${fid(k.env.fid)}, "${k.name}"),\n""")
+    }
+    sb.append(")\n")
+    sb.append("val items = Items(\n")
+    items.foreach { case (k, v) =>
+      sb.append(s"""  "${k.id}": ${itemRepr(v)},\n""")
+    }
+    sb.append(")\n")
+    sb.append("val scopes = Scopes(\n")
+    scopes.scopes.foreach { case m =>
+      sb.append(s"  (\n")
+      m.foreach { case (k, v) =>
+        sb.append(s"""    "${k}": ${v.id.id},\n""")
+      }
+      sb.append("  ),\n")
+    }
+    sb.append(")\n")
+    sb.append(s"val body = ${itemRepr(module)}\n")
+    sb.append("val builtinClasses = BuiltinClasses(\n")
+    builtinClasses.foreach { case (k, v) =>
+      sb.append(s"""  ${v.id.id.id}: ${itemRepr(k)},\n""")
+    }
+    sb.append(")\n")
+    sb.append("val deps = Deps(\n")
+    deps.foreach { case (fid, env) =>
+      sb.append(s"""  "$fid",\n""")
+    }
+    sb.append(")\n")
+    sb.append("val errors = Errors(\n")
+    errors.foreach { e =>
+      sb.append(s"""  "$e",\n""")
+    }
+    sb.append(")\n")
+    sb.append("""val moduleObj = Program(
+  noCore: noCore,
+  defAlloc: defAlloc,
+  items: items,
+  scope: scope,
+  body: body,
+  builtinClasses: builtinClasses,
+  deps: deps,
+  errors: errors,
+)
+""")
+
+    sb.toString()
+  }
+
+}
