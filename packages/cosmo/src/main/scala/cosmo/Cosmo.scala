@@ -97,7 +97,7 @@ class Cosmo extends Transpiler {
 
   def cppBackend(e: Env): Option[(String, Env)] = {
     implicit val env = e
-    val code = new CodeGen().gen()
+    val code = new artifact.CodeGen().gen()
     Some((formatCode(code), env))
   }
 
