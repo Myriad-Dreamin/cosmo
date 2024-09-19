@@ -165,8 +165,7 @@ final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
 enum CModuleKind {
   case Builtin, Error, Source
 }
-final case class NativeModule(id: DefInfo, env: Env, fid: FileId)
-    extends DeclLike {}
+final case class NativeModule(id: DefInfo, env: Env) extends DeclLike {}
 final case class HKTInstance(ty: Type, syntax: Item) extends Item {
   override val level: Int = 1
   override def toString(): String = s"(hkt($syntax)::type as $ty)"

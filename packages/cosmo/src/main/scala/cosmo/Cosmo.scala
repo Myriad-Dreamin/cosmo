@@ -18,44 +18,41 @@ case class FileId(val pkg: Package, val path: String) {
     val pns = List(pkg.namespace + "_" + pkg.name)
     val fns = path.stripPrefix("/").stripSuffix(".cos").split("/").toList
     pns ::: fns
+  override def toString(): String = s"$pkg:$path"
 }
 object FileId {
   def any = FileId(Package.any, "")
 }
 
 trait PackageManager {
-  def loadModule(path: syntax.Node): Option[(FileId, Env)]
+  def loadModule(fid: FileId): Option[Env]
+  def loadModuleBySyntax(path: syntax.Node): Option[Env]
 }
 
-trait Transpiler {
-  def transpile(
-      src: String,
-      fid: Option[FileId] = None,
-  ): Option[(String, Boolean)]
+trait Transpiler extends PackageManager {
+  def transpile(src: String): Option[(String, Env)]
+  def transpileByFid(fid: FileId): Option[(String, Env)]
 }
 
 @JSExportTopLevel("Cosmo")
-class Cosmo extends PackageManager, Transpiler {
+class Cosmo extends Transpiler {
   var packages: Map[String, Map[String, Package]] = Map()
   val system: CosmoSystem = new JsPhysicalSystem()
   val linker: Linker = new CmakeLinker(system)
   val envBase = new Env(None, this).builtins()
+  var modules = Map[FileId, Option[Env]]()
 
   @JSExport
-  def loadPackageByPath(path: String): Unit = {
+  def loadPackageByPath(path: String): Unit =
     loadPackage(PackageMetaSource.ProjectPath(path))
-  }
 
   @JSExport
-  def getExecutable(path: String): String = {
+  def getExecutable(path: String): String =
     mayGetExecutable(path).getOrElse("") // js hate Option[T]
-  }
 
   @JSExport
-  def convert(src: String): String = {
-    val fid = None
-    transpile(src, fid).map(_._1).getOrElse("#if 0\nCompilation failed\n#endif")
-  }
+  def convert(src: String): String =
+    transpile(src).map(_._1).getOrElse("#if 0\nCompilation failed\n#endif")
 
   @JSExport
   def preloadPackage(name: String): Unit = {
@@ -65,22 +62,24 @@ class Cosmo extends PackageManager, Transpiler {
   }
 
   @JSExport
-  def parseAsJson(s: String): String = {
+  def parseAsJson(s: String): String =
     parse(s).map(syntax.toJson).getOrElse("")
-  }
 
   def mayGetExecutable(path: String): Option[String] = {
     val releaseDir = "target/cosmo/release"
     linker.compile(path, this, releaseDir)
   }
 
-  def transpile(src: String, fid: Option[FileId]): Option[(String, Boolean)] =
-    loadModuleBySrc(createEnv(fid), src).flatMap(cppBackend)
+  def transpile(src: String): Option[(String, Env)] =
+    loadModuleBySrc(createEnv(None), src).flatMap(cppBackend)
 
-  def cppBackend(e: Env): Option[(String, Boolean)] = {
+  def transpileByFid(fid: FileId): Option[(String, Env)] =
+    loadModule(fid).flatMap(cppBackend)
+
+  def cppBackend(e: Env): Option[(String, Env)] = {
     implicit val env = e
     val code = new CodeGen().gen()
-    Some((formatCode(code), env.noCore))
+    Some((formatCode(code), env))
   }
 
   def loadPackage(source: PackageMetaSource): Unit = {
@@ -90,18 +89,23 @@ class Cosmo extends PackageManager, Transpiler {
       packages + (package_.namespace -> (nsPackages + (package_.name -> package_)))
   }
 
-  def loadModuleByDotPath(s: String): Option[(FileId, Env)] = {
-    loadModule(libPath(s))
-  }
+  def loadModuleByDotPath(s: String): Option[Env] =
+    loadModuleBySyntax(libPath(s))
 
-  def loadModule(path: syntax.Node): Option[(FileId, Env)] = {
-    val fid = resolvePackage(path)
+  def loadModuleBySyntax(path: syntax.Node): Option[Env] =
+    loadModule(resolvePackage(path))
+
+  def loadModule(fid: FileId): Option[Env] = {
+    if (modules.contains(fid)) then return modules(fid)
+
     val env = createEnv(Some(fid));
     if (fid._1.toString().startsWith("@cosmo/std:")) {
       env.noCore = true
     }
-    // println(s"Loading module $fid")
-    loadModuleBySrc(env, fid.pkg.sources(fid.path).source).map((fid, _))
+    logln(s"Loading module $fid")
+    val res = loadModuleBySrc(env, fid.pkg.sources(fid.path).source)
+    modules += (fid -> res)
+    res
   }
 
   def parse(s: String): Option[syntax.Block] = {
