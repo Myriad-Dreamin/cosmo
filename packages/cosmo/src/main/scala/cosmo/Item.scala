@@ -90,7 +90,7 @@ final case class Select(lhs: Item, rhs: String) extends Item {
   override def toString: String = s"$lhs.$rhs"
 }
 final case class KeyedArg(key: String, value: Item) extends Item {}
-final case class CEnumMatch(
+final case class ValueMatch(
     lhs: Item,
     cases: List[(Item, Item)],
     orElse: Option[Item],
