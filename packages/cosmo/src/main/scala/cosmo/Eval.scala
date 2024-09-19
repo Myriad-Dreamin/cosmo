@@ -45,6 +45,7 @@ class DefInfo(
     var isDependent: Boolean = true,
     var isOverride: Boolean = false,
     var isVirtual: Boolean = false,
+    var isHidden: Boolean = false,
     var isConstantVal: Boolean = true,
 ) {
   def defName(stem: Boolean = false): String = {
@@ -73,6 +74,10 @@ object DefInfo {
 
 class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   var defAlloc = DEF_ALLOC_START
+  var defs = List[DefInfo]()
+  var currentDef: Option[DefId] = None
+  var currentRegion = (-1, -1)
+  var defParents = Map[DefId, (Option[DefId], (Int, Int))]()
   var items: Map[DefId, Item] = Map()
   var scopes = new Scopes()
   var errors: List[String] = List()
@@ -82,6 +87,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   var builtinClasses = Map[Item, Class]()
   var selfRef: Option[Item] = None
   var selfImplRef: Option[Item] = None
+  var rawDeps = Map[FileId, Option[Env]]()
 
   implicit val system: CosmoSystem = new JsPhysicalSystem()
 
@@ -145,7 +151,10 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     val id = new DefId(defAlloc)
     val info =
       new DefInfo(name, ns, id, this)
+    defs = info :: defs
+    defParents += (id -> (currentDef, currentRegion))
     info.pos = pos
+    info.isHidden = hidden
     if (!hidden) {
       scopes.set(name, info)
     }
@@ -166,22 +175,37 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   def createInfer(info: DefInfo, lvl: Int) = InferVar(info, level = lvl)
 
-  def withNs[T](ns: String)(f: => T): T = {
-    if ns.isEmpty() then return f
-    this.ns = ns :: this.ns
+  def withNs[T](mayNs: Option[DefInfo], ast: syntax.Node)(f: => T): T = {
+    val cr = currentRegion
+    currentRegion = (ast.offset, ast.end)
+    if mayNs.isEmpty then {
+      val cd = currentDef
+      currentDef = None
+      val result = f
+      currentRegion = cr
+      currentDef = cd
+      return result
+    }
+    val ns = mayNs.get
+    val cd = currentDef
+    currentDef = Some(ns.id)
+    this.ns = ns.name :: this.ns
     val result = f
+    currentRegion = cr
+    currentDef = cd
     this.ns = this.ns.tail
     result
   }
 
   def withNsParams[T](
-      ns: Ident | String,
+      ns: Option[DefInfo],
+      reg: syntax.Node,
       params: Option[Either[SParams, List[Param]]],
   )(
       f: => T,
   ): T = {
     debugln(s"withNsParams $ns $params")
-    withNs(xId(ns)) {
+    withNs(ns, reg) {
       scopes.withScope {
         params.foreach {
           case Right(params) =>
@@ -707,8 +731,12 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case syntax.Ident(name)                        => name
       case _                                         => "$module"
     })
-    val moduleIns = pacMgr.loadModuleBySyntax(p) match {
-      case Some(env) => NativeModule(defInfo, env)
+    val fid = pacMgr.resolvePackage(p)
+    val env = pacMgr.loadModule(fid)
+    rawDeps += (fid -> env)
+    val moduleIns = env match {
+      case Some(env) =>
+        NativeModule(defInfo, env)
       case None => {
         errors = s"Failed to load module $p" :: errors
         Unresolved(defInfo)
@@ -774,7 +802,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   def defItem(ast: syntax.Def, defInfo: DefInfo, withBody: Boolean = true) = {
     debugln(s"defItem ${defInfo.name}")
     val syntax.Def(name, params, ret_ty, rhs) = ast
-    val sig = withNsParams("", params.map(Left(_))) {
+    val sig = withNsParams(None, ast, params.map(Left(_))) {
       Sig(
         resolveParams(params),
         ret_ty.map(typeExpr),
@@ -786,7 +814,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
     if (withBody) {
       val annotated = sig.ret_ty
-      val body = withNsParams("", params.map(Left(_))) {
+      val body = withNsParams(None, ast, params.map(Left(_))) {
         rhs.map(e => normalizeExpr(valueExpr(e)))
       }
       val bodyTy = body.flatMap(tyOf)
@@ -813,7 +841,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     val syntax.Class(name, params, body, isAbstract) = ast
     val defInfo = newDefWithInfoOr(name, classSelf.map(_.id))
     val ss = selfRef
-    val cls = withNsParams(name, paramsOr(classSelf, params)) {
+    val cls = withNsParams(Some(defInfo), ast, paramsOr(classSelf, params)) {
       classSelf.foreach(cls => selfRef = Some(cls))
       val (vars, restFields) = body match
         case _: syntax.CaseBlock if isAbstract =>
@@ -956,6 +984,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       syntax.Class(subName, None, b, false),
       classSelf = classSelf.map(_.base),
     )
+    // todo: right way to hide it
+    cls.vars.foreach { v => v.item.id.isHidden = true }
     val info = ct(subName); info.inClass = true; cls.id.inClass = true;
     EnumVariant(info, cls)
   }
@@ -965,7 +995,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     val defInfo = ct("$impl", hidden = true)
     val ss = selfImplRef
     val ss2 = selfRef
-    val impl = withNsParams("", params.map(Left(_))) {
+    val impl = withNsParams(None, ast, params.map(Left(_))) {
       val (iface, cls) = (lhs.map(typeExpr), typeExpr(rhs))
       selfRef = Some(cls)
       val defs = body match {
@@ -1373,6 +1403,10 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   def coerceTy(lhs: Option[Type], rhs: Option[Type]): Option[Type] = {
     // todo: corece correctly
     lhs.orElse(rhs)
+  }
+
+  lazy val deps: List[(FileId, Option[Env])] = {
+    rawDeps.iterator.toList.sortBy(_._1.toString)
   }
 }
 

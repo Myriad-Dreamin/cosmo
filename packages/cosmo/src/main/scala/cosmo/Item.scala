@@ -57,14 +57,9 @@ case class NoneKind(
   override val isBuilitin: Boolean = true
 }
 case object Unreachable extends Item
-case class RuntimeKind(
-    override val level: Int,
-    override val isBuilitin: Boolean = true,
-) extends Item
 final case class Unresolved(id: DefInfo) extends Item {}
 
 val NoneItem = NoneKind(0)
-val Runtime = RuntimeKind(0)
 
 final case class Opaque(expr: Option[String], stmt: Option[String])
     extends Item {}
@@ -124,11 +119,11 @@ final case class Param(id: DefInfo, override val level: Int) extends DeclLike {}
 final case class Var(
     id: DefInfo,
     init: Option[Item],
-    isContant: Boolean,
+    isConstant: Boolean,
     override val level: Int,
 ) extends DeclLike {
   override def toString: String =
-    val mod = if isContant then "val" else "var"
+    val mod = if isConstant then "val" else "var"
     s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
 }
 final case class Fn(
@@ -251,6 +246,7 @@ case object BoolTy extends Type {
 case object StrTy extends Type {
   override val level = 1
   override val isBuilitin: Boolean = true;
+  override def toString: String = "str"
 }
 case object UnitTy extends Type {
   override val level = 1

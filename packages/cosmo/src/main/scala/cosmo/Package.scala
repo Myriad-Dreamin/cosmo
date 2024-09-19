@@ -48,6 +48,9 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
   }
 
   override def toString: String = s"@$namespace/$name:$version"
+
+  def destDir(releaseDir: String): String =
+    releaseDir + "/" + namespace + "/" + name + "/src"
 }
 object Package {
   val any = new Package(PackageMetaSource.ProjectPath(""), null)
