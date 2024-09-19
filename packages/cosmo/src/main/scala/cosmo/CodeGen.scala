@@ -599,7 +599,7 @@ class CodeGen(implicit val env: Env) {
         // todo: value receiver
         return s"switch(${expr(v.lhs)}.data.index()) {${cases.mkString("\n")}\n$orElse}"
       }
-      case v: ir.CEnumMatch =>
+      case v: ir.ValueMatch =>
         val cases = v.cases.map { case (cond, body) =>
           val name = expr(cond)
           s"case $name: ${blockizeExpr(body, recv)}; break;"

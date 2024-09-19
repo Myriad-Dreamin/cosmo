@@ -361,15 +361,23 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     ast.stmts.map(valueExpr)
   })
 
+  case class MatchCaseInfo(
+      destructor: syntax.Node,
+      body: Option[syntax.Node],
+      pattern: Item,
+  );
+
+  case class MatchInfo(
+      lhs: Item,
+      cases: List[MatchCaseInfo],
+      defaultCase: Option[Item],
+  );
+
   def matchExpr(b: syntax.Match)(implicit level: Int): Item = {
     var lhs = expr(b.lhs)
     var lhsTy = lhs match {
       case Term(defInfo, _, v) => Some(defInfo.ty)
       case _                   => None
-    }
-    val ce = lhsTy.map(isCEnum).getOrElse(false)
-    if (ce) {
-      return matchCEnum(b)
     }
 
     val rhs = b.rhs match {
@@ -387,10 +395,9 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
     debugln(s"matchExpr $lhs on $rhs")
 
-    var vMappings =
-      Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
-
+    // Calculate the kind of match.
     var defaultCase: Option[Item] = None
+    var matchCases: List[MatchCaseInfo] = List()
 
     for (syntax.Case(destructor, body) <- rhs.stmts) {
       destructor match {
@@ -401,24 +408,42 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
             case None =>
               defaultCase = Some(body.map(valueExpr).getOrElse(NoneItem))
           }
-        case destructor =>
-          val splited = destruct(lhs, destructor);
-
-          splited match {
-            case ed: EnumDestruct =>
-              // todo: stable toString
-              val variantBase = ed.variant.variantOf.get
-              val vs = storeTy(variantBase)(false)
-              vMappings.get(vs) match {
-                case Some(lst) =>
-                  vMappings = vMappings + (vs -> (lst :+ (ed, body)))
-                case None =>
-                  vMappings = vMappings + (vs -> List((ed, body)))
-              }
-            case _ =>
-              errors = s"Invalid destructed item $splited" :: errors
-          }
+        case _ =>
+          val casePattern = matchCase(lhs, destructor);
+          matchCases =
+            matchCases :+ MatchCaseInfo(destructor, body, casePattern)
       }
+    }
+
+    // If any of matchCases is a EnumDestruct, ...
+
+    val isValueMatch = matchCases.headOption match {
+      case None                  => ???
+      case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
+      case _                     => true
+    }
+
+    if (isValueMatch) {
+      return matchByValue(MatchInfo(lhs, matchCases, defaultCase))
+    }
+
+    var vMappings =
+      Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
+
+    matchCases.foreach {
+      case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
+        // todo: stable toString
+        val variantBase = ed.variant.variantOf.get
+        val vs = storeTy(variantBase)(false)
+        vMappings.get(vs) match {
+          case Some(lst) =>
+            vMappings = vMappings + (vs -> (lst :+ (ed, body)))
+          case None =>
+            vMappings = vMappings + (vs -> List((ed, body)))
+        }
+      // Check if the value matches.
+      case _ =>
+        errors = s"not implemented mixed enum match" :: errors
     }
 
     // assert that there is only one match
@@ -460,45 +485,32 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     EnumMatch(lhs, ty, matchBody, defaultCaseItem)
   }
 
-  def matchCEnum(b: syntax.Match)(implicit level: Int): Item = {
-    val lhs = expr(b.lhs)
-    val rhs = b.rhs match {
-      case b: syntax.CaseBlock => b
-      case b: syntax.Block =>
-        if (b.stmts.isEmpty) syntax.CaseBlock(List())
-        else {
-          errors = s"match body contains non-case items" :: errors;
-          return Match(lhs, Region(List()))
-        }
-      case _ => {
-        errors = s"Invalid match body" :: errors;
-        return Match(lhs, Region(List()))
-      }
+  def matchByValue(info: MatchInfo)(implicit level: Int): Item = {
+    val cases = info.cases.map {
+      case MatchCaseInfo(destructor, body, pattern) =>
+        (expr(destructor), body.map(valueExpr).getOrElse(NoneItem))
     }
 
-    var defaultCase: Option[Item] = None
-    val cases = rhs.stmts.flatMap {
-      case syntax.Case(syntax.Ident("_"), body) =>
-        defaultCase = Some(body.map(valueExpr).getOrElse(NoneItem))
-        None
-      case syntax.Case(destructor, body) =>
-        Some((expr(destructor), body.map(valueExpr).getOrElse(NoneItem)))
-    }
-
-    CEnumMatch(lhs, cases, defaultCase)
+    ValueMatch(info.lhs, cases, info.defaultCase)
   }
 
-  def destruct(lhs: Item, by: syntax.Node)(implicit level: Int): Item = {
-    val (name, rhs) = by match {
-      case name: (syntax.Ident | syntax.Select) => (name, List())
-      case syntax.Apply(name, rhs)              => (name, rhs)
+  def matchCase(lhs: Item, by: syntax.Node)(implicit level: Int): Item = {
+    val (name, rhs, maybeResolved) = by match {
+      // Consider destructing cases.
+      case name: (syntax.Ident | syntax.Select) => (name, List(), true)
+      // TODO: nested apply matching
+      case syntax.Apply(name, rhs) => (name, rhs, false)
+      // Matching by value, just return the value.
       case _ => {
-        errors = s"Invalid destructor $by" :: errors
-        return lhs
+        return expr(by)
       }
     }
     val variant = enumShape(expr(name)) match {
       case Some(v) => v
+      case None if maybeResolved =>
+        // Must be resolved ident/select, also use matching by value.
+        // TODO: Better fuse the check with the lines above.
+        return expr(by)
       case None =>
         errors = s"Invalid enum variant $name" :: errors
         return lhs
@@ -1215,13 +1227,6 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
   }
 
-  def isCEnum(ty: Type): Boolean = ty match {
-    case Term(id, _, Some(CEnumTy)) => true
-    case Term(id, _, _)             => isCEnum(items(id.id))
-    case CEnumTy                    => true
-    case _                          => false
-  }
-
   def eqType(lhs: Item, rhs: Item): Boolean = {
     val lty = canonicalTy(lhs)
     val rty = canonicalTy(rhs)
@@ -1353,7 +1358,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
         debugln(s"coerce enumMatch $types")
         types.lastOption
       }
-      case CEnumMatch(_, cases, d) => {
+      case ValueMatch(_, cases, d) => {
         val types = (cases.map(_._2).map(tyOf) :+ d.flatMap(tyOf)).flatten
         debugln(s"coerce enumMatch $types")
         types.lastOption
