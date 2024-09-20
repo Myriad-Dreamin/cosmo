@@ -93,6 +93,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   implicit val system: CosmoSystem = new JsPhysicalSystem()
 
+  /// Builtin Items
+
   def builtins() = {
     newBuiltin("print")
     newBuiltin("println")
@@ -232,21 +234,6 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
         // todo: compute canonical type
         Param(info, (info.ty.level - 1).max(0)),
       )
-    }
-  }
-
-  def liftAsType(item: Item): Type = {
-    debugln(s"liftAsType $item")
-    item match {
-      case Semi(value)  => liftAsType(value)
-      case item: CIdent => CIdent(item.name, item.ns, 1)
-      case item: CppInsType =>
-        CppInsType(
-          liftAsType(item.target).asInstanceOf[CIdent],
-          item.arguments.map(liftAsType),
-        )
-      case SelfVal => SelfTy
-      case _       => item
     }
   }
 
@@ -1408,6 +1395,21 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
         throw new Exception(
           s"program is not well typed, because of $lhs (${lhs.getClass().getName()}).",
         )
+    }
+  }
+
+  def liftAsType(item: Item): Type = {
+    debugln(s"liftAsType $item")
+    item match {
+      case Semi(value)  => liftAsType(value)
+      case item: CIdent => CIdent(item.name, item.ns, 1)
+      case item: CppInsType =>
+        CppInsType(
+          liftAsType(item.target).asInstanceOf[CIdent],
+          item.arguments.map(liftAsType),
+        )
+      case SelfVal => SelfTy
+      case _       => item
     }
   }
 
