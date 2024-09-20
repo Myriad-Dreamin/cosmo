@@ -6,6 +6,7 @@ import {
   LanguageClientOptions,
   ServerOptions,
   TransportKind,
+  NodeModule,
 } from "vscode-languageclient/node";
 
 let client: LanguageClient;
@@ -16,14 +17,19 @@ export function activateLsp(context: ExtensionContext) {
     path.join("out", "lsp-server.js")
   );
 
+  const run: NodeModule = {
+    module: serverModule,
+    options: {
+      execArgv: ["--enable-source-maps"],
+    },
+    transport: TransportKind.ipc,
+  };
+
   // If the extension is launched in debug mode then the debug server options are used
   // Otherwise the run options are used
   const serverOptions: ServerOptions = {
-    run: { module: serverModule, transport: TransportKind.ipc },
-    debug: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-    },
+    run,
+    debug: run,
   };
 
   // Options to control the language client

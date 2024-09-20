@@ -6,6 +6,7 @@ import cosmo.FileId
 import cosmo.syntax.Ident
 import cosmo.syntax.CaseBlock
 import cosmo.syntax.FloatLit
+import scala.annotation.tailrec
 
 type SParam = syntax.Param;
 type SParams = List[SParam];
@@ -81,6 +82,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   var items: Map[DefId, Item] = Map()
   var scopes = new Scopes()
   var errors: List[String] = List()
+  var moduleAst: Option[syntax.Block] = None
   var module: ir.Region = Region(List())
   var ns: List[String] = List()
   var noCore = false
@@ -128,6 +130,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       importNative(libPath("std.prelude"), Some(Ident("_")))
     }
 
+    moduleAst = Some(ast)
     module = Region(ast.stmts.map(valueExpr))
 
     this
@@ -283,6 +286,14 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case _ => lhs
     }
   }
+
+  def findItem(offset: Int): Option[Item] =
+    logln(s"findItem in $fid with offset $offset")
+    val node = nodeCovering(offset)
+    logln(s"findItem: $offset $node")
+    val id = node.flatMap(n => defs.find(_.pos.contains((n.offset, n.end))))
+    logln(s"findItem ID: $offset $id")
+    id.map(id => byRef(id)((id.ty.level - 1).max(0)))
 
   def valueExpr(node: syntax.Node)(implicit level: Int = 0): Item = expr(node)
   def typeExpr(node: syntax.Node)(implicit level: Int = 1): Type = expr(node)
@@ -442,9 +453,9 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     // If any of matchCases is a EnumDestruct, ...
 
     val isValueMatch = matchCases.headOption match {
-      case None                  => ???
+      case None                                       => ???
       case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
-      case _                     => true
+      case _                                          => true
     }
 
     if (isValueMatch) {
@@ -458,7 +469,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
         // todo: stable toString
         val variantBase = ed.variant.variantOf.get
-        val vs = storeTy(variantBase)(false)
+        val vs = storeTy(variantBase)
         vMappings.get(vs) match {
           case Some(lst) =>
             vMappings = vMappings + (vs -> (lst :+ (ed, body)))
@@ -530,7 +541,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       }
     }
     val variant = enumShape(expr(name)) match {
-      case Some(v) => v
+      case Some(v)               => v
       case None if maybeResolved =>
         // Must be resolved ident/select, also use matching by value.
         // TODO: Better fuse the check with the lines above.
@@ -1161,7 +1172,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   def defByName(info: DefInfo): String = info.defName(stem = false)
 
-  def varByRef(vv: Term)(implicit topLevel: Boolean): String = {
+  def varByRef(vv: Term): String = {
     val ir.Term(id, level, v) = vv
     v.map {
       case v: CppInsType => Some(storeTy(v))
@@ -1171,7 +1182,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       .getOrElse(defByName(id))
   }
 
-  def storeTy(ty: Type)(implicit topLevel: Boolean): String = {
+  def storeTy(ty: Type): String = {
     debugln(s"storeTy $ty")
     ty match {
       case IntegerTy(size, isUnsigned) =>
@@ -1407,6 +1418,40 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   lazy val deps: List[(FileId, Option[Env])] = {
     rawDeps.iterator.toList.sortBy(_._1.toString)
+  }
+
+  lazy val nodes: Array[syntax.Node] = {
+    var nodes = scala.collection.mutable.ArrayBuilder.make[syntax.Node]
+    def go(node: syntax.Node): Unit =
+      nodes += node; node.children.foreach(go)
+    moduleAst.foreach(go)
+    nodes.result().sortBy(_.offset)
+  }
+
+  def nodeCovering(offset: Int): Option[syntax.Node] = {
+    logln(s"nodeLowBound(offset) = ${nodeLowBound(offset).map(nodes)}")
+    @tailrec
+    def go(index: Int, offset: Int): Option[syntax.Node] =
+      if (nodes(index).offset <= offset && nodes(index).end >= offset)
+        return Some(nodes(index))
+      if (index == 0) then return None else go(index - 1, offset)
+    nodeLowBound(offset).flatMap(go(_, offset))
+  }
+
+  def nodeLowBound(offset: Int): Option[Int] = {
+    import scala.collection.Searching._
+    var i = Ident("")
+    i.offset = offset
+
+    object ByOffset extends Ordering[syntax.Node] {
+      def compare(x: syntax.Node, y: syntax.Node) = x.offset - y.offset
+    }
+
+    nodes.search(i)(ByOffset) match {
+      case Found(i)                   => Some(i)
+      case InsertionPoint(i) if i > 0 => Some(i - 1)
+      case _                          => None
+    }
   }
 }
 

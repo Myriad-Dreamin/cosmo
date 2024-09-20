@@ -12,14 +12,61 @@ type TmplExp = Option[(Node, Option[String])]
 sealed abstract class Node {
   var offset: Int = -1;
   var end: Int = -1;
-}
 
-object NodeParse {
-  implicit class Mapper[T <: Node](n: => P[T])(implicit  ctx: P[_]) {
-    def m = {val l = ctx.index; val r = n.map(node => {node.offset = l; node.end = ctx.index; node}); ctx.asInstanceOf[P[T]]}
+  def children: Iterator[Node] = this match {
+    case Decorate(lhs, rhs)  => Iterator(lhs, rhs)
+    case Semi(semi)          => semi.iterator
+    case Ident(name)         => Iterator.empty
+    case BoolLit(value)      => Iterator.empty
+    case IntLit(value)       => Iterator.empty
+    case FloatLit(value)     => Iterator.empty
+    case StringLit(value)    => Iterator.empty
+    case ArgsLit(values)     => values.iterator
+    case Block(stmts)        => stmts.iterator
+    case CaseBlock(stmts)    => stmts.iterator
+    case Val(name, ty, init) => Iterator(name) ++ ty.iterator ++ init.iterator
+    case Var(name, ty, init) => Iterator(name) ++ ty.iterator ++ init.iterator
+    case Typ(name, ty, init) => Iterator(name) ++ ty.iterator ++ init.iterator
+    case Param(name, ty, init, _) =>
+      Iterator(name) ++ ty.iterator ++ init.iterator
+    case Import(path, dest) => Iterator(path) ++ dest.iterator
+    case Class(name, ps, body, _) =>
+      Iterator(name) ++ ps.iterator.flatten ++ Iterator(body)
+    case Impl(rhs, lhs, ps, body) =>
+      Iterator(rhs) ++ lhs.iterator ++ ps.iterator.flatten ++ Iterator(body)
+    case Def(name, ps, ret, rhs) =>
+      Iterator(name) ++ ps.iterator.flatten ++ ret.iterator ++ rhs.iterator
+    case Loop(body)            => Iterator(body)
+    case While(cond, body)     => Iterator(cond, body)
+    case For(name, iter, body) => Iterator(name, iter, body)
+    case If(cond, cont_bb, else_bb) =>
+      Iterator(cond, cont_bb) ++ else_bb.iterator
+    case Break()             => Iterator.empty
+    case Continue()          => Iterator.empty
+    case Return(value)       => Iterator(value)
+    case UnOp(op, lhs)       => Iterator(lhs)
+    case BinOp(op, lhs, rhs) => Iterator(lhs, rhs)
+    case Match(lhs, rhs)     => Iterator(lhs, rhs)
+    case As(lhs, rhs)        => Iterator(lhs, rhs)
+    case Select(lhs, rhs, _) => Iterator(lhs, rhs)
+    case Apply(lhs, rhs)     => Iterator(lhs) ++ rhs.iterator
+    case TmplApply(lhs, rhs) =>
+      Iterator(lhs) ++ rhs.iterator.flatMap(_._2.map(_._1))
+    case KeyedArg(key, value) => Iterator(key, value)
+    case Case(cond, body)     => Iterator(cond) ++ body.iterator
+    case TodoLit              => Iterator.empty
   }
 }
 
+object NodeParse {
+  implicit class Mapper[T <: Node](n: => P[T])(implicit ctx: P[_]) {
+    def m = {
+      val l = ctx.index;
+      val r = n.map(node => { node.offset = l; node.end = ctx.index; node });
+      ctx.asInstanceOf[P[T]]
+    }
+  }
+}
 
 // Kind: Decorators
 // A node that is terminated by a semicolon
@@ -31,7 +78,7 @@ final case class Decorate(lhs: Node, rhs: Node) extends Node
 // Just panic on problematic impls
 object TodoLit extends Node
 // Identifier
-final case class Ident(name: Str) extends Node 
+final case class Ident(name: Str) extends Node
 // Boolean Literal
 final case class BoolLit(value: Boolean) extends Node
 // Integer Literal

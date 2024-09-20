@@ -1,8 +1,8 @@
 package cosmo
 
-import org.scalajs.dom
 import scala.scalajs.js
 import scala.scalajs.js.annotation._
+import scala.annotation._
 import fastparse.Parsed
 
 import cosmo.system._
@@ -18,15 +18,20 @@ case class FileId(val pkg: Package, val path: String) {
     val pns = List(pkg.namespace + "_" + pkg.name)
     val fns = path.stripPrefix("/").stripSuffix(".cos").split("/").toList
     pns ::: fns
-  override def toString(): String = s"$pkg:$path"
+  override def toString(): String = s"$pkg$path"
   def stripPath = path.stripSuffix(".cos")
 }
 object FileId {
   def any = FileId(Package.any, "")
   // from string
   def fromString(s: String, pkg: String => Option[Package]): Option[FileId] = {
-    val parts = s.split(":", 3)
-    pkg(parts(0) + ":" + parts(1)).map(FileId(_, parts(2)))
+    val parts = s.split(":", 2)
+    val parts2 = parts(1).split("/", 2)
+    pkg(parts(0) + ":" + parts2(0)).map(FileId(_, "/" + canoPath(parts2(1))))
+  }
+
+  def fromPkg(pkg: Package, path: String): FileId = {
+    FileId(pkg, "/" + canoPath(NodePath.relative(pkg.fsPath, path)))
   }
 }
 
@@ -41,17 +46,21 @@ trait Transpiler extends PackageManager {
 }
 
 @JSExportTopLevel("Cosmo")
-class Cosmo extends Transpiler {
-  val releaseDir = "target/cosmo/release"
+class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
+    extends Transpiler {
+  var releaseDir = "target/cosmo/release"
 
   var packages: Map[String, Map[String, Package]] = Map()
-  val system: CosmoSystem = new JsPhysicalSystem()
   val linker: Linker = new CmakeLinker(system)
   val envBase = new Env(None, this).builtins()
   var modules = Map[FileId, Option[Env]]()
   var loading = Set[FileId]()
 
-  /// Exposed methods
+  /// Exposed compilation methods
+
+  @JSExport
+  def configure(releaseDir: String): Unit =
+    this.releaseDir = releaseDir
 
   @JSExport
   def loadPackageByPath(path: String): Unit =
@@ -72,6 +81,10 @@ class Cosmo extends Transpiler {
   @JSExport
   def parseAsJson(s: String): String =
     parse(s).map(syntax.toJson).getOrElse("")
+
+  /// Exposed language service methods
+  @JSExport
+  val service = new cosmo.service.CosmoService(this)
 
   /// Exposed APIs
 
@@ -99,6 +112,19 @@ class Cosmo extends Transpiler {
     implicit val env = e
     val code = new artifact.CodeGen().gen()
     Some((formatCode(code), env))
+  }
+
+  def fileIdOf(path: String): Option[FileId] =
+    pkgOf(path).map(FileId.fromPkg(_, path))
+
+  @tailrec
+  private def pkgOf(dir: String): Option[Package] = {
+    if (system.exists(NodePath.resolve(dir, "cosmo.json"))) {
+      return Some(new Package(PackageMetaSource.ProjectPath(dir), system))
+    }
+
+    val parentDir = NodePath.dirname(dir)
+    if (parentDir == dir) then return None else pkgOf(parentDir)
   }
 
   def loadModule(fid: FileId): Option[Env] = {
@@ -192,8 +218,8 @@ class Cosmo extends Transpiler {
       throw new Exception(s"Package @$ns/$name not found"),
     )
     val pathInPkg = names.drop(dropped) match {
-      case List() => "/lib.cos"
-      case paths  => paths.mkString("/", "/", ".cos")
+      case List() => "/src/lib.cos"
+      case paths  => paths.mkString("/src/", "/", ".cos")
     }
 
     FileId(pkg, pathInPkg)
@@ -239,6 +265,7 @@ object NodePath extends js.Object {
   def relative(from: String, to: String): String = js.native
   def dirname(path: String): String = js.native
   def basename(path: String): String = js.native
+  def normalize(path: String): String = js.native
 }
 
 final class SpawnSyncResult extends js.Object {

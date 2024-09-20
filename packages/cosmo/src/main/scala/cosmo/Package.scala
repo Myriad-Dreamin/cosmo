@@ -14,7 +14,7 @@ enum PackageMetaSource {
 class PackageMeta(
     val namespace: String,
     val name: String,
-    val path: String,
+    val fsPath: String,
     val version: String,
 ) {}
 
@@ -27,9 +27,7 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
   private lazy val meta: PackageMeta = loadMeta
   lazy val sources: Map[String, Source] = loadSources
 
-  def namespace: String = meta.namespace
-  def name: String = meta.name
-  def version: String = meta.version
+  export meta._
 
   private def loadMeta: PackageMeta = {
     metaSource match {
@@ -44,13 +42,13 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
 
   private def loadSources: Map[String, Source] = {
     // println(s"loading sources for $namespace/$name")
-    scanDir(system, this, meta.path + "/src", "")
+    scanDir(system, this, meta.fsPath + "/src", "/src")
   }
 
   override def toString: String = s"@$namespace/$name:$version"
 
   def destDir(releaseDir: String): String =
-    releaseDir + "/" + namespace + "/" + name + "/src"
+    releaseDir + "/" + namespace + "/" + name
 }
 object Package {
   val any = new Package(PackageMetaSource.ProjectPath(""), null)

@@ -1,5 +1,5 @@
 function RunCosmo {
-    node ./cmd/cosmo/main.js $args
+    node  '--enable-source-maps' ./cmd/cosmo/main.js $args
 }
 
 Set-Alias cosmo RunCosmo
