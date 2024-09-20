@@ -104,8 +104,8 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
       val programPath = s"$destDir\\$pathWithoutExt.exe"
 
-      if (cosmo.NodeFs.existsSync(programPath).asInstanceOf[Boolean]) {
-        cosmo.NodeFs.unlinkSync(programPath)
+      if (system.exists(programPath).asInstanceOf[Boolean]) {
+        system.unlink(programPath)
       }
 
       val clCommand = clPath
@@ -148,7 +148,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
     val vswherePath =
       "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-    if (!cosmo.NodeFs.existsSync(vswherePath).asInstanceOf[Boolean]) {
+    if (!system.exists(vswherePath).asInstanceOf[Boolean]) {
       throw new Exception("vswhere.exe not found")
     }
 
@@ -179,18 +179,18 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
     val versionPath =
       installationPath + "/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt"
-    if (!cosmo.NodeFs.existsSync(versionPath).asInstanceOf[Boolean]) {
+    if (!system.exists(versionPath).asInstanceOf[Boolean]) {
       throw new Exception("Microsoft.VCToolsVersion.default.txt not found")
     }
 
-    cosmo.NodeFs.readFileSync(versionPath, "utf8").asInstanceOf[String].trim
+    system.readFile(versionPath).trim
   }
 
   def findClPath: String = {
     val clPath =
       installationPath + s"/VC/Tools/MSVC/${version}/bin/Hostx64/x64/cl.exe"
 
-    if (!cosmo.NodeFs.existsSync(clPath).asInstanceOf[Boolean]) {
+    if (!system.exists(clPath).asInstanceOf[Boolean]) {
       throw new Exception("cl.exe not found")
     }
 
@@ -202,7 +202,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
     val systemIncludePath =
       installationPath + s"/VC/Tools/MSVC/${version}/include"
 
-    if (!cosmo.NodeFs.existsSync(systemIncludePath).asInstanceOf[Boolean]) {
+    if (!system.exists(systemIncludePath).asInstanceOf[Boolean]) {
       throw new Exception("system include path not found")
     }
 
@@ -214,7 +214,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
     val systemLibPath =
       installationPath + s"/VC/Tools/MSVC/${version}/lib/x64"
 
-    if (!cosmo.NodeFs.existsSync(systemLibPath).asInstanceOf[Boolean]) {
+    if (!system.exists(systemLibPath).asInstanceOf[Boolean]) {
       throw new Exception("system lib path not found")
     }
 
@@ -226,12 +226,11 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
   def findSdkVersion = {
 
     val manifestPath = sdkPath + "/SDKManifest.xml"
-    if (!cosmo.NodeFs.existsSync(manifestPath).asInstanceOf[Boolean]) {
+    if (!system.exists(manifestPath).asInstanceOf[Boolean]) {
       throw new Exception("SDKManifest.xml not found")
     }
 
-    val manifest: String =
-      cosmo.NodeFs.readFileSync(manifestPath, "utf8").asInstanceOf[String]
+    val manifest: String = system.readFile(manifestPath)
 
     // PlatformIdentity attribute is the version
     val identityStr = manifest

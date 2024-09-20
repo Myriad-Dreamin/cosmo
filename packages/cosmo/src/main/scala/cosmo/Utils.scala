@@ -8,6 +8,8 @@ def logln(f: => Any): Unit = println(f)
 private val escapeStrPattern = "((?:\\r\\n)|[\"\\\\\\t\\f\\r\\n])".r
 private val unescapeStrPattern = "(\\\\[\\\\tfrn\\\"])".r
 
+def canoPath(lhs: String): String = NodePath.normalize(lhs).replace('\\', '/')
+
 def libPath(lhs: String): syntax.Node = {
   val idents = lhs.split('.').map(syntax.Ident.apply);
   idents.reduceLeft(syntax.Select(_, _, true))

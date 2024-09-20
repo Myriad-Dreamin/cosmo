@@ -5,6 +5,7 @@ import cosmo.{DefInfo, FileId}
 import cosmo.ir.Value
 import cosmo.{DefId, DefInfo, Env}
 import cosmo.syntax.Ident
+import cosmo.service.LangObject
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
@@ -33,6 +34,8 @@ sealed abstract class Item {
     ???
   }
   val isBuilitin: Boolean = false
+
+  def langObj: LangObject = LangObject(this)
 }
 
 type Type = Item
@@ -115,7 +118,10 @@ abstract class DeclLike extends Item {
   def name = id.name
 }
 
-final case class Param(id: DefInfo, override val level: Int) extends DeclLike {}
+final case class Param(id: DefInfo, override val level: Int) extends DeclLike {
+  def pretty(implicit rec: Item => String = _.toString): String =
+    s"${id.defName(false)}: ${rec(id.ty)}"
+}
 final case class Var(
     id: DefInfo,
     init: Option[Item],
@@ -125,6 +131,11 @@ final case class Var(
   override def toString: String =
     val mod = if isConstant then "val" else "var"
     s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
+
+  def pretty(implicit rec: Item => String = _.toString): String =
+    val mod = if isConstant then "val" else "var"
+    val initStr = init.map(rec).getOrElse("None")
+    s"$mod ${id.defName(false)}"
 }
 final case class Fn(
     id: DefInfo,
@@ -133,6 +144,10 @@ final case class Fn(
 ) extends DeclLike {
   override def toString: String = s"fn(${id.defName(false)})"
 
+  def pretty(implicit rec: Item => String = _.toString): String =
+    val params = sig.params.map(_.map(rec).mkString(", ")).getOrElse("")
+    val ret = sig.ret_ty.map(rec).getOrElse("")
+    s"def ${id.defName(false)}($params): $ret"
 }
 final case class Sig(
     params: Option[List[Param]],
@@ -156,11 +171,17 @@ final case class Term(
   override def toString: String = s"term(${id.defName(false)})"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
-    extends DeclLike {}
+    extends DeclLike {
+  def pretty(implicit rec: Item => String = _.toString): String =
+    s"module ${id.defName(false)} including \"$path\""
+}
 enum CModuleKind {
   case Builtin, Error, Source
 }
-final case class NativeModule(id: DefInfo, env: Env) extends DeclLike {}
+final case class NativeModule(id: DefInfo, env: Env) extends DeclLike {
+  def pretty(implicit rec: Item => String = _.toString): String =
+    s"module ${id.defName(false)} in ${env.fid.map(_.toString).getOrElse("")}"
+}
 final case class HKTInstance(ty: Type, syntax: Item) extends Item {
   override val level: Int = 1
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
@@ -210,9 +231,15 @@ final case class Class(
   def justInit: Boolean = !isAbstract && params.isEmpty && isPhantomClass
   def fields = vars ::: restFields
 
-  def repr(rec: Type => String = _.toString): String =
+  def repr(implicit rec: Item => String = _.toString): String =
     val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
     id.defName(false) + argList
+
+  def pretty(implicit rec: Item => String = _.toString): String =
+    val ps = params.map(_.map(rec).mkString("(", ", ", ")")).getOrElse("")
+    val varList = vars.map(_.pretty).mkString(";\n  ")
+    val fieldList = restFields.map(_.pretty).mkString(";\n  ")
+    s"class ${id.defName(false)}$ps"
 }
 object Class {
   def empty(env: Env, isAbstract: Boolean) =
@@ -227,6 +254,10 @@ final case class Impl(
     fields: List[VField],
 ) extends DeclLike {
   override val level: Int = 1
+
+  def pretty(implicit rec: Item => String = _.toString): String =
+    val argList = params.map(_.map(rec).mkString("(", ", ", ")")).getOrElse("")
+    s"impl$argList $iface for $cls {\n${fields.map(_.pretty).mkString(";\n  ")}\n}"
 }
 
 // TopTy
@@ -332,6 +363,12 @@ final case class TupleLit(elems: List[Item]) extends Value {
 sealed abstract class VField {
   val item: DeclLike
   def name = item.name
+
+  def pretty(implicit rec: Item => String = _.toString): String = item match {
+    case i: Var      => s"var ${i.id.defName(true)}: ${rec(i.id.ty)}"
+    case i: Fn       => s"def ${i.id.defName(true)}: ${rec(i.sig)}"
+    case i: DeclLike => s"field ${i.id.defName(true)}: ${rec(i.id.ty)}"
+  }
 }
 final case class VarField(item: Var) extends VField
 final case class DefField(item: Fn) extends VField

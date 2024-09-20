@@ -1,32 +1,48 @@
-/* --------------------------------------------------------------------------------------------
- * Copyright (c) Microsoft Corporation. All rights reserved.
- * Licensed under the MIT License. See License.txt in the project root for license information.
- * ------------------------------------------------------------------------------------------ */
 import {
   createConnection,
   TextDocuments,
   Diagnostic,
-  DiagnosticSeverity,
   ProposedFeatures,
   InitializeParams,
   DidChangeConfigurationNotification,
   CompletionItem,
-  CompletionItemKind,
   TextDocumentPositionParams,
   TextDocumentSyncKind,
   InitializeResult,
   DocumentDiagnosticReportKind,
   type DocumentDiagnosticReport,
+  Hover,
+  Range,
+  Position,
 } from "vscode-languageserver/node";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
+import { CosmoLanguageService } from "./language-service";
+import { URI } from "vscode-uri";
+
+// Create a simple text document manager.
+const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
+
+const languageService = new CosmoLanguageService(documents);
+
+const offsetOf = (doc: TextDocument | undefined, pos: Position) =>
+  doc?.offsetAt(pos) ?? 0;
+
+const s = <T, U>(f: (t: T) => U) => {
+  return (t: T) => {
+    try {
+      return f(t);
+    } catch (e) {
+      const err = e as Error;
+      console.error(err.stack);
+      throw err;
+    }
+  };
+};
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
-
-// Create a simple text document manager.
-const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
@@ -56,6 +72,7 @@ connection.onInitialize((params: InitializeParams) => {
       completionProvider: {
         resolveProvider: true,
       },
+      hoverProvider: true,
       diagnosticProvider: {
         interFileDependencies: false,
         workspaceDiagnostics: false,
@@ -141,55 +158,17 @@ connection.languages.diagnostics.on(async (params) => {
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
+  languageService.system.reload(change.document.uri);
+
   validateTextDocument(change.document);
 });
 
 async function validateTextDocument(
   textDocument: TextDocument
 ): Promise<Diagnostic[]> {
-  // In this simple example we get the settings for every validate run.
-  const settings = {
-    maxNumberOfProblems: 1000,
-  };
+  void textDocument;
 
-  // The validator creates diagnostics for all uppercase words length 2 and more
-  const text = textDocument.getText();
-  const pattern = /\b[A-Z]{2,}\b/g;
-  let m: RegExpExecArray | null;
-
-  let problems = 0;
   const diagnostics: Diagnostic[] = [];
-  // while ((m = pattern.exec(text)) && problems < settings.maxNumberOfProblems) {
-  //   problems++;
-  //   const diagnostic: Diagnostic = {
-  //     severity: DiagnosticSeverity.Warning,
-  //     range: {
-  //       start: textDocument.positionAt(m.index),
-  //       end: textDocument.positionAt(m.index + m[0].length),
-  //     },
-  //     message: `${m[0]} is all uppercase.`,
-  //     source: "ex",
-  //   };
-  //   if (hasDiagnosticRelatedInformationCapability) {
-  //     diagnostic.relatedInformation = [
-  //       {
-  //         location: {
-  //           uri: textDocument.uri,
-  //           range: Object.assign({}, diagnostic.range),
-  //         },
-  //         message: "Spelling matters",
-  //       },
-  //       {
-  //         location: {
-  //           uri: textDocument.uri,
-  //           range: Object.assign({}, diagnostic.range),
-  //         },
-  //         message: "Particularly for names",
-  //       },
-  //     ];
-  //   }
-  //   diagnostics.push(diagnostic);
-  // }
   return diagnostics;
 }
 
@@ -200,23 +179,44 @@ connection.onDidChangeWatchedFiles((_change) => {
 
 // This handler provides the initial list of the completion items.
 connection.onCompletion(
-  (_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+  (
+    textDocumentPosition: TextDocumentPositionParams
+  ): CompletionItem[] | undefined => {
     // The pass parameter contains the position of the text document in
     // which code complete got requested. For the example we ignore this
     // info and always provide the same completion items.
-    return [
-      {
-        label: "TypeScript",
-        kind: CompletionItemKind.Text,
-        data: 1,
-      },
-      {
-        label: "JavaScript",
-        kind: CompletionItemKind.Text,
-        data: 2,
-      },
-    ];
+
+    const doc = documents.get(textDocumentPosition.textDocument.uri);
+    if (doc === undefined) {
+      return undefined;
+    }
+
+    return undefined;
   }
+);
+
+connection.onHover(
+  s((pos: TextDocumentPositionParams): Hover | undefined => {
+    const path = URI.parse(pos.textDocument.uri).fsPath;
+    const doc = documents.get(pos.textDocument.uri);
+    const offset = offsetOf(doc, pos.position);
+
+    console.log("hover", path, offset);
+    const result = languageService.cc.service.hover(path, offset);
+    if (!result) {
+      return;
+    }
+
+    let range: Range = undefined!;
+    if (result?.range && doc) {
+      range = {
+        start: doc.positionAt(result.range.start),
+        end: doc.positionAt(result.range.end),
+      };
+    }
+
+    return { contents: { kind: "markdown", value: result.content }, range };
+  })
 );
 
 // This handler resolves additional information for the item selected in

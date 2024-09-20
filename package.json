@@ -15,7 +15,8 @@
     "cosmo": "node ./cmd/cosmo/main.js",
     "docs": "shiroa serve --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ -w . docs/cosmo",
     "build:syntax": "cd editors/vscode && yarn build:syntax",
-    "build:vscode": "cd editors/vscode && yarn build:syntax && yarn package"
+    "build:vscode": "cd editors/vscode && yarn build:syntax && yarn package",
+    "local:vscode": "yarn build:vscode && code --install-extension editors/vscode/cosmo-0.1.0.vsix"
   },
   "devDependencies": {
     "eslint-config-prettier": "^9.0.0",

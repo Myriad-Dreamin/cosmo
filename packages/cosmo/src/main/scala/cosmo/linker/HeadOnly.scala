@@ -32,18 +32,11 @@ def headOnlyPkg(
         .map { case (_, env) =>
           env.deps.map(_._1.toString).mkString("\n")
         }
-      var irValue = s.map { case (_, env) =>
-        IRCache(env).toIR
-      }
-      var scopeValue = s.map { case (_, env) =>
-        ScopeJson(env).toScopeJson
-      }
 
       hValue.map(write(absStripPath + ".h", _))
       cValue.map(write(absStripPath + ".cc", _))
       dValue.map(write(absStripPath + ".d", _))
-      irValue.map(write(absStripPath + ".ir.cos", _))
-      scopeValue.map(write(absStripPath + ".scope.json", _))
+      // irValue.map(write(absStripPath + ".ir.cos", _))
       sources = sources :+ absStripPath + ".cc"
     }
   }

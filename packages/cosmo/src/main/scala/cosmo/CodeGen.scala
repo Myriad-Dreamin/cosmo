@@ -323,7 +323,7 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
-  def storeTy(ty: Type): String = env.storeTy(ty)(false)
+  def storeTy(ty: Type): String = env.storeTy(ty)
 
   def solveDict(items: Map[String, ir.Item]): String = {
 
@@ -421,7 +421,7 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Term => v.id.env.varByRef(v)(false)
+      case v: Term => v.id.env.varByRef(v)
       case v: Fn   => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
