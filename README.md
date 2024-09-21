@@ -44,6 +44,8 @@ yarn compile && node cmd/cosmo/main.js run samples/HelloWorld/main.cos
 
 ## Implementation Note
 
+Demonstration:
+
 - Literals
   - [x] Integer
   - [x] Float
@@ -79,6 +81,71 @@ yarn compile && node cmd/cosmo/main.js run samples/HelloWorld/main.cos
 - Decorators/Macros
   - [x] Decorator
   - [ ] Macro
+
+Value Semantics:
+
+- Literals
+  - [x] TodoLit
+  - [x] BoolLit
+  - [ ] IntLit
+    - [x] i32
+    - [ ] bigint
+  - [ ] FloatLit
+  - [x] StringLit
+  - [x] SelfVal, SelfTy
+  - [x] Identifier
+  - [ ] argsLit
+- Control Flow
+  - [ ] block
+  - [x] Loop
+  - [x] While
+  - [x] For
+  - [x] Break
+  - [x] Continue
+  - [x] Return
+  - [x] If
+- Operations
+  - [ ] valueExpr
+  - [ ] typeExpr
+  - [ ] unOp
+    - [ ] RefMut
+    - [ ] Ref
+    - [ ] Mut
+    - [ ] deref
+  - [ ] binOp
+    - [x] select
+    - [ ] asExpr
+    - [ ] matchExpr
+    - [ ] apply
+      - [ ] applyCTypes
+      - [ ] applyFunc
+      - [ ] applyClass
+      - [ ] applyType
+      - [ ] applyTemplate
+    - [ ] keyedPair
+    - [ ] decorate
+- Declarations
+  - [ ] import
+  - [x] varItem
+  - [x] defItem
+  - [x] classItem
+  - [ ] implItem
+
+Type Operations:
+
+- [ ] associateImpl
+- [ ] cast
+  - [ ] castArgs
+  - [ ] castTo
+- [ ] eval
+- [ ] lift
+- [ ] coerce
+- [ ] normalize
+- [ ] isSubtype
+
+Type Guards:
+
+- [ ] checkedMut
 
 ## Documentation
 

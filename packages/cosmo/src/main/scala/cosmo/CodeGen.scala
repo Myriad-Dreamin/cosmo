@@ -654,7 +654,7 @@ class CodeGen(implicit val env: Env) {
       case SelfVal if inImpl => "self()"
       case SelfVal           => "(*this)"
       case v if isStatic =>
-        env.liftAsType(v) match {
+        env.lift(v) match {
           case RefItem(lhs, isMut) => returnTy(lhs)
           case ty                  => returnTy(ty)
         }

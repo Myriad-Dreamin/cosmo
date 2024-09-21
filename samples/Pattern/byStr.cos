@@ -1,0 +1,11 @@
+
+
+
+def main() = {
+  var s = "";
+  s match {
+    case "hello" => println("world");
+    case "world" => println("hello");
+    case _ => println("neither");
+  }
+}
