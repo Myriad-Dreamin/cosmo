@@ -16,11 +16,13 @@ class PackageMeta(
     val name: String,
     val fsPath: String,
     val version: String,
+    val root: Option[String],
 ) {}
 
 class JsPackageMeta extends js.Object {
   var name: String = _
   var version: String = _
+  var root: js.UndefOr[String] = _
 }
 
 class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
@@ -36,13 +38,19 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
         val meta = system.readFile(metaPath)
         val parsed = JSON.parse(meta).asInstanceOf[JsPackageMeta]
         val (ns, name) = parsePackageName(parsed.name)
-        new PackageMeta(ns, name, path, parsed.version)
+        new PackageMeta(ns, name, path, parsed.version, parsed.root.toOption)
     }
   }
 
   private def loadSources: Map[String, Source] = {
-    // println(s"loading sources for $namespace/$name")
-    scanDir(system, this, meta.fsPath + "/src", "/src")
+    debugln(s"loading sources for $namespace/$name")
+    val root = canoPath(meta.root.getOrElse("src"))
+    root.headOption match {
+      case Some('/') => throw new Exception("root path must be relative")
+      case Some('.') => throw new Exception("root path must inside package")
+      case _         => {}
+    }
+    scanDir(system, this, root)
   }
 
   override def toString: String = s"@$namespace/$name:$version"
@@ -71,20 +79,23 @@ def parsePackageName(name: String): (String, String) = {
 def scanDir(
     system: CosmoSystem,
     pkg: Package,
-    path: String,
     relPaths: String,
 ): Map[String, Source] = {
+  import NodePath.join;
   var sources = Map[String, Source]()
-  val files = system.readDir(path)
+  val files =
+    try system.readDir(join(pkg.fsPath, relPaths))
+    catch {
+      case _: Throwable => return sources
+    }
   files.foreach { file =>
-    val fullPath = path + "/" + file
     val relPath = relPaths + "/" + file
     if (file.endsWith(".cos")) {
       val fid = FileId(pkg, relPath)
-      val source = system.readFile(fullPath)
+      val source = system.readFile(join(pkg.fsPath, relPath))
       sources = sources + (relPath -> new Source(fid, source))
-    } else {
-      sources = sources ++ scanDir(system, pkg, fullPath, relPath)
+    } else if (!file.contains(".")) { // todo: is directory
+      sources = sources ++ scanDir(system, pkg, relPath)
     }
   }
   sources
