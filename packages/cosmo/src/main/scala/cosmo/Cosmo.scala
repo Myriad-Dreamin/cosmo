@@ -16,9 +16,10 @@ case class FileId(val pkg: Package, val path: String) {
   lazy val ns = calcNs
   def calcNs =
     val pns = List(pkg.namespace + "_" + pkg.name)
-    val fns = path.stripPrefix("/").stripSuffix(".cos").split("/").toList
+    val relPath = pkg.root.map(r => NodePath.relative(r, path)).getOrElse(path)
+    val fns = canoPath(relPath).stripSuffix(".cos").split("/").toList
     pns ::: fns
-  override def toString(): String = s"$pkg$path"
+  override def toString(): String = s"$pkg/$path"
   def stripPath = path.stripSuffix(".cos")
 }
 object FileId {
@@ -135,16 +136,18 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
     val stripped = fid.stripPath
     val destDir = fid.pkg.destDir(releaseDir)
     val dPath = NodePath.resolve(destDir + stripped + ".d")
-    val depLines = system.readFile(dPath).split("\n").map(_.trim).toList;
-    val dependencies = depLines
-      .filter(_.nonEmpty)
-      .flatMap(FileId.fromString(_, pkgFromPairString))
+    val dependencies =
+      if !system.exists(dPath) then List.empty
+      else
+        val lines =
+          system.readFile(dPath).split("\n").map(_.trim).filter(!_.isEmpty);
+        lines.toList.flatMap(FileId.fromString(_, pkgFromPairString))
 
     val env = createEnv(Some(fid));
     if (fid._1.toString().startsWith("@cosmo/std:")) {
       env.noCore = true
     }
-    logln(
+    debugln(
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
     loading += fid
@@ -155,7 +158,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
   }
 
   def loadModuleBySrc(env: Env, src: String): Option[Env] = {
-    env.eval(parse(src).get)
+    env.entry(parse(src).get)
     for (error <- env.errors) {
       println(error)
     }
@@ -218,11 +221,11 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
       throw new Exception(s"Package @$ns/$name not found"),
     )
     val pathInPkg = names.drop(dropped) match {
-      case List() => "/src/lib.cos"
-      case paths  => paths.mkString("/src/", "/", ".cos")
+      case List() => "lib.cos"
+      case paths  => paths.mkString("", "/", ".cos")
     }
 
-    FileId(pkg, pathInPkg)
+    FileId(pkg, canoPath(pkg.root.getOrElse("src") + "/" + pathInPkg))
   }
 
   def parseBase(src: String): syntax.Node = {
