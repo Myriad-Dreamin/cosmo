@@ -1,0 +1,22 @@
+
+@noCore()
+
+def main() = {
+  // ascii char (char)
+  println(a"a");
+  // rune (int32_t)
+  println(c"a");
+  // rune (int32_t)
+  println(c"爱");
+  // bytes
+  println(b"ab");
+  
+  println(s"a");
+  println(s"a ${a}");
+  println(s"a ${a + 1}");
+  println(s"a ${a + 1} ${b}");
+  println(s"a ${a:x}");
+  println(s"a ${a:x} ");
+  
+  println(std.code "a");
+}

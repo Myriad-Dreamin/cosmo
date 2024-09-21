@@ -6,7 +6,7 @@ import fastparse._
 private type N = Ident
 private type Str = String
 private type Pol = Option[List[Param]]
-private type No = Option[Node]
+private[cosmo] type No = Option[Node]
 type TmplExp = Option[(Node, Option[String])]
 
 sealed abstract class Node {

@@ -1,0 +1,30 @@
+
+@noCore()
+
+class A {}
+class A[] {}
+class A[T] {}
+class A[T<:F] {}
+class A[T>:F] {}
+class A[T==F] {}
+class A(a) {}
+class A(a: i32) {}
+class A[T](a: i32) {}
+class A[T<:F](a: i32) {}
+
+class A {
+  val x = 1;
+}
+trait A {
+  val x = 1;
+}
+
+impl A for B {}
+
+trait A[B] {}
+
+impl[C] A for B {}
+
+trait A[B](c: i32) {}
+
+impl[C](c: i32) A for B {}

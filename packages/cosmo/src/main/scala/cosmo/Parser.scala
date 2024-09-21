@@ -135,7 +135,7 @@ object Parser {
     (ifItem | forItem | whileItem | loopItem | caseClause | semiWrap | semi).m
   def semiWrap[$: P]: P[Node] = P(
     P(
-      canExportItem | implItem | breakItem | continueItem | returnItem | compound,
+      canExportItem | implItem | breakItem | continueItem | returnItem | assign,
     ).m ~/ semi.?,
   ).map((item, isSemi) => if isSemi.isEmpty then item else Semi(Some(item)))
   def semi[$: P] = P(";").map(_ => Semi(None))
@@ -205,7 +205,7 @@ object Parser {
   def returnItem[$: P] = P(keyword("return") ~/ termU).map(Return.apply)
   // Compound expressions
   def compound[$: P] = P(
-    assign ~ (
+    andOr ~ (
       P(keyword("match").map(_ => "m") ~/ braces) |
         P(keyword("as").map(_ => "a") ~/ factor)
     ).rep,
@@ -219,7 +219,7 @@ object Parser {
   }
   def moreAssigns[$: P] =
     "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
-  def assign[$: P]: P[Node] = binOp(P(P("=" ~ !">") | moreAssigns), andOr)
+  def assign[$: P]: P[Node] = binOp(P(P("=" ~ !">") | moreAssigns), compound)
   def binOp[$: P](op: => P[Unit], next: => P[Node]): P[Node] =
     P(next ~ (op.! ~/ next).rep).map { case (lhs, rhs) =>
       rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
@@ -276,11 +276,14 @@ object Parser {
     P(ident.rep(1, sep = " ") ~ typeAnnotation.? ~ &("," | "]")).map((e, t) =>
       e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
     )
-  def constraint[$: P] = compare.map(e => Param(Ident("_"), Some(e), None, true)).m
+  def constraint[$: P] =
+    compare.map(e => Param(Ident("-"), Some(e), None, true)).m
   def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
   def selfSugar[$: P] = P(
-    chk("&") ~ chk(keyword("mut")) ~ keyword("self").!.map(Ident.apply).m ~ &("," | ")"),
-  ).map(( isRef, isMut, self) => {
+    chk("&") ~ chk(keyword("mut")) ~ keyword("self").!.map(Ident.apply).m ~ &(
+      "," | ")",
+    ),
+  ).map((isRef, isMut, self) => {
     val ty1 = Ident("Self")
     val decorated = (isRef, isMut) match {
       case (true, true)  => Apply(Ident("RefMut"), List(ty1))
@@ -293,9 +296,8 @@ object Parser {
     P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param(_, _, _, false)).m
   def typeAnnotation[$: P] = P(":" ~/ factor).m
   def initExpression[$: P] = P("=" ~/ term).m
-  def matchClause[$: P] = P(keyword("match") ~/ braces)
   def caseClause[$: P] =
-    P("case" ~/ termU ~ ("=>" ~ term).?).map(Case.apply.tupled)
+    P("case" ~/ factor ~ ("=>" ~ term).? ~ ";".?).map(Case.apply.tupled)
   def keyedClause[$: P] = P(
     (compound ~ (":" ~/ compound).?)
       .map { case (lhs, rhs) =>

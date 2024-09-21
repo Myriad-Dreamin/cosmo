@@ -1,5 +1,18 @@
 
 def main() = {
+  // False
+  println(false)
+  // True
+  println(true)
+  // 0
+  println(0)
+  // 1
+  println(1)
+  // 1.0
+  println(1.0)
+  // String
+  println("a")
+  
   // empty args <-> empty array
   println(())
   // parenthesized expression

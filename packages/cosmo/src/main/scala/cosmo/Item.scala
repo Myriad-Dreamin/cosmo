@@ -3,13 +3,16 @@ package cosmo.ir
 import cosmo.{DefInfo, FileId}
 
 import cosmo.ir.Value
-import cosmo.{DefId, DefInfo, Env}
+import cosmo.{DefId, DefInfo, Doc, Env}
 import cosmo.syntax.Ident
 import cosmo.service.LangObject
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
 val CODE_FUNC = 1
+
+private[cosmo] type Defo = DefInfo;
+private[cosmo] type Ni = Option[Item];
 
 sealed abstract class Item {
   val level: Int = 0;
@@ -36,7 +39,85 @@ sealed abstract class Item {
   val isBuilitin: Boolean = false
 
   def langObj: LangObject = LangObject(this)
+  def e: Expr = ItemE(this)
+  def toDoc: Doc = Doc.buildItem(this)
 }
+abstract class Expr extends Item {}
+
+/// Expressions
+
+final case class ItemE(item: Item) extends Expr {}
+final case class Opaque(expr: Option[String], stmt: Option[String])
+    extends Expr {}
+object Opaque {
+  def expr(expr: String) = Opaque(Some(expr), None)
+  def stmt(stmt: String) = Opaque(None, Some(stmt))
+}
+final case class Region(stmts: List[Expr]) extends Expr {
+  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
+}
+final case class Loop(body: Expr) extends Expr {}
+final case class While(cond: Expr, body: Expr) extends Expr {}
+final case class For(name: Expr, iter: Expr, body: Expr) extends Expr {}
+final case class Break() extends Expr {}
+final case class Continue() extends Expr {}
+final case class Return(value: Expr) extends Expr {}
+final case class If(cond: Expr, cont_bb: Expr, else_bb: Option[Expr])
+    extends Expr {}
+final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {}
+final case class As(lhs: Expr, rhs: Expr) extends Expr {}
+final case class UnOp(op: String, lhs: Expr) extends Expr {}
+final case class BinOp(op: String, lhs: Expr, rhs: Expr) extends Expr {}
+final case class KeyedArg(key: Expr, value: Expr) extends Expr {}
+final case class Semi(value: Expr) extends Expr {}
+final case class ApplyExpr(lhs: Expr, rhs: List[Expr]) extends Expr {
+  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+}
+final case class IApply(lhs: Item, rhs: List[Item]) extends Item {
+  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+}
+final case class NRef(val id: DefInfo, val of: Option[Expr] = None)
+    extends Expr {
+  override def toString: String = id.defName(false)
+}
+final case class VarExpr(id: DefInfo, ty: Option[Type], init: Option[Expr])
+    extends Expr {
+  override def toString: String = s"var(${id.defName(false)})"
+}
+abstract class ParamExpr extends Expr {
+  val id: DefInfo
+  val params: Option[List[VarExpr]]
+  val constraints: List[Expr]
+}
+final case class DefExpr(
+    id: DefInfo,
+    params: Option[List[VarExpr]],
+    constraints: List[Expr],
+    ret_ty: Option[Type],
+    body: Option[Item],
+) extends ParamExpr {
+  override def toString: String = s"fn(${id.defName(false)})"
+}
+final case class ClassExpr(
+    id: DefInfo,
+    params: Option[List[VarExpr]],
+    constraints: List[Expr],
+    body: Item,
+    isAbstract: Boolean,
+) extends ParamExpr {}
+final case class ImplExpr(
+    id: DefInfo,
+    params: Option[List[VarExpr]],
+    constraints: List[Expr],
+    iface: Option[Type],
+    cls: Type,
+    body: Item,
+) extends ParamExpr {}
+
+final case class MatchExpr(lhs: Expr, cases: List[(Expr, Option[Expr])])
+    extends Expr {}
+
+/// Types
 
 type Type = Item
 case class TopKind(
@@ -64,20 +145,9 @@ final case class Unresolved(id: DefInfo) extends Item {}
 
 val NoneItem = NoneKind(0)
 
-final case class Opaque(expr: Option[String], stmt: Option[String])
-    extends Item {}
-object Opaque {
-  def expr(expr: String) = Opaque(Some(expr), None)
-  def stmt(stmt: String) = Opaque(None, Some(stmt))
-}
-
-final case class UnOp(op: String, lhs: Item) extends Item {}
-final case class BinOp(op: String, lhs: Item, rhs: Item) extends Item {}
-final case class Return(value: Item) extends Item {}
-final case class Semi(value: Item) extends Item {}
-final case class Apply(lhs: Item, rhs: List[Item]) extends Item {
-  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
-}
+// final case class Apply(lhs: Item, rhs: List[Item]) extends Item {
+//   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+// }
 final case class BoundField(lhs: Item, by: Type, casted: Boolean, rhs: VField)
     extends Item {
   override def toString: String =
@@ -87,32 +157,18 @@ final case class RefItem(lhs: Item, isMut: Boolean) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {
   override def toString: String = s"$lhs.$rhs"
 }
-final case class KeyedArg(key: String, value: Item) extends Item {}
 final case class ValueMatch(
     lhs: Item,
+    by: Type,
     cases: List[(Item, Item)],
     orElse: Option[Item],
 ) extends Item {}
-final case class EnumMatch(
+final case class TypeMatch(
     lhs: Item,
     by: Type,
     cases: List[(Class, Item)],
     orElse: Item,
 ) extends Item {}
-final case class Match(lhs: Item, rhs: Item) extends Item {}
-final case class Case(cond: Item, body: Item) extends Item {}
-final case class Loop(body: Item) extends Item {}
-final case class While(cond: Item, body: Item) extends Item {}
-final case class For(name: Ident, iter: Item, body: Item) extends Item {}
-final case class Break() extends Item {}
-final case class Continue() extends Item {}
-case object TodoLit extends Item {}
-final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
-    extends Item {}
-final case class Region(stmts: List[Item]) extends Item {
-  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
-}
-final case class As(lhs: Item, rhs: Item) extends Item {}
 abstract class DeclLike extends Item {
   val id: DefInfo
   def name = id.name
@@ -187,7 +243,7 @@ final case class HKTInstance(ty: Type, syntax: Item) extends Item {
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
   def repr(rec: Type => String): String = syntax match {
     case t: (Term | Fn) => rec(t)
-    case Apply(lhs, rhs) =>
+    case ApplyExpr(lhs, rhs) =>
       s"${rec(HKTInstance(ty, lhs))}<${rhs.map(rec).mkString(", ")}>::type"
     case Select(lhs, rhs) => s"${rec(HKTInstance(ty, lhs))}::$rhs"
     case _                => syntax.toString
@@ -211,8 +267,7 @@ final case class EnumVariant(
 final case class EnumDestruct(
     item: Item,
     variant: Class,
-    bindings: List[String],
-    orElse: Option[Item],
+    bindings: List[Term | EnumDestruct],
 ) extends Item {}
 final case class Class(
     id: DefInfo,
@@ -344,6 +399,7 @@ final case class CppInsType(val target: CIdent, val arguments: List[Type])
 }
 
 sealed abstract class Value extends Item
+case object TodoLit extends Value {}
 final case class Bool(value: Boolean) extends Value {
   val ty = BoolTy
 }
