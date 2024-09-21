@@ -5,8 +5,25 @@ class VecGADT[n: u32, T] {
 }
 
 impl[n: u32, T] VecGADT[n, T] {
+  def random[m: u32](self): VecGADT[m, T] = {
+    if m == 0 {
+      Nil
+    } else {
+      Cons(random(), random[m - 1]())
+    }
+  }
+
   def concat[m: u32](self, v: VecGADT[m, T]): VecGADT[n + m, T] = self match {
-    case Nil => v
-    case Cons(h, t /* n - 1 */) => Cons(h, t.concat(v) /* n - 1 + m */) // n + m
+    case Self::Nil => v
+    case Self::Cons(h, t /* n - 1 */) => Cons(h, t.concat(v) /* n - 1 + m */) // n + m
   }
 }
+
+def concatRandom[m: u32, T](v2: VecGADT[m, T]): VecGADT[n + m, T] = {
+  val v1 = VecGADT.random[n, T];
+  v1 match {
+    case VecGADT[0, T]::Nil => v2
+    case VecGADT[n - 1, T]::Cons(h, t) => VecGADT[n + m, T]::Cons(h, concat(t, v2))
+  }
+}
+

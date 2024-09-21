@@ -57,7 +57,7 @@ class SampleTest extends munit.FunSuite:
   test("Trait/mutSelf") {
     runTestOnFile("samples/Trait/mutSelf.cos")
   }
-  test("Trait/constraint".only) {
+  test("Trait/constraint") {
     runTestOnFile("samples/Trait/constraint.cos")
   }
   test("ControlFlow/loop") {
@@ -80,6 +80,9 @@ class SampleTest extends munit.FunSuite:
   }
   test("Pattern/result") {
     runTestOnFile("samples/Pattern/result.cos")
+  }
+  test("Pattern/byStr".only) {
+    runTestOnFile("samples/Pattern/byStr.cos")
   }
   test("Io/readFile") {
     runTestOnFile("samples/Io/readFile.cos")
