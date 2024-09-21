@@ -334,16 +334,6 @@ class CodeGen(implicit val env: Env) {
     s"std::map<$keyTy, $valueTy>"
   }
 
-  def bytesRepr(s: ir.Bytes): String = {
-    var sb = new StringBuilder()
-    // \xbb
-    for (b <- s.value) {
-      sb.append(f"\\x${b}%02x")
-    }
-
-    sb.toString()
-  }
-
   // todo: analysis it concretely
   def mayClone(v: ir.VarField, value: String): String = {
     v.item match {
@@ -375,13 +365,14 @@ class CodeGen(implicit val env: Env) {
     debugln(s"moveExpr: $ast")
     ast match {
       case RefItem(lhs, _) if isConst(lhs) => mutExpr(lhs);
-      case ir.As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
+      case ir.As(ItemE(RefItem(lhs, _)), rhs @ ItemE(_: Impl))
+          if isConst(lhs) =>
         val (x, y) = mutExpr(lhs);
-        val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true), rhs))(false);
+        val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true).e, rhs))(false);
         (x + z, w)
-      case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
-      case RefItem(lhs, _)                 => ("", expr(lhs));
-      case ir.As(lhs, rhs: Impl)           => mutExpr(Opaque.expr(expr(ast)))
+      case ir.As(ItemE(RefItem(_, _)), ItemE(rhs: Impl)) => ("", expr(ast));
+      case RefItem(lhs, _)                               => ("", expr(lhs));
+      case ir.As(lhs, ItemE(rhs: Impl)) => mutExpr(Opaque.expr(expr(ast)))
       case ast if isConst(ast) || !defaultMove => ("", expr(ast))
       case ast => ("", s"std::move(${expr(ast)})")
     }
@@ -441,22 +432,22 @@ class CodeGen(implicit val env: Env) {
       case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
       case ir.RefItem(SelfVal, _)              => s"(*this)"
       case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"
-      case ir.UnOp("*", SelfVal) if genInImpl  => s"self()"
-      case ir.UnOp("*", SelfVal)               => s"(*this)"
-      case ir.UnOp(op, lhs)                    => s"$op ${expr(lhs)}"
-      case ir.As(lhs, rhs: Impl) =>
+      case ir.UnOp("*", ItemE(SelfVal)) if genInImpl => s"self()"
+      case ir.UnOp("*", ItemE(SelfVal))              => s"(*this)"
+      case ir.UnOp(op, lhs)                          => s"$op ${expr(lhs)}"
+      case ir.As(lhs, ItemE(rhs: Impl)) =>
         val iface = storeTy(rhs.iface)
         val cls = storeTy(rhs.cls)
         val lhsIsMut = lhs match {
-          case RefItem(lhs, isMut) => isMut
-          case _                   => false
+          case ItemE(RefItem(lhs, isMut)) => isMut
+          case _                          => false
         }
         return literalCall(
           s"::cosmo::Impl<$cls, $iface, $lhsIsMut>",
           List(lhs),
           recv,
         )
-      case ir.Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
+      case ir.IApply(BoundField(lhs, impl: Impl, true, field), rhs) =>
         val iface = storeTy(impl.iface)
         val cls = storeTy(impl.cls)
         val lhsIsMut = lhs match {
@@ -467,19 +458,19 @@ class CodeGen(implicit val env: Env) {
         val castedOp =
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
         return literalCall(s"$castedOp${field.item.id.name}", rhs, recv)
-      case ir.Apply(BoundField(lhs, _: Class, true, field), rhs) =>
+      case ir.IApply(BoundField(lhs, _: Class, true, field), rhs) =>
         return literalCall(
           s"${dispatchOp(lhs, field, true)}${field.item.id.name}",
           rhs,
           recv,
         )
-      case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
+      case ir.IApply(BoundField(lhs, by, false, field), rhs) =>
         return literalCall(
           s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}",
           rhs,
           recv,
         )
-      case ir.Apply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
+      case ir.IApply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
       case BoundField(lhs, by, false, field) =>
         s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
@@ -495,7 +486,7 @@ class CodeGen(implicit val env: Env) {
       case Unreachable          => return "unreachable();"
       case Bool(v)              => v.toString
       case Str(s)               => s"""::str("${escapeStr(s)}")"""
-      case s: Bytes => s"""cosmo_std::str::Bytes("${bytesRepr(s)}")"""
+      case Bytes(s) => s"""cosmo_std::str::Bytes("${bytesRepr(s)}")"""
       case Rune(s) if s < 0x80 && !s.toChar.isControl =>
         s"Rune('${s.toChar}')"
       case Rune(s) => s"Rune($s)"
@@ -522,7 +513,7 @@ class CodeGen(implicit val env: Env) {
         val vars = v.con.vars.map { v =>
           {
             val name = v.item.id.name;
-            val value = args.get(name).orElse(positions.nextOption)
+            val value = args.get(Str(name).e).orElse(positions.nextOption)
             mayClone(
               v,
               value
@@ -551,7 +542,7 @@ class CodeGen(implicit val env: Env) {
         val ty = storeTy(v.con)
         val vars = v.con.vars.map { v =>
           val s = v.item.id.name
-          val value = args.get(s).orElse(positions.nextOption)
+          val value = args.get(Str(s).e).orElse(positions.nextOption)
           value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default")
         }
         val initArgs = vars.mkString(", ")
@@ -565,30 +556,31 @@ class CodeGen(implicit val env: Env) {
         // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
         // auto n = std::move(*nn);
 
-        val base = storeTy(v.variant.variantOf.get);
-        val namelist = v.bindings
-          .map {
-            case "_" => ""
-            case s   => s"_destructed_${s}"
-          }
-          .mkString(", ")
-        val rebind = v.bindings
-          .zip(v.variant.vars)
-          .map {
-            case ("_", _) => ""
-            case (s, v) => {
-              val defInfo = v.item.id
-              val name = defInfo.nameStem(defInfo.id.id)
-              val ty = defInfo.instantiateTy
-              val mayDeref = if ty == SelfTy then "*" else ""
-              s"auto $s = std::move(${mayDeref}_destructed_${s});"
-            }
-          }
-          .mkString("\n")
-        val vname = v.variant.id.defName(stem = true)
-        s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
+        // val base = storeTy(v.variant.variantOf.get);
+        // val namelist = v.bindings
+        //   .map {
+        //     case "_" => ""
+        //     case s   => s"_destructed_${s}"
+        //   }
+        //   .mkString(", ")
+        // val rebind = v.bindings
+        //   .zip(v.variant.vars)
+        //   .map {
+        //     case ("_", _) => ""
+        //     case (s, v) => {
+        //       val defInfo = v.item.id
+        //       val name = defInfo.nameStem(defInfo.id.id)
+        //       val ty = defInfo.instantiateTy
+        //       val mayDeref = if ty == SelfTy then "*" else ""
+        //       s"auto $s = std::move(${mayDeref}_destructed_${s});"
+        //     }
+        //   }
+        //   .mkString("\n")
+        // val vname = v.variant.id.defName(stem = true)
+        // s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
+        ???
       }
-      case v: ir.EnumMatch => {
+      case v: ir.TypeMatch => {
         val clsName = storeTy(v.by)
         val cases = v.cases.map { case (variant, body) =>
           val name = variant.id.defName(stem = true)

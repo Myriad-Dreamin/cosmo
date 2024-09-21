@@ -1,5 +1,7 @@
 
 class VecGADT[n: u32, T] {
+  // case Nil[n == 0]: VecGADT[0, T]
+  // case Cons[n > 0](T, VecGADT[n - 1, T]): VecGADT[n, T]
   case Nil: VecGADT[0, T]
   case Cons(T, VecGADT[n - 1, T]): VecGADT[n, T]
 }

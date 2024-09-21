@@ -1,0 +1,92 @@
+
+@noCore()
+
+def main() = {
+  print(1)
+  print(1 + 2)
+  print(1 + 2 * 3)
+  print(1 * 2 + 3)
+  print(1 + 2 / 3)
+  print(1 / 2 + 3)
+  print(1 * 2 / 3)
+  print(1 / 2 * 3)
+
+  a.b(1)
+  a.b(1, a)
+  a.b(1, a: 1)
+  a.b(a: 1, 1)
+  a.b((a: 1), 1)
+  a.b(a: (1, 1))
+
+  a.b(1)(1).c
+  a.b(1)(1).c(1)
+
+  a match {}
+  a + 1 match {}
+  a.method match {}
+  a.method() match {}
+  a * 1 match {}
+  a = 1 match {}
+  a = a match {}
+
+  1 match {
+    case 1
+  }
+  1 match {
+    case 1 => 2
+  }
+  1 match {
+    case false => 2
+  }
+  1 + 1 match {
+    case (1 + 1) => 2
+  }
+  1 + 1 match {
+    case (1 * 1 + 1) => 2
+  }
+  1 match {
+    case a => 2
+  }
+  1 match {
+    case (a) => 2
+  }
+  1 + 1 match {
+    case (1 + a) => 2
+  }
+  1 + 1 match {
+    case (1 * 1 + a) => 2
+  }
+  1 + 1 match {
+    case a => { 2 }
+  }
+  1 + 1 match {
+    case A.B() => { 2 }
+  }
+  1 + 1 match {
+    case (A.B()) => { 2 }
+  }
+  1 match {
+    case a => { 2 }
+  } match {
+    case b => { 2 }
+  }
+  1 match {
+    case a => { 2 }
+  } as a
+  1 as a match {
+    case a => { 2 }
+  }
+  
+  1 as a match {
+    case _
+  }
+  1 as a match {
+    case _;
+  }
+  1 as a match {
+    case _ => a
+  }
+  1 as a match {
+    case _ => a;
+  }
+}

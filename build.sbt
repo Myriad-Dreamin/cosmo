@@ -1,4 +1,5 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
+import org.scalajs.jsenv.nodejs.NodeJSEnv
 
 lazy val cosmo = project
   .in(file("packages/cosmo"))
@@ -13,6 +14,9 @@ lazy val cosmo = project
       _.withModuleKind(ModuleKind.ESModule)
         .withModuleSplitStyle(ModuleSplitStyle.SmallModulesFor(List("cosmo")))
     },
+    jsEnv := new NodeJSEnv(
+      NodeJSEnv.Config().withArgs(List("--enable-source-maps")),
+    ),
 
     /* Depend on the scalajs-dom library.
      * It provides static types for the browser DOM APIs.

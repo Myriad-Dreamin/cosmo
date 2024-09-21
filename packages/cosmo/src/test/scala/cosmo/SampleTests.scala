@@ -1,15 +1,26 @@
 package cosmo
 import scala.scalajs.js
 
+val syntaxOnly = true
+
 class SampleTest extends munit.FunSuite:
+  lazy val compiler = {
+    var compiler = new Cosmo();
+    if (!syntaxOnly) {
+      compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
+    }
+    compiler
+  }
+
   def runTestOnFile(path: String) = {
     // read the file
-    var src =
-      cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
-    var compiler = new Cosmo();
-    compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
+    var src = cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var result = compiler.transpile(src)
-    println(result)
+    if (syntaxOnly) {
+      println(result.map(_._2.stgE.module.toDoc.pretty))
+    } else {
+      println(result.map(_._1))
+    }
   }
 
   test("HelloWorld") {
@@ -17,6 +28,18 @@ class SampleTest extends munit.FunSuite:
   }
   test("Syntax/literal") {
     runTestOnFile("samples/Syntax/literal.cos")
+  }
+  test("Syntax/cf.syntax") {
+    runTestOnFile("samples/Syntax/cf.syntax.cos")
+  }
+  test("Syntax/expr.syntax") {
+    runTestOnFile("samples/Syntax/expr.syntax.cos")
+  }
+  test("Syntax/tmplLit.syntax") {
+    runTestOnFile("samples/Syntax/tmplLit.syntax.cos")
+  }
+  test("Syntax/decl.syntax".only) {
+    runTestOnFile("samples/Syntax/decl.syntax.cos")
   }
   test("TypeAnnotation/add") {
     runTestOnFile("samples/TypeAnnotation/add.cos")
@@ -81,7 +104,7 @@ class SampleTest extends munit.FunSuite:
   test("Pattern/result") {
     runTestOnFile("samples/Pattern/result.cos")
   }
-  test("Pattern/byStr".only) {
+  test("Pattern/byStr") {
     runTestOnFile("samples/Pattern/byStr.cos")
   }
   test("Io/readFile") {

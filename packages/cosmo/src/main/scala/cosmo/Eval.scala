@@ -41,13 +41,14 @@ class DefInfo(
     var pos: Option[(Int, Int)] = None,
     var noMangle: Boolean = false,
     var isVar: Boolean = false,
+    var isTypeVar: Boolean = false,
     var inClass: Boolean = false,
     var isBuiltin: Boolean = false,
     var isDependent: Boolean = true,
     var isOverride: Boolean = false,
     var isVirtual: Boolean = false,
     var isHidden: Boolean = false,
-    var isConstantVal: Boolean = true,
+    var isMut: Boolean = true,
 ) {
   def defName(stem: Boolean = false): String = {
     if (noMangle) this.name
@@ -73,7 +74,9 @@ object DefInfo {
   def just(id: Int, env: Env) = new DefInfo("", List(), DefId(id), env)
 }
 
-class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
+class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
+  val stgE = new ExprEnv(this);
+
   var defAlloc = DEF_ALLOC_START
   var defs = List[DefInfo]()
   var currentDef: Option[DefId] = None
@@ -82,7 +85,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   var items: Map[DefId, Item] = Map()
   var scopes = new Scopes()
   var errors: List[String] = List()
-  var moduleAst: Option[syntax.Block] = None
+  var moduleAst: Option[Expr] = None
   var module: ir.Region = Region(List())
   var ns: List[String] = List()
   var noCore = false
@@ -140,10 +143,12 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   /// Entry
 
   def entry(ast: syntax.Block): Env = {
-    if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
+    stgE.module = stgE.expr(ast)
 
-    moduleAst = Some(ast)
-    module = Region(ast.stmts.map(valueExpr))
+    if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
+    val m = term(stgE.module)(0)
+    if !m.isInstanceOf[Region] then err("module must be a block")
+    module = m.asInstanceOf[Region]
 
     this
   }
@@ -247,7 +252,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
             }
           case Left(params) =>
             params.iterator.foreach { case SParam(name, ty, init, _) =>
-              varItem(ct(name), ty, init.map(valueExpr), false)(0)
+              varItem(ct(name), ty, init.map(valueExpr), true)(0)
             }
         }
         f
@@ -255,97 +260,69 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
   }
 
+  def term(ast: Expr)(implicit level: Int): ir.Item = {
+    ast
+  }
+
+  def valueExprO(node: Option[syntax.Node])(implicit level: Int = 0): Item =
+    node.map(valueExpr).getOrElse(NoneItem)
   def valueExpr(node: syntax.Node)(implicit level: Int = 0): Item = expr(node)
   def typeExpr(node: syntax.Node)(implicit level: Int = 1): Type = expr(node)
   def expr(ast: syntax.Node)(implicit level: Int): ir.Item = {
-    ast match {
-      // literals
-      case syntax.TodoLit        => TodoLit
-      case syntax.BoolLit(value) => Bool(value)
-      case syntax.IntLit(value) =>
-        if (value.isValidInt) Integer(value.toInt)
-        else Opaque.expr(value.toString)
-      case syntax.FloatLit(value)  => Opaque.expr(value.toString)
-      case syntax.StringLit(value) => Str(value)
-      case syntax.Ident("self")    => SelfVal
-      case syntax.Ident("Self")    => SelfTy
-      case syntax.Ident(name)      => byName(name)
-      case syntax.ArgsLit(values)  => argsLit(values)
-      // control flow
-      case b: syntax.Block       => block(b)
-      case l: syntax.Loop        => Loop(expr(l.body))
-      case w: syntax.While       => While(expr(w.cond), expr(w.body))
-      case f: syntax.For         => For(f.name, expr(f.iter), expr(f.body))
-      case syntax.Break()        => Break()
-      case syntax.Continue()     => Continue()
-      case syntax.Return(value)  => Return(expr(value))
-      case syntax.If(cond, x, y) => If(expr(cond), expr(x), y.map(expr))
-      // operations
-      case syntax.UnOp("&", syntax.UnOp("mut", lhs)) => RefItem(expr(lhs), true)
-      case syntax.UnOp("&", lhs) => RefItem(expr(lhs), false)
-      case syntax.UnOp("mut", lhs) =>
-        errors = s"mut must be used after &" :: errors; expr(lhs)
-      case syntax.UnOp("*", lhs)      => derefPtr(lhs)
-      case syntax.UnOp(op, lhs)       => UnOp(op, expr(lhs))
-      case syntax.BinOp(op, lhs, rhs) => binOp(op, expr(lhs), expr(rhs))
-      case syntax.As(lhs, rhs)        => As(expr(lhs), typeExpr(rhs))
-      case syntax.KeyedArg(k, v)      => KeyedArg(castKey(k), expr(v))
-      // todo: check is compile time
-      case syntax.Select(lhs, rhs, _) => deref(select(expr(lhs), rhs.name))
-      case b: syntax.Match            => matchExpr(b)
-      case syntax.Apply(lhs, rhs)     => $apply(expr(lhs), rhs.map(expr))
-      case syntax.TmplApply(Ident("a"), rhs) => Rune(rhs.head._1.head.toInt)
-      case syntax.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt)
-      case syntax.TmplApply(Ident("b"), rhs) => Bytes(rhs.head._1.getBytes())
-      case syntax.TmplApply(lhs, rhs) =>
-        Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */")
-      case syntax.Semi(None)        => ir.NoneKind(level)
-      case syntax.Semi(Some(value)) => Semi(expr(value))
-      // todo: decorator
-      case syntax.Decorate(syntax.Apply(Ident("noCore"), _), _) =>
-        noCore = true
-        NoneItem
-      case syntax.Decorate(lhs, rhs) => expr(rhs)
-      // declarations
-      case syntax.Import(p, dest) => $import(p, dest)
-      case syntax.Val(x, ty, y)   => varItem(ct(x), ty, y.map(expr), true)
-      case syntax.Typ(x, ty, y)   => varItem(ct(x), ty, y.map(typeExpr), true)
-      case syntax.Var(x, ty, y)   => varItem(ct(x), ty, y.map(expr), false)
-      case d: syntax.Def          => defItem(d, ct(d.name))
-      case c: syntax.Class        => classItem(c, Some(classItem(c, None)))
-      case d: syntax.Impl         => implItem(d)
-      // syntax errors
-      case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
-      case b: syntax.CaseBlock =>
-        errors = s"case block without match" :: errors
-        Opaque.expr(s"0/* error: case block without match */")
-      case syntax.Case(cond, body) =>
-        errors = s"case clause without match" :: errors
-        Opaque.expr(s"0/* error: case clause without match */")
-    }
+    // ast match {
+    //   // literals
+    //   case syntax.TodoLit        => TodoLit
+    //   case syntax.BoolLit(value) => Bool(value)
+    //   case syntax.IntLit(value) =>
+    //     if (value.isValidInt) Integer(value.toInt)
+    //     else Opaque.expr(value.toString)
+    //   case syntax.FloatLit(value)  => Opaque.expr(value.toString)
+    //   case syntax.StringLit(value) => Str(value)
+    //   case syntax.Ident("self")    => SelfVal
+    //   case syntax.Ident("Self")    => SelfTy
+    //   case syntax.Ident(name)      => byName(name)
+    //   case syntax.ArgsLit(values)  => argsLit(values)
+    //   // control flow
+    //   case b: syntax.Block       => block(b)
+    //   case l: syntax.Loop        => Loop(expr(l.body))
+    //   case w: syntax.While       => While(expr(w.cond), expr(w.body))
+    //   case f: syntax.For         => For(f.name, expr(f.iter), expr(f.body))
+    //   case syntax.Break()        => Break()
+    //   case syntax.Continue()     => Continue()
+    //   case syntax.Return(value)  => Return(expr(value))
+    //   case syntax.If(cond, x, y) => If(expr(cond), expr(x), y.map(expr))
+    //   // operations
+    //   case syntax.UnOp("&", syntax.UnOp("mut", lhs)) => RefItem(expr(lhs), true)
+    //   case syntax.UnOp("&", lhs) => RefItem(expr(lhs), false)
+    //   case syntax.UnOp("mut", lhs) =>
+    //     errors = s"mut must be used after &" :: errors; expr(lhs)
+    //   case syntax.UnOp("*", lhs)      => derefPtr(lhs)
+    //   case syntax.UnOp(op, lhs)       => UnOp(op, expr(lhs))
+    //   case syntax.BinOp(op, lhs, rhs) => binOp(op, expr(lhs), expr(rhs))
+    //   case syntax.As(lhs, rhs)        => As(expr(lhs), typeExpr(rhs))
+    //   case syntax.KeyedArg(k, v)      => KeyedArg(castKey(k), expr(v))
+    //   // todo: check is compile time
+    //   case syntax.Select(lhs, rhs, _) => deref(select(expr(lhs), rhs.name))
+    //   case b: syntax.Match            => matchExpr(b)
+    //   case syntax.Apply(lhs, rhs)     => $apply(expr(lhs), rhs.map(expr))
+    //   // todo: decorator
+    //   case syntax.Decorate(syntax.Apply(Ident("noCore"), _), _) =>
+    //     noCore = true
+    //     NoneItem
+    //   case syntax.Decorate(lhs, rhs) => expr(rhs)
+    //   // declarations
+    //   case syntax.Import(p, dest) => $import(p, dest)
+    //   case syntax.Val(x, ty, y)   => varItem(ct(x), ty, y.map(expr), true)
+    //   case syntax.Typ(x, ty, y)   => varItem(ct(x), ty, y.map(typeExpr), true)
+    //   case syntax.Var(x, ty, y)   => varItem(ct(x), ty, y.map(expr), false)
+    //   case d: syntax.Def          => defItem(d, ct(d.name))
+    //   case c: syntax.Class        => classItem(c, Some(classItem(c, None)))
+    //   case d: syntax.Impl         => implItem(d)
+    // }
+    ???
   }
 
   /// Literals
-
-  def argsLit(values: List[syntax.Node])(implicit level: Int): Item = {
-    if (values.exists(_.isInstanceOf[syntax.KeyedArg])) {
-      var dict = Map[String, Item]();
-      for (v <- values) {
-        v match {
-          case syntax.KeyedArg(k, v) => dict += (castKey(k) -> expr(v))
-          case _ =>
-            errors = s"cannot mix pos arg with keyed args" :: errors
-        }
-      }
-      return DictLit(dict)
-    }
-
-    var arr = List[Item]();
-    for (v <- values) {
-      arr = arr :+ expr(v)
-    }
-    return TupleLit(arr)
-  }
 
   def castKey(key: syntax.Node)(implicit level: Int): String = key match {
     case syntax.Ident(name)  => name
@@ -356,11 +333,68 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     }
   }
 
-  /// Expressions
+  def $import(p: syntax.Node, dest: Option[syntax.Node]): Item = {
+    val path = p match {
+      case syntax.StringLit(s) => s
+      case _: (syntax.Select | syntax.Ident) =>
+        return importNative(p, dest)
+      case _ =>
+        err("Invalid import path")
+        ""
+    }
+    val (kind, includePath) = if path startsWith "@lib/c++/" then {
+      (CModuleKind.Builtin, path.drop(9))
+    } else if path.isEmpty then {
+      (CModuleKind.Error, "bad import path")
+    } else {
+      (CModuleKind.Source, path)
+    }
+    val defInfo = ct("$module")
+    importDest(dest, defInfo, CModule(defInfo, kind, includePath))
+  }
 
-  def block(ast: syntax.Block) = Region(scopes.withScope {
-    ast.stmts.map(valueExpr)
-  })
+  def importNative(p: syntax.Node, dest: Option[syntax.Node]): Item = {
+    val defInfo = ct(p match {
+      case _ if (!dest.isEmpty)                      => "$module"
+      case syntax.Select(lhs, syntax.Ident(name), _) => name
+      case syntax.Ident(name)                        => name
+      case _                                         => "$module"
+    })
+    val fid = pacMgr.resolvePackage(p)
+    val env = pacMgr.loadModule(fid)
+    rawDeps += (fid -> env)
+    val moduleIns = env match {
+      case Some(env) =>
+        NativeModule(defInfo, env)
+      case None => {
+        err(s"Failed to load module $p")
+        Unresolved(defInfo)
+      }
+    }
+    importDest(dest, defInfo, moduleIns)
+  }
+
+  def importDest(dest: Option[syntax.Node], defInfo: DefInfo, v: Item): Item = {
+    val di = dest match {
+      case Some(syntax.Ident("_")) =>
+        val env = v.asInstanceOf[NativeModule].env
+        val exts = env.scopes.scopes.head
+        for ((name, info) <- exts.filter(!_._2.isBuiltin)) {
+          items += (ct(name).id -> env.byRef(info)(0))
+        }
+
+        ct("$module")
+      case Some(syntax.Ident(name)) => ct(name)
+      case Some(v) =>
+        err(s"Invalid import destination $v")
+        ct("$module")
+      case None => defInfo
+    }
+    di.ty = v
+    v
+  }
+
+  /// Expressions
 
   case class MatchCaseInfo(
       destructor: syntax.Node,
@@ -376,7 +410,9 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   def matchExpr(b: syntax.Match)(implicit level: Int): Item = {
     var lhs = expr(b.lhs)
-    var lhsTy = tyOf(lhs)
+    var lhsTy = tyOf(lhs) match
+      case None     => return err("cannot match a untyped value")
+      case Some(ty) => ty;
 
     debugln(s"matchExpr $lhs ($lhsTy) on ${b.rhs}")
     val sCases = b.rhs match {
@@ -390,133 +426,131 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     var defaultCase: Option[Item] = None
     var matchCases: List[MatchCaseInfo] = List()
 
-    for (syntax.Case(destructor, body) <- sCases) {
-      destructor match {
-        case Ident("_") =>
-          defaultCase match {
-            case Some(_) =>
-              errors = s"multiple default cases" :: errors
-            case None =>
-              defaultCase = Some(body.map(valueExpr).getOrElse(NoneItem))
-          }
-        case _ =>
-          val casePattern = destruct(lhs, destructor);
-          matchCases =
-            matchCases :+ MatchCaseInfo(destructor, body, casePattern)
+    val (patterns, restTy) =
+      sCases.foldLeft((List[(Item, Item)](), curryView(lhsTy))) {
+        case ((patterns, lhs), syntax.Case(destructor, body)) =>
+          val (pattern, rests) = destruct(lhs, destructor, valueExprO(body))
+          (patterns :+ pattern, rests)
       }
+
+    checkedDestructed(restTy)
+    ValueMatch(lhs, lhsTy, patterns, Some(Unreachable))
+  }
+
+  def destruct(lhs: DestructShape, by: syntax.Node, cont: => Item)(implicit
+      level: Int,
+  ): ((Item, Item), DestructShape) = {
+
+    // for (syntax.Case(destructor, body) <- sCases) {
+    //   destructor match {
+    //     case Ident("_") =>
+    //       defaultCase match {
+    //         case Some(_) =>
+    //           errors = s"multiple default cases" :: errors
+    //         case None =>
+    //           defaultCase = valueExprO(body)
+    //       }
+    //     case _ =>
+    //       val casePattern = destruct(lhs, destructor);
+    //       matchCases =
+    //         matchCases :+ MatchCaseInfo(destructor, body, casePattern)
+    //   }
+    // }
+    val (name, args) = by match {
+      // Consider destructing cases.
+      case name: (syntax.Ident | syntax.Select) => (name, None)
+      // TODO: nested apply matching
+      case syntax.Apply(name, rhs) => (name, Some(rhs))
+      // Matching by value, just return the value.
+      case _ => return ((expr(by), cont), lhs)
     }
+    val variant = enumShape(expr(name)) match {
+      case Some(v)              => v
+      case None if args.isEmpty =>
+        // Must be resolved ident/select, also use matching by value.
+        // TODO: Better fuse the check with the lines above.
+        return ((expr(by), cont), lhs)
+      case None =>
+        err(s"Invalid enum variant $name"); return ((expr(by), cont), lhs)
+    }
+    // val binding = args.iterator.flatten.map {
+    //   case syntax.Ident(name) => name
+    //   case _                  => ""
+    // }
+    // EnumDestruct(lhs, variant, binding.toList, None)
+    ???
 
     // If any of matchCases is a EnumDestruct, ...
 
-    val isValueMatch = matchCases.headOption match {
-      case None                                       => ???
-      case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
-      case _                                          => true
-    }
+    // val isValueMatch = matchCases.headOption match {
+    //   case None                                       => ???
+    //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
+    //   case _                                          => true
+    // }
 
-    if (isValueMatch) {
-      return matchByValue(MatchInfo(lhs, matchCases, defaultCase))
-    }
+    // var vMappings =
+    //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
 
-    var vMappings =
-      Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
+    // matchCases.foreach {
+    //   case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
+    //     // todo: stable toString
+    //     val variantBase = ed.variant.variantOf.get
+    //     val vs = storeTy(variantBase)
+    //     vMappings.get(vs) match {
+    //       case Some(lst) =>
+    //         vMappings = vMappings + (vs -> (lst :+ (ed, body)))
+    //       case None =>
+    //         vMappings = vMappings + (vs -> List((ed, body)))
+    //     }
+    //   // Check if the value matches.
+    //   case _ =>
+    //     errors = s"not implemented mixed enum match" :: errors
+    // }
 
-    matchCases.foreach {
-      case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
-        // todo: stable toString
-        val variantBase = ed.variant.variantOf.get
-        val vs = storeTy(variantBase)
-        vMappings.get(vs) match {
-          case Some(lst) =>
-            vMappings = vMappings + (vs -> (lst :+ (ed, body)))
-          case None =>
-            vMappings = vMappings + (vs -> List((ed, body)))
-        }
-      // Check if the value matches.
-      case _ =>
-        errors = s"not implemented mixed enum match" :: errors
-    }
+    // // assert that there is only one match
+    // if (vMappings.size != 1) {
+    //   errors = s"not implemented mixed enum match" :: errors
+    //   return NoneItem
+    // }
 
-    // assert that there is only one match
-    if (vMappings.size != 1) {
-      errors = s"not implemented mixed enum match" :: errors
-      return NoneItem
-    }
+    // val (_, cases) = vMappings.head
+    // val ty = cases.head._1.variant.variantOf.get
 
-    val (_, cases) = vMappings.head
-    val ty = cases.head._1.variant.variantOf.get
+    // debugln(s"matchExpr mappings default $defaultCase")
+    // debugln(s"matchExpr mappings $ty => $cases")
 
-    debugln(s"matchExpr mappings default $defaultCase")
-    debugln(s"matchExpr mappings $ty => $cases")
+    // var matchBody = List[(Class, Item)]()
+    // for ((ed, body) <- cases) {
+    //   val variant = ed.variant
+    //   val bindings = ed.bindings
 
-    var matchBody = List[(Class, Item)]()
-    for ((ed, body) <- cases) {
-      val variant = ed.variant
-      val bindings = ed.bindings
+    //   val stmts = body.map(body =>
+    //     scopes.withScope {
+    //       // bindings
+    //       variant.vars.zip(bindings).map { (vv, name) =>
+    //         val defInfo = ct(name); defInfo.isVar = true
+    //         defInfo.ty = vv.item.id.ty
+    //         val ty: Type = defInfo.ty
+    //         val tyLvl = ty.level
+    //         val valLvl = (tyLvl - 1).max(0)
+    //         val res = Term(defInfo, valLvl)
+    //         items += (defInfo.id -> res)
+    //       }
+    //       List(EnumDestruct(lhs, variant, bindings, None)) :+ valueExpr(body)
+    //     },
+    //   );
+    //   matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
+    // }
 
-      val stmts = body.map(body =>
-        scopes.withScope {
-          // bindings
-          variant.vars.zip(bindings).map { (vv, name) =>
-            val defInfo = ct(name); defInfo.isVar = true
-            defInfo.ty = vv.item.id.ty
-            val ty: Type = defInfo.ty
-            val tyLvl = ty.level
-            val valLvl = (tyLvl - 1).max(0)
-            val res = Term(defInfo, valLvl)
-            items += (defInfo.id -> res)
-          }
-          List(EnumDestruct(lhs, variant, bindings, None)) :+ valueExpr(body)
-        },
-      );
-      matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
-    }
+    // val defaultCaseItem = defaultCase.getOrElse(Unreachable)
+    // TypeMatch(lhs, ty, matchBody, defaultCaseItem)
 
-    val defaultCaseItem = defaultCase.getOrElse(Unreachable)
-    EnumMatch(lhs, ty, matchBody, defaultCaseItem)
-  }
-
-  def matchByValue(info: MatchInfo)(implicit level: Int): Item = {
-    val cases = info.cases.map {
-      case MatchCaseInfo(destructor, body, pattern) =>
-        (expr(destructor), body.map(valueExpr).getOrElse(NoneItem))
-    }
-
-    ValueMatch(info.lhs, cases, info.defaultCase)
-  }
-
-  def destruct(lhs: Type, by: syntax.Node)(implicit level: Int): Item = {
-    val (name, rhs, maybeResolved) = by match {
-      // Consider destructing cases.
-      case name: (syntax.Ident | syntax.Select) => (name, List(), true)
-      // TODO: nested apply matching
-      case syntax.Apply(name, rhs) => (name, rhs, false)
-      // Matching by value, just return the value.
-      case _ => {
-        return expr(by)
-      }
-    }
-    val variant = enumShape(expr(name)) match {
-      case Some(v)               => v
-      case None if maybeResolved =>
-        // Must be resolved ident/select, also use matching by value.
-        // TODO: Better fuse the check with the lines above.
-        return expr(by)
-      case None =>
-        errors = s"Invalid enum variant $name" :: errors
-        return lhs
-    }
-    val binding = rhs.map {
-      case syntax.Ident(name) => name
-      case _                  => ""
-    }
-    EnumDestruct(lhs, variant, binding, None)
   }
 
   def derefPtr(lhs: syntax.Node)(implicit level: Int): Item = {
     lhs match {
       case Ident("self") => SelfVal
-      case lhs           => UnOp("*", expr(lhs))
+      case lhs           => UnOp("*", expr(lhs).e)
     }
   }
 
@@ -535,7 +569,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
   def binOp(op: String, lhs: Item, rhs: Item): Item = op match {
     case "<:" => Bool(isSubtype(lhs, rhs))
-    case _    => BinOp(op, lhs, rhs)
+    case _    => BinOp(op, lhs.e, rhs.e)
   }
 
   def select(lhs: Item, field: String)(implicit level: Int): Item = {
@@ -623,7 +657,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case Term(id, _, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
         return rhs.head match {
           case Str(content) => Opaque.stmt(content)
-          case s: Opaque    => s
+          case e: Opaque    => e
           case _            => Opaque.expr("0 /* code */")
         }
       case Term(id, _, Some(RefTy(isRef, isMut))) =>
@@ -643,22 +677,22 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case BoundField(_, by, _, TypeField(ev: EnumVariant)) =>
         $apply(ev.base.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
-        Apply(lhs, castArgs(f.sig.params, rhs, Some(Right(that))))
+        IApply(lhs.e, castArgs(f.sig.params, rhs, Some(Right(that))))
       case HKTInstance(ty, syntax) =>
         val res = hktTranspose(syntax, $apply(ty, rhs))
         if (res.level == 0) {
           res
         } else {
-          HKTInstance(res, Apply(syntax, rhs))
+          HKTInstance(res, IApply(syntax, rhs))
         }
-      case _ => Apply(lhs, rhs)
+      case _ => IApply(lhs, rhs)
     }
   }
 
   def applyF(fn: Sig, info: Option[Fn], args: List[Item]): Item = {
     val Sig(params, ret_ty, body) = fn
     if (ret_ty.map(_.level).getOrElse(0) <= 1) {
-      return Apply(info.getOrElse(fn), castArgs(fn.params, args));
+      return IApply(info.getOrElse(fn), castArgs(fn.params, args));
     }
 
     implicit val level = 1;
@@ -691,76 +725,11 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     };
   }
 
-  def $import(p: syntax.Node, dest: Option[syntax.Node]): Item = {
-    val path = p match {
-      case syntax.StringLit(s) => s
-      case _: (syntax.Select | syntax.Ident) =>
-        return importNative(p, dest)
-      case _ =>
-        errors = s"Invalid import path" :: errors
-        ""
-    }
-    val (kind, includePath) = if path startsWith "@lib/c++/" then {
-      (CModuleKind.Builtin, path.drop(9))
-    } else if path.isEmpty then {
-      (CModuleKind.Error, "bad import path")
-    } else {
-      (CModuleKind.Source, path)
-    }
-    val defInfo = ct("$module")
-    importDest(dest, defInfo, CModule(defInfo, kind, includePath))
-  }
-
-  def importNative(p: syntax.Node, dest: Option[syntax.Node]): Item = {
-    val defInfo = ct(p match {
-      case _ if (!dest.isEmpty)                      => "$module"
-      case syntax.Select(lhs, syntax.Ident(name), _) => name
-      case syntax.Ident(name)                        => name
-      case _                                         => "$module"
-    })
-    val fid = pacMgr.resolvePackage(p)
-    val env = pacMgr.loadModule(fid)
-    rawDeps += (fid -> env)
-    val moduleIns = env match {
-      case Some(env) =>
-        NativeModule(defInfo, env)
-      case None => {
-        errors = s"Failed to load module $p" :: errors
-        Unresolved(defInfo)
-      }
-    }
-    importDest(dest, defInfo, moduleIns)
-  }
-
-  def importDest(dest: Option[syntax.Node], defInfo: DefInfo, v: Item) = {
-    val di = dest match {
-      case Some(syntax.Ident("_")) =>
-        val env = v.asInstanceOf[NativeModule].env
-        val exts = env.scopes.scopes.head
-        for ((name, info) <- exts.filter(!_._2.isBuiltin)) {
-          var c = ct(name)
-          // c.ty = info.ty.instantiate
-          scopes.set(name, c)
-          items += (c.id -> env.byRef(info)(0))
-        }
-
-        ct("$module")
-      case Some(syntax.Ident(name)) => ct(name)
-      case Some(v) =>
-        errors = s"Invalid import destination $v" :: errors
-        ct("$module")
-      case None => defInfo
-    }
-    di.ty = v
-    items += (di.id -> v)
-    v
-  }
-
   def varItem(
       defInfo: DefInfo,
       oty: Option[syntax.Node],
       initExprE: Option[Item],
-      isConstant: Boolean,
+      isMut: Boolean,
   )(implicit level: Int): ir.Var = {
     defInfo.isVar = true;
     val initExpr = initExprE.map(normalizeExpr)
@@ -778,8 +747,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       }
     }
     val valLvl = (initTy.map(_.level).getOrElse(0) - 1).max(0)
-    val res = ir.Var(defInfo, initExpr, isConstant, valLvl)
-    defInfo.isConstantVal = isConstant
+    val res = ir.Var(defInfo, initExpr, isMut, valLvl)
+    defInfo.isMut = isMut
     defInfo.ty = initTy.getOrElse(createInfer(defInfo, valLvl + 1))
     items += (defInfo.id -> initExpr.getOrElse(res))
     items += (defInfo.id -> byRef(defInfo))
@@ -880,9 +849,9 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     def classItem(item: syntax.Node) = item match {
       // todo: syntax.Typ
       case syntax.Val(x, ty, y) =>
-        vars = vars :+ VarField(varItem(nn(x), ty, y.map(valueExpr), true)(0))
-      case syntax.Var(x, ty, y) =>
         vars = vars :+ VarField(varItem(nn(x), ty, y.map(valueExpr), false)(0))
+      case syntax.Var(x, ty, y) =>
+        vars = vars :+ VarField(varItem(nn(x), ty, y.map(valueExpr), true)(0))
       case d: syntax.Def =>
         rests = rests :+ DefField(defItem(d, nn(d.name), withBody = withBody))
       case node =>
@@ -1030,7 +999,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       value: Item,
   ): Item = {
     if f.isEmpty then return value
-    def ins(ty: Type) = HKTInstance(ty, Apply(f.get, args))
+    def ins(ty: Type) = HKTInstance(ty, IApply(f.get, args))
     value match {
       case _: (CIdent | CppInsType | ClassInstance) => value
       case i: Class                                 => ins(i)
@@ -1123,10 +1092,10 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
 
             rty match {
               case tr: Class if tr.isAbstract => {
-                As(item, implClass(lty, tr).get)
+                As(item.e, implClass(lty, tr).get.e)
               }
               case _ =>
-                As(item, nty)
+                As(item.e, nty.e)
             }
           }
           case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
@@ -1190,7 +1159,7 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
       case Term(_, _, Some(v))                   => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
-      case Apply(lhs, rhs) => {
+      case ApplyExpr(lhs, rhs) => {
         val lhsTy = storeTy(lhs)
         val rhsTy = rhs.map(storeTy).mkString(", ")
         s"$lhsTy<$rhsTy>"
@@ -1204,8 +1173,8 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     val lhsIsMut = item match {
       case RefItem(lhs, rhsIsMut) => return checkedMut(lhs, rhsIsMut)
       case SelfTy                 => return
-      case v: Term                => !v.id.isConstantVal
-      case v: Var                 => !v.id.isConstantVal
+      case v: Term                => v.id.isMut
+      case v: Var                 => v.id.isMut
       case _                      => return
     }
     if (!lhsIsMut && isMut) {
@@ -1327,6 +1296,25 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
     cls.id.impls.find { i => isSubtype(i.iface, goal) }
   }
 
+  enum DestructShape {
+    case Ty(ty: Type);
+  }
+
+  def checkedDestructed(shape: DestructShape) = {
+    shape match {
+      case DestructShape.Ty(ty) =>
+        ty match
+          case BottomKind(_) =>
+          case ty =>
+            err(s"required destructed type, but got $ty")
+    }
+  }
+
+  def curryView(ty: Type): DestructShape = {
+    // DestructShape.Ty(ty)
+    ???
+  }
+
   def enumShape(ty: Item): Option[Class] = {
     ty match {
       case v: Term if v.value.isEmpty =>
@@ -1343,11 +1331,11 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   def tyOf(lhs: Item): Option[Type] = {
     debugln(s"tyOf $lhs")
     lhs match {
-      case Semi(t)             => tyOf(t)
-      case _: Integer          => Some(IntegerTy(32, false))
-      case _: Rune             => Some(IntegerTy(32, false))
-      case _: Str              => Some(StrTy)
-      case _: (Apply | Select) => Some(TopTy)
+      case Semi(t)                 => tyOf(t)
+      case _: Integer              => Some(IntegerTy(32, false))
+      case _: Rune                 => Some(IntegerTy(32, false))
+      case _: Str                  => Some(StrTy)
+      case _: (ApplyExpr | Select) => Some(TopTy)
       case _: (While | Loop | For | Break | Continue) => Some(UnitTy)
       case Unreachable                                => Some(BottomTy)
       case _: (CIdent | Class | CppInsType) =>
@@ -1370,14 +1358,14 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
           case Some(v)              => tyOf(v)
         }
       }
-      case EnumMatch(_, _, cases, d) => {
+      case TypeMatch(_, _, cases, d) => {
         val types = (cases.map(_._2) :+ d).map(tyOf).flatten
         debugln(s"coerce enumMatch $types")
         types.lastOption
       }
-      case ValueMatch(_, cases, d) => {
+      case ValueMatch(_, _, cases, d) => {
         val types = (cases.map(_._2).map(tyOf) :+ d.flatMap(tyOf)).flatten
-        debugln(s"coerce enumMatch $types")
+        debugln(s"coerce valueMatch $types")
         types.lastOption
       }
       case _ =>
@@ -1420,11 +1408,12 @@ class Env(val fid: Option[FileId], pacMgr: cosmo.PackageManager) {
   }
 
   lazy val nodes: Array[syntax.Node] = {
-    var nodes = scala.collection.mutable.ArrayBuilder.make[syntax.Node]
-    def go(node: syntax.Node): Unit =
-      nodes += node; node.children.foreach(go)
-    moduleAst.foreach(go)
-    nodes.result().sortBy(_.offset)
+    // var nodes = scala.collection.mutable.ArrayBuilder.make[syntax.Node]
+    // def go(node: syntax.Node): Unit =
+    //   nodes += node; node.children.foreach(go)
+    // moduleAst.foreach(go)
+    // nodes.result().sortBy(_.offset)
+    ???
   }
 
   def nodeCovering(offset: Int): Option[syntax.Node] = {

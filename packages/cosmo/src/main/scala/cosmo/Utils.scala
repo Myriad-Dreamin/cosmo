@@ -51,3 +51,13 @@ def unescapeStr(s: String): String = {
     },
   )
 }
+
+def bytesRepr(s: Array[Byte]): String = {
+  var sb = new StringBuilder()
+  // \xbb
+  for (b <- s) {
+    sb.append(f"\\x${b}%02x")
+  }
+
+  sb.toString()
+}

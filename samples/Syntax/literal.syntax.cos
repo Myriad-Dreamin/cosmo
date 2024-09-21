@@ -1,0 +1,11 @@
+
+@noCore()
+
+def main() = {
+  // self
+  println(self)
+  // Self
+  println(Self)
+  // ident
+  println(println)
+}
