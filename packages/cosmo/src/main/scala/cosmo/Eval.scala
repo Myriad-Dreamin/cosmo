@@ -325,8 +325,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
   /// Literals
 
   def castKey(key: syntax.Node)(implicit level: Int): String = key match {
-    case syntax.Ident(name)  => name
-    case syntax.StringLit(s) => s
+    case syntax.Ident(name) => name
+    case syntax.StrLit(s)   => s
     case _ => {
       errors = s"Invalid key" :: errors;
       ""
@@ -335,7 +335,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
 
   def $import(p: syntax.Node, dest: Option[syntax.Node]): Item = {
     val path = p match {
-      case syntax.StringLit(s) => s
+      case syntax.StrLit(s) => s
       case _: (syntax.Select | syntax.Ident) =>
         return importNative(p, dest)
       case _ =>
@@ -460,7 +460,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
       // Consider destructing cases.
       case name: (syntax.Ident | syntax.Select) => (name, None)
       // TODO: nested apply matching
-      case syntax.Apply(name, rhs) => (name, Some(rhs))
+      case syntax.Apply(name, rhs, _) => (name, Some(rhs))
       // Matching by value, just return the value.
       case _ => return ((expr(by), cont), lhs)
     }
@@ -912,8 +912,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
   ) = {
     val syntax.Case(cond, body) = node;
     val (subName, params) = cond match {
-      case name: syntax.Ident                       => (name, List())
-      case syntax.Apply(name: syntax.Ident, params) => (name, params)
+      case name: syntax.Ident                          => (name, List())
+      case syntax.Apply(name: syntax.Ident, params, _) => (name, params)
       case _ => (Ident("invalid"), List())
     }
 

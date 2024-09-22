@@ -35,10 +35,13 @@ class SampleTest extends munit.FunSuite:
   test("Syntax/expr.syntax") {
     runTestOnFile("samples/Syntax/expr.syntax.cos")
   }
+  test("Syntax/callExpr.syntax".only) {
+    runTestOnFile("samples/Syntax/callExpr.syntax.cos")
+  }
   test("Syntax/tmplLit.syntax") {
     runTestOnFile("samples/Syntax/tmplLit.syntax.cos")
   }
-  test("Syntax/decl.syntax".only) {
+  test("Syntax/decl.syntax") {
     runTestOnFile("samples/Syntax/decl.syntax.cos")
   }
   test("TypeAnnotation/add") {

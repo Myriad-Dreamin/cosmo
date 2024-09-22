@@ -1,0 +1,32 @@
+
+@noCore();
+
+def main() = {
+  a::b(1)
+  a.b(1)
+  a.b(1, a)
+  a.b(1, a: 1)
+  a.b(a: 1, 1)
+  a.b((a: 1), 1)
+  a.b(a: (1, 1))
+
+  a.b(1)(1).c
+  a.b(1)(1).c(1)
+  a.b(1)(1)::c(1)
+  
+  a::b[T]
+  a.b[T]
+  a.b[T, a]
+  a.b[T, a: T]
+  a.b[a: T, T]
+  a.b[(a: T), T]
+  a.b[a: (T, T)]
+
+  a.b[T][T].c
+  a.b[T][T].c[T]
+  a.b[T][T]::c[T]
+  
+  a::b[T](1)
+  a.b[T](1)
+  a.b[T, a: T](1)
+}

@@ -17,90 +17,57 @@ object Parser {
   // Entry point
   def root[$: P]: P[Block] =
     P(("" ~ term).rep.map(_.toList) ~ End).map(Block.apply).m
+
+  // Literals
+  def booleanLit[$: P] =
+    (P(word("true") | word("false"))).!.map(v => BoolLit(v == "true"))
+  def numberLit[$: P] = P(float.map(FloatLit.apply) | int.map(IntLit.apply))
+  def stringLit[$: P] = P(longStr | shortStr).map(StrLit.apply)
+  def tmplLit[$: P] = P(tmplPath ~ &("\"") ~ tmplLitStr).map(TmplApply(_, _)).m
+  def todoLit[$: P] = P("???").map(_ => TodoLit)
+
   // Lexer
-  def keyword[$: P](s: String) = s ~~ !(letter | digit | "_" | "'")
+  def word[$: P](s: String) = s ~~ !idCont
   def letter[$: P] = P(lowercase | uppercase)
   def lowercase[$: P] = P(CharIn("a-z"))
   def uppercase[$: P] = P(CharIn("A-Z"))
   def digit[$: P] = P(CharIn("0-9"))
-  def ident_[$: P]: P[String] =
-    P((letter | "_") ~~ (letter | digit | "_" | "'").repX).!.filter(
-      !keywords(_),
-    )
-  def booleanLit[$: P] =
-    (P(keyword("true") | keyword("false"))).!.map(v => BoolLit(v == "true"))
-  def numberLit[$: P] = P(
-    floatnumber.map(FloatLit.apply) |
-      integer.map(IntLit.apply),
-  )
-  def todoLit[$: P] = P("???").map(_ => TodoLit)
+  def id[$: P] = P((letter | "_") ~~ idCont.repX).!.filter(!keywords(_))
+  def idCont[$: P] = P(letter | digit | "_")
 
-  def stringLit[$: P]: P[StringLit] =
-    P(longstring | shortstring).map(StringLit.apply)
-  def shortstring[$: P]: P[String] = P(shortstring0("\"").map(unescapeStr))
-  def shortstring0[$: P](delimiter: String) = P(
-    delimiter ~~/ (!"\"" ~~ shortstringitem).repX.! ~~ delimiter,
-  )
-  def longstring[$: P]: P[String] = P(
-    "\"".repX(3).!./.flatMapX { delimiter =>
-      if delimiter.length() % 2 == 1 then longstring0(delimiter)
-      else P("".map(_ => ""))
-    },
-  )
-  def longstring0[$: P](delimiter: String) = P(
-    (!delimiter ~~ longstringitem(delimiter)).repX.! ~~ delimiter,
-  )
-  def shortstringitem[$: P]: P[Unit] = P(litCharsWhile("\\\n\"") | escapeseq)
-  def longstringitem[$: P](delimiter: String): P[Unit] = P(
-    lStringChars("\"", delimiter).repX.!,
-  )
+  def delimStr[T, $: P](d: String, body: => P[T]) = d ~~/ delimStrCont(d, body)
+  def delimStrCont[T, $: P](d: String, body: => P[T]) = (!d ~~ body).repX.! ~~ d
+  def shortStr[$: P] = P(shortStr0.map(unescapeStr))
+  def shortStr0[$: P] = delimStr("\"", strEscape)
+  def longStr[$: P] = P("\"".repX(3).!./.flatMapX(longStr0))
+  def longStr0[$: P](delim: String) = P(delimStrCont(delim, longStrBody(delim)))
+  def strEscape[$: P] = P(litCharsWhile("\\\n\"") | escapeseq)
+  def longStrBody[$: P](delim: String) = P(longChars("\"", delim).repX.!)
 
-  def tmplLit[$: P] =
-    P(tmplPath ~ &("\"") ~ tmplLitParts).map(TmplApply.apply.tupled).m
   def tmplPath[$: P] = P(
-    ident_.filter(_ != "from").map(Ident.apply).m ~ (P(
-      ("." | "::") ~ ident,
-    )).rep,
+    id.filter(_ != "from").map(Ident.apply).m ~ (P(("." | "::") ~ ident)).rep,
   ).map { case (lhs, rhs) => rhs.foldLeft(lhs: Node)(Select(_, _, true)) }
-  def tmplLitParts[$: P] = P(longTmplLit | shortTmplLit)
-  def shortTmplLit[$: P]: P[List[(String, Option[(Node, Option[String])])]] = P(
-    "\"" ~~/ (!"\"" ~~ shortTmplLitItem).repX ~~ "\"",
-  ).map(_.toList)
-  def longTmplLit[$: P]: P[List[(String, Option[(Node, Option[String])])]] = P(
-    "\"\"\"" ~~/ (!"\"\"\"" ~~ longTmplLitItem("\"\"\"")).repX ~~ "\"\"\"",
-  ).map(_.toList)
-  def shortTmplLitItem[$: P]: P[(String, Option[(Node, Option[String])])] = P(
+  def tmplLitStr[$: P] = P(longTmplStr("\"\"\"") | shortTmplStr)
+  def shortTmplStr[$: P] =
+    P("\"" ~~/ (!"\"" ~~ shortTmplLitStr).repX ~~ "\"").map(_.toList)
+  def longTmplStr[$: P](delim: String) =
+    P(delim ~~/ (!delim ~~ longTmplStrBody(delim)).repX ~~ delim).map(_.toList)
+  def shortTmplLitStr[$: P]: P[(String, Option[(Node, Option[String])])] = P(
     (litCharsWhile("\\\n\"$") | escapeseq).repX.! ~~/ tmplExpr,
   )
-  def longTmplLitItem[$: P](delimiter: String) = P(
-    lStringChars("\"$", delimiter).repX.! ~~/ tmplExpr,
-  )
+  def longTmplStrBody[$: P](delim: String) =
+    P(longChars("\"$", delim).repX.! ~~/ tmplExpr)
 
-  def lStringChars[$: P](mores: String, delimiter: String): P[Unit] = P(
-    litCharsWhile(mores) | !delimiter ~~ delimiter.take(1),
-  )
-  def litCharsWhile[$: P](mores: String) = P(
-    CharsWhile(!mores.contains(_)),
-  )
+  def longChars[$: P](mores: String, delim: String): P[Unit] =
+    P(litCharsWhile(mores) | !delim ~~ "\"".repX)
+  def litCharsWhile[$: P](mores: String) = P(CharsWhile(!mores.contains(_)))
   def escapeseq[$: P]: P[Unit] = P("\\" ~ AnyChar)
-  def tmplExpr[$: P]: P[Option[(Node, Option[String])]] = P(
-    &("\"").map(_ => None) | ("$" ~~/ P(
-      "{" ~/ compound ~ tmplAnnotation.? ~ "}",
-    ).?),
-  )
-  def tmplAnnotation[$: P]: P[String] = P(
-    ":" ~/ CharsWhile(!s"}\"".contains(_)).!,
-  )
+  def tmplExpr[$: P]: P[Option[(Node, Option[String])]] =
+    P(&("\"").map(_ => None) | ("$" ~~/ P("{" ~/ tmplArg ~ "}").?))
+  def tmplArg[$: P] = P(compound ~ (":" ~/ CharsWhile(!"}\"".contains(_)).!).?)
 
-  def negatable[T, $: P](p: => P[T])(implicit ev: Numeric[T]) =
-    (("+" | "-").?.! ~ p).map {
-      case ("-", i) => ev.negate(i)
-      case (_, i)   => i
-    }
-
-  def integer[$: P]: P[BigInt] = negatable[BigInt, Any](
-    P(octinteger | hexinteger | bininteger | decimalinteger),
-  )
+  def int[$: P]: P[BigInt] =
+    P(octinteger | hexinteger | bininteger | decimalinteger)
   def decimalinteger[$: P]: P[BigInt] =
     P(nonzerodigit ~ digit.rep | "0").!.map(scala.BigInt(_))
   def octinteger[$: P]: P[BigInt] = P(
@@ -115,8 +82,7 @@ object Parser {
   def bindigit[$: P]: P[Unit] = P("0" | "1")
   def hexdigit[$: P]: P[Unit] = P(digit | CharIn("a-f", "A-F"))
 
-  def floatnumber[$: P]: P[BigDecimal] =
-    negatable[BigDecimal, Any](P(pointfloat | exponentfloat))
+  def float[$: P]: P[BigDecimal] = P(pointfloat | exponentfloat)
   def pointfloat[$: P]: P[BigDecimal] =
     P(intpart.? ~ fraction | intpart ~ "." ~~ !".").!.map(BigDecimal(_))
   def exponentfloat[$: P]: P[BigDecimal] =
@@ -132,7 +98,7 @@ object Parser {
   def termU[$: P] = P(term.map(us))
   def decorator[$: P]: P[Node] = P("@" ~/ factor)
   def decorated[$: P] =
-    (ifItem | forItem | whileItem | loopItem | caseClause | semiWrap | semi).m
+    (ifItem | forItem | whileItem | loopItem | caseItem | semiWrap | semi).m
   def semiWrap[$: P]: P[Node] = P(
     P(
       canExportItem | implItem | breakItem | continueItem | returnItem | assign,
@@ -140,50 +106,100 @@ object Parser {
   ).map((item, isSemi) => if isSemi.isEmpty then item else Semi(Some(item)))
   def semi[$: P] = P(";").map(_ => Semi(None))
   def canExportItem[$: P]: P[Node] =
-    (keyword("pub") | keyword("private")).? ~ P(
+    (word("pub") | word("private")).? ~ P(
       defItem | valItem | varItem | typeItem | classItems | importItem,
     )
   def primaryExpr[$: P] = P(tmplLit | ident | literal | parens | braces).m
-  def factor[$: P] = P(unary | factorBase)
-  def factorBase[$: P]: P[Node] = P(
-    primaryExpr ~ (
-      P(".".map(_ => ".") ~ ident) |
-        P("::".map(_ => ":") ~ ident) |
-        args.map(a => ("(", a))
-    ).rep,
-  ).map { case (lhs, parts) =>
-    parts.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-      op match {
-        case "." => Select(lhs, rhs.asInstanceOf[Ident], false)
-        case ":" => Select(lhs, rhs.asInstanceOf[Ident], true)
-        case "(" => Apply(lhs, rhs.asInstanceOf[Seq[Node]].toList)
-      }
+  def factor[$: P]: P[Node] = P(unary | factorR)
+  def factorR[$: P] = P(unary | primaryExpr.flatMapX(binR))
+
+  // Braces/Args/Params
+  def argsCt[$: P] = P("[" ~/ arg.rep(sep = ",") ~ "]")
+  def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
+  def params[$: P] =
+    (P(paramsCt.map(_.flatten) | paramsRt).rep).map { seq =>
+      if seq.isEmpty then None else Some(seq.flatten.toList)
     }
-  }
+  def paramsCt[$: P] =
+    P("[" ~/ P(introTy | constraint.map(e => Seq(e))).rep(sep = ",") ~ "]")
+  def paramsRt[$: P] =
+    P("(" ~/ P((selfSugar | param).rep(sep = ",")) ~ ")")
+  def braces[$: P]: P[Node] =
+    P("{" ~/ term.rep.map(_.toList) ~ "}").map(body => {
+      // check if all terms are cases
+      var caseItems = List.empty[Case]
+      var anyNotCase = false
+      body.foreach {
+        case c: Case => caseItems = caseItems :+ c
+        case _       => anyNotCase = true
+      }
+      if anyNotCase || body.isEmpty then Block(body)
+      else CaseBlock(caseItems)
+    })
+  def parens[$: P] = P(
+    "(" ~/ arg.rep(sep = ",") ~ ("," ~ &(")")).map(jt).? ~ ")",
+  ).map(p => {
+    if p._2.isEmpty && p._1.size == 1 && !p._1.head.isInstanceOf[KeyedArg] then
+      p._1.head
+    else ArgsLit(p._1.toList)
+  })
+  def arg[$: P] = P(spread | keyedArg).m
+  def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
+  def keyedArg[$: P] = P(
+    (compound ~ (":" ~/ compound).?)
+      .map { case (lhs, rhs) =>
+        rhs match {
+          case Some(rhs) => KeyedArg(lhs, rhs)
+          case None      => lhs
+        }
+      },
+  )
+  def introTy[$: P] =
+    P(ident.rep(1, sep = " ") ~ typeAnnotation.? ~ &("," | "]")).map((e, t) =>
+      e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
+    )
+  def constraint[$: P] =
+    compare.map(e => Param(Ident("-"), Some(e), None, true)).m
+  def param[$: P] =
+    P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param(_, _, _, false)).m
+  def selfSugar[$: P] = P(
+    chk("&") ~ chk(word("mut")) ~ word("self").!.map(Ident.apply).m ~ &(
+      "," | ")",
+    ),
+  ).map((isRef, isMut, self) => {
+    val ty1 = Ident("Self")
+    val decorated = (isRef, isMut) match {
+      case (true, true)  => Apply(Ident("RefMut"), List(ty1), true)
+      case (true, false) => Apply(Ident("Ref"), List(ty1), true)
+      case _             => ty1
+    }
+    Param(self, Some(decorated), None, false)
+  }).m
+  def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
 
   // Expressions
   def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit).m
-  def ident[$: P] = ident_.map(Ident.apply).m
+  def ident[$: P] = id.map(Ident.apply).m
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
   def classItems[$: P] = classItem("class", false) | classItem("trait", true)
   def classItem[$: P](kw: String, abc: Boolean) =
     P(sigItem(kw) ~ termU).map(Class(_, _, _, abc))
   def implItem[$: P] = P(
-    keyword("impl") ~ params ~/ factor ~/ (keyword("for") ~/ factor).? ~ braces,
+    word("impl") ~ params ~/ factor ~/ (word("for") ~/ factor).? ~ braces,
   ).map {
     case (params, lhs, Some(rhs), body) => Impl(rhs, Some(lhs), params, body)
     case (params, lhs, None, body)      => Impl(lhs, None, params, body)
   }.m
-  def sigItem[$: P](kw: String) = P(keyword(kw) ~/ ident ~ params)
+  def sigItem[$: P](kw: String) = P(word(kw) ~/ ident ~ params)
   def valItem[$: P] = P(varLike("val")).map(Val.apply.tupled)
   def varItem[$: P] = P(varLike("var")).map(Var.apply.tupled)
   def typeItem[$: P] = P(varLike("type")).map(Typ.apply.tupled)
   def varLike[$: P](kw: String) =
-    P(keyword(kw) ~/ ident ~ typeAnnotation.? ~ initExpression.?)
-  def loopItem[$: P] = P(keyword("loop") ~/ braces).map(Loop.apply)
+    P(word(kw) ~/ ident ~ typeAnnotation.? ~ initExpression.?)
+  def loopItem[$: P] = P(word("loop") ~/ braces).map(Loop.apply)
   def importItem[$: P] =
-    P(keyword("import") ~/ termU ~ (keyword("from") ~/ termU).?).map {
+    P(word("import") ~/ termU ~ (word("from") ~/ termU).?).map {
       case (dest, Some(Semi(Some(path)))) =>
         Semi(Some(Import(path, Some(dest))))
       case (Semi(Some(path)), None) => Semi(Some(Import(path, None)))
@@ -191,29 +207,26 @@ object Parser {
       case (path, None)             => Import(path, None)
     }
   def forItem[$: P] = P(
-    keyword("for") ~ "(" ~/ ident ~ keyword("in") ~ term ~ ")" ~ braces,
+    word("for") ~ "(" ~/ ident ~ word("in") ~ term ~ ")" ~ braces,
   ).map(For.apply.tupled)
   def whileItem[$: P] = P(
-    keyword("while") ~/ parens ~ braces,
+    word("while") ~/ parens ~ braces,
   ).map(While.apply)
-  def breakItem[$: P] = P(keyword("break")).map(_ => Break())
-  def continueItem[$: P] = P(keyword("continue")).map(_ => Continue())
+  def breakItem[$: P] = P(word("break")).map(_ => Break())
+  def continueItem[$: P] = P(word("continue")).map(_ => Continue())
   def ifItem[$: P]: P[Node] = P(
-    keyword("if") ~/ parens ~ braces
-      ~ (keyword("else") ~ P(ifItem | braces)).?,
+    word("if") ~/ parens ~ braces
+      ~ (word("else") ~ P(ifItem | braces)).?,
   ).map(If.apply.tupled)
-  def returnItem[$: P] = P(keyword("return") ~/ termU).map(Return.apply)
+  def returnItem[$: P] = P(word("return") ~/ termU).map(Return.apply)
   // Compound expressions
   def compound[$: P] = P(
-    andOr ~ (
-      P(keyword("match").map(_ => "m") ~/ braces) |
-        P(keyword("as").map(_ => "a") ~/ factor)
-    ).rep,
+    andOr ~ (P(word("match").! ~/ braces) | P(word("as").! ~/ factor)).rep,
   ).map { case (lhs, rhs) =>
     rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
       op match {
-        case "m" => Match(lhs, rhs)
-        case "a" => As(lhs, rhs)
+        case "match" => Match(lhs, rhs)
+        case "as"    => As(lhs, rhs)
       }
     }
   }
@@ -229,7 +242,7 @@ object Parser {
   def andOr[$: P]: P[Node] = binOp(P("and" | "or"), compare)
   def relOp[$: P] = "<=" | ">=" | "==" | "!=" | P("<" ~ !"<") | P(">" ~ !">")
   def relTypeOp[$: P] = "<:" | ">:" | "=:"
-  def inNotIn[$: P] = keyword("in") | (keyword("not") ~ keyword("in"))
+  def inNotIn[$: P] = word("in") | (word("not") ~ word("in"))
   def compare[$: P]: P[Node] = binOp(P(relTypeOp | relOp | inNotIn), range_lit)
   def range_lit[$: P]: P[Node] = binOp(P(".."), bitOr)
   def bitOr[$: P]: P[Node] = binOp(CharIn("|") ~~ !"=", bitAnd)
@@ -238,75 +251,26 @@ object Parser {
   def addSub[$: P]: P[Node] = binOp(CharIn("+\\-") ~~ !"=", divMul)
   def divMul[$: P]: P[Node] = binOp(CharIn("*/") ~~ !"=", arithMod)
   def arithMod[$: P]: P[Node] = binOp(CharIn("%") ~~ !"=", factor)
-  def unary[$: P]: P[Node] =
-    P(P("!" | "~" | "-" | "+" | "&" | "*" | keyword("mut")).! ~ factor)
-      .map(UnOp.apply.tupled)
-  def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
-  // Clauses
-  def parens[$: P] = P(
-    "(" ~/ arg.rep(sep = ",") ~ ("," ~ &(")")).map(jt).? ~ ")",
-  ).map(p => {
-    if p._2.isEmpty && p._1.size == 1 && !p._1.head.isInstanceOf[KeyedArg] then
-      p._1.head
-    else ArgsLit(p._1.toList)
-  })
-  def braces[$: P]: P[Node] =
-    P("{" ~/ term.rep.map(_.toList) ~ "}").map(body => {
-      // check if all terms are cases
-      var caseItems = List.empty[Case]
-      var anyNotCase = false
-      body.foreach {
-        case c: Case => caseItems = caseItems :+ c
-        case _       => anyNotCase = true
-      }
-      if anyNotCase || body.isEmpty then Block(body)
-      else CaseBlock(caseItems)
-    })
-  def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
-  def arg[$: P] = P(spread | keyedClause).m
-  def params[$: P] =
-    (P(paramsCt.map(_.flatten) | paramsRt).rep).map { seq =>
-      if seq.isEmpty then None else Some(seq.flatten.toList)
-    }
-  def paramsCt[$: P] =
-    P("[" ~/ P(introTy | constraint.map(e => Seq(e))).rep(sep = ",") ~ "]")
-  def paramsRt[$: P] =
-    P("(" ~/ P((selfSugar | param).rep(sep = ",")) ~ ")")
-  def introTy[$: P] =
-    P(ident.rep(1, sep = " ") ~ typeAnnotation.? ~ &("," | "]")).map((e, t) =>
-      e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
+  def unaryOps[$: P] = "!" | "~" | "-" | "+" | "&" | "*" | word("mut")
+  def unary[$: P]: P[Node] = P(unaryOps.! ~ factor).map(UnOp.apply.tupled)
+  def binR[$: P](e: Node): P[Node] =
+    P(
+      (select(e) | applyItemCt(e) | applyItem(e)).flatMapX(binR) | P("").map(
+        _ => e,
+      ),
     )
-  def constraint[$: P] =
-    compare.map(e => Param(Ident("-"), Some(e), None, true)).m
-  def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
-  def selfSugar[$: P] = P(
-    chk("&") ~ chk(keyword("mut")) ~ keyword("self").!.map(Ident.apply).m ~ &(
-      "," | ")",
-    ),
-  ).map((isRef, isMut, self) => {
-    val ty1 = Ident("Self")
-    val decorated = (isRef, isMut) match {
-      case (true, true)  => Apply(Ident("RefMut"), List(ty1))
-      case (true, false) => Apply(Ident("Ref"), List(ty1))
-      case _             => ty1
-    }
-    Param(self, Some(decorated), None, false)
-  }).m
-  def param[$: P] =
-    P(ident ~ typeAnnotation.? ~ initExpression.?).map(Param(_, _, _, false)).m
+  def select[$: P](lhs: Node) =
+    P(("." | "::").! ~ ident).map((op, rhs) => Select(lhs, rhs, op != "."))
+  def applyItemCt[$: P](lhs: Node) =
+    argsCt.map(rhs => Apply(lhs, rhs.toList, true))
+  def applyItem[$: P](lhs: Node) =
+    args.map(rhs => Apply(lhs, rhs.toList, false))
+  def caseItem[$: P] =
+    P("case" ~/ factor ~ ("=>" ~ term).? ~ ";".?).map(Case.apply.tupled)
+
+  // Clauses
   def typeAnnotation[$: P] = P(":" ~/ factor).m
   def initExpression[$: P] = P("=" ~/ term).m
-  def caseClause[$: P] =
-    P("case" ~/ factor ~ ("=>" ~ term).? ~ ";".?).map(Case.apply.tupled)
-  def keyedClause[$: P] = P(
-    (compound ~ (":" ~/ compound).?)
-      .map { case (lhs, rhs) =>
-        rhs match {
-          case Some(rhs) => KeyedArg(lhs, rhs)
-          case None      => lhs
-        }
-      },
-  )
 
   // Keywords
   val keywords =

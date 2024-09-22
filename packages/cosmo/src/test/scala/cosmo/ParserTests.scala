@@ -35,8 +35,8 @@ class ParserTest extends munit.FunSuite {
         snapshot,
         expected,
         "Snapshot does not match: " + snapshotPath + "\n" + Diffs.unifiedDiff(
-          expected,
           snapshot,
+          expected,
         ),
       )
     }
@@ -62,6 +62,24 @@ class ParserTest extends munit.FunSuite {
   }
   test("ControlFlow/mainIf") {
     runTestOnFile("samples/ControlFlow/mainIf.cos")
+  }
+  test("Syntax/literal") {
+    runTestOnFile("samples/Syntax/literal.cos")
+  }
+  test("Syntax/cf.syntax") {
+    runTestOnFile("samples/Syntax/cf.syntax.cos")
+  }
+  test("Syntax/expr.syntax") {
+    runTestOnFile("samples/Syntax/expr.syntax.cos")
+  }
+  test("Syntax/callExpr.syntax") {
+    runTestOnFile("samples/Syntax/callExpr.syntax.cos")
+  }
+  test("Syntax/tmplLit.syntax") {
+    runTestOnFile("samples/Syntax/tmplLit.syntax.cos")
+  }
+  test("Syntax/decl.syntax") {
+    runTestOnFile("samples/Syntax/decl.syntax.cos")
   }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")

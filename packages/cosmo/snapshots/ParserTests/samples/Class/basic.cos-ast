@@ -2,17 +2,18 @@ Some(
   value = Block(
     stmts = List(
       Class(
-        name = "Basic",
-        params = None,
+        name = Ident(name = "Basic"),
+        ps = None,
         body = Block(
           stmts = List(
             Val(
-              name = "data",
+              name = Ident(name = "data"),
               ty = Some(value = Ident(name = "i32")),
               init = Some(value = IntLit(value = 0))
             )
           )
-        )
+        ),
+        ab = false
       )
     )
   )

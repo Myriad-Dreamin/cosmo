@@ -1,0 +1,245 @@
+Some(
+  value = Block(
+    stmts = List(
+      Decorate(
+        lhs = Apply(lhs = Ident(name = "noCore"), rhs = List(), ct = false),
+        rhs = Class(name = Ident(name = "A"), ps = None, body = Block(stmts = List()), ab = false)
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(value = List()),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "T"),
+              ty = Some(value = Ident(name = "Type")),
+              init = None,
+              ct = true
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "-"),
+              ty = Some(value = BinOp(op = "<:", lhs = Ident(name = "T"), rhs = Ident(name = "F"))),
+              init = None,
+              ct = true
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "-"),
+              ty = Some(value = BinOp(op = ">:", lhs = Ident(name = "T"), rhs = Ident(name = "F"))),
+              init = None,
+              ct = true
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "-"),
+              ty = Some(value = BinOp(op = "==", lhs = Ident(name = "T"), rhs = Ident(name = "F"))),
+              init = None,
+              ct = true
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(value = List(Param(name = Ident(name = "a"), ty = None, init = None, ct = false))),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "a"),
+              ty = Some(value = Ident(name = "i32")),
+              init = None,
+              ct = false
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "T"),
+              ty = Some(value = Ident(name = "Type")),
+              init = None,
+              ct = true
+            ),
+            Param(
+              name = Ident(name = "a"),
+              ty = Some(value = Ident(name = "i32")),
+              init = None,
+              ct = false
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "-"),
+              ty = Some(value = BinOp(op = "<:", lhs = Ident(name = "T"), rhs = Ident(name = "F"))),
+              init = None,
+              ct = true
+            ),
+            Param(
+              name = Ident(name = "a"),
+              ty = Some(value = Ident(name = "i32")),
+              init = None,
+              ct = false
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = None,
+        body = Block(
+          stmts = List(
+            Val(
+              name = Ident(name = "x"),
+              ty = None,
+              init = Some(value = Semi(semi = Some(value = IntLit(value = 1))))
+            )
+          )
+        ),
+        ab = false
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = None,
+        body = Block(
+          stmts = List(
+            Val(
+              name = Ident(name = "x"),
+              ty = None,
+              init = Some(value = Semi(semi = Some(value = IntLit(value = 1))))
+            )
+          )
+        ),
+        ab = true
+      ),
+      Impl(
+        rhs = Ident(name = "B"),
+        lhs = Some(value = Ident(name = "A")),
+        params = None,
+        body = Block(stmts = List())
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "B"),
+              ty = Some(value = Ident(name = "Type")),
+              init = None,
+              ct = true
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = true
+      ),
+      Impl(
+        rhs = Ident(name = "B"),
+        lhs = Some(value = Ident(name = "A")),
+        params = Some(
+          value = List(
+            Param(
+              name = Ident(name = "C"),
+              ty = Some(value = Ident(name = "Type")),
+              init = None,
+              ct = true
+            )
+          )
+        ),
+        body = Block(stmts = List())
+      ),
+      Class(
+        name = Ident(name = "A"),
+        ps = Some(
+          value = List(
+            Param(
+              name = Ident(name = "B"),
+              ty = Some(value = Ident(name = "Type")),
+              init = None,
+              ct = true
+            ),
+            Param(
+              name = Ident(name = "c"),
+              ty = Some(value = Ident(name = "i32")),
+              init = None,
+              ct = false
+            )
+          )
+        ),
+        body = Block(stmts = List()),
+        ab = true
+      ),
+      Impl(
+        rhs = Ident(name = "B"),
+        lhs = Some(value = Ident(name = "A")),
+        params = Some(
+          value = List(
+            Param(
+              name = Ident(name = "C"),
+              ty = Some(value = Ident(name = "Type")),
+              init = None,
+              ct = true
+            ),
+            Param(
+              name = Ident(name = "c"),
+              ty = Some(value = Ident(name = "i32")),
+              init = None,
+              ct = false
+            )
+          )
+        ),
+        body = Block(stmts = List())
+      )
+    )
+  )
+)
