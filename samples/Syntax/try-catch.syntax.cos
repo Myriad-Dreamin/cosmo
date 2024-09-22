@@ -1,0 +1,28 @@
+
+@noCore();
+
+def main() = {
+  // catch (PromiseHandler, (promise) => {
+  //   val condVar = Signal();
+  //   var result;
+  //   cstd.async(cstd.launch.async) {
+  //     result = executePromise(promise)
+  //     condVar.signal();
+  //   }
+  //   condVar.wait();
+  //   return result;
+  // });
+  // catch [PromiseHandler]((promise) => Unit);
+  // catch (promise) => Unit;
+  // catch [T](promise: T) => Unit;
+
+  res?;
+  res??;
+  read("f")?;
+  read("f")??;
+  res?.method();
+  res??.method();
+  read("f")?.method();
+  read("f")??.method();
+  res?.method()?.t;
+}

@@ -128,7 +128,7 @@ const keywords: textmate.Pattern = {
     {
       name: "keyword.control.cosmo",
       match:
-        /\b(?:extern|pub|mut|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|Self|self|super|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not)\b/,
+        /\b(?:extern|pub|mut|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|catch|def|Self|self|super|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not)\b/,
     },
   ],
 };

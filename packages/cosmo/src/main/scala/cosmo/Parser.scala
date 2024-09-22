@@ -7,12 +7,6 @@ import fastparse._, fastparse.ScalaWhitespace._
 import cosmo.syntax._
 import cosmo.syntax.NodeParse._
 
-def jt(x: Unit) = true
-def us(x: Node) = x match {
-  case Semi(Some(x)) => x
-  case x             => x
-}
-
 object Parser {
   // Entry point
   def root[$: P]: P[Block] =
@@ -95,7 +89,10 @@ object Parser {
   def term[$: P]: P[Node] = P(
     decorator.? ~ decorated,
   ).map { case (dr, de) => dr.map(Decorate(_, de)).getOrElse(de) }
-  def termU[$: P] = P(term.map(us))
+  def termU[$: P] = P(term.map {
+    case Semi(Some(x)) => x
+    case x             => x
+  })
   def decorator[$: P]: P[Node] = P("@" ~/ factor)
   def decorated[$: P] =
     (ifItem | forItem | whileItem | loopItem | caseItem | semiWrap | semi).m
@@ -111,7 +108,7 @@ object Parser {
     )
   def primaryExpr[$: P] =
     P(tmplLit | ident | parens | paramsLit | literal | braces).m
-  def factor[$: P]: P[Node] = P(unary | primaryExpr.flatMapX(binR))
+  def factor[$: P]: P[Node] = P(unary | primaryExpr.flatMapX(factorR))
 
   // Braces/Args/Params
   def argsCt[$: P] = P("[" ~/ arg.rep(sep = ",") ~ "]")
@@ -137,7 +134,7 @@ object Parser {
   def brack[$: P] =
     P("[" ~/ P(introTy | constraint.map(e => Seq(e))).rep(sep = ",") ~ "]")
   def parens[$: P] = P(
-    "(" ~/ arg.rep(sep = ",") ~ ("," ~ &(")")).map(jt).? ~ ")",
+    "(" ~/ arg.rep(sep = ",") ~ ("," ~ &(")")).map(_ => true).? ~ ")",
   ).map(p => {
     if p._2.isEmpty && p._1.size == 1 && !p._1.head.isInstanceOf[KeyedArg] then
       p._1.head
@@ -145,15 +142,10 @@ object Parser {
   })
   def arg[$: P] = P(spread | keyedArg).m
   def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
-  def keyedArg[$: P] = P(
-    (compound ~ (":" ~/ compound).?)
-      .map { case (lhs, rhs) =>
-        rhs match {
-          case Some(rhs) => KeyedArg(lhs, rhs)
-          case None      => lhs
-        }
-      },
-  )
+  def keyedArg[$: P] = P((compound ~ (":" ~/ compound).?).map {
+    case (lhs, Some(rhs)) => KeyedArg(lhs, rhs)
+    case (lhs, None)      => lhs
+  })
   def introTy[$: P] =
     P(ident.rep(1, sep = " ") ~ typeAnnotation.? ~ &("," | "]")).map((e, t) =>
       e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
@@ -199,13 +191,8 @@ object Parser {
     P(word(kw) ~/ ident ~ typeAnnotation.? ~ initExpression.?)
   def loopItem[$: P] = P(word("loop") ~/ braces).map(Loop.apply)
   def importItem[$: P] =
-    P(word("import") ~/ termU ~ (word("from") ~/ termU).?).map {
-      case (dest, Some(Semi(Some(path)))) =>
-        Semi(Some(Import(path, Some(dest))))
-      case (Semi(Some(path)), None) => Semi(Some(Import(path, None)))
-      case (dest, Some(path))       => Import(path, Some(dest))
-      case (path, None)             => Import(path, None)
-    }
+    P(word("import") ~/ termU ~ (word("from") ~/ termU).?)
+      .map(Import.apply.tupled)
   def forItem[$: P] = P(
     word("for") ~ "(" ~/ ident ~ word("in") ~ term ~ ")" ~ braces,
   ).map(For.apply.tupled)
@@ -219,15 +206,14 @@ object Parser {
       ~ (word("else") ~ P(ifItem | braces)).?,
   ).map(If.apply.tupled)
   def returnItem[$: P] = P(word("return") ~/ termU).map(Return.apply)
-  // Compound expressions
+  // (Top) Compound expressions
   def compound[$: P] = P(
     andOr ~ (P(word("match").! ~/ braces) | P(word("as").! ~/ factor)).rep,
   ).map { case (lhs, rhs) =>
-    rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-      op match {
-        case "match" => Match(lhs, rhs)
-        case "as"    => As(lhs, rhs)
-      }
+    rhs.foldLeft(lhs) {
+      case (lhs, ("match", rhs)) => Match(lhs, rhs)
+      case (lhs, ("as", rhs))    => As(lhs, rhs)
+      case _                     => ???
     }
   }
   def moreAssigns[$: P] =
@@ -235,9 +221,7 @@ object Parser {
   def assign[$: P]: P[Node] = binOp(P(P("=" ~ !">") | moreAssigns), compound)
   def binOp[$: P](op: => P[Unit], next: => P[Node]): P[Node] =
     P(next ~ (op.! ~/ next).rep).map { case (lhs, rhs) =>
-      rhs.foldLeft(lhs) { case (lhs, (op, rhs)) =>
-        BinOp(op, lhs, rhs)
-      }
+      rhs.foldLeft(lhs) { case (lhs, (op, rhs)) => BinOp(op, lhs, rhs) }
     }
   def andOr[$: P]: P[Node] = binOp(P("and" | "or"), compare)
   def relOp[$: P] = "<=" | ">=" | "==" | "!=" | P("<" ~ !"<") | P(">" ~ !">")
@@ -254,9 +238,10 @@ object Parser {
   def unaryOps[$: P] = "!" | "~" | "-" | "+" | "&" | "*" | word("mut")
   def unary[$: P]: P[Node] = P(unaryOps.! ~ factor).map(UnOp.apply.tupled)
   def eBinR[$: P](e: Node) =
-    select(e) | applyItemCt(e) | applyItem(e) | lambda(e)
-  def binR[$: P](e: Node): P[Node] =
-    P(("" ~ eBinR(e)).flatMapX(binR) | P("").map(_ => e))
+    question(e) | select(e) | applyItemCt(e) | applyItem(e) | lambda(e)
+  def factorR[$: P](e: Node): P[Node] =
+    P(("" ~ eBinR(e)).flatMapX(factorR) | P("").map(_ => e))
+  def question[$: P](lhs: Node) = "?".!.map(op => UnOp(op, lhs))
   def select[$: P](lhs: Node) =
     P(("." | "::").! ~ ident).map((op, rhs) => Select(lhs, rhs, op != "."))
   def applyItemCt[$: P](lhs: Node) =
@@ -268,18 +253,15 @@ object Parser {
     case Lambda(lhs, rhs) => Case(lhs, Some(rhs))
     case x                => Case(x, None)
   }
-
-  // Clauses
   def typeAnnotation[$: P] = P(":" ~/ factor).m
   def initExpression[$: P] = P("=" ~/ term).m
 
-  // Keywords
+  // Weak Keywords: from
+  // Strong Keywords
   val keywords =
     Set(
       // to reduce js load time a bit
       "pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not|mut|true|false"
         .split('|')*,
-      // weak
-      // "from",
     )
 }
