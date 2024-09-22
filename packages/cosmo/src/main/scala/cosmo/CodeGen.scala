@@ -30,8 +30,8 @@ class CodeGen(implicit val env: Env) {
   def mayGenDef(ast: ir.Item, tl: Boolean): Option[String] = {
     implicit val topLevel = tl;
     val info = ast match {
-      case ir.Var(info, _, _, _) => Some(info)
-      case ir.Fn(info, _, _)     => Some(info)
+      case ir.Var(info, _, _) => Some(info)
+      case ir.Fn(info, _, _)  => Some(info)
       case ir.Class(info, _, _, _, _, _, _, _) =>
         Some(info)
       case ir.Impl(info, _, _, _, _) => Some(info)
@@ -41,8 +41,7 @@ class CodeGen(implicit val env: Env) {
     val nsb = if inClass then "" else nsb_
     val nse = if inClass then "" else nse_
     val res: String = ast match {
-      case ir.NoneItem    => ""
-      case ir.Semi(value) => return mayGenDef(value, tl)
+      case ir.NoneItem => ""
       case Fn(defInfo, Sig(params, retTy, body), level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
@@ -273,29 +272,29 @@ class CodeGen(implicit val env: Env) {
     )
 
   def genVarParam(node: ir.Var) = {
-    val ir.Var(defInfo, init, isContant, _) = node
-    val name = defInfo.nameStem(defInfo.id.id)
-    val ty = paramTy(defInfo.instantiateTy)
-    var constantStr = if isContant then "const " else ""
+    val ir.Var(info, init, _) = node
+    val name = info.nameStem(info.id.id)
+    val ty = paramTy(info.instantiateTy)
+    var constantStr = if info.isMut then "" else "const "
     s"${constantStr}${ty} ${name}_p"
   }
 
   def genVarCons(node: ir.Var) = {
-    val ir.Var(defInfo, init, isContant, _) = node
-    val name = defInfo.nameStem(defInfo.id.id)
-    val ty = defInfo.instantiateTy
+    val ir.Var(info, init, _) = node
+    val name = info.nameStem(info.id.id)
+    val ty = info.instantiateTy
     val p = s"std::move(${name}_p)"
     if ty == SelfTy then s"$name(std::move(std::make_unique<Self>($p)))"
     else s"$name($p)"
   }
 
   def genVarStore(node: ir.Var) = {
-    val ir.Var(defInfo, init, isContant, _) = node
-    val name = defInfo.nameStem(defInfo.id.id)
-    val ty = storeTy(defInfo.instantiateTy)
-    var constantStr = if isContant then "const " else ""
+    val ir.Var(info, init, _) = node
+    val name = info.nameStem(info.id.id)
+    val ty = storeTy(info.instantiateTy)
+    var constantStr = if info.isMut then "" else "const "
     val kInit =
-      if (defInfo.inClass) then
+      if (info.inClass) then
         val initStr = init match {
           case Some(value) => s"${expr(value)}"
           case None        => "{}"
@@ -304,7 +303,7 @@ class CodeGen(implicit val env: Env) {
       else ""
     val initStr =
       if (init.isEmpty) then ""
-      else if (defInfo.inClass) then s" = k${name.capitalize}Default"
+      else if (info.inClass) then s" = k${name.capitalize}Default"
       else s" = ${expr(init.getOrElse(NoneItem))}"
     s"$kInit$constantStr$ty $name$initStr"
   }
@@ -337,7 +336,7 @@ class CodeGen(implicit val env: Env) {
   // todo: analysis it concretely
   def mayClone(v: ir.VarField, value: String): String = {
     v.item match {
-      case ir.Var(info, _, _, _) =>
+      case ir.Var(info, _, _) =>
         if (info.instantiateTy == SelfTy) {
           // todo: detect rvalue correctly
           if (value.endsWith(")")) {
@@ -447,7 +446,7 @@ class CodeGen(implicit val env: Env) {
           List(lhs),
           recv,
         )
-      case ir.IApply(BoundField(lhs, impl: Impl, true, field), rhs) =>
+      case ir.Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
         val iface = storeTy(impl.iface)
         val cls = storeTy(impl.cls)
         val lhsIsMut = lhs match {
@@ -458,19 +457,19 @@ class CodeGen(implicit val env: Env) {
         val castedOp =
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
         return literalCall(s"$castedOp${field.item.id.name}", rhs, recv)
-      case ir.IApply(BoundField(lhs, _: Class, true, field), rhs) =>
+      case ir.Apply(BoundField(lhs, _: Class, true, field), rhs) =>
         return literalCall(
           s"${dispatchOp(lhs, field, true)}${field.item.id.name}",
           rhs,
           recv,
         )
-      case ir.IApply(BoundField(lhs, by, false, field), rhs) =>
+      case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
         return literalCall(
           s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}",
           rhs,
           recv,
         )
-      case ir.IApply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
+      case ir.Apply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
       case BoundField(lhs, by, false, field) =>
         s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
@@ -496,7 +495,6 @@ class CodeGen(implicit val env: Env) {
         s"${solveDict(items)}{${items
             .map { case (k, v) => s"""{"$k", ${expr(v)}}""" }
             .mkString(", ")}}"
-      case ir.Semi(value)   => return exprWith(value, ValRecv.None)
       case v: ir.CIdent     => storeTy(v)
       case v: ir.CppInsType => storeTy(v)
       case v: ir.Var        => v.id.defName(stem = false)

@@ -1,0 +1,123 @@
+
+@noCore();
+
+def main() = {
+
+  a match {}
+  a + 1 match {}
+  a.method match {}
+  a.method() match {}
+  a * 1 match {}
+  a = 1 match {}
+  a = a match {}
+
+  1 match {
+    case 1
+  }
+  1 match {
+    case 1 => 2
+  }
+  1 match {
+    case false => 2
+  }
+  1 + 1 match {
+    case (1 + 1) => 2
+  }
+  1 + 1 match {
+    case (1 * 1 + 1) => 2
+  }
+  1 match {
+    case a => 2
+  }
+  1 match {
+    case (a) => 2
+  }
+  1 + 1 match {
+    case (1 + a) => 2
+  }
+  1 + 1 match {
+    case (1 * 1 + a) => 2
+  }
+  1 + 1 match {
+    case a => { 2 }
+  }
+  1 + 1 match {
+    case A.B() => { 2 }
+  }
+  1 + 1 match {
+    case (A.B()) => { 2 }
+  }
+  1 match {
+    case a => { 2 }
+  } match {
+    case b => { 2 }
+  }
+  1 match {
+    case a => { 2 }
+  } as a
+  1 as a match {
+    case a => { 2 }
+  }
+  
+  1 as a match {
+    case _
+  }
+  1 as a match {
+    case _;
+  }
+  1 as a match {
+    case _ => a
+  }
+  1 as a match {
+    case _ => a;
+  }
+  {
+    1 match {
+      case a => a
+    }
+  }
+  {
+    val a = 1;
+    1 match {
+      case a => a
+    }
+  }
+  {
+    val a = 1;
+    1 match {
+      case a.b => a
+    }
+  }
+  {
+    1 match {
+      case a.b(a) => a
+    }
+  }
+  {
+    val a = 1;
+    1 match {
+      case a.b(a) => a
+    }
+  }
+  {
+    1 match {
+      case _
+    }
+  }
+  {
+    1 match {
+      case _ => _
+    }
+  }
+  {
+    1 match {
+      case a.b(b: a) => (a, b)
+    }
+  }
+  {
+    val a = 1;
+    1 match {
+      case a.b(b: a) => (a, b)
+    }
+  }
+}
