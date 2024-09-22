@@ -46,7 +46,10 @@ object Doc {
         case Doc.Str(v) =>
           sb.append(v)
         case Doc.Item(v: ir.Name) if showDef =>
-          sb.append(s"<$v is ${v.of.getOrElse("!")}>")
+          v.of match {
+            case Some(v) => sb.append(s"$v")
+            case None    => sb.append(s"$v!")
+          }
         case Doc.Item(v) =>
           sb.append(v.toString())
         case Doc.Indent(i, d) =>
@@ -78,6 +81,10 @@ object Doc {
     def d(implicit sep: Doc = Doc.empty): Doc =
       Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
   }
+  implicit class ConcatItem2Ops(val seq: Array[ir.Item]) extends AnyVal {
+    def d(implicit sep: Doc = Doc.empty): Doc =
+      Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
+  }
   implicit class ItemOptionOps(val o: Option[ir.Item]) extends AnyVal {
     def d: Option[Doc] = o.map(Doc.buildItem)
   }
@@ -92,25 +99,28 @@ object Doc {
       kind: String,
       pe: ir.ParamExpr,
       ret_ty: Option[ir.Type],
-      body: Option[ir.Item],
+      body: => Doc,
   ): Doc = {
     val n = s"${pe.id.name}@${pe.id.id.id}"
-    val p = pe.params.map(_.d(", ".d)).getOrElse(empty)
+    val p = pe.params.map(ps => Doc.paren(ps.d(", ".d))).getOrElse(empty)
     val cs =
       if pe.constraints.isEmpty then empty
       else Array(" where [".d, pe.constraints.d(", ".d), "]".d).d
     val r = ret_ty.d.getOrElse("_".d)
-    val b = body.d.getOrElse("_".d)
-    Array(kind.d, n.d, Doc.paren(p), ": ".d, r, cs, " = ".d, b).d
+    Array(kind.d, n.d, p, ": ".d, r, cs, " = ".d, body).d
+  }
+  def fieldDecls(fields: ir.FieldMap): Doc = {
+    val fs = fields.values.map(_.item.asInstanceOf[ir.Item].d)
+    Doc.block("block", fs.toSeq.d(NewLine))
   }
   def buildItem(item: ir.Item): Doc = item match {
     case b: ir.Region => Doc.block("block", b.stmts.d(NewLine))
     case f: ir.DefExpr =>
-      paramDecl("def ", f, f.ret_ty, f.body)
+      paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))
     case c: ir.ClassExpr if !c.isAbstract =>
-      paramDecl("class ", c, None, Some(c.body))
+      paramDecl("class ", c, None, fieldDecls(c.fields))
     case c: ir.ClassExpr =>
-      paramDecl("trait ", c, None, Some(c.body))
+      paramDecl("trait ", c, None, fieldDecls(c.fields))
     case impl: ir.ImplExpr =>
       // iface, " for ".d
       val i = impl.iface.d.map(i => Array(i, " for ".d).d).getOrElse(empty)

@@ -1,5 +1,7 @@
 package cosmo.ir
 
+import scala.collection.mutable.{Map as MutMap};
+
 import cosmo.{DefInfo, FileId}
 
 import cosmo.ir.Value
@@ -13,6 +15,7 @@ val CODE_FUNC = 1
 
 private[cosmo] type Defo = DefInfo;
 private[cosmo] type Ni = Option[Item];
+private[cosmo] type FieldMap = MutMap[String, VField];
 
 sealed abstract class Item {
   val level: Int = 0;
@@ -48,7 +51,7 @@ sealed abstract class Expr extends Item {
     case d: DeclExpr if d.id.name == "_" => true; case _ => false
   }
 }
-sealed abstract class DeclExpr extends Expr {
+sealed abstract class DeclExpr extends Expr with DeclLike {
   val id: DefInfo
 }
 
@@ -109,7 +112,7 @@ final case class ClassExpr(
     id: DefInfo,
     params: Option[List[VarExpr]],
     constraints: List[Expr],
-    body: Item,
+    fields: FieldMap,
     isAbstract: Boolean,
 ) extends ParamExpr {}
 final case class ImplExpr(
@@ -175,12 +178,13 @@ final case class TypeMatch(
     cases: List[(Class, Item)],
     orElse: Item,
 ) extends Item {}
-abstract class DeclLike extends Item {
+abstract trait DeclLike {
   val id: DefInfo
   def name = id.name
 }
+abstract class DeclItem extends Item with DeclLike {}
 
-final case class Param(id: DefInfo, override val level: Int) extends DeclLike {
+final case class Param(id: DefInfo, override val level: Int) extends DeclItem {
   def pretty(implicit rec: Item => String = _.toString): String =
     s"${id.defName(false)}: ${rec(id.ty)}"
 }
@@ -188,7 +192,7 @@ final case class Var(
     id: DefInfo,
     init: Option[Item],
     override val level: Int,
-) extends DeclLike {
+) extends DeclItem {
   override def toString: String =
     val mod = if !id.isMut then "val" else "var"
     s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
@@ -202,7 +206,7 @@ final case class Fn(
     id: DefInfo,
     sig: Sig,
     override val level: Int,
-) extends DeclLike {
+) extends DeclItem {
   override def toString: String = s"fn(${id.defName(false)})"
 
   def pretty(implicit rec: Item => String = _.toString): String =
@@ -228,18 +232,18 @@ final case class Term(
     val id: DefInfo,
     override val level: Int,
     val value: Option[Item] = None,
-) extends DeclLike {
+) extends DeclItem {
   override def toString: String = s"term(${id.defName(false)})"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
-    extends DeclLike {
+    extends DeclItem {
   def pretty(implicit rec: Item => String = _.toString): String =
     s"module ${id.defName(false)} including \"$path\""
 }
 enum CModuleKind {
   case Builtin, Error, Source
 }
-final case class NativeModule(id: DefInfo, env: Env) extends DeclLike {
+final case class NativeModule(id: DefInfo, env: Env) extends DeclItem {
   def pretty(implicit rec: Item => String = _.toString): String =
     s"module ${id.defName(false)} in ${env.fid.map(_.toString).getOrElse("")}"
 }
@@ -266,7 +270,7 @@ final case class ClassInstance(
 final case class EnumVariant(
     id: DefInfo,
     base: Class,
-) extends DeclLike {
+) extends DeclItem {
   override val level: Int = 1
 }
 final case class EnumDestruct(
@@ -312,7 +316,7 @@ final case class Impl(
     iface: Type,
     cls: Type,
     fields: List[VField],
-) extends DeclLike {
+) extends DeclItem {
   override val level: Int = 1
 
   def pretty(implicit rec: Item => String = _.toString): String =
@@ -417,7 +421,7 @@ final case class Str(value: String) extends Value {
 final case class Bytes(value: Array[Byte]) extends Value {}
 final case class Rune(value: Int) extends Value {}
 final case class DictLit(value: Map[String, Item]) extends Value {}
-final case class TupleLit(elems: List[Item]) extends Value {
+final case class TupleLit(elems: Array[Item]) extends Value {
   override def toString: String = elems.mkString("tup(", ", ", ")")
 }
 
@@ -428,9 +432,12 @@ sealed abstract class VField {
   def pretty(implicit rec: Item => String = _.toString): String = item match {
     case i: Var      => s"var ${i.id.defName(true)}: ${rec(i.id.ty)}"
     case i: Fn       => s"def ${i.id.defName(true)}: ${rec(i.sig)}"
-    case i: DeclLike => s"field ${i.id.defName(true)}: ${rec(i.id.ty)}"
+    case i: DeclItem => s"field ${i.id.defName(true)}: ${rec(i.id.ty)}"
   }
 }
+final case class EVarField(item: VarExpr, index: Int) extends VField
+final case class EDefField(item: DefExpr) extends VField
+final case class EEnumField(item: ClassExpr, index: Int) extends VField
 final case class VarField(item: Var) extends VField
 final case class DefField(item: Fn) extends VField
-final case class TypeField(item: DeclLike) extends VField
+final case class TypeField(item: DeclItem) extends VField

@@ -1,0 +1,56 @@
+
+@syntaxOnly();
+
+class Cls {}
+
+class Cls {
+  val a = 1;
+}
+
+class Cls {
+  def a = 1;
+}
+
+class Cls {
+  def method(a) = a;
+}
+
+class Cls {
+  def method[T]: T = T();
+}
+
+class Cls {
+  def method[T](a): T = a;
+}
+
+class Cls[T] {
+  def method(a): T = a;
+}
+
+
+class Cls {
+  case Zero
+}
+
+class Cls {
+  case Zero
+  case Succ(Nat)
+}
+
+class Cls {
+  case Zero
+  case Succ(n: Nat)
+}
+
+class Nat {
+  case Zero => {
+    def cons = Zero();
+  }
+  case Succ(Nat) => {
+    def cons = Succ(Nat.Zero);
+  }
+}
+
+trait DoMethod[T] {
+  def method(a: T): T = a;
+}

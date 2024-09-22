@@ -19,8 +19,8 @@ export class CosmoLanguageService {
 
     this.cc.configure(this.releaseDir);
 
-    this.cc.loadPackageByPath(resolve("library/std"));
-    this.cc.preloadPackage("std");
+    // this.cc.loadPackageByPath(resolve("library/std"));
+    // this.cc.preloadPackage("std");
   }
 }
 
