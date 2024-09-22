@@ -74,8 +74,11 @@ object DefInfo {
   def just(id: Int, env: Env) = new DefInfo("", List(), DefId(id), env)
 }
 
-class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
-  val stgE = new ExprEnv(this);
+class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
+    extends ExprEnv {
+
+  var noCore = false
+  var syntaxOnly = false
 
   var defAlloc = DEF_ALLOC_START
   var defs = List[DefInfo]()
@@ -85,14 +88,14 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
   var items: Map[DefId, Item] = Map()
   var scopes = new Scopes()
   var errors: List[String] = List()
-  var moduleAst: Option[Expr] = None
-  var module: ir.Region = Region(List())
   var ns: List[String] = List()
-  var noCore = false
   var builtinClasses = Map[Item, Class]()
   var selfRef: Option[Item] = None
   var selfImplRef: Option[Item] = None
   var rawDeps = Map[FileId, Option[Env]]()
+
+  var moduleAst: Expr = Opaque.expr("")
+  var module: ir.Region = Region(List())
 
   /// Builtin Items
 
@@ -143,10 +146,11 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
   /// Entry
 
   def entry(ast: syntax.Block): Env = {
-    stgE.module = stgE.expr(ast)
+    moduleAst = expr(ast)
+    if (syntaxOnly) return this
 
     if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
-    val m = term(stgE.module)(0)
+    val m = term(moduleAst)(0)
     if !m.isInstanceOf[Region] then err("module must be a block")
     module = m.asInstanceOf[Region]
 
@@ -228,7 +232,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
     }
   }
 
-  def expr(ast: syntax.Node)(implicit level: Int): ir.Item = ???
+  def expGG(ast: syntax.Node)(implicit level: Int): ir.Item = ???
 
   /// imports
 
@@ -486,7 +490,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
   );
 
   def matchExpr(b: MatchExpr)(implicit level: Int): Item = {
-    // var lhs = expr(b.lhs)
+    // var lhs = expGG(b.lhs)
     // var lhsTy = tyOf(lhs) match
     //   case None     => return err("cannot match a untyped value")
     //   case Some(ty) => ty;
@@ -540,16 +544,16 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
       // TODO: nested apply matching
       case syntax.Apply(name, rhs, _) => (name, Some(rhs))
       // Matching by value, just return the value.
-      case _ => return ((expr(by), cont), lhs)
+      case _ => return ((expGG(by), cont), lhs)
     }
-    val variant = enumShape(expr(name)) match {
+    val variant = enumShape(expGG(name)) match {
       case Some(v)              => v
       case None if args.isEmpty =>
         // Must be resolved ident/select, also use matching by value.
         // TODO: Better fuse the check with the lines above.
-        return ((expr(by), cont), lhs)
+        return ((expGG(by), cont), lhs)
       case None =>
-        err(s"Invalid enum variant $name"); return ((expr(by), cont), lhs)
+        err(s"Invalid enum variant $name"); return ((expGG(by), cont), lhs)
     }
     // val binding = args.iterator.flatten.map {
     //   case syntax.Ident(name) => name
@@ -691,173 +695,75 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
 
   def classItem(e: ClassExpr, classSelf: Option[Class] = None): Class = {
     val ClassExpr(info, params, constraints, body, isAbstract) = e
-    val ss = selfRef
-    val cls = {
-      classSelf.foreach(cls => selfRef = Some(cls))
-      val (vars, restFields) = body match
-        case _: CaseRegion if isAbstract =>
-          errors = "Cannot have an enumerated trait" :: errors; (List(), List())
-        case body: Region =>
-          baseClass(body, classSelf.map(p => p.vars ::: p.restFields))
-        case caseBlock: CaseRegion =>
-          (List(), enumClass(caseBlock, info, classSelf.map(_.restFields)))
-        case _ =>
-          val kind = if isAbstract then "trait" else "class"
-          errors = s"Invalid $kind body" :: errors; (List(), List())
-      if (isAbstract) {
-        restFields.foreach {
-          case DefField(f) => f.id.isVirtual = true
-          case _           =>
-        }
-      }
-      Class(info, resolveParams(params), None, vars, restFields, isAbstract)
-    }
-    info.ty = cls
-    selfRef = ss
-    items += (info.id -> cls)
-
-    // Check conflict
-    var existings = Map[String, VField]();
-    def addField(f: VField) = if (existings.contains(f.name)) {
-      errors = s"conflict field ${f.name}" :: errors
-    } else {
-      existings += (f.name -> f)
-    }
-    cls.fields.foreach(addField)
-
-    cls
-  }
-
-  def baseClass(ast: Region, fields: Option[List[VField]]) = {
-    val withBody = !fields.isEmpty
-    var vars = List[VarField]();
-    var rests = List[VField]();
-
-    ast.stmts.foreach {
-      // todo: syntax.Typ
-      case VarExpr(x, ty, y) =>
-        x.inClass = true;
-        vars = vars :+ VarField(varItem(x, ty, y.map(valueTerm))(0))
-      case d: DefExpr =>
-        d.id.inClass = true;
-        rests = rests :+ DefField(defItem(d, withBody = withBody))
-      case node =>
-        errors = s"Invalid class item $node" :: errors
-    }
-
-    (vars, rests)
-  }
-
-  def enumClass(
-      ast: CaseRegion,
-      info: DefInfo,
-      fields: Option[List[VField]],
-  ) = {
-    var subs = fields.iterator.flatten
-      .filter(_.isInstanceOf[TypeField])
-      .map(_.item.asInstanceOf[EnumVariant])
-    var selfRestFields2 = fields.map(_.filter(!_.isInstanceOf[TypeField]))
-
-    val stmts: List[VField] = ast.cases
-      .filter(!_._1.isWildcard)
-      .map(p =>
-        TypeField(
-          enumVariant(p, info, info.name, classSelf = subs.nextOption()),
-        ),
-      )
-    val restFields = ast.cases
-      .find(_._1.isWildcard)
-      .map { case (_, body) =>
-        baseClass(
-          // todo: as instance of Block
-          body.getOrElse(Region(List())).asInstanceOf[Region],
-          fields = selfRestFields2,
-        )
-      } match {
-      case Some((vars, restFields)) =>
-        if (!vars.isEmpty) {
-          errors = s"Invalid default class for enum" :: errors
-        }
-        restFields
-      case None => List()
-    }
-
-    restFields ::: stmts
-  }
-
-  def enumVariant(
-      node: (Expr, Option[Expr]),
-      baseId: DefInfo,
-      baseName: String,
-      classSelf: Option[EnumVariant] = None,
-  ) = {
-    // val (cond, body) = node;
-    // val (subName, params) = cond match {
-    //   case name: Name                    => (name.id, List())
-    //   case Apply(name: Name, params) => (name.id, params)
-    //   case _                             => (ct("invalid"), List())
+    // val ss = selfRef
+    // val cls = {
+    //   classSelf.foreach(cls => selfRef = Some(cls))
+    //   val (vars, restFields) = body match
+    //     case _: CaseRegion if isAbstract =>
+    //       errors = "Cannot have an enumerated trait" :: errors; (List(), List())
+    //     // case body: Region =>
+    //     //   baseClass(body, classSelf.map(p => p.vars ::: p.restFields))
+    //     // case caseBlock: CaseRegion =>
+    //     //   (List(), enumClass(caseBlock, info, classSelf.map(_.restFields)))
+    //     case _ =>
+    //       val kind = if isAbstract then "trait" else "class"
+    //       errors = s"Invalid $kind body" :: errors; (List(), List())
+    //   if (isAbstract) {
+    //     restFields.foreach { case DefField(f) =>
+    //       f.id.isVirtual = true
+    //     // case _           =>
+    //     }
+    //   }
+    //   Class(info, resolveParams(params), None, vars, restFields, isAbstract)
     // }
+    // info.ty = cls
+    // selfRef = ss
+    // items += (info.id -> cls)
 
-    // val vars = params.zipWithIndex.map {
-    //   case (n: syntax.Ident, index) =>
-    //     val ty = if (n.name == baseName) { syntax.Ident("Self") }
-    //     else { n }
-    //     syntax.Var(Ident(s"_${index}"), Some(ty), None)
-    //   // todo: replace self
-    //   case (n: syntax.Apply, index) =>
-    //     syntax.Var(Ident(s"_${index}"), Some(n), None)
-    //   case (_, index) => syntax.Var(Ident(s"_${index}"), None, None)
+    // // Check conflict
+    // var existings = Map[String, VField]();
+    // def addField(f: VField) = if (existings.contains(f.name)) {
+    //   errors = s"conflict field ${f.name}" :: errors
+    // } else {
+    //   existings += (f.name -> f)
     // }
+    // cls.fields.foreach(addField)
 
-    // val b = (body, vars) match {
-    //   case (_, Nil) => body.getOrElse(syntax.Block(List()))
-    //   case (Some(syntax.Block(bc)), vars) => syntax.Block(vars ::: bc)
-    //   case (Some(n), vars)                => syntax.Block(vars :+ n)
-    //   case _                              => syntax.Block(vars)
-    // }
-
-    // val cls = classItem(
-    //   // todo: trait enum
-    //   ClassExpr(subName, params, b, false),
-    //   classSelf = classSelf.map(_.base),
-    // )
-    // // todo: right way to hide it
-    // cls.vars.foreach { v => v.item.id.isHidden = true }
-    // val info = ct(subName); info.inClass = true; cls.id.inClass = true;
-    // EnumVariant(info, cls)
+    // cls
     ???
   }
 
   def implItem(ast: ImplExpr) = {
-    val ImplExpr(info, params, constraints, i, c, body) = ast
-    val ss = selfImplRef
-    val ss2 = selfRef
-    val impl = {
-      val (iface, cls) = (i.map(typeTerm), typeTerm(c))
-      selfRef = Some(cls)
-      val defs = body match {
-        case body: Region =>
-          selfImplRef = Some(
-            Impl(info, resolveParams(params), iface.get, cls, List()),
-          )
-          val (vars, decls) = baseClass(body, None)
-          if (!vars.isEmpty) {
-            errors = s"impl cannot have vars" :: errors
-          }
-          selfImplRef = Some(
-            Impl(info, resolveParams(params), iface.get, cls, decls),
-          )
-          baseClass(body, Some(vars ::: decls))._2
-        case _ => errors = s"Invalid impl body" :: errors; List()
-      }
-      defs.foreach { d => d.item.id.isOverride = true }
-      Impl(info, resolveParams(params), iface.get, cls, defs)
-    }
-    selfRef = ss2
-    selfImplRef = ss
-    items += (info.id -> impl)
-    associateImpl(impl, impl.cls)
-    impl
+    // val ImplExpr(info, params, constraints, i, c, body) = ast
+    // val ss = selfImplRef
+    // val ss2 = selfRef
+    // val impl = {
+    //   val (iface, cls) = (i.map(typeTerm), typeTerm(c))
+    //   selfRef = Some(cls)
+    //   val defs = body match {
+    //     case body: Region =>
+    //       selfImplRef = Some(
+    //         Impl(info, resolveParams(params), iface.get, cls, List()),
+    //       )
+    //       val (vars, decls) = baseClass(body, None)
+    //       if (!vars.isEmpty) {
+    //         errors = s"impl cannot have vars" :: errors
+    //       }
+    //       selfImplRef = Some(
+    //         Impl(info, resolveParams(params), iface.get, cls, decls),
+    //       )
+    //       baseClass(body, Some(vars ::: decls))._2
+    //     case _ => errors = s"Invalid impl body" :: errors; List()
+    //   }
+    //   defs.foreach { d => d.item.id.isOverride = true }
+    //   Impl(info, resolveParams(params), iface.get, cls, defs)
+    // }
+    // selfRef = ss2
+    // selfImplRef = ss
+    // items += (info.id -> impl)
+    // associateImpl(impl, impl.cls)
+    // impl
+    ???
   }
 
   def associateImpl(impl: Impl, cls: Type): Unit = {

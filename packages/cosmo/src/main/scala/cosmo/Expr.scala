@@ -1,18 +1,18 @@
 package cosmo
 
+import scala.collection.mutable.{ListBuffer, Map as MutMap};
+
 import ir._
 import syntax as s
 import syntax.{Ident, No}
+import scala.collection.mutable.ArrayBuffer
 
 type SParam = s.Param;
 type SParams = List[SParam];
 
-class ExprEnv(val env: Env) {
-  import env.{ct, scopes}
+trait ExprEnv { self: Env =>
 
-  var module: Expr = Opaque.expr("")
-
-  def err(e: String) = env.err(e).e
+  def errE(e: String) = err(e).e
 
   def resolve(name: String) = scopes.get(name).map(Name(_, None))
   def nameOrProduce(name: Ident, strict: Boolean) =
@@ -23,16 +23,16 @@ class ExprEnv(val env: Env) {
     }
   def byName(name: Ident) = nameOrProduce(name, true)
 
-  def withNs[T](ns: Defo, ast: syntax.Node)(f: => T): T = {
-    env.ns = ns.name :: env.ns; val res = f; env.ns = env.ns.tail
+  def withNs[T](ns: Defo, ast: s.Node)(f: => T): T = {
+    this.ns = ns.name :: this.ns; val res = f; this.ns = this.ns.tail
     res
   }
 
   def withParams[T](params: Option[SParams])(f: => T) = {
     debugln(s"withParams $params")
     scopes.withScope {
-      var vars = scala.collection.mutable.ListBuffer[VarExpr]()
-      var constraints = scala.collection.mutable.ListBuffer[Expr]()
+      var vars = ListBuffer[VarExpr]()
+      var constraints = ListBuffer[Expr]()
 
       for (p <- params.getOrElse(List())) p match {
         case s.Param(Ident("-"), Some(ty @ s.BinOp(op, x: Ident, y)), _, _) =>
@@ -55,7 +55,7 @@ class ExprEnv(val env: Env) {
 
   def expr(node: s.Node): Expr = {
     node match {
-      case s.Err(msg) => err(msg)
+      case s.Err(msg) => errE(msg)
       // literals
       case s.TodoLit        => TodoLit.e
       case s.BoolLit(value) => Bool(value).e
@@ -70,6 +70,7 @@ class ExprEnv(val env: Env) {
       case s.ArgsLit(values) => argsLit(values)
       // control flow
       case b: s.Block       => block(b)
+      case b: s.CaseBlock   => CaseRegion(caseBlock(b))
       case l: s.Loop        => Loop(expr(l.body))
       case w: s.While       => While(expr(w.cond), expr(w.body))
       case f: s.For         => For(expr(f.name), expr(f.iter), expr(f.body))
@@ -96,11 +97,14 @@ class ExprEnv(val env: Env) {
       case s.Semi(Some(value))   => expr(value)
       // todo: decorator
       case s.Decorate(s.Apply(Ident("noCore"), _, _), _) =>
-        env.noCore = true
+        noCore = true
+        NoneItem.e
+      case s.Decorate(s.Apply(Ident("syntaxOnly"), _, _), _) =>
+        syntaxOnly = true
         NoneItem.e
       case s.Decorate(lhs, rhs) => expr(rhs)
       // declarations
-      case s.Import(p, dest) => env.$import(p, dest).e
+      case s.Import(p, dest) => $import(p, dest).e
       case s.Val(x, ty, y)   => $var(ct(x), ty.map(expr), y, false, false)
       case s.Typ(x, ty, y)   => $var(ct(x), ty.map(expr), y, false, true)
       case s.Var(x, ty, y)   => $var(ct(x), ty.map(expr), y, true, false)
@@ -109,29 +113,26 @@ class ExprEnv(val env: Env) {
       case i: s.Impl         => impl(i, ct("$impl", hidden = true))
       // syntax errors
       case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
-      case b: s.CaseBlock        => caseBlock(b)
       case b: s.ParamsLit =>
-        err(s"params lit without body")
+        errE(s"params lit without body")
         Opaque.expr(s"0/* error: case block without body */")
       case s.Case(cond, body) =>
-        err(s"case clause without match")
+        errE(s"case clause without match")
         Opaque.expr(s"0/* error: case clause without match */")
     }
   }
 
-  def argsLit(values: List[syntax.Node]): Expr = {
-    var arr = List[Expr]();
+  def argsLit(values: List[s.Node]): Expr = {
+    var arr = ArrayBuffer[Expr]();
     for (v <- values) {
       arr = arr :+ expr(v)
     }
-    return TupleLit(arr).e
+    return TupleLit(arr.toArray).e
   }
 
-  def keyExpr(n: syntax.Node): Expr = {
-    n match {
-      case i: Ident => Str(i.name).e
-      case _        => expr(n)
-    }
+  def keyExpr(n: s.Node): Expr = n match {
+    case i: Ident => Str(i.name).e
+    case _        => expr(n)
   }
 
   def hole(di: Defo): Expr = {
@@ -141,29 +142,15 @@ class ExprEnv(val env: Env) {
 
   def block(ast: s.Block) = Region(scopes.withScope(ast.stmts.map(expr)))
 
-  def $match(b: s.Match): Expr = {
-    var lhs = expr(b.lhs)
-    val cases = b.rhs match {
-      case b: s.CaseBlock                  => caseBlock(b)
-      case b: s.Block if (b.stmts.isEmpty) => CaseRegion(List())
-      case b: s.Block => return err(s"match body contains non-cases $b")
-      case _          => return err("match body must be a case block")
+  def caseBlock(b: s.CaseBlock) = b.stmts.map { c =>
+    scopes.withScope {
+      val cond = destruct(c.cond);
+      val body = c.body.map(expr);
+      (cond, body)
     }
-    MatchExpr(lhs, cases)
   }
 
-  def caseBlock(b: s.CaseBlock): CaseRegion = {
-    val cases = b.stmts.map { c =>
-      scopes.withScope {
-        val cond = destruct(c.cond);
-        val body = c.body.map(expr);
-        (cond, body)
-      }
-    }
-    CaseRegion(cases)
-  }
-
-  def destruct(ast: syntax.Node): Expr = ast match {
+  def destruct(ast: s.Node): Expr = ast match {
     case i: Ident => nameOrProduce(i, false)
     // todo: check is compile time
     case s.Apply(l, r, ct) => Apply(expr(l), r.map(destruct))
@@ -171,54 +158,89 @@ class ExprEnv(val env: Env) {
     case _                 => expr(ast)
   }
 
-  def $var(di: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): VarExpr = {
-    di.isMut = mut; di.isTypeVar = ct; di.isVar = true;
-    VarExpr(di, ty, init.map(expr))
+  def $match(b: s.Match): Expr = {
+    var lhs = expr(b.lhs)
+    val cases = b.rhs match {
+      case b: s.CaseBlock                  => caseBlock(b)
+      case b: s.Block if (b.stmts.isEmpty) => List()
+      case b: s.Block => return errE(s"match body contains non-cases $b")
+      case _          => return errE("match body must be a case block")
+    }
+    MatchExpr(lhs, CaseRegion(cases))
   }
 
-  def $def(ast: syntax.Def, defInfo: Defo): Expr = {
-    val syntax.Def(_, params, ret_ty, rhs) = ast
-    val (ps, cs, (ty, init)) =
+  def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): VarExpr = {
+    info.isMut = mut; info.isTypeVar = ct; info.isVar = true;
+    VarExpr(info, ty, init.map(expr))
+  }
+
+  def $def(ast: s.Def, info: Defo): Expr = {
+    val s.Def(_, params, ret_ty, rhs) = ast
+    val (ps, cs, (ty, body)) =
       withParams(params)((ret_ty.map(expr), rhs.map(expr)))
-    DefExpr(defInfo, ps, cs, ty, init)
+    DefExpr(info, ps, cs, ty, body)
   }
 
-  def $class(ast: syntax.Class, defInfo: Defo): Expr = {
-    val syntax.Class(_, params, body, isAbstract) = ast
-    val (ps, cs, init) = withNs(defInfo, ast)(withParams(params)(expr(body)))
-
-    // val (cond, body) = node;
-    // val (subName, params) = cond match {
-    //   case name: Name                    => (name.id, List())
-    //   case Apply(name: Name, params) => (name.id, params)
-    //   case _                             => (ct("invalid"), List())
-    // }
-
-    // val vars = params.zipWithIndex.map {
-    //   case (n: syntax.Ident, index) =>
-    //     val ty = if (n.name == baseName) { syntax.Ident("Self") }
-    //     else { n }
-    //     syntax.Var(Ident(s"_${index}"), Some(ty), None)
-    //   // todo: replace self
-    //   case (n: syntax.Apply, index) =>
-    //     syntax.Var(Ident(s"_${index}"), Some(n), None)
-    //   case (_, index) => syntax.Var(Ident(s"_${index}"), None, None)
-    // }
-
-    // val b = (body, vars) match {
-    //   case (_, Nil) => body.getOrElse(syntax.Block(List()))
-    //   case (Some(syntax.Block(bc)), vars) => syntax.Block(vars ::: bc)
-    //   case (Some(n), vars)                => syntax.Block(vars :+ n)
-    //   case _                              => syntax.Block(vars)
-    // }
-
-    ClassExpr(defInfo, ps, cs, init, isAbstract)
+  def $class(ast: s.Class, info: Defo): ClassExpr = {
+    val s.Class(_, params, body, isAbstract) = ast
+    val fields = MutMap[String, VField]()
+    val (ps, cs, _) = withNs(info, ast)(withParams(params)(body match {
+      case body: s.Block     => baseClass(body, fields, isAbstract)
+      case body: s.CaseBlock => enumClass(body, fields, isAbstract)
+      case body              => err(s"trait/class body is invalid kind: $body")
+    }))
+    ClassExpr(info, ps, cs, fields, isAbstract)
   }
 
-  def impl(ast: syntax.Impl, defInfo: Defo): Expr = {
-    val syntax.Impl(rhs, lhs, params, body) = ast
+  def baseClass(body: s.Block, fields: FieldMap, isAbstract: Boolean) = {
+    var index = 0;
+    for (stmt <- body.stmts.iterator.map(expr)) stmt match {
+      case v: VarExpr =>
+        if (isAbstract) then err(s"abstract class cannot have fields")
+        addField(EVarField(v, index), fields); index += 1;
+      case d: DefExpr =>
+        addField(EDefField(d), fields); d.id.isVirtual = isAbstract;
+      case node => err(s"Invalid class field $node")
+    }
+  }
+
+  def enumClass(body: s.CaseBlock, fields: FieldMap, isAbstract: Boolean) = {
+    if (isAbstract) then err(s"abstract trait cannot have cases")
+    for ((stmt, index) <- body.stmts.zipWithIndex) {
+      val variant = scopes.withScope(enumVariant(stmt, fields))
+      addField(EEnumField(variant, index), fields)
+    }
+  }
+
+  def enumVariant(node: s.Case, fields: FieldMap) = {
+    val (subName, params) = node.cond match {
+      case name: s.Ident                     => (name, List())
+      case s.Apply(name: s.Ident, params, _) => (name, params)
+      case _                                 => (s.Ident("invalid"), List())
+    }
+    val vars = params.zipWithIndex.map {
+      case (s.KeyedArg(k: s.Ident, v), index) => s.Var(k, Some(v), None)
+      case (n, index) => s.Var(Ident(s"_${index}"), Some(n), None)
+    }
+    val body = (node.body, vars) match {
+      case (body, Nil)               => body.getOrElse(s.Block(List()))
+      case (Some(s.Block(bc)), vars) => s.Block(vars ::: bc)
+      case (Some(n), vars)           => s.Block(vars :+ n)
+      case _                         => s.Block(vars)
+    }
+    $class(s.Class(subName, None, body, false), ct(subName))
+  }
+
+  def addField(f: VField, fields: FieldMap) = {
+    if (fields.contains(f.name)) then err(s"conflict field ${f.name}")
+    f.item.id.inClass = true;
+    fields.addOne(f.name -> f)
+  }
+
+  def impl(ast: s.Impl, info: Defo): Expr = {
+    val s.Impl(rhs, lhs, params, body) = ast
     val (cls, iface) = (expr(rhs), lhs.map(expr))
     val (ps, cs, init) = withParams(params)(expr(body))
-    ImplExpr(defInfo, ps, cs, iface, cls, init)
+    ImplExpr(info, ps, cs, iface, cls, init)
   }
 }

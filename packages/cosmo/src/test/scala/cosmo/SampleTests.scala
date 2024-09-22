@@ -17,7 +17,7 @@ class SampleTest extends munit.FunSuite:
     var src = cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var result = compiler.transpile(src)
     if (syntaxOnly) {
-      println(result.map(_._2.stgE.module.toDoc.pretty(showDef = true)))
+      println(result.map(_._2.moduleAst.toDoc.pretty(showDef = true)))
     } else {
       println(result.map(_._1))
     }
@@ -26,8 +26,11 @@ class SampleTest extends munit.FunSuite:
   test("Syntax/playground") {
     runTestOnFile("samples/Syntax/playground.cos")
   }
-  test("HelloWorld".only) {
+  test("HelloWorld") {
     runTestOnFile("samples/HelloWorld/main.cos")
+  }
+  test("Syntax/class".only) {
+    runTestOnFile("samples/Syntax/class.cos")
   }
   test("Syntax/literal") {
     runTestOnFile("samples/Syntax/literal.cos")

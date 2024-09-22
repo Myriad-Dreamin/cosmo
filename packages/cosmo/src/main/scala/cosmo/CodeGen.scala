@@ -117,7 +117,9 @@ class CodeGen(implicit val env: Env) {
         genInImpl = false
         val name = defInfo.defName(stem = true);
         val templateCode = typeParams(params).getOrElse("");
-        val defsCode = restFields.map(p => genDef(p.item)).mkString("\n  ")
+        val defsCode = restFields
+          .map(p => genDef(p.item.asInstanceOf[DeclItem]))
+          .mkString("\n  ")
         genInImpl = gii
         s"""$nsb$templateCode struct ${defInfo.name} {using Self = $name;  $defsCode
   virtual ~${defInfo.name}() = default;
@@ -132,7 +134,8 @@ class CodeGen(implicit val env: Env) {
         val templateCode = typeParams(params).getOrElse("")
         val emptyConstructable = vars.forall(!_.item.init.isEmpty)
         val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
-        val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
+        val defsCode =
+          defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
         val consPref = if (vars.isEmpty) "" else s":"
         val consCode =
           s"$name(${vars.map(p => genVarParam(p.item)).mkString(", ")})$consPref${vars
@@ -242,7 +245,8 @@ class CodeGen(implicit val env: Env) {
           typeParams(params)
             .map(p => p.stripSuffix(">") + ", bool isMut>")
             .getOrElse("template<bool isMut>");
-        val defsCode = defs.map(p => genDef(p.item)).mkString("\n")
+        val defsCode =
+          defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
         genInImpl = gii
         s"""${templateCode} struct $name final: public $ifaceTy {using Self = $name;
   using That = $that;
