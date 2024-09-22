@@ -1,0 +1,270 @@
+Some(
+  value = Block(
+    stmts = List(
+      Def(
+        name = Ident(name = "main"),
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Apply(lhs = Ident(name = "println"), rhs = List(BoolLit(value = false)), ct = false),
+              Apply(lhs = Ident(name = "println"), rhs = List(BoolLit(value = true)), ct = false),
+              Apply(lhs = Ident(name = "println"), rhs = List(IntLit(value = 0)), ct = false),
+              Apply(lhs = Ident(name = "println"), rhs = List(IntLit(value = 1)), ct = false),
+              Apply(lhs = Ident(name = "println"), rhs = List(FloatLit(value = 1.0)), ct = false),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(UnOp(op = "-", lhs = IntLit(value = 0))),
+                ct = false
+              ),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(UnOp(op = "-", lhs = IntLit(value = 1))),
+                ct = false
+              ),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(UnOp(op = "-", lhs = FloatLit(value = 1.0))),
+                ct = false
+              ),
+              Apply(lhs = Ident(name = "println"), rhs = List(StrLit(value = "a")), ct = false),
+              Apply(lhs = Ident(name = "println"), rhs = List(ArgsLit(values = List())), ct = false),
+              Apply(lhs = Ident(name = "println"), rhs = List(IntLit(value = 1)), ct = false),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(ArgsLit(values = List(IntLit(value = 1)))),
+                ct = false
+              ),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(ArgsLit(values = List(IntLit(value = 1), StrLit(value = "a")))),
+                ct = false
+              ),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(
+                  ArgsLit(
+                    values = List(
+                      KeyedArg(key = Ident(name = "a"), value = IntLit(value = 2)),
+                      KeyedArg(key = Ident(name = "b"), value = IntLit(value = 4))
+                    )
+                  )
+                ),
+                ct = false
+              ),
+              Apply(
+                lhs = Ident(name = "println"),
+                rhs = List(
+                  ArgsLit(
+                    values = List(
+                      KeyedArg(key = Ident(name = "a"), value = IntLit(value = 2)),
+                      KeyedArg(key = StrLit(value = ":"), value = IntLit(value = 4))
+                    )
+                  )
+                ),
+                ct = false
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      ArgsLit(
+                        values = List(
+                          KeyedArg(
+                            key = Ident(name = "a"),
+                            value = ArgsLit(values = List(IntLit(value = 1), IntLit(value = 2)))
+                          )
+                        )
+                      )
+                    ),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      ArgsLit(
+                        values = List(
+                          ArgsLit(
+                            values = List(
+                              KeyedArg(key = Ident(name = "a"), value = IntLit(value = 1))
+                            )
+                          ),
+                          IntLit(value = 2)
+                        )
+                      )
+                    ),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = "")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = "a")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      StrLit(
+                        value = """a
+"""
+                      )
+                    ),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = "a\\x")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = "a")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = "a ")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      BinOp(op = "+", lhs = StrLit(value = "\""), rhs = StrLit(value = "a\" "))
+                    ),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      BinOp(op = "+", lhs = StrLit(value = " \"a"), rhs = StrLit(value = "\""))
+                    ),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = " \"a\"\\n")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = " \"a\"\\x")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(StrLit(value = "  \"a\"  ")),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(
+                      StrLit(
+                        value = """ 
+"a"  """
+                      )
+                    ),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(TmplApply(lhs = Ident(name = "a"), rhs = List(("a", None)))),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(TmplApply(lhs = Ident(name = "c"), rhs = List(("a", None)))),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(TmplApply(lhs = Ident(name = "c"), rhs = List(("爱", None)))),
+                    ct = false
+                  )
+                )
+              ),
+              Semi(
+                semi = Some(
+                  value = Apply(
+                    lhs = Ident(name = "println"),
+                    rhs = List(TmplApply(lhs = Ident(name = "b"), rhs = List(("ab", None)))),
+                    ct = false
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

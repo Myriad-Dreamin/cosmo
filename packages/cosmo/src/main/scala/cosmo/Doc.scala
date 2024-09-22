@@ -121,7 +121,7 @@ object Doc {
       val b = i.init.d.getOrElse("_".d)
       Array(mod.d, i.id.name.d, ": ".d, r, " = ".d, b).d
     case i: ir.ApplyExpr    => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
-    case i: ir.NRef         => Doc.item(i)
+    case i: ir.Name         => Doc.item(i)
     case ir.ItemE(item)     => item.d
     case ir.TupleLit(items) => Doc.paren(items.d(", ".d))
     case ir.KeyedArg(k, v) =>

@@ -2,14 +2,14 @@ Some(
   value = Block(
     stmts = List(
       Def(
-        name = "main",
+        name = Ident(name = "main"),
         params = Some(value = List()),
         ret = None,
         rhs = Some(
           value = Block(
             stmts = List(
               Var(
-                name = "i",
+                name = Ident(name = "i"),
                 ty = Some(value = Ident(name = "i32")),
                 init = Some(value = IntLit(value = 0))
               ),
@@ -21,7 +21,7 @@ Some(
                       cont_bb = Block(stmts = List(Break())),
                       else_bb = None
                     ),
-                    Apply(lhs = Ident(name = "println"), rhs = List(Ident(name = "i"))),
+                    Apply(lhs = Ident(name = "println"), rhs = List(Ident(name = "i")), ct = false),
                     BinOp(op = "+=", lhs = Ident(name = "i"), rhs = IntLit(value = 1))
                   )
                 )

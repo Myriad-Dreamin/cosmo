@@ -1,0 +1,63 @@
+Some(
+  value = Block(
+    stmts = List(
+      Def(
+        name = Ident(name = "main"),
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Block(stmts = List()),
+              For(
+                name = Ident(name = "i"),
+                iter = BinOp(op = "..", lhs = IntLit(value = 0), rhs = IntLit(value = 10)),
+                body = Block(
+                  stmts = List(
+                    Apply(lhs = Ident(name = "println"), rhs = List(Ident(name = "i")), ct = false)
+                  )
+                )
+              ),
+              While(
+                cond = BoolLit(value = false),
+                body = Block(
+                  stmts = List(
+                    Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(StrLit(value = "a")),
+                      ct = false
+                    ),
+                    Continue()
+                  )
+                )
+              ),
+              Loop(body = Block(stmts = List(Break()))),
+              If(
+                cond = BoolLit(value = true),
+                cont_bb = Block(stmts = List(IntLit(value = 1))),
+                else_bb = None
+              ),
+              If(
+                cond = BoolLit(value = true),
+                cont_bb = Block(stmts = List(IntLit(value = 1))),
+                else_bb = Some(value = Block(stmts = List(IntLit(value = 0))))
+              ),
+              If(
+                cond = BoolLit(value = true),
+                cont_bb = Block(stmts = List(IntLit(value = 1))),
+                else_bb = Some(
+                  value = If(
+                    cond = BoolLit(value = false),
+                    cont_bb = Block(stmts = List(IntLit(value = 2))),
+                    else_bb = Some(value = Block(stmts = List(IntLit(value = 3))))
+                  )
+                )
+              ),
+              Return(value = IntLit(value = 0))
+            )
+          )
+        )
+      )
+    )
+  )
+)

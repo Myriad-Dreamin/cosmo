@@ -1,0 +1,247 @@
+Some(
+  value = Block(
+    stmts = List(
+      Decorate(
+        lhs = Apply(lhs = Ident(name = "noCore"), rhs = List(), ct = false),
+        rhs = Semi(semi = None)
+      ),
+      Def(
+        name = Ident(name = "main"),
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = true),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(IntLit(value = 1), Ident(name = "a")),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  IntLit(value = 1),
+                  KeyedArg(key = Ident(name = "a"), value = IntLit(value = 1))
+                ),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  KeyedArg(key = Ident(name = "a"), value = IntLit(value = 1)),
+                  IntLit(value = 1)
+                ),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  ArgsLit(
+                    values = List(KeyedArg(key = Ident(name = "a"), value = IntLit(value = 1)))
+                  ),
+                  IntLit(value = 1)
+                ),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  KeyedArg(
+                    key = Ident(name = "a"),
+                    value = ArgsLit(values = List(IntLit(value = 1), IntLit(value = 1)))
+                  )
+                ),
+                ct = false
+              ),
+              Select(
+                lhs = Apply(
+                  lhs = Apply(
+                    lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                    rhs = List(IntLit(value = 1)),
+                    ct = false
+                  ),
+                  rhs = List(IntLit(value = 1)),
+                  ct = false
+                ),
+                rhs = Ident(name = "c"),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(
+                  lhs = Apply(
+                    lhs = Apply(
+                      lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                      rhs = List(IntLit(value = 1)),
+                      ct = false
+                    ),
+                    rhs = List(IntLit(value = 1)),
+                    ct = false
+                  ),
+                  rhs = Ident(name = "c"),
+                  ct = false
+                ),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(
+                  lhs = Apply(
+                    lhs = Apply(
+                      lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                      rhs = List(IntLit(value = 1)),
+                      ct = false
+                    ),
+                    rhs = List(IntLit(value = 1)),
+                    ct = false
+                  ),
+                  rhs = Ident(name = "c"),
+                  ct = true
+                ),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = true),
+                rhs = List(Ident(name = "T")),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(Ident(name = "T")),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(Ident(name = "T"), Ident(name = "a")),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  Ident(name = "T"),
+                  KeyedArg(key = Ident(name = "a"), value = Ident(name = "T"))
+                ),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  KeyedArg(key = Ident(name = "a"), value = Ident(name = "T")),
+                  Ident(name = "T")
+                ),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  ArgsLit(
+                    values = List(KeyedArg(key = Ident(name = "a"), value = Ident(name = "T")))
+                  ),
+                  Ident(name = "T")
+                ),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                rhs = List(
+                  KeyedArg(
+                    key = Ident(name = "a"),
+                    value = ArgsLit(values = List(Ident(name = "T"), Ident(name = "T")))
+                  )
+                ),
+                ct = true
+              ),
+              Select(
+                lhs = Apply(
+                  lhs = Apply(
+                    lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                    rhs = List(Ident(name = "T")),
+                    ct = true
+                  ),
+                  rhs = List(Ident(name = "T")),
+                  ct = true
+                ),
+                rhs = Ident(name = "c"),
+                ct = false
+              ),
+              Apply(
+                lhs = Select(
+                  lhs = Apply(
+                    lhs = Apply(
+                      lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                      rhs = List(Ident(name = "T")),
+                      ct = true
+                    ),
+                    rhs = List(Ident(name = "T")),
+                    ct = true
+                  ),
+                  rhs = Ident(name = "c"),
+                  ct = false
+                ),
+                rhs = List(Ident(name = "T")),
+                ct = true
+              ),
+              Apply(
+                lhs = Select(
+                  lhs = Apply(
+                    lhs = Apply(
+                      lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                      rhs = List(Ident(name = "T")),
+                      ct = true
+                    ),
+                    rhs = List(Ident(name = "T")),
+                    ct = true
+                  ),
+                  rhs = Ident(name = "c"),
+                  ct = true
+                ),
+                rhs = List(Ident(name = "T")),
+                ct = true
+              ),
+              Apply(
+                lhs = Apply(
+                  lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = true),
+                  rhs = List(Ident(name = "T")),
+                  ct = true
+                ),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              ),
+              Apply(
+                lhs = Apply(
+                  lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                  rhs = List(Ident(name = "T")),
+                  ct = true
+                ),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              ),
+              Apply(
+                lhs = Apply(
+                  lhs = Select(lhs = Ident(name = "a"), rhs = Ident(name = "b"), ct = false),
+                  rhs = List(
+                    Ident(name = "T"),
+                    KeyedArg(key = Ident(name = "a"), value = Ident(name = "T"))
+                  ),
+                  ct = true
+                ),
+                rhs = List(IntLit(value = 1)),
+                ct = false
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

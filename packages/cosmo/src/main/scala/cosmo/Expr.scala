@@ -11,8 +11,8 @@ class ExprEnv(val env: Env) {
 
   def err(e: String) = env.err(e).e
 
-  def byName(name: Ident) =
-    NRef(ct(name, true), scopes.get(name.name).map(NRef(_, None)))
+  def resolve(name: String) = scopes.get(name).map(Name(_, None))
+  def byName(name: Ident) = Name(ct(name, true), resolve(name.name))
 
   def withNs[T](ns: Defo, ast: syntax.Node)(f: => T): T = {
     env.ns = ns.name :: env.ns; val res = f; env.ns = env.ns.tail
@@ -52,12 +52,12 @@ class ExprEnv(val env: Env) {
       case s.IntLit(value) =>
         if (value.isValidInt) Integer(value.toInt).e
         else Opaque.expr(value.toString)
-      case s.FloatLit(value)  => Opaque.expr(value.toString)
-      case s.StringLit(value) => Str(value).e
-      case s.Ident("self")    => SelfVal.e
-      case s.Ident("Self")    => SelfTy.e
-      case i: s.Ident         => byName(i)
-      case s.ArgsLit(values)  => argsLit(values)
+      case s.FloatLit(value) => Opaque.expr(value.toString)
+      case s.StrLit(value)   => Str(value).e
+      case s.Ident("self")   => SelfVal.e
+      case s.Ident("Self")   => SelfTy.e
+      case i: s.Ident        => byName(i)
+      case s.ArgsLit(values) => argsLit(values)
       // control flow
       case b: s.Block       => block(b)
       case l: s.Loop        => Loop(expr(l.body))
@@ -73,9 +73,10 @@ class ExprEnv(val env: Env) {
       case s.As(lhs, rhs)        => As(expr(lhs), expr(rhs))
       case s.KeyedArg(k, v)      => KeyedArg(expr(k), expr(v))
       // todo: check is compile time
-      case s.Select(lhs, rhs, _)        => SelectExpr(expr(lhs), rhs.name)
-      case b: s.Match                   => $match(b)
-      case s.Apply(lhs, rhs)            => ApplyExpr(expr(lhs), rhs.map(expr))
+      case s.Select(lhs, rhs, _) => SelectExpr(expr(lhs), rhs.name)
+      case b: s.Match            => $match(b)
+      // todo: check is compile time
+      case s.Apply(lhs, rhs, _)         => ApplyExpr(expr(lhs), rhs.map(expr))
       case s.TmplApply(Ident("a"), rhs) => Rune(rhs.head._1.head.toInt).e
       case s.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt).e
       case s.TmplApply(Ident("b"), rhs) => Bytes(rhs.head._1.getBytes()).e
@@ -83,7 +84,7 @@ class ExprEnv(val env: Env) {
       case s.Semi(None)          => ir.NoneKind(0).e
       case s.Semi(Some(value))   => expr(value)
       // todo: decorator
-      case s.Decorate(s.Apply(Ident("noCore"), _), _) =>
+      case s.Decorate(s.Apply(Ident("noCore"), _, _), _) =>
         env.noCore = true
         NoneItem.e
       case s.Decorate(lhs, rhs) => expr(rhs)

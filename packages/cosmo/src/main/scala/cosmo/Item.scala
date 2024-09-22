@@ -76,7 +76,7 @@ final case class ApplyExpr(lhs: Expr, rhs: List[Expr]) extends Expr {
 final case class IApply(lhs: Item, rhs: List[Item]) extends Item {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
 }
-final case class NRef(val id: DefInfo, val of: Option[Expr] = None)
+final case class Name(val id: DefInfo, val of: Option[Expr] = None)
     extends Expr {
   override def toString: String = id.defName(false)
 }

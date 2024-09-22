@@ -1,47 +1,39 @@
 Some(
   value = Block(
     stmts = List(
-      Def(
-        name = "Vec",
-        params = Some(
-          value = List(Param(name = "Ty", ty = Some(value = Ident(name = "Type")), init = None))
+      Import(
+        path = Select(
+          lhs = Select(lhs = Ident(name = "std"), rhs = Ident(name = "collections"), ct = false),
+          rhs = Ident(name = "vec"),
+          ct = false
         ),
-        ret = None,
-        rhs = Some(
-          value = Semi(
-            semi = Some(
-              value = Apply(
-                lhs = Select(
-                  lhs = Select(lhs = Ident(name = "std"), rhs = Ident(name = "cpp")),
-                  rhs = Ident(name = "ty")
-                ),
-                rhs = List(
-                  Apply(
-                    lhs = Select(lhs = Ident(name = "std"), rhs = Ident(name = "vector")),
-                    rhs = List(Ident(name = "Ty"))
-                  )
-                )
-              )
-            )
-          )
-        )
+        dest = None
       ),
       Def(
-        name = "main",
+        name = Ident(name = "main"),
         params = Some(value = List()),
         ret = None,
         rhs = Some(
           value = Block(
             stmts = List(
-              Val(
-                name = "vec",
+              Var(
+                name = Ident(name = "v"),
                 ty = None,
                 init = Some(
                   value = Semi(
                     semi = Some(
                       value = Apply(
-                        lhs = Apply(lhs = Ident(name = "Vec"), rhs = List(Ident(name = "u8"))),
-                        rhs = List()
+                        lhs = Apply(
+                          lhs = Select(
+                            lhs = Ident(name = "vec"),
+                            rhs = Ident(name = "Vec"),
+                            ct = false
+                          ),
+                          rhs = List(Ident(name = "u8")),
+                          ct = false
+                        ),
+                        rhs = List(),
+                        ct = false
                       )
                     )
                   )
@@ -50,24 +42,27 @@ Some(
               Semi(
                 semi = Some(
                   value = Apply(
-                    lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "push_back")),
-                    rhs = List(IntLit(value = 1))
+                    lhs = Select(lhs = Ident(name = "v"), rhs = Ident(name = "push"), ct = false),
+                    rhs = List(IntLit(value = 1)),
+                    ct = false
                   )
                 )
               ),
               Semi(
                 semi = Some(
                   value = Apply(
-                    lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "push_back")),
-                    rhs = List(IntLit(value = 2))
+                    lhs = Select(lhs = Ident(name = "v"), rhs = Ident(name = "push"), ct = false),
+                    rhs = List(IntLit(value = 2)),
+                    ct = false
                   )
                 )
               ),
               Semi(
                 semi = Some(
                   value = Apply(
-                    lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "push_back")),
-                    rhs = List(IntLit(value = 3))
+                    lhs = Select(lhs = Ident(name = "v"), rhs = Ident(name = "push"), ct = false),
+                    rhs = List(IntLit(value = 3)),
+                    ct = false
                   )
                 )
               ),
@@ -77,10 +72,16 @@ Some(
                     lhs = Ident(name = "println"),
                     rhs = List(
                       Apply(
-                        lhs = Select(lhs = Ident(name = "vec"), rhs = Ident(name = "size")),
-                        rhs = List()
+                        lhs = Select(
+                          lhs = Ident(name = "v"),
+                          rhs = Ident(name = "size"),
+                          ct = false
+                        ),
+                        rhs = List(),
+                        ct = false
                       )
-                    )
+                    ),
+                    ct = false
                   )
                 )
               )

@@ -20,7 +20,7 @@ sealed abstract class Node {
     case BoolLit(value)      => Iterator.empty
     case IntLit(value)       => Iterator.empty
     case FloatLit(value)     => Iterator.empty
-    case StringLit(value)    => Iterator.empty
+    case StrLit(value)       => Iterator.empty
     case ArgsLit(values)     => values.iterator
     case Block(stmts)        => stmts.iterator
     case CaseBlock(stmts)    => stmts.iterator
@@ -49,7 +49,7 @@ sealed abstract class Node {
     case Match(lhs, rhs)     => Iterator(lhs, rhs)
     case As(lhs, rhs)        => Iterator(lhs, rhs)
     case Select(lhs, rhs, _) => Iterator(lhs, rhs)
-    case Apply(lhs, rhs)     => Iterator(lhs) ++ rhs.iterator
+    case Apply(lhs, rhs, _)  => Iterator(lhs) ++ rhs.iterator
     case TmplApply(lhs, rhs) =>
       Iterator(lhs) ++ rhs.iterator.flatMap(_._2.map(_._1))
     case KeyedArg(key, value) => Iterator(key, value)
@@ -86,7 +86,7 @@ final case class IntLit(value: BigInt) extends Node
 // Float Literal
 final case class FloatLit(value: BigDecimal) extends Node
 // String Literal
-final case class StringLit(value: Str) extends Node
+final case class StrLit(value: Str) extends Node
 // Argument Literal (Named and Nameless Tuples)
 final case class ArgsLit(values: List[Node]) extends Node
 
@@ -129,7 +129,7 @@ final case class BinOp(op: Str, lhs: Node, rhs: Node) extends Node
 final case class Match(lhs: Node, rhs: Node) extends Node
 final case class As(lhs: Node, rhs: Node) extends Node
 final case class Select(lhs: Node, rhs: Ident, ct: Boolean) extends Node
-final case class Apply(lhs: Node, rhs: List[Node]) extends Node
+final case class Apply(lhs: Node, rhs: List[Node], ct: Boolean) extends Node
 final case class TmplApply(lhs: Node, rhs: List[(String, TmplExp)]) extends Node
 final case class KeyedArg(key: Node, value: Node) extends Node
 // Kind: Clauses

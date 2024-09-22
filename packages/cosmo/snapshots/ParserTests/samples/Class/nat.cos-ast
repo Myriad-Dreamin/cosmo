@@ -2,17 +2,18 @@ Some(
   value = Block(
     stmts = List(
       Class(
-        name = "Nat",
-        params = None,
+        name = Ident(name = "Nat"),
+        ps = None,
         body = CaseBlock(
           stmts = List(
             Case(cond = Ident(name = "Zero"), body = None),
             Case(
-              cond = Apply(lhs = Ident(name = "Succ"), rhs = List(Ident(name = "Nat"))),
+              cond = Apply(lhs = Ident(name = "Succ"), rhs = List(Ident(name = "Nat")), ct = false),
               body = None
             )
           )
-        )
+        ),
+        ab = false
       )
     )
   )

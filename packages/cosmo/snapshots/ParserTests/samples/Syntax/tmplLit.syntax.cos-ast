@@ -1,0 +1,177 @@
+Some(
+  value = Block(
+    stmts = List(
+      Decorate(
+        lhs = Apply(lhs = Ident(name = "noCore"), rhs = List(), ct = false),
+        rhs = Def(
+          name = Ident(name = "main"),
+          params = Some(value = List()),
+          ret = None,
+          rhs = Some(
+            value = Block(
+              stmts = List(
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(TmplApply(lhs = Ident(name = "a"), rhs = List(("a", None)))),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(TmplApply(lhs = Ident(name = "c"), rhs = List(("a", None)))),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(TmplApply(lhs = Ident(name = "c"), rhs = List(("爱", None)))),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(TmplApply(lhs = Ident(name = "b"), rhs = List(("ab", None)))),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(TmplApply(lhs = Ident(name = "s"), rhs = List(("a", None)))),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(
+                        TmplApply(
+                          lhs = Ident(name = "s"),
+                          rhs = List(("a ", Some(value = (Ident(name = "a"), None))))
+                        )
+                      ),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(
+                        TmplApply(
+                          lhs = Ident(name = "s"),
+                          rhs = List(
+                            (
+                              "a ",
+                              Some(
+                                value = (
+                                  BinOp(op = "+", lhs = Ident(name = "a"), rhs = IntLit(value = 1)),
+                                  None
+                                )
+                              )
+                            )
+                          )
+                        )
+                      ),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(
+                        TmplApply(
+                          lhs = Ident(name = "s"),
+                          rhs = List(
+                            (
+                              "a ",
+                              Some(
+                                value = (
+                                  BinOp(op = "+", lhs = Ident(name = "a"), rhs = IntLit(value = 1)),
+                                  None
+                                )
+                              )
+                            ),
+                            (" ", Some(value = (Ident(name = "b"), None)))
+                          )
+                        )
+                      ),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(
+                        TmplApply(
+                          lhs = Ident(name = "s"),
+                          rhs = List(("a ", Some(value = (Ident(name = "a"), Some(value = "x")))))
+                        )
+                      ),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(
+                        TmplApply(
+                          lhs = Ident(name = "s"),
+                          rhs = List(
+                            ("a ", Some(value = (Ident(name = "a"), Some(value = "x")))),
+                            (" ", None)
+                          )
+                        )
+                      ),
+                      ct = false
+                    )
+                  )
+                ),
+                Semi(
+                  semi = Some(
+                    value = Apply(
+                      lhs = Ident(name = "println"),
+                      rhs = List(
+                        TmplApply(
+                          lhs = Select(
+                            lhs = Ident(name = "std"),
+                            rhs = Ident(name = "code"),
+                            ct = true
+                          ),
+                          rhs = List(("a", None))
+                        )
+                      ),
+                      ct = false
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

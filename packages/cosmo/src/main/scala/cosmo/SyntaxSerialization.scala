@@ -16,10 +16,10 @@ private def jpol(node: Pol, buf: StringBuilder): Unit = {
 }
 private def j(node: NodeKinds, buf: StringBuilder): Unit = {
   node match {
-  case n: Node =>
-    buf.append(s"{\"pos\":[${n.offset},${n.end}], \"kind\":")
-  case _ =>
-  } 
+    case n: Node =>
+      buf.append(s"{\"pos\":[${n.offset},${n.end}], \"kind\":")
+    case _ =>
+  }
   node match {
     case n: No      => if n.isEmpty then buf.append("null") else j(n.get, buf)
     case s: Str     => buf.append(s""""$s"""")
@@ -53,7 +53,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
     case IntLit(value)  => buf.append(s""" "int", "value": "$value"}""")
     case FloatLit(value) =>
       buf.append(s""" "float", "value": "$value"}""")
-    case StringLit(value) =>
+    case StrLit(value) =>
       buf.append(s""" "string", "value": "$value"}""")
     case ArgsLit(values) =>
       buf.append(""" "args", "values": [""")
@@ -195,7 +195,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "compileTime": """)
       j(isCompileTime, buf)
       buf.append("}")
-    case Apply(lhs, rhs) =>
+    case Apply(lhs, rhs, _) =>
       buf.append(""" "apply", "lhs": """)
       j(lhs, buf)
       buf.append(""", "rhs": [""")
