@@ -211,6 +211,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
         throw new Exception("Invalid path")
     }
 
+    println((path, names))
     val mayNs = names(0)
     val (ns, name, dropped) = if (mayNs == "std") {
       ("cosmo", mayNs, 1)

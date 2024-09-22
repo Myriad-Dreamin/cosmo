@@ -1,43 +1,43 @@
 
-@syntaxOnly();
+@noCore();
 
-class Cls {}
+class Cls0 {}
 
-class Cls {
+class Cls1 {
   val a = 1;
 }
 
-class Cls {
+class Cls2 {
   def a = 1;
 }
 
-class Cls {
+class Cls3 {
   def method(a) = a;
 }
 
-class Cls {
+class Cls4 {
   def method[T]: T = T();
 }
 
-class Cls {
+class Cls5 {
   def method[T](a): T = a;
 }
 
-class Cls[T] {
+class Cls6[T] {
   def method(a): T = a;
 }
 
 
-class Cls {
+class Cls7 {
   case Zero
 }
 
-class Cls {
+class Cls8 {
   case Zero
   case Succ(Nat)
 }
 
-class Cls {
+class Cls9 {
   case Zero
   case Succ(n: Nat)
 }

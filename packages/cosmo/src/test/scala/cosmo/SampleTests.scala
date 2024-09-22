@@ -1,12 +1,13 @@
 package cosmo
 import scala.scalajs.js
 
-val syntaxOnly = true
+val syntaxOnly = false
+val evalOnly = false
 
 class SampleTest extends munit.FunSuite:
   lazy val compiler = {
     var compiler = new Cosmo();
-    if (!syntaxOnly) {
+    if (!(syntaxOnly || evalOnly)) {
       compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
     }
     compiler
@@ -15,21 +16,22 @@ class SampleTest extends munit.FunSuite:
   def runTestOnFile(path: String) = {
     // read the file
     var src = cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
-    var result = compiler.transpile(src)
-    if (syntaxOnly) {
-      println(result.map(_._2.moduleAst.toDoc.pretty(showDef = true)))
+    var (content, env) = compiler.transpile(src).get
+    val item = if syntaxOnly then env.moduleAst else env.module
+    if (syntaxOnly || evalOnly) {
+      println(item.toDoc.pretty(showDef = true))
     } else {
-      println(result.map(_._1))
+      println(content)
     }
   }
 
   test("Syntax/playground") {
     runTestOnFile("samples/Syntax/playground.cos")
   }
-  test("HelloWorld") {
+  test("HelloWorld".only) {
     runTestOnFile("samples/HelloWorld/main.cos")
   }
-  test("Syntax/class".only) {
+  test("Syntax/class") {
     runTestOnFile("samples/Syntax/class.cos")
   }
   test("Syntax/literal") {

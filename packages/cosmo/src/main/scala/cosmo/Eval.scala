@@ -1,5 +1,11 @@
 package cosmo
 
+import scala.collection.mutable.{
+  ListBuffer,
+  Map as MutMap,
+  LongMap as MutLongMap,
+}
+
 import ir._
 import cosmo.system._
 import cosmo.FileId
@@ -36,11 +42,13 @@ class DefInfo(
     val namespaces: List[String],
     var id: DefId,
     var env: Env,
+    var syntax: Expr = Opaque.empty,
     var ty: Type = TopTy,
     var impls: List[Impl] = List(),
     var pos: Option[(Int, Int)] = None,
     var noMangle: Boolean = false,
     var isVar: Boolean = false,
+    var isPhantom: Boolean = false,
     var isTypeVar: Boolean = false,
     var inClass: Boolean = false,
     var isBuiltin: Boolean = false,
@@ -50,6 +58,7 @@ class DefInfo(
     var isHidden: Boolean = false,
     var isMut: Boolean = true,
 ) {
+  def isTrait = isVirtual
   def defName(stem: Boolean = false): String = {
     if (noMangle) this.name
     else if (isVar || stem) this.nameStem(this.id.id)
@@ -68,6 +77,9 @@ class DefInfo(
     ((ens ::: namespaces) :+ s"${name}").mkString("::")
   def value = env.items.get(id)
   def instantiateTy = ty // todo: instantiate type
+  def mod = if isTypeVar then "type "
+  else if isMut then "var "
+  else "val "
 }
 
 object DefInfo {
@@ -75,7 +87,7 @@ object DefInfo {
 }
 
 class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
-    extends ExprEnv {
+    extends ExprEnv with TypeEnv {
 
   var noCore = false
   var syntaxOnly = false
@@ -93,6 +105,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   var selfRef: Option[Item] = None
   var selfImplRef: Option[Item] = None
   var rawDeps = Map[FileId, Option[Env]]()
+  var checkStatus = MutLongMap[Unit]()
 
   var moduleAst: Expr = Opaque.expr("")
   var module: ir.Region = Region(List())
@@ -150,7 +163,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     if (syntaxOnly) return this
 
     if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
-    val m = term(moduleAst)(0)
+    val m = valTerm(moduleAst)
     if !m.isInstanceOf[Region] then err("module must be a block")
     module = m.asInstanceOf[Region]
 
@@ -164,7 +177,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   /// Creates Def
   def ct(src: syntax.Ident | String, hidden: Boolean = false): DefInfo = {
-    val (name, pos) = extractSrc(src)
+    val (name, pos) = src match {
+      case node @ syntax.Ident(name) => (name, Some(node.offset, node.end))
+      case name: String              => (name, None)
+    }
 
     defAlloc += 1
     val info = new DefInfo(name, ns, new DefId(defAlloc), this)
@@ -181,7 +197,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def createInfer(info: DefInfo, lvl: Int) = InferVar(info, level = lvl)
 
   /// Creates Reference
-  def byRef(info: DefInfo)(implicit level: Int): Item = {
+  def byRef(info: DefInfo)(implicit level: Int): Term = {
     val v = items.get(info.id).map(deref)
     debugln(s"byRef $info ${v.map(_.level)}")
     v match {
@@ -190,10 +206,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def valueTermO(node: Option[Item])(implicit level: Int = 0): Item =
-    node.map(valueTerm).getOrElse(NoneItem)
-  def valueTerm(node: Item)(implicit level: Int = 0): Item = term(node)
-  def typeTerm(node: Item)(implicit level: Int = 1): Type = term(node)
+  def valTermO(node: Option[Item])(implicit level: Int = 0): Item =
+    node.map(valTerm).getOrElse(NoneItem)
+  def valTerm(node: Item)(implicit level: Int = 0): Item = term(node)
+  def tyTerm(node: Item)(implicit level: Int = 1): Type = term(node)
   def term(item: Item)(implicit level: Int): ir.Item = {
     if !item.isInstanceOf[Expr] then return item
     item.asInstanceOf[Expr] match {
@@ -206,7 +222,11 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case For(name, iter, body) => For(name, term(iter), term(body))
       case Region(stmts)         => Region(stmts.map(term))
       // operations
-      case Name(id, of)                => of.map(term).getOrElse(Unresolved(id))
+      case Name(id, None) =>
+        val t = byRef(id);
+        if t.value.isEmpty then err(s"undefined $id")
+        t
+      case Name(id, Some(of))          => term(of)
       case UnOp("&", UnOp("mut", lhs)) => RefItem(term(lhs), true)
       case UnOp("&", lhs)              => RefItem(term(lhs), false)
       case UnOp("mut", lhs) =>
@@ -214,7 +234,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case UnOp("*", lhs)      => derefPtr(lhs)
       case UnOp(op, lhs)       => UnOp(op, term(lhs))
       case BinOp(op, lhs, rhs) => binOp(op, term(lhs), term(rhs))
-      case As(lhs, rhs)        => As(term(lhs), typeTerm(rhs))
+      case As(lhs, rhs)        => As(term(lhs), tyTerm(rhs))
       case KeyedArg(k, v)      => KeyedArg(term(k), term(v))
       // todo: check is compile time
       case SelectExpr(lhs, rhs) => deref(select(term(lhs), rhs))
@@ -222,13 +242,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case b: MatchExpr         => matchExpr(b)
       case ItemE(item)          => term(item)
       // declarations
-      case VarExpr(id, ty, init) => varItem(id, ty, init)
-      case d: DefExpr            => defItem(d)
-      case c: ClassExpr          => classItem(c, Some(classItem(c, None)))
-      case i: ImplExpr           => implItem(i)
-      case Hole(id)              => err(s"hole $id in the air")
-      case id: ParamExpr         => err(s"param $id in the air")
-      case cr: CaseRegion        => err(s"case region $cr in the air")
+      case v: VarExpr     => DeclRef(checkVar(v))
+      case d: DefExpr     => DeclRef(checkDef(d))
+      case c: ClassExpr   => DeclRef(checkClass(c))
+      case i: ImplExpr    => DeclRef(checkImpl(i))
+      case Hole(id)       => err(s"hole $id in the air")
+      case cr: CaseRegion => err(s"case region $cr in the air")
     }
   }
 
@@ -310,8 +329,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     lhs match {
       case (f: Sig) if f.params.isEmpty    => $apply(f, List())
       case Fn(_, f, _) if f.params.isEmpty => $apply(f, List())
-      case BoundField(_, by, _, TypeField(ev: EnumVariant))
-          if ev.base.justInit =>
+      case BoundField(_, by, _, EnumField(ev: Class)) if ev.justInit =>
         $apply(lhs, List())
       case cls: Class if cls.justInit =>
         $apply(cls, List())
@@ -321,7 +339,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def binOp(op: String, lhs: Item, rhs: Item): Item = op match {
     case "<:" => Bool(isSubtype(lhs, rhs))
-    case _    => BinOp(op, lhs.e, rhs.e)
+    case _    => BinOp(op, lhs, rhs)
   }
 
   def select(lhs: Item, field: String)(implicit level: Int): Item = {
@@ -360,12 +378,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         b.copy(lhs = s2)
       case b => b
     }
-    def dFields(by: Item, v: Iterable[VField]) =
-      v.find(_.name == field).map(BoundField(lhs, by, casted, _)).map(ls)
+    def dFields(by: Item, v: FieldMap) =
+      v.get(field).map(BoundField(lhs, by, casted, _)).map(ls)
 
     def dImpls(id: DefInfo): Option[Item] = {
       val impls = id.impls.flatMap { i =>
-        i.fields.find(_.name == field).map(BoundField(lhs, i, true, _)).map(ls)
+        i.fields.get(field).map(BoundField(lhs, i, true, _)).map(ls)
       }
       if (impls.headOption.isDefined && !impls.tail.isEmpty) {
         errors = s"multiple impls for $field $impls" :: errors
@@ -404,7 +422,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def $apply(lhs: Item, rhs: List[Item])(implicit level: Int): Item = {
-    debugln(s"apply $lhs |||| ${rhs}")
+    logln(s"apply $lhs |||| ${rhs}")
     lhs match {
       case Term(id, _, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
         return rhs.head match {
@@ -426,8 +444,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case f: Sig                               => applyF(f, None, rhs)
       case f: Fn                                => applyF(f.sig, Some(f), rhs)
       case c: Class                             => applyC(c, Some(rhs))
-      case BoundField(_, by, _, TypeField(ev: EnumVariant)) =>
-        $apply(ev.base.copy(variantOf = Some(by)), rhs)
+      case BoundField(_, by, _, EnumField(ev)) =>
+        $apply(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
         Apply(lhs.e, castArgs(f.sig.params, rhs, Some(Right(that))))
       case HKTInstance(ty, syntax) =>
@@ -443,7 +461,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def applyF(fn: Sig, info: Option[Fn], args: List[Item]): Item = {
     val Sig(params, ret_ty, body) = fn
-    if (ret_ty.map(_.level).getOrElse(0) <= 1) {
+    if (ret_ty.level <= 1) {
       return Apply(info.getOrElse(fn), castArgs(fn.params, args));
     }
 
@@ -464,7 +482,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def applyC(node: Class, args: Option[List[Item]]): Item = {
     debugln(s"applyClass ${node.id} ${node.variantOf} $args")
-    val Class(clsInfo, params, baseArgsT, vars, fields, isAbstract, _, _) =
+    val Class(clsInfo, params, fields, baseArgsT, _, _) =
       node
     val baseArgs = baseArgsT.getOrElse(List())
     val isTypeLevel = params.map(_.length).map(l => baseArgs.length < l);
@@ -618,7 +636,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     //         val res = Term(defInfo, valLvl)
     //         items += (defInfo.id -> res)
     //       }
-    //       List(EnumDestruct(lhs, variant, bindings, None)) :+ valueTerm(body)
+    //       List(EnumDestruct(lhs, variant, bindings, None)) :+ valTerm(body)
     //     },
     //   );
     //   matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
@@ -626,144 +644,117 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
     // val defaultCaseItem = defaultCase.getOrElse(Unreachable)
     // TypeMatch(lhs, ty, matchBody, defaultCaseItem)
-
   }
 
   /// Declarations
 
-  def varItem(
-      defInfo: DefInfo,
-      oty: Option[Item],
-      initExprE: Option[Item],
-  )(implicit level: Int): ir.Var = {
-    defInfo.isVar = true;
-    val initExpr = initExprE.map(normalize)
-    val initTy = (oty.map(typeTerm), defInfo.name) match {
+  def noteDecl(id: DeclItem) = items += (id.id.id -> id)
+  def checkDecl[T](id: DeclExpr, f: => T): Option[T] =
+    if checkStatus.contains(id.id.id.id) then return None
+    checkStatus += (id.id.id.id.toLong -> ());
+    val res = f
+    checkStatus -= id.id.id.id
+    Some(res)
+
+  def checkVar(v: VarExpr): ir.Var = {
+    val VarExpr(info, oty, initExprE) = v
+    info.isVar = true;
+    val initExpr = initExprE.map(valTerm).map(normalize)
+    val initTy = (oty.map(tyTerm), info.name) match {
       case (Some(ty), _)  => Some(ty)
       case (None, "self") => Some(RefItem(SelfTy, false))
-      case _ => {
-        initExpr match {
-          case Some(initExpr) => tyOf(initExpr)
-          case None =>
-            errors =
-              s"either typing or initial expression must be provided for variable $defInfo" :: errors
-            None
-        }
-      }
+      case _              => initExpr.flatMap(tyOf)
     }
     val valLvl = (initTy.map(_.level).getOrElse(0) - 1).max(0)
-    val res = ir.Var(defInfo, initExpr, valLvl)
-    defInfo.ty = initTy.getOrElse(createInfer(defInfo, valLvl + 1))
-    items += (defInfo.id -> initExpr.getOrElse(res))
-    items += (defInfo.id -> byRef(defInfo))
+    val res = ir.Var(info, initExpr, valLvl)
+    info.ty = initTy.getOrElse(createInfer(info, valLvl + 1))
+    items += (info.id -> initExpr.getOrElse(res))
     res
   }
 
-  def defItem(e: DefExpr, withBody: Boolean = true) = {
-    debugln(s"defItem ${e.id.name}")
-    val DefExpr(info, params, constraints, ret_ty, rhs) = e
-    val sig = Sig(
-      resolveParams(params),
-      ret_ty.map(typeTerm),
-      None,
-    )
-    val f = Fn(info, sig, sig.resolveLevel)
-    items += (info.id -> f)
-
-    if (withBody) {
-      val annotated = sig.ret_ty
-      val body = rhs.map(e => normalize(valueTerm(e)))
-      val bodyTy = body.flatMap(tyOf)
-      debugln(s"defItem $info, $bodyTy <: $annotated")
-      // we have already checked annotated <: bodyTy when we are
-      // making valueTerm.
-      val sigRetTy = annotated.orElse(bodyTy)
-
-      val sig2 = sig.copy(body = body, ret_ty = sigRetTy)
-      val l2 = sig2.resolveLevel;
-
-      info.isDependent =
-        if l2 > 0 then body.map(isDependent).getOrElse(false) else false
-
-      val f2 = f.copy(sig = sig2, level = l2)
-      items += (info.id -> f2)
-      f2
-    } else {
-      f
+  def resolveParams(params: Option[EParams]) = params.map { params =>
+    params.map { p =>
+      checkDecl(p, checkVar(p))
+      Param(p.id, (p.id.ty.level - 1).max(0))
     }
   }
 
-  def classItem(e: ClassExpr, classSelf: Option[Class] = None): Class = {
-    val ClassExpr(info, params, constraints, body, isAbstract) = e
-    // val ss = selfRef
-    // val cls = {
-    //   classSelf.foreach(cls => selfRef = Some(cls))
-    //   val (vars, restFields) = body match
-    //     case _: CaseRegion if isAbstract =>
-    //       errors = "Cannot have an enumerated trait" :: errors; (List(), List())
-    //     // case body: Region =>
-    //     //   baseClass(body, classSelf.map(p => p.vars ::: p.restFields))
-    //     // case caseBlock: CaseRegion =>
-    //     //   (List(), enumClass(caseBlock, info, classSelf.map(_.restFields)))
-    //     case _ =>
-    //       val kind = if isAbstract then "trait" else "class"
-    //       errors = s"Invalid $kind body" :: errors; (List(), List())
-    //   if (isAbstract) {
-    //     restFields.foreach { case DefField(f) =>
-    //       f.id.isVirtual = true
-    //     // case _           =>
-    //     }
-    //   }
-    //   Class(info, resolveParams(params), None, vars, restFields, isAbstract)
-    // }
-    // info.ty = cls
-    // selfRef = ss
-    // items += (info.id -> cls)
+  def checkDef(e: DefExpr) = {
+    debugln(s"defItem ${e.id.name}")
+    val DefExpr(info, ps, constraints, ret_ty, rhs) = e
 
-    // // Check conflict
-    // var existings = Map[String, VField]();
-    // def addField(f: VField) = if (existings.contains(f.name)) {
-    //   errors = s"conflict field ${f.name}" :: errors
-    // } else {
-    //   existings += (f.name -> f)
-    // }
-    // cls.fields.foreach(addField)
+    val params = resolveParams(ps);
+    val annotated = ret_ty.map(tyTerm)
+    val infer = annotated.getOrElse(createInfer(info, 1));
+    val sig = Sig(params, infer, None);
+    val fn = Fn(info, sig, sig.resolveLevel);
+    noteDecl(fn);
+    val body = rhs.map(e => normalize(valTerm(e)))
+    val bodyTy = body.flatMap(tyOf)
+    debugln(s"defItem $info, $bodyTy <: $annotated")
+    // we have already checked annotated <: bodyTy when we are
+    // making valTerm.
+    val sigRetTy = annotated.orElse(bodyTy).getOrElse(infer)
+    val sig2 = sig.copy(ret_ty = sigRetTy, body = body)
+    val level = sig2.resolveLevel;
 
-    // cls
-    ???
+    info.isDependent =
+      if level > 0 then body.map(isDependent).getOrElse(false) else false
+
+    val fn2 = Fn(info, sig2, level)
+    noteDecl(fn2);
+    fn2
   }
 
-  def implItem(ast: ImplExpr) = {
-    // val ImplExpr(info, params, constraints, i, c, body) = ast
-    // val ss = selfImplRef
-    // val ss2 = selfRef
-    // val impl = {
-    //   val (iface, cls) = (i.map(typeTerm), typeTerm(c))
-    //   selfRef = Some(cls)
-    //   val defs = body match {
-    //     case body: Region =>
-    //       selfImplRef = Some(
-    //         Impl(info, resolveParams(params), iface.get, cls, List()),
-    //       )
-    //       val (vars, decls) = baseClass(body, None)
-    //       if (!vars.isEmpty) {
-    //         errors = s"impl cannot have vars" :: errors
-    //       }
-    //       selfImplRef = Some(
-    //         Impl(info, resolveParams(params), iface.get, cls, decls),
-    //       )
-    //       baseClass(body, Some(vars ::: decls))._2
-    //     case _ => errors = s"Invalid impl body" :: errors; List()
-    //   }
-    //   defs.foreach { d => d.item.id.isOverride = true }
-    //   Impl(info, resolveParams(params), iface.get, cls, defs)
-    // }
-    // selfRef = ss2
-    // selfImplRef = ss
-    // items += (info.id -> impl)
-    // associateImpl(impl, impl.cls)
-    // impl
-    ???
+  def checkClass(e: ClassExpr): Class = {
+    val ClassExpr(info, ps, constraints, cFields) = e
+    val ss = selfRef; selfRef = Some(e);
+
+    val params = resolveParams(ps);
+    val cls2 = Class(info, params, cFields);
+    noteDecl(cls2);
+    val fields: FieldMap = MutMap();
+    for (f <- cFields.values) {
+      fields.addOne(f.name -> checkField(f))
+    }
+    val cls = Class(info, params, fields)
+    info.ty = cls
+
+    selfRef = ss
+    noteDecl(cls);
+    cls
+  }
+
+  def checkImpl(e: ImplExpr) = {
+    val ImplExpr(info, ps, constraints, i, c, cFields) = e
+    val cls = tyTerm(c);
+    val ss2 = selfRef; selfRef = Some(cls);
+    val ss = selfImplRef; selfImplRef = Some(e);
+
+    val iface = i.map(tyTerm);
+    val params = resolveParams(ps);
+    val impl2 = Impl(info, params, iface.get, cls, cFields);
+    noteDecl(impl2);
+    val fields: FieldMap = MutMap();
+    for (f <- cFields.values) {
+      fields.addOne(f.name -> checkField(f))
+    }
+    val impl = Impl(info, params, iface.get, cls, fields)
+    info.ty = impl;
+    associateImpl(impl, impl.cls)
+
+    selfRef = ss2; selfImplRef = ss
+    noteDecl(impl);
+    impl
+  }
+
+  def checkField(f: VField) = {
+    f match {
+      case e: EVarField  => VarField(checkVar(e.item))
+      case e: EDefField  => DefField(checkDef(e.item))
+      case e: EEnumField => EnumField(checkClass(e.item))
+      case _             => ???
+    }
   }
 
   def associateImpl(impl: Impl, cls: Type): Unit = {
@@ -781,457 +772,4 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     }
     id.impls = id.impls :+ impl
   }
-
-  def hktRef(
-      f: Option[Fn],
-      args: List[Item],
-      value: Item,
-  ): Item = {
-    if f.isEmpty then return value
-    def ins(ty: Type) = HKTInstance(ty, Apply(f.get, args))
-    value match {
-      case _: (CIdent | CppInsType | ClassInstance) => value
-      case i: Class                                 => ins(i)
-      case _ =>
-        throw new Exception(
-          s"cannot ref dependent type $value ${value.getClass().getName()}",
-        )
-    }
-  }
-
-  def hktTranspose(syntax: Item, res: Item): Item = {
-    debugln(s"hktTranspose $syntax $res")
-    res match {
-      case ClassInstance(con, args) =>
-        val hktCon = con.copy(resolvedAs = Some(syntax))
-        ClassInstance(hktCon, args)
-      case _ => ???
-    }
-  }
-
-  def castArgs(
-      eParams: Option[List[Param]],
-      eArgs: List[Item],
-      self: Option[Either[Unit, Item]] = None,
-  ): List[Item] = {
-    val params = eParams.map(_.filter(_.level == 0)).map { p =>
-      self match {
-        case None => p
-        case Some(_) =>
-          if (p.headOption.exists(_.id.name == "self")) {
-            p.tail
-          } else {
-            p
-          }
-      }
-    }
-
-    val firstArgs = eArgs.takeWhile(_.level > 0)
-    val args = eArgs.drop(firstArgs.length)
-
-    val paramsLength = params.map(_.length).getOrElse(0)
-    if (paramsLength != args.length) {
-      println(("self", self))
-      errors =
-        s"Invalid number of arguments (${paramsLength} v.s. ${args.length}) $params v.s. $args" :: errors
-      return args
-    }
-
-    var argsPair = params.iterator.flatten.zip(args);
-    firstArgs ::: (argsPair.map { case (p, a) =>
-      val info = p.id
-      val casted = castTo(a, info.ty)
-      items += (info.id -> casted)
-      // todo: cast type
-      casted
-    }.toList)
-  }
-
-  def castTo(item: Item, nty: Type): Item = {
-    val ty = canonicalTy(nty)
-    debugln(s"castTo $item to $nty ($ty)")
-    ty match {
-      case TopTy | UniverseTy => item
-      case RefItem(rty, rhsIsMut) =>
-        item match {
-          case l: RefItem => {
-            if (rhsIsMut) {
-              checkedMut(item, rhsIsMut);
-            }
-            if (rhsIsMut && !l.isMut) {
-              errors = s"Cannot cast to mut ref" :: errors
-              return Opaque.expr(
-                s"\n#error \"Cannot cast to mut ref\"\n /* ref $item */",
-              )
-            }
-            val lty = canonicalTy(item)
-            val lIsR = isSubtype(lty, rty);
-            val rIsL = isSubtype(rty, lty);
-            debugln(s"castTo $item to $rty ($lty) $lIsR $rIsL")
-            if (lIsR && rIsL) {
-              debugln(s"$item is exact $rty")
-              return item
-            }
-            if (!lIsR) {
-              errors = s"No way to cast $item ($lty) to $nty ($rty)" :: errors
-              return Opaque.expr(
-                s"\n#error \"No way to cast\"\n /* ref $item */",
-              )
-            }
-
-            rty match {
-              case tr: Class if tr.isAbstract => {
-                As(item.e, implClass(lty, tr).get.e)
-              }
-              case _ =>
-                As(item.e, nty.e)
-            }
-          }
-          case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
-          case l if !rhsIsMut                  => castTo(RefItem(l, false), nty)
-          case _ =>
-            errors = s"Must ref item $item" :: errors;
-            Opaque.expr(s"\n#error \"Must ref item\"\n /* ref $item */")
-        }
-      case _ => return item
-    }
-  }
-
-  def defByName(info: DefInfo): String = info.defName(stem = false)
-
-  def varByRef(vv: Term): String = {
-    val ir.Term(id, level, v) = vv
-    v.map {
-      case v: CppInsType => Some(storeTy(v))
-      case v: CIdent     => Some(v.repr)
-      case _             => None
-    }.flatten
-      .getOrElse(defByName(id))
-  }
-
-  def storeTy(ty: Type): String = {
-    debugln(s"storeTy $ty")
-    ty match {
-      case IntegerTy(size, isUnsigned) =>
-        s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case FloatTy(size)   => s"float${size}_t"
-      case UnitTy          => "void"
-      case BoolTy          => "bool"
-      case StrTy           => "::str"
-      case SelfTy          => "self_t"
-      case TopTy           => "auto"
-      case BottomTy        => "void"
-      case ty: Integer     => "int32_t"
-      case ty: Str         => "::str"
-      case ty: CIdent      => ty.repr
-      case ty: CppInsType  => ty.repr(storeTy)
-      case ty: HKTInstance => ty.repr(storeTy)
-      case ty: TupleLit =>
-        s"std::tuple<${ty.elems.map(storeTy).mkString(", ")}>"
-      case cls: Class if cls.resolvedAs.isDefined =>
-        (cls.variantOf, cls.resolvedAs) match {
-          case (Some(v), Some(Select(lhs, _))) => storeTy(HKTInstance(v, lhs))
-          case _ => storeTy(HKTInstance(cls, cls.resolvedAs.get))
-        }
-      case cls: Class if cls.variantOf.isDefined => storeTy(cls.variantOf.get)
-      case cls: Class                            => cls.repr(storeTy)
-      case v: Term if v.value.isEmpty            => v.id.defName(stem = false)
-      case v: Var if v.init.isEmpty              => v.id.defName(stem = false)
-      case v: Fn                                 => v.id.defName(stem = false)
-      case Term(_, _, Some(v))                   => storeTy(v)
-      case RefItem(lhs, isMut) =>
-        s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
-      case Apply(lhs, rhs) => {
-        val lhsTy = storeTy(lhs)
-        val rhsTy = rhs.map(storeTy).mkString(", ")
-        s"$lhsTy<$rhsTy>"
-      }
-      case ty => "auto"
-    }
-  }
-
-  def checkedMut(item: Item, isMut: Boolean): Unit = {
-    debugln(s"checkedMut $item $isMut")
-    val lhsIsMut = item match {
-      case RefItem(lhs, rhsIsMut) => return checkedMut(lhs, rhsIsMut)
-      case SelfTy                 => return
-      case v: Term                => v.id.isMut
-      case v: Var                 => v.id.isMut
-      case _                      => return
-    }
-    if (!lhsIsMut && isMut) {
-      errors = s"Cannot cast to mut ref" :: errors
-    }
-  }
-
-  // : Normalization Part
-
-  def eval(item: Item)(implicit level: Int): Item = {
-    debugln(s"eval $item $level")
-    val e = eval;
-    item match {
-      case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
-      case Term(id, lvl, value) if level <= lvl => items(id.id)
-      case _                                    => item
-    }
-  }
-
-  def normalize(body: Item): Item = {
-    debugln(s"normalize $body")
-    body match {
-      case _ => body
-    }
-  }
-
-  // : Type Checker Part
-
-  def isDependent(body: Item): Boolean = {
-    body match {
-      case _: (CIdent | CppInsType) =>
-        false
-      case _ => true
-    }
-  }
-
-  def eqType(lhs: Item, rhs: Item): Boolean = {
-    val lty = canonicalTy(lhs)
-    val rty = canonicalTy(rhs)
-    isSubtype(lty, rty) && isSubtype(rty, lty)
-  }
-
-  def canonicalTy(rhs: Item): Item = {
-    debugln(s"canonicalTy $rhs")
-    rhs match {
-      case SelfVal if selfImplRef.isDefined =>
-        selfRef.map(canonicalTy).getOrElse(TopTy)
-      case SelfVal                               => SelfTy
-      case Term(_, level, Some(v)) if level == 1 => canonicalTy(v)
-      case v: Term                               => canonicalTy(v.id.ty)
-      case v: Var                                => canonicalTy(v.id.ty)
-      case RefItem(lhs, isMut) => RefItem(canonicalTy(lhs), isMut)
-      case _                   => rhs
-    }
-  }
-
-  def isSubtype(lhs: Item, rhs: Item): Boolean = {
-    debugln(s"isSubtype $lhs $rhs")
-    rhs match {
-      case Term(_, _, Some(v)) => isSubtype(lhs, v)
-      case RefItem(rhs, isMut) => isSubtype(lhs, rhs)
-      // todo: same level
-      case cls: Class         => implClass(lhs, cls).isDefined
-      case TopTy | UniverseTy => true
-      case BottomTy           => false
-      case StrTy | BoolTy if isBuiltin(lhs, rhs) => true
-      case _ => {
-        lhs match {
-          case Term(_, _, Some(v)) => isSubtype(v, rhs)
-          case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
-          case BottomTy            => true
-          case StrTy | BoolTy      => isBuiltin(lhs, rhs)
-          case _                   => false
-        }
-      }
-    }
-  }
-
-  def isBuiltin(lhs: Item, rhs: Item): Boolean = {
-    debugln(s"isBuiltin $lhs $rhs")
-    lhs match {
-      case Term(_, _, Some(v)) => isBuiltin(v, rhs)
-      case TopTy | UniverseTy  => true
-      case BottomTy            => true
-      case Bool(_)             => lhs == rhs || rhs == BoolTy
-      case Str(_)              => lhs == rhs || rhs == StrTy
-      case _                   => lhs == rhs
-    }
-  }
-
-  def classRepr(lhs: Type): Class = {
-    lhs match {
-      case ClassInstance(con, _) => con
-      case v: Class              => v
-      case Term(_, _, Some(v))   => classRepr(v)
-      case RefItem(lhs, isMut)   => classRepr(lhs)
-      case _ if lhs.isBuilitin   => builtinClasses(lhs)
-      case l @ (Bool(_))         => builtinClasses(l.ty)
-      case l @ (Str(_))          => builtinClasses(l.ty)
-      case l @ (Integer(_))      => builtinClasses(l.ty)
-      case Unresolved(_)         => Class.empty(this, false)
-      case _ => throw new Exception(s"cannot get class $lhs")
-    }
-  }
-
-  def implClass(lhs: Item, goal: Class): Option[Item] = {
-    val cls = classRepr(lhs)
-    debugln(
-      s"implClass? $goal(${goal.isAbstract}) for $lhs ($cls) impls ${cls.id.impls} ",
-    )
-    if (cls.id == goal.id) {
-      return Some(cls)
-    }
-    if (!goal.isAbstract) {
-      return None;
-    }
-    cls.id.impls.find { i => isSubtype(i.iface, goal) }
-  }
-
-  enum DestructShape {
-    case Ty(ty: Type);
-  }
-
-  def checkedDestructed(shape: DestructShape) = {
-    shape match {
-      case DestructShape.Ty(ty) =>
-        ty match
-          case BottomKind(_) =>
-          case ty =>
-            err(s"required destructed type, but got $ty")
-    }
-  }
-
-  def curryView(ty: Type): DestructShape = {
-    // DestructShape.Ty(ty)
-    ???
-  }
-
-  def enumShape(ty: Item): Option[Class] = {
-    ty match {
-      case v: Term if v.value.isEmpty =>
-        enumShape(items.getOrElse(v.id.id, NoneItem))
-      case Term(_, _, Some(v)) => enumShape(v)
-      case BoundField(_, by, _, TypeField(v: EnumVariant)) =>
-        Some(v.base.copy(variantOf = Some(by)))
-      case ClassInstance(con, _)             => enumShape(con)
-      case v: Class if v.variantOf.isDefined => Some(v)
-      case ty                                => None
-    }
-  }
-
-  def tyOf(lhs: Item): Option[Type] = {
-    debugln(s"tyOf $lhs")
-    lhs match {
-      case _: Integer          => Some(IntegerTy(32, false))
-      case _: Rune             => Some(IntegerTy(32, false))
-      case _: Str              => Some(StrTy)
-      case _: (Apply | Select) => Some(TopTy)
-      case _: (While | Loop | For | Break | Continue) => Some(UnitTy)
-      case Unreachable                                => Some(BottomTy)
-      case _: (CIdent | Class | CppInsType) =>
-        Some(UniverseTy)
-      case RefItem(lhs, isMut)              => tyOf(lhs).map(RefItem(_, isMut))
-      case v: ClassInstance                 => Some(v.con)
-      case BoundField(_, _, _, VarField(v)) => Some(v.id.ty)
-      case b: BinOp                         => coerce(tyOf(b.lhs), tyOf(b.rhs))
-      case If(_, x, y)                      => coerce(tyOf(x), y.flatMap(tyOf))
-      case SelfVal                          => Some(SelfTy)
-      case Term(id, _, Some(v))             => tyOf(v)
-      case Term(id, level, _) if level == 0 => Some(id.ty)
-      case v: Var =>
-        debugln(s"tyOf(Var) ${v.id.ty}")
-        Some(v.id.ty)
-      case TodoLit => Some(BottomTy)
-      case reg: Region => {
-        reg.stmts.lastOption match {
-          case None    => Some(UnitTy)
-          case Some(v) => tyOf(v)
-        }
-      }
-      case TypeMatch(_, _, cases, d) => {
-        val types = (cases.map(_._2) :+ d).map(tyOf).flatten
-        debugln(s"coerce enumMatch $types")
-        types.lastOption
-      }
-      case ValueMatch(_, _, cases, d) => {
-        val types = (cases.map(_._2).map(tyOf) :+ d.flatMap(tyOf)).flatten
-        debugln(s"coerce valueMatch $types")
-        types.lastOption
-      }
-      case _ =>
-        throw new Exception(
-          s"program is not well typed, because of $lhs (${lhs.getClass().getName()}).",
-        )
-    }
-  }
-
-  def lift(item: Item): Type = {
-    debugln(s"lift $item")
-    item match {
-      case item: CIdent => CIdent(item.name, item.ns, 1)
-      case item: CppInsType =>
-        CppInsType(
-          lift(item.target).asInstanceOf[CIdent],
-          item.arguments.map(lift),
-        )
-      case SelfVal => SelfTy
-      case _       => item
-    }
-  }
-
-  def coerce(lhs: Option[Type], rhs: Option[Type]): Option[Type] = {
-    // todo: corece correctly
-    lhs.orElse(rhs)
-  }
-
-  // todo: meaninglessly resolve
-  def resolveParams(params: Option[EParams]) = params.map { params =>
-    params.map { p => Param(p.id, (p.id.ty.level - 1).max(0)) }
-  }
-
-  def findItem(offset: Int): Option[Item] =
-    logln(s"findItem in $fid with offset $offset")
-    val node = nodeCovering(offset)
-    logln(s"findItem: $offset $node")
-    val id = node.flatMap(n => defs.find(_.pos.contains((n.offset, n.end))))
-    logln(s"findItem ID: $offset $id")
-    id.map(id => byRef(id)((id.ty.level - 1).max(0)))
-
-  lazy val deps: List[(FileId, Option[Env])] = {
-    rawDeps.iterator.toList.sortBy(_._1.toString)
-  }
-
-  lazy val nodes: Array[syntax.Node] = {
-    // var nodes = scala.collection.mutable.ArrayBuilder.make[syntax.Node]
-    // def go(node: syntax.Node): Unit =
-    //   nodes += node; node.children.foreach(go)
-    // moduleAst.foreach(go)
-    // nodes.result().sortBy(_.offset)
-    ???
-  }
-
-  def nodeCovering(offset: Int): Option[syntax.Node] = {
-    logln(s"nodeLowBound(offset) = ${nodeLowBound(offset).map(nodes)}")
-    @tailrec
-    def go(index: Int, offset: Int): Option[syntax.Node] =
-      if (nodes(index).offset <= offset && nodes(index).end >= offset)
-        return Some(nodes(index))
-      if (index == 0) then return None else go(index - 1, offset)
-    nodeLowBound(offset).flatMap(go(_, offset))
-  }
-
-  def nodeLowBound(offset: Int): Option[Int] = {
-    import scala.collection.Searching._
-    var i = Ident("")
-    i.offset = offset
-
-    object ByOffset extends Ordering[syntax.Node] {
-      def compare(x: syntax.Node, y: syntax.Node) = x.offset - y.offset
-    }
-
-    nodes.search(i)(ByOffset) match {
-      case Found(i)                   => Some(i)
-      case InsertionPoint(i) if i > 0 => Some(i - 1)
-      case _                          => None
-    }
-  }
-}
-
-def xId(src: syntax.Ident | String) = src match {
-  case node @ syntax.Ident(name) => name
-  case name: String              => name
-}
-
-def extractSrc(src: syntax.Ident | String) = src match {
-  case node @ syntax.Ident(name) => (name, Some(node.offset, node.end))
-  case name: String              => (name, None)
 }

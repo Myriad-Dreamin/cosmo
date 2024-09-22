@@ -197,7 +197,10 @@ object Parser {
   def loopItem[$: P] = P(word("loop") ~/ braces).map(Loop.apply)
   def importItem[$: P] =
     P(word("import") ~/ termU ~ (word("from") ~/ termU).?)
-      .map(Import.apply.tupled)
+      .map {
+        case (path, None)       => Import(path, None)
+        case (dest, Some(path)) => Import(path, Some(dest))
+      }
   def forItem[$: P] = P(
     word("for") ~ "(" ~/ ident ~ word("in") ~ term ~ ")" ~ braces,
   ).map(For.apply.tupled)

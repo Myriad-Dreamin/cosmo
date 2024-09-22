@@ -1,6 +1,7 @@
 package cosmo
 
 import scala.collection.mutable.{ListBuffer, Map as MutMap};
+import scala.annotation.tailrec
 
 import ir._
 import syntax as s
@@ -49,6 +50,7 @@ trait ExprEnv { self: Env =>
           vars.addOne($var(info, ty.map(expr), init, false, false))
       }
 
+      vars.foreach { v => decl(v) }
       (params.map(_ => vars.toList), constraints.toList, f)
     }
   }
@@ -105,12 +107,12 @@ trait ExprEnv { self: Env =>
       case s.Decorate(lhs, rhs) => expr(rhs)
       // declarations
       case s.Import(p, dest) => $import(p, dest).e
-      case s.Val(x, ty, y)   => $var(ct(x), ty.map(expr), y, false, false)
-      case s.Typ(x, ty, y)   => $var(ct(x), ty.map(expr), y, false, true)
-      case s.Var(x, ty, y)   => $var(ct(x), ty.map(expr), y, true, false)
-      case d: s.Def          => $def(d, ct(d.name))
-      case c: s.Class        => $class(c, ct(c.name))
-      case i: s.Impl         => impl(i, ct("$impl", hidden = true))
+      case s.Val(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, false, false))
+      case s.Typ(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, false, true))
+      case s.Var(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, true, false))
+      case d: s.Def          => decl($def(d, ct(d.name)))
+      case c: s.Class        => decl($class(c, ct(c.name)))
+      case i: s.Impl         => decl(impl(i, ct("$impl", hidden = true)))
       // syntax errors
       case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
       case b: s.ParamsLit =>
@@ -158,6 +160,9 @@ trait ExprEnv { self: Env =>
     case _                 => expr(ast)
   }
 
+  def decl(d: DeclExpr) =
+    d.id.syntax = d; d
+
   def $match(b: s.Match): Expr = {
     var lhs = expr(b.lhs)
     val cases = b.rhs match {
@@ -174,7 +179,7 @@ trait ExprEnv { self: Env =>
     VarExpr(info, ty, init.map(expr))
   }
 
-  def $def(ast: s.Def, info: Defo): Expr = {
+  def $def(ast: s.Def, info: Defo): DeclExpr = {
     val s.Def(_, params, ret_ty, rhs) = ast
     val (ps, cs, (ty, body)) =
       withParams(params)((ret_ty.map(expr), rhs.map(expr)))
@@ -189,7 +194,9 @@ trait ExprEnv { self: Env =>
       case body: s.CaseBlock => enumClass(body, fields, isAbstract)
       case body              => err(s"trait/class body is invalid kind: $body")
     }))
-    ClassExpr(info, ps, cs, fields, isAbstract)
+    info.isVirtual = isAbstract;
+    info.isPhantom = fields.values.forall(_.isInstanceOf[EDefField])
+    ClassExpr(info, ps, cs, fields)
   }
 
   def baseClass(body: s.Block, fields: FieldMap, isAbstract: Boolean) = {
@@ -237,10 +244,70 @@ trait ExprEnv { self: Env =>
     fields.addOne(f.name -> f)
   }
 
-  def impl(ast: s.Impl, info: Defo): Expr = {
+  def impl(ast: s.Impl, info: Defo): DeclExpr = {
     val s.Impl(rhs, lhs, params, body) = ast
     val (cls, iface) = (expr(rhs), lhs.map(expr))
-    val (ps, cs, init) = withParams(params)(expr(body))
-    ImplExpr(info, ps, cs, iface, cls, init)
+    val fields = MutMap[String, VField]()
+    val (ps, cs, _) = withParams(params)(body match {
+      case body: s.Block => baseClass(body, fields, false)
+      case body          => err(s"impl body is invalid kind: $body")
+    })
+
+    if (iface.isDefined) {
+      fields.values.foreach { d => d.item.id.isOverride = true }
+    }
+    info.isPhantom = fields.values.forall(_.isInstanceOf[EDefField])
+    if (!info.isPhantom) then err("impl cannot have vars")
+
+    ImplExpr(info, ps, cs, iface, cls, fields)
+  }
+
+  /// Syntax Related Service API
+
+  def findItem(offset: Int): Option[Item] =
+    logln(s"findItem in $fid with offset $offset")
+    val node = nodeCovering(offset)
+    logln(s"findItem: $offset $node")
+    val id = node.flatMap(n => defs.find(_.pos.contains((n.offset, n.end))))
+    logln(s"findItem ID: $offset $id")
+    id.map(id => byRef(id)((id.ty.level - 1).max(0)))
+
+  lazy val deps: List[(FileId, Option[Env])] = {
+    rawDeps.iterator.toList.sortBy(_._1.toString)
+  }
+
+  lazy val nodes: Array[syntax.Node] = {
+    // var nodes = scala.collection.mutable.ArrayBuilder.make[syntax.Node]
+    // def go(node: syntax.Node): Unit =
+    //   nodes += node; node.children.foreach(go)
+    // moduleAst.foreach(go)
+    // nodes.result().sortBy(_.offset)
+    ???
+  }
+
+  def nodeCovering(offset: Int): Option[syntax.Node] = {
+    logln(s"nodeLowBound(offset) = ${nodeLowBound(offset).map(nodes)}")
+    @tailrec
+    def go(index: Int, offset: Int): Option[syntax.Node] =
+      if (nodes(index).offset <= offset && nodes(index).end >= offset)
+        return Some(nodes(index))
+      if (index == 0) then return None else go(index - 1, offset)
+    nodeLowBound(offset).flatMap(go(_, offset))
+  }
+
+  def nodeLowBound(offset: Int): Option[Int] = {
+    import scala.collection.Searching._
+    var i = Ident("")
+    i.offset = offset
+
+    object ByOffset extends Ordering[syntax.Node] {
+      def compare(x: syntax.Node, y: syntax.Node) = x.offset - y.offset
+    }
+
+    nodes.search(i)(ByOffset) match {
+      case Found(i)                   => Some(i)
+      case InsertionPoint(i) if i > 0 => Some(i - 1)
+      case _                          => None
+    }
   }
 }
