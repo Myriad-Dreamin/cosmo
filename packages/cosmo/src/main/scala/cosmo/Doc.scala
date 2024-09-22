@@ -2,6 +2,7 @@ package cosmo
 
 import scala.annotation.tailrec
 import java.lang.String
+import cosmo.ir.NoneKind
 
 enum Doc {
   case NewLine
@@ -94,6 +95,9 @@ object Doc {
   implicit class StringOps(val o: String) extends AnyVal {
     def d: Doc = Doc.Str(o)
   }
+  implicit class IdOps(val i: ir.Defo) extends AnyVal {
+    def d: Doc = Doc.Str(s"${i.name}@${i.id.id}")
+  }
 
   def paramDecl(
       kind: String,
@@ -109,36 +113,37 @@ object Doc {
     val r = ret_ty.d.getOrElse("_".d)
     Array(kind.d, n.d, p, ": ".d, r, cs, " = ".d, body).d
   }
+  def fieldDecl(f: ir.VField): Doc = {
+    if f.item.isInstanceOf[ir.DeclItem] then
+      val item = f.item.asInstanceOf[ir.DeclItem]
+      ir.DeclRef(item).d
+    else f.item.asInstanceOf[ir.DeclExpr].d
+  }
   def fieldDecls(fields: ir.FieldMap): Doc = {
-    val fs = fields.values.map(_.item.asInstanceOf[ir.Item].d)
+    val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
   }
   def buildItem(item: ir.Item): Doc = item match {
     case b: ir.Region => Doc.block("block", b.stmts.d(NewLine))
     case f: ir.DefExpr =>
       paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))
-    case c: ir.ClassExpr if !c.isAbstract =>
+    case c: ir.ClassExpr if !c.id.isTrait =>
       paramDecl("class ", c, None, fieldDecls(c.fields))
     case c: ir.ClassExpr =>
       paramDecl("trait ", c, None, fieldDecls(c.fields))
     case impl: ir.ImplExpr =>
       // iface, " for ".d
-      val i = impl.iface.d.map(i => Array(i, " for ".d).d).getOrElse(empty)
+      val iface = impl.iface.d.map(i => Array(i, " for ".d).d).getOrElse(empty)
       val cls = impl.cls.d
       val p = impl.params.map(_.d(", ".d)).getOrElse(empty)
-      Array("impl".d, Doc.paren(p), " ".d, i, cls, " = ".d, impl.body.d).d
+      val f = fieldDecls(impl.fields)
+      Array("impl".d, Doc.paren(p), " ".d, iface, cls, " = ".d, f).d
     case i: ir.VarExpr =>
-      val n = s"${i.id.name}@${i.id.id.id}"
-      val mod =
-        if i.id.isTypeVar then "type "
-        else if i.id.isMut then "var "
-        else "val "
       val r = i.ty.d.getOrElse("_".d)
       val b = i.init.d.getOrElse("_".d)
-      Array(mod.d, n.d, ": ".d, r, " = ".d, b).d
+      Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
     case i: ir.Hole =>
-      val n = s"${i.id.name}@${i.id.id.id}"
-      Array("hole ".d, n.d).d
+      Array("hole ".d, i.id.d).d
     case i: ir.Apply        => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
     case i: ir.Name         => Doc.item(i)
     case ir.ItemE(item)     => item.d
@@ -179,6 +184,35 @@ object Doc {
     case ir.Break()    => Doc.Str("break")
     case ir.Continue() => Doc.Str("continue")
     case ir.Return(v)  => Array("return ".d, v.d).d
-    case _             => Doc.item(item)
+    case ir.DeclRef(ir.Class(id, params, fields, _, _, _)) =>
+      val p = params.map(_.d(", ".d)).getOrElse(empty)
+      val f = fieldDecls(fields)
+      Array("class ".d, id.d, Doc.paren(p), " = ".d, f).d
+    case ir.DeclRef(ir.Var(id, init, _)) =>
+      val ty = id.ty.d
+      val i = init.d.getOrElse("_".d)
+      Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
+    case ir.DeclRef(ir.Fn(id, sig, _)) =>
+      val p = sig.params.map(_.d(", ".d)).getOrElse(empty)
+      val r = sig.ret_ty.d
+      val b = sig.body.d.getOrElse("_".d)
+      Array("def ".d, id.d, Doc.paren(p), ": ".d, r, " = ".d, b).d
+    case c: ir.Class => c.repr(c.id.env.storeTy).d
+    case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
+    case f: ir.Fn    => Array("def ".d, f.id.d).d
+    case i: ir.Impl  => Array("impl ".d, i.id.d).d
+    case ir.Param(id, _) =>
+      val ty = id.ty.d
+      Array(id.d, ": ".d, ty).d
+    case ir.Term(_, _, Some(v)) => buildItem(v)
+    case ir.Term(_, _, None)    => Doc.item(item)
+    case i: ir.ClassInstance =>
+      Array("instance ".d, i.con.d, Doc.paren(i.args.d(", ".d))).d
+    case ir.NoneKind(_)                               => Doc.Str("none")
+    case _: (ir.IntegerTy | ir.InferVar | ir.TopKind) => Doc.item(item)
+    case ir.BoundField(lhs, by, casted, rhs) =>
+      if casted then Array(lhs.d, " as ".d, by.d, ".".d, fieldDecl(rhs)).d
+      else Array(lhs.d, ".".d, fieldDecl(rhs)).d
+    case _ => Doc.item(item)
   }
 }

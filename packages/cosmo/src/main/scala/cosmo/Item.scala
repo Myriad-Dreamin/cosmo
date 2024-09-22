@@ -61,6 +61,7 @@ final case class ItemE(item: Item) extends Expr {}
 final case class Opaque(expr: Option[String], stmt: Option[String])
     extends Expr {}
 object Opaque {
+  val empty = Opaque(None, None)
   def expr(expr: String) = Opaque(Some(expr), None)
   def stmt(stmt: String) = Opaque(None, Some(stmt))
 }
@@ -94,7 +95,7 @@ final case class VarExpr(id: DefInfo, ty: Option[Type], init: Option[Expr])
     extends DeclExpr {
   override def toString: String = s"var(${id.defName(false)})"
 }
-abstract class ParamExpr extends DeclExpr {
+sealed abstract class ParamExpr extends DeclExpr {
   val id: DefInfo
   val params: Option[List[VarExpr]]
   val constraints: List[Expr]
@@ -113,7 +114,6 @@ final case class ClassExpr(
     params: Option[List[VarExpr]],
     constraints: List[Expr],
     fields: FieldMap,
-    isAbstract: Boolean,
 ) extends ParamExpr {}
 final case class ImplExpr(
     id: DefInfo,
@@ -121,7 +121,7 @@ final case class ImplExpr(
     constraints: List[Expr],
     iface: Option[Type],
     cls: Type,
-    body: Item,
+    fields: FieldMap,
 ) extends ParamExpr {}
 final case class CaseRegion(cases: List[(Expr, Option[Expr])]) extends Expr {}
 final case class MatchExpr(lhs: Expr, body: CaseRegion) extends Expr {}
@@ -178,11 +178,15 @@ final case class TypeMatch(
     cases: List[(Class, Item)],
     orElse: Item,
 ) extends Item {}
-abstract trait DeclLike {
+sealed abstract trait DeclLike {
   val id: DefInfo
   def name = id.name
 }
 abstract class DeclItem extends Item with DeclLike {}
+case class DeclRef(item: DeclItem) extends DeclItem {
+  val id = item.id
+  override def toString: String = s"decl(${id.defName(false)})"
+}
 
 final case class Param(id: DefInfo, override val level: Int) extends DeclItem {
   def pretty(implicit rec: Item => String = _.toString): String =
@@ -211,15 +215,15 @@ final case class Fn(
 
   def pretty(implicit rec: Item => String = _.toString): String =
     val params = sig.params.map(_.map(rec).mkString(", ")).getOrElse("")
-    val ret = sig.ret_ty.map(rec).getOrElse("")
+    val ret = rec(sig.ret_ty)
     s"def ${id.defName(false)}($params): $ret"
 }
 final case class Sig(
     params: Option[List[Param]],
-    ret_ty: Option[Type],
+    ret_ty: Type,
     body: Option[Item],
 ) extends Item {
-  def resolveLevel = (ret_ty.map(_.level - 1).getOrElse(0)).max(0)
+  def resolveLevel = (ret_ty.level - 1).max(0)
   def selfParam: Option[Param] =
     params.iterator.flatten.find(_.id.name == "self")
   def selfIsMut: Option[Boolean] = selfParam.map(_.id.ty).map {
@@ -281,47 +285,37 @@ final case class EnumDestruct(
 final case class Class(
     id: DefInfo,
     params: Option[List[Param]],
-    args: Option[List[Item]],
-    vars: List[VarField],
-    restFields: List[VField],
-    isAbstract: Boolean,
+    fields: FieldMap,
+    args: Option[List[Item]] = None,
     variantOf: Option[Type] = None,
     resolvedAs: Option[Type] = None,
-) extends Item {
+) extends DeclItem {
   override val level: Int = 1
   override def toString: String = s"class(${repr()})"
-  def isPhantomClass: Boolean =
-    vars.isEmpty && restFields.forall(_.isInstanceOf[DefField])
-  def justInit: Boolean = !isAbstract && params.isEmpty && isPhantomClass
-  def fields = vars ::: restFields
+  def isPhantomClass: Boolean = id.isPhantom
+  def justInit: Boolean = !id.isTrait && params.isEmpty && isPhantomClass
 
   def repr(implicit rec: Item => String = _.toString): String =
     val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
     id.defName(false) + argList
 
-  def pretty(implicit rec: Item => String = _.toString): String =
-    val ps = params.map(_.map(rec).mkString("(", ", ", ")")).getOrElse("")
-    val varList = vars.map(_.pretty).mkString(";\n  ")
-    val fieldList = restFields.map(_.pretty).mkString(";\n  ")
-    s"class ${id.defName(false)}$ps"
+  def pretty(implicit rec: Item => String = _.toString): String = ???
 }
 object Class {
   def empty(env: Env, isAbstract: Boolean) =
     val id = DefInfo.just(CLASS_EMPTY, env)
-    Class(id, None, None, List.empty, List.empty, isAbstract)
+    Class(id, None, MutMap())
 }
 final case class Impl(
     id: DefInfo,
     params: Option[List[Param]],
     iface: Type,
     cls: Type,
-    fields: List[VField],
+    fields: FieldMap,
 ) extends DeclItem {
   override val level: Int = 1
 
-  def pretty(implicit rec: Item => String = _.toString): String =
-    val argList = params.map(_.map(rec).mkString("(", ", ", ")")).getOrElse("")
-    s"impl$argList $iface for $cls {\n${fields.map(_.pretty).mkString(";\n  ")}\n}"
+  def pretty(implicit rec: Item => String = _.toString): String = ???
 }
 
 // TopTy
@@ -379,7 +373,7 @@ final case class InferVar(
     var lowerBounds: List[Type] = List(),
     override val level: Int,
 ) extends Type {
-  override def toString: String = s"${info.name}:${info.id.id}"
+  override def toString: String = s"infer(${info.name}:${info.id.id})"
 }
 final case class ValueTy(val value: Value) extends Type {
   override val level = 1
@@ -429,15 +423,11 @@ sealed abstract class VField {
   val item: DeclLike
   def name = item.name
 
-  def pretty(implicit rec: Item => String = _.toString): String = item match {
-    case i: Var      => s"var ${i.id.defName(true)}: ${rec(i.id.ty)}"
-    case i: Fn       => s"def ${i.id.defName(true)}: ${rec(i.sig)}"
-    case i: DeclItem => s"field ${i.id.defName(true)}: ${rec(i.id.ty)}"
-  }
+  def pretty(implicit rec: Item => String = _.toString): String = ???
 }
 final case class EVarField(item: VarExpr, index: Int) extends VField
 final case class EDefField(item: DefExpr) extends VField
 final case class EEnumField(item: ClassExpr, index: Int) extends VField
 final case class VarField(item: Var) extends VField
 final case class DefField(item: Fn) extends VField
-final case class TypeField(item: DeclItem) extends VField
+final case class EnumField(item: Class) extends VField
