@@ -44,8 +44,11 @@ class SampleTest extends munit.FunSuite:
   test("Syntax/lambda.syntax") {
     runTestOnFile("samples/Syntax/lambda.syntax.cos")
   }
-  test("Syntax/try-catch.syntax".only) {
+  test("Syntax/try-catch.syntax") {
     runTestOnFile("samples/Syntax/try-catch.syntax.cos")
+  }
+  test("Syntax/errs/tmplLit01".only) {
+    runTestOnFile("samples/Syntax/errs/tmplLit01.cos-ast")
   }
   test("Syntax/tmplLit.syntax") {
     runTestOnFile("samples/Syntax/tmplLit.syntax.cos")

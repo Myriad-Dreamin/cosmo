@@ -46,6 +46,7 @@ class ExprEnv(val env: Env) {
 
   def expr(node: s.Node): Expr = {
     node match {
+      case s.Err(msg) => err(msg)
       // literals
       case s.TodoLit        => TodoLit.e
       case s.BoolLit(value) => Bool(value).e

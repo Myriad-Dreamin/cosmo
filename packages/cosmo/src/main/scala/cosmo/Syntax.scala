@@ -17,6 +17,7 @@ sealed abstract class Node {
   def children: Iterator[Node] = this match {
     case Decorate(lhs, rhs)  => Iterator(lhs, rhs)
     case Semi(semi)          => semi.iterator
+    case Err(msg)            => Iterator.empty
     case Ident(name)         => Iterator.empty
     case BoolLit(value)      => Iterator.empty
     case IntLit(value)       => Iterator.empty
@@ -78,6 +79,7 @@ final case class Semi(semi: No) extends Node
 final case class Decorate(lhs: Node, rhs: Node) extends Node
 
 // Kind: Literals
+final case class Err(msg: String) extends Node
 // Just panic on problematic impls
 object TodoLit extends Node
 // Identifier

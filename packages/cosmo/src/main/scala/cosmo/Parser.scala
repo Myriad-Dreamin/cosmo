@@ -7,6 +7,10 @@ import fastparse._, fastparse.ScalaWhitespace._
 import cosmo.syntax._
 import cosmo.syntax.NodeParse._
 
+implicit class SoftErr[$: P](p: => P[Unit]) {
+  def err(msg: String): P[Unit] = p.map(_ => Err(msg))
+}
+
 object Parser {
   // Entry point
   def root[$: P]: P[Block] =
@@ -30,7 +34,8 @@ object Parser {
   def idCont[$: P] = P(letter | digit | "_")
 
   def delimStr[T, $: P](d: String, body: => P[T]) = d ~~/ delimStrCont(d, body)
-  def delimStrCont[T, $: P](d: String, body: => P[T]) = (!d ~~ body).repX.! ~~ d
+  def delimStrCont[T, $: P](d: String, body: => P[T]) =
+    (!End ~ !d ~~ body).repX.! ~~ (d | End.err("Unclosed string"))
   def shortStr[$: P] = P(shortStr0.map(unescapeStr))
   def shortStr0[$: P] = delimStr("\"", strEscape)
   def longStr[$: P] = P("\"".repX(3).!./.flatMapX(longStr0))
@@ -53,7 +58,7 @@ object Parser {
     P(longChars("\"$", delim).repX.! ~~/ tmplExpr)
 
   def longChars[$: P](mores: String, delim: String): P[Unit] =
-    P(litCharsWhile(mores) | !delim ~~ "\"".repX)
+    !End ~ P(litCharsWhile(mores) | !delim ~~ "\"".repX)
   def litCharsWhile[$: P](mores: String) = P(CharsWhile(!mores.contains(_)))
   def escapeseq[$: P]: P[Unit] = P("\\" ~ AnyChar)
   def tmplExpr[$: P]: P[Option[(Node, Option[String])]] =

@@ -49,6 +49,7 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       j(rhs, buf)
       buf.append("}")
     case Ident(name)    => buf.append(s""" "ident", "name": "$name"}""")
+    case Err(msg)       => buf.append(s""" "err", "msg": "$msg"}""")
     case BoolLit(value) => buf.append(s""" "bool", "value": $value}""")
     case IntLit(value)  => buf.append(s""" "int", "value": "$value"}""")
     case FloatLit(value) =>
