@@ -82,6 +82,9 @@ class ParserTest extends munit.FunSuite {
   test("Syntax/lambda.syntax") {
     runTestOnFile("samples/Syntax/lambda.syntax.cos")
   }
+  test("Syntax/matchExpr.syntax") {
+    runTestOnFile("samples/Syntax/matchExpr.syntax.cos")
+  }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")
   }

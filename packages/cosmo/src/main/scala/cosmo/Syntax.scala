@@ -141,8 +141,4 @@ final case class Apply(lhs: Node, rhs: List[Node], ct: Boolean) extends Node
 final case class TmplApply(lhs: Node, rhs: List[(String, TmplExp)]) extends Node
 final case class KeyedArg(key: Node, value: Node) extends Node
 // Kind: Clauses
-final case class Case(cond: Node, body: No) extends Node {
-  def isWildcard: Boolean = cond match {
-    case Ident("_") => true; case _ => false
-  }
-}
+final case class Case(cond: Node, body: No) extends Node;

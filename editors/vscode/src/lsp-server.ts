@@ -25,6 +25,8 @@ const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
 
 const languageService = new CosmoLanguageService(documents);
 
+const ENABLE_HOVER = false;
+
 const offsetOf = (doc: TextDocument | undefined, pos: Position) =>
   doc?.offsetAt(pos) ?? 0;
 
@@ -72,7 +74,7 @@ connection.onInitialize((params: InitializeParams) => {
       completionProvider: {
         resolveProvider: true,
       },
-      hoverProvider: true,
+      hoverProvider: ENABLE_HOVER,
       diagnosticProvider: {
         interFileDependencies: false,
         workspaceDiagnostics: false,

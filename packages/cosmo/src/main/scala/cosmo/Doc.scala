@@ -11,7 +11,7 @@ enum Doc {
   case Concat(is: Array[Doc], sep: Doc = Doc.empty)
   case Region(name: String, Attrs: Option[Doc], children: Doc)
 
-  def pretty: String = {
+  def pretty(implicit showDef: Boolean = false): String = {
     var sb = new StringBuilder
     Doc.prettyImpl(sb, this);
     sb.toString
@@ -32,7 +32,9 @@ object Doc {
   val rbrace = Doc.Str("}")
   val smallIndents = (0 to 30).map { " " * _ }.toArray
 
-  private def prettyImpl(sb: StringBuilder, doc: Doc): Unit = {
+  private def prettyImpl(sb: StringBuilder, doc: Doc)(implicit
+      showDef: Boolean = false,
+  ): Unit = {
     val stack = collection.mutable.Stack[(Int, Doc)]()
     stack.push((0, doc))
     while (stack.nonEmpty) {
@@ -43,6 +45,8 @@ object Doc {
           sb.append(smallIndents(indent))
         case Doc.Str(v) =>
           sb.append(v)
+        case Doc.Item(v: ir.Name) if showDef =>
+          sb.append(s"<$v is ${v.of.getOrElse("!")}>")
         case Doc.Item(v) =>
           sb.append(v.toString())
         case Doc.Indent(i, d) =>
@@ -90,13 +94,14 @@ object Doc {
       ret_ty: Option[ir.Type],
       body: Option[ir.Item],
   ): Doc = {
+    val n = s"${pe.id.name}@${pe.id.id.id}"
     val p = pe.params.map(_.d(", ".d)).getOrElse(empty)
     val cs =
       if pe.constraints.isEmpty then empty
       else Array(" where [".d, pe.constraints.d(", ".d), "]".d).d
     val r = ret_ty.d.getOrElse("_".d)
     val b = body.d.getOrElse("_".d)
-    Array(kind.d, pe.id.name.d, Doc.paren(p), ": ".d, r, cs, " = ".d, b).d
+    Array(kind.d, n.d, Doc.paren(p), ": ".d, r, cs, " = ".d, b).d
   }
   def buildItem(item: ir.Item): Doc = item match {
     case b: ir.Region => Doc.block("block", b.stmts.d(NewLine))
@@ -113,14 +118,18 @@ object Doc {
       val p = impl.params.map(_.d(", ".d)).getOrElse(empty)
       Array("impl".d, Doc.paren(p), " ".d, i, cls, " = ".d, impl.body.d).d
     case i: ir.VarExpr =>
+      val n = s"${i.id.name}@${i.id.id.id}"
       val mod =
         if i.id.isTypeVar then "type "
         else if i.id.isMut then "var "
         else "val "
       val r = i.ty.d.getOrElse("_".d)
       val b = i.init.d.getOrElse("_".d)
-      Array(mod.d, i.id.name.d, ": ".d, r, " = ".d, b).d
-    case i: ir.ApplyExpr    => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
+      Array(mod.d, n.d, ": ".d, r, " = ".d, b).d
+    case i: ir.Hole =>
+      val n = s"${i.id.name}@${i.id.id.id}"
+      Array("hole ".d, n.d).d
+    case i: ir.Apply        => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
     case i: ir.Name         => Doc.item(i)
     case ir.ItemE(item)     => item.d
     case ir.TupleLit(items) => Doc.paren(items.d(", ".d))
@@ -150,8 +159,8 @@ object Doc {
     case ir.If(cond, thenp, elsep) =>
       val el = elsep.d.map { e => Array(" else ".d, e).d }.getOrElse(empty)
       Array("if (".d, cond.d, ") ".d, thenp.d, el).d
-    case ir.MatchExpr(cond, cases) =>
-      val cs = cases.map { c =>
+    case ir.MatchExpr(cond, cb) =>
+      val cs = cb.cases.map { c =>
         Array("case (".d, c._1.d, ") => ".d, c._2.d.getOrElse("_".d)).d
       }
       val body = (") {".d +: cs).d(NewLine)

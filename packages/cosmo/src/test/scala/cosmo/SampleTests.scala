@@ -17,13 +17,16 @@ class SampleTest extends munit.FunSuite:
     var src = cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
     var result = compiler.transpile(src)
     if (syntaxOnly) {
-      println(result.map(_._2.stgE.module.toDoc.pretty))
+      println(result.map(_._2.stgE.module.toDoc.pretty(showDef = true)))
     } else {
       println(result.map(_._1))
     }
   }
 
-  test("HelloWorld") {
+  test("Syntax/playground") {
+    runTestOnFile("samples/Syntax/playground.cos")
+  }
+  test("HelloWorld".only) {
     runTestOnFile("samples/HelloWorld/main.cos")
   }
   test("Syntax/literal") {
@@ -47,7 +50,7 @@ class SampleTest extends munit.FunSuite:
   test("Syntax/try-catch.syntax") {
     runTestOnFile("samples/Syntax/try-catch.syntax.cos")
   }
-  test("Syntax/errs/tmplLit01".only) {
+  test("Syntax/errs/tmplLit01") {
     runTestOnFile("samples/Syntax/errs/tmplLit01.cos-ast")
   }
   test("Syntax/tmplLit.syntax") {

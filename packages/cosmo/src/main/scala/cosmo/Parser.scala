@@ -35,7 +35,7 @@ object Parser {
 
   def delimStr[T, $: P](d: String, body: => P[T]) = d ~~/ delimStrCont(d, body)
   def delimStrCont[T, $: P](d: String, body: => P[T]) =
-    (!End ~ !d ~~ body).repX.! ~~ (d | End.err("Unclosed string"))
+    (!End ~~ !d ~~ body).repX.! ~~ (d | End.err("Unclosed string"))
   def shortStr[$: P] = P(shortStr0.map(unescapeStr))
   def shortStr0[$: P] = delimStr("\"", strEscape)
   def longStr[$: P] = P("\"".repX(3).!./.flatMapX(longStr0))
@@ -58,7 +58,7 @@ object Parser {
     P(longChars("\"$", delim).repX.! ~~/ tmplExpr)
 
   def longChars[$: P](mores: String, delim: String): P[Unit] =
-    !End ~ P(litCharsWhile(mores) | !delim ~~ "\"".repX)
+    !End ~~ P(litCharsWhile(mores) | !delim ~~ "\"".repX)
   def litCharsWhile[$: P](mores: String) = P(CharsWhile(!mores.contains(_)))
   def escapeseq[$: P]: P[Unit] = P("\\" ~ AnyChar)
   def tmplExpr[$: P]: P[Option[(Node, Option[String])]] =

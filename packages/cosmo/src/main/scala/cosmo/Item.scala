@@ -42,7 +42,15 @@ sealed abstract class Item {
   def e: Expr = ItemE(this)
   def toDoc: Doc = Doc.buildItem(this)
 }
-abstract class Expr extends Item {}
+// todo: don't inherit item?
+sealed abstract class Expr extends Item {
+  def isWildcard: Boolean = this match {
+    case d: DeclExpr if d.id.name == "_" => true; case _ => false
+  }
+}
+sealed abstract class DeclExpr extends Expr {
+  val id: DefInfo
+}
 
 /// Expressions
 
@@ -53,38 +61,37 @@ object Opaque {
   def expr(expr: String) = Opaque(Some(expr), None)
   def stmt(stmt: String) = Opaque(None, Some(stmt))
 }
-final case class Region(stmts: List[Expr]) extends Expr {
+final case class Region(stmts: List[Item]) extends Expr {
   override def toString: String = stmts.mkString("Region{ ", "; ", " }")
 }
-final case class Loop(body: Expr) extends Expr {}
-final case class While(cond: Expr, body: Expr) extends Expr {}
-final case class For(name: Expr, iter: Expr, body: Expr) extends Expr {}
+final case class Loop(body: Item) extends Expr {}
+final case class While(cond: Item, body: Item) extends Expr {}
+final case class For(name: Item, iter: Item, body: Item) extends Expr {}
 final case class Break() extends Expr {}
 final case class Continue() extends Expr {}
-final case class Return(value: Expr) extends Expr {}
-final case class If(cond: Expr, cont_bb: Expr, else_bb: Option[Expr])
+final case class Return(value: Item) extends Expr {}
+final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
     extends Expr {}
+final case class As(lhs: Item, rhs: Item) extends Expr {}
+final case class UnOp(op: String, lhs: Item) extends Expr {}
+final case class BinOp(op: String, lhs: Item, rhs: Item) extends Expr {}
+final case class KeyedArg(key: Item, value: Item) extends Expr {}
+final case class Apply(lhs: Item, rhs: List[Item]) extends Expr {
+  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+}
 final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {}
-final case class As(lhs: Expr, rhs: Expr) extends Expr {}
-final case class UnOp(op: String, lhs: Expr) extends Expr {}
-final case class BinOp(op: String, lhs: Expr, rhs: Expr) extends Expr {}
-final case class KeyedArg(key: Expr, value: Expr) extends Expr {}
-final case class Semi(value: Expr) extends Expr {}
-final case class ApplyExpr(lhs: Expr, rhs: List[Expr]) extends Expr {
-  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
-}
-final case class IApply(lhs: Item, rhs: List[Item]) extends Item {
-  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
-}
 final case class Name(val id: DefInfo, val of: Option[Expr] = None)
-    extends Expr {
-  override def toString: String = id.defName(false)
+    extends DeclExpr {
+  override def toString: String = s"${id.defName(false)}@${id.id.id}"
+}
+final case class Hole(id: DefInfo) extends DeclExpr {
+  override def toString: String = s"hole(${id.defName(false)})"
 }
 final case class VarExpr(id: DefInfo, ty: Option[Type], init: Option[Expr])
-    extends Expr {
+    extends DeclExpr {
   override def toString: String = s"var(${id.defName(false)})"
 }
-abstract class ParamExpr extends Expr {
+abstract class ParamExpr extends DeclExpr {
   val id: DefInfo
   val params: Option[List[VarExpr]]
   val constraints: List[Expr]
@@ -113,9 +120,8 @@ final case class ImplExpr(
     cls: Type,
     body: Item,
 ) extends ParamExpr {}
-
-final case class MatchExpr(lhs: Expr, cases: List[(Expr, Option[Expr])])
-    extends Expr {}
+final case class CaseRegion(cases: List[(Expr, Option[Expr])]) extends Expr {}
+final case class MatchExpr(lhs: Expr, body: CaseRegion) extends Expr {}
 
 /// Types
 
@@ -181,15 +187,14 @@ final case class Param(id: DefInfo, override val level: Int) extends DeclLike {
 final case class Var(
     id: DefInfo,
     init: Option[Item],
-    isConstant: Boolean,
     override val level: Int,
 ) extends DeclLike {
   override def toString: String =
-    val mod = if isConstant then "val" else "var"
+    val mod = if !id.isMut then "val" else "var"
     s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
 
   def pretty(implicit rec: Item => String = _.toString): String =
-    val mod = if isConstant then "val" else "var"
+    val mod = if !id.isMut then "val" else "var"
     val initStr = init.map(rec).getOrElse("None")
     s"$mod ${id.defName(false)}"
 }
@@ -243,7 +248,7 @@ final case class HKTInstance(ty: Type, syntax: Item) extends Item {
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
   def repr(rec: Type => String): String = syntax match {
     case t: (Term | Fn) => rec(t)
-    case ApplyExpr(lhs, rhs) =>
+    case Apply(lhs, rhs) =>
       s"${rec(HKTInstance(ty, lhs))}<${rhs.map(rec).mkString(", ")}>::type"
     case Select(lhs, rhs) => s"${rec(HKTInstance(ty, lhs))}::$rhs"
     case _                => syntax.toString
