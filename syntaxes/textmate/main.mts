@@ -150,7 +150,7 @@ const numeric: textmate.Pattern = {
 
 const markers: textmate.Pattern = {
   name: "keyword.control.cosmo",
-  match: /=>|\?\?\?/,
+  match: /=>|\?/,
 };
 
 const literal: textmate.Pattern = {

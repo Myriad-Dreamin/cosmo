@@ -16,8 +16,11 @@ def main() = {
   // catch (promise) => Unit;
   // catch [T](promise: T) => Unit;
 
+  ???;
+
   res?;
   res??;
+  res???;
   read("f")?;
   read("f")??;
   res?.method();
