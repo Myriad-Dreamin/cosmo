@@ -109,19 +109,16 @@ object Parser {
     (word("pub") | word("private")).? ~ P(
       defItem | valItem | varItem | typeItem | classItems | importItem,
     )
-  def primaryExpr[$: P] = P(tmplLit | ident | literal | parens | braces).m
-  def factor[$: P]: P[Node] = P(unary | factorR)
-  def factorR[$: P] = P(unary | primaryExpr.flatMapX(binR))
+  def primaryExpr[$: P] =
+    P(tmplLit | ident | parens | paramsLit | literal | braces).m
+  def factor[$: P]: P[Node] = P(unary | primaryExpr.flatMapX(binR))
 
   // Braces/Args/Params
   def argsCt[$: P] = P("[" ~/ arg.rep(sep = ",") ~ "]")
   def args[$: P] = P("(" ~/ arg.rep(sep = ",") ~ ")")
+  def paramsLit[$: P] = params.map(ParamsLit.apply)
   def params[$: P] =
-    (P(paramsCt.map(_.flatten) | paramsRt).rep).map { seq =>
-      if seq.isEmpty then None else Some(seq.flatten.toList)
-    }
-  def paramsCt[$: P] =
-    P("[" ~/ P(introTy | constraint.map(e => Seq(e))).rep(sep = ",") ~ "]")
+    (P(brack.map(_.flatten) | paramsRt).rep(1)).map(_.flatten.toList)
   def paramsRt[$: P] =
     P("(" ~/ P((selfSugar | param).rep(sep = ",")) ~ ")")
   def braces[$: P]: P[Node] =
@@ -130,12 +127,15 @@ object Parser {
       var caseItems = List.empty[Case]
       var anyNotCase = false
       body.foreach {
-        case c: Case => caseItems = caseItems :+ c
-        case _       => anyNotCase = true
+        case c: Case    => caseItems = caseItems :+ c
+        case Semi(None) =>
+        case _          => anyNotCase = true
       }
       if anyNotCase || body.isEmpty then Block(body)
       else CaseBlock(caseItems)
     })
+  def brack[$: P] =
+    P("[" ~/ P(introTy | constraint.map(e => Seq(e))).rep(sep = ",") ~ "]")
   def parens[$: P] = P(
     "(" ~/ arg.rep(sep = ",") ~ ("," ~ &(")")).map(jt).? ~ ")",
   ).map(p => {
@@ -186,12 +186,12 @@ object Parser {
   def classItem[$: P](kw: String, abc: Boolean) =
     P(sigItem(kw) ~ termU).map(Class(_, _, _, abc))
   def implItem[$: P] = P(
-    word("impl") ~ params ~/ factor ~/ (word("for") ~/ factor).? ~ braces,
+    word("impl") ~ params.? ~/ factor ~/ (word("for") ~/ factor).? ~ braces,
   ).map {
     case (params, lhs, Some(rhs), body) => Impl(rhs, Some(lhs), params, body)
     case (params, lhs, None, body)      => Impl(lhs, None, params, body)
   }.m
-  def sigItem[$: P](kw: String) = P(word(kw) ~/ ident ~ params)
+  def sigItem[$: P](kw: String) = P(word(kw) ~/ ident ~ params.?)
   def valItem[$: P] = P(varLike("val")).map(Val.apply.tupled)
   def varItem[$: P] = P(varLike("var")).map(Var.apply.tupled)
   def typeItem[$: P] = P(varLike("type")).map(Typ.apply.tupled)
@@ -253,20 +253,21 @@ object Parser {
   def arithMod[$: P]: P[Node] = binOp(CharIn("%") ~~ !"=", factor)
   def unaryOps[$: P] = "!" | "~" | "-" | "+" | "&" | "*" | word("mut")
   def unary[$: P]: P[Node] = P(unaryOps.! ~ factor).map(UnOp.apply.tupled)
+  def eBinR[$: P](e: Node) =
+    select(e) | applyItemCt(e) | applyItem(e) | lambda(e)
   def binR[$: P](e: Node): P[Node] =
-    P(
-      (select(e) | applyItemCt(e) | applyItem(e)).flatMapX(binR) | P("").map(
-        _ => e,
-      ),
-    )
+    P(("" ~ eBinR(e)).flatMapX(binR) | P("").map(_ => e))
   def select[$: P](lhs: Node) =
     P(("." | "::").! ~ ident).map((op, rhs) => Select(lhs, rhs, op != "."))
   def applyItemCt[$: P](lhs: Node) =
     argsCt.map(rhs => Apply(lhs, rhs.toList, true))
   def applyItem[$: P](lhs: Node) =
     args.map(rhs => Apply(lhs, rhs.toList, false))
-  def caseItem[$: P] =
-    P("case" ~/ factor ~ ("=>" ~ term).? ~ ";".?).map(Case.apply.tupled)
+  def lambda[$: P](lhs: Node) = P("=>" ~/ compound).map(rhs => Lambda(lhs, rhs))
+  def caseItem[$: P] = P("case" ~/ factor).map {
+    case Lambda(lhs, rhs) => Case(lhs, Some(rhs))
+    case x                => Case(x, None)
+  }
 
   // Clauses
   def typeAnnotation[$: P] = P(":" ~/ factor).m
@@ -275,41 +276,9 @@ object Parser {
   // Keywords
   val keywords =
     Set(
-      "pub",
-      "private",
-      "impl",
-      "yield",
-      "lazy",
-      "as",
-      "import",
-      "module",
-      "unsafe",
-      "match",
-      "implicit",
-      "break",
-      "continue",
-      "using",
-      "throw",
-      "return",
-      "case",
-      "def",
-      "class",
-      "trait",
-      "type",
-      "if",
-      "else",
-      "for",
-      "while",
-      "loop",
-      "val",
-      "var",
-      "and",
-      "or",
-      "in",
-      "not",
-      "mut",
-      "true",
-      "false",
+      // to reduce js load time a bit
+      "pub|private|impl|yield|lazy|as|import|module|unsafe|match|implicit|break|continue|using|throw|return|case|def|class|trait|type|if|else|for|while|loop|val|var|and|or|in|not|mut|true|false"
+        .split('|')*,
       // weak
       // "from",
     )

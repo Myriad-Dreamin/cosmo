@@ -1,0 +1,314 @@
+Some(
+  value = Block(
+    stmts = List(
+      Decorate(
+        lhs = Apply(lhs = Ident(name = "noCore"), rhs = List(), ct = false),
+        rhs = Semi(semi = None)
+      ),
+      Def(
+        name = Ident(name = "main"),
+        params = Some(value = List()),
+        ret = None,
+        rhs = Some(
+          value = Block(
+            stmts = List(
+              Val(
+                name = Ident(name = "lam"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(value = Lambda(lhs = Ident(name = "a"), rhs = IntLit(value = 1)))
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "lam"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(value = Lambda(lhs = Ident(name = "a"), rhs = IntLit(value = 1)))
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "lam"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ArgsLit(
+                          values = List(
+                            Apply(
+                              lhs = Ident(name = "Point"),
+                              rhs = List(Ident(name = "x1"), Ident(name = "y1")),
+                              ct = false
+                            ),
+                            Apply(
+                              lhs = Ident(name = "Point"),
+                              rhs = List(Ident(name = "x2"), Ident(name = "y2")),
+                              ct = false
+                            )
+                          )
+                        ),
+                        rhs = Apply(
+                          lhs = Ident(name = "Point"),
+                          rhs = List(
+                            BinOp(op = "+", lhs = Ident(name = "x1"), rhs = Ident(name = "x2")),
+                            BinOp(op = "+", lhs = Ident(name = "y1"), rhs = Ident(name = "y2"))
+                          ),
+                          ct = false
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "id"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ArgsLit(
+                          values = List(
+                            KeyedArg(key = Ident(name = "T"), value = Ident(name = "Type")),
+                            KeyedArg(key = Ident(name = "a"), value = Ident(name = "T"))
+                          )
+                        ),
+                        rhs = Ident(name = "a")
+                      )
+                    )
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "idMacro"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ArgsLit(
+                          values = List(
+                            KeyedArg(key = Ident(name = "T"), value = Ident(name = "Type")),
+                            KeyedArg(
+                              key = Ident(name = "a"),
+                              value = Apply(
+                                lhs = Ident(name = "Expr"),
+                                rhs = List(Ident(name = "T")),
+                                ct = true
+                              )
+                            )
+                          )
+                        ),
+                        rhs = Apply(
+                          lhs = Apply(
+                            lhs = Select(
+                              lhs = Ident(name = "std"),
+                              rhs = Ident(name = "codeExpr"),
+                              ct = false
+                            ),
+                            rhs = List(Ident(name = "T")),
+                            ct = true
+                          ),
+                          rhs = List(Ident(name = "a")),
+                          ct = false
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "adder"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ParamsLit(
+                          values = List(
+                            Param(
+                              name = Ident(name = "-"),
+                              ty = Some(
+                                value = BinOp(
+                                  op = "<:",
+                                  lhs = Ident(name = "T"),
+                                  rhs = Select(
+                                    lhs = Select(
+                                      lhs = Ident(name = "std"),
+                                      rhs = Ident(name = "ops"),
+                                      ct = true
+                                    ),
+                                    rhs = Ident(name = "Add"),
+                                    ct = true
+                                  )
+                                )
+                              ),
+                              init = None,
+                              ct = true
+                            ),
+                            Param(
+                              name = Ident(name = "a"),
+                              ty = Some(value = Ident(name = "T")),
+                              init = None,
+                              ct = false
+                            ),
+                            Param(
+                              name = Ident(name = "b"),
+                              ty = Some(value = Ident(name = "T")),
+                              init = None,
+                              ct = false
+                            )
+                          )
+                        ),
+                        rhs = BinOp(op = "+", lhs = Ident(name = "a"), rhs = Ident(name = "b"))
+                      )
+                    )
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "partialAdder"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ParamsLit(
+                          values = List(
+                            Param(
+                              name = Ident(name = "L"),
+                              ty = Some(value = Ident(name = "Type")),
+                              init = None,
+                              ct = true
+                            ),
+                            Param(
+                              name = Ident(name = "-"),
+                              ty = Some(
+                                value = BinOp(
+                                  op = "<:",
+                                  lhs = Ident(name = "R"),
+                                  rhs = Apply(
+                                    lhs = Select(
+                                      lhs = Select(
+                                        lhs = Ident(name = "std"),
+                                        rhs = Ident(name = "ops"),
+                                        ct = true
+                                      ),
+                                      rhs = Ident(name = "AddR"),
+                                      ct = true
+                                    ),
+                                    rhs = List(Ident(name = "L"), Ident(name = "R")),
+                                    ct = true
+                                  )
+                                )
+                              ),
+                              init = None,
+                              ct = true
+                            ),
+                            Param(
+                              name = Ident(name = "a"),
+                              ty = Some(value = Ident(name = "L")),
+                              init = None,
+                              ct = false
+                            ),
+                            Param(
+                              name = Ident(name = "b"),
+                              ty = Some(value = Ident(name = "R")),
+                              init = None,
+                              ct = false
+                            )
+                          )
+                        ),
+                        rhs = BinOp(op = "+", lhs = Ident(name = "a"), rhs = Ident(name = "b"))
+                      )
+                    )
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "id"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ParamsLit(
+                          values = List(
+                            Param(
+                              name = Ident(name = "T"),
+                              ty = Some(value = Ident(name = "Type")),
+                              init = None,
+                              ct = true
+                            ),
+                            Param(
+                              name = Ident(name = "a"),
+                              ty = Some(value = Ident(name = "T")),
+                              init = None,
+                              ct = false
+                            )
+                          )
+                        ),
+                        rhs = Ident(name = "a")
+                      )
+                    )
+                  )
+                )
+              ),
+              Val(
+                name = Ident(name = "idMacro"),
+                ty = None,
+                init = Some(
+                  value = Semi(
+                    semi = Some(
+                      value = Lambda(
+                        lhs = ParamsLit(
+                          values = List(
+                            Param(
+                              name = Ident(name = "T"),
+                              ty = Some(value = Ident(name = "Type")),
+                              init = None,
+                              ct = true
+                            ),
+                            Param(
+                              name = Ident(name = "a"),
+                              ty = Some(
+                                value = Apply(
+                                  lhs = Ident(name = "Expr"),
+                                  rhs = List(Ident(name = "T")),
+                                  ct = true
+                                )
+                              ),
+                              init = None,
+                              ct = false
+                            )
+                          )
+                        ),
+                        rhs = Apply(
+                          lhs = Apply(
+                            lhs = Select(
+                              lhs = Ident(name = "std"),
+                              rhs = Ident(name = "codeExpr"),
+                              ct = false
+                            ),
+                            rhs = List(Ident(name = "T")),
+                            ct = true
+                          ),
+                          rhs = List(Ident(name = "a")),
+                          ct = false
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)

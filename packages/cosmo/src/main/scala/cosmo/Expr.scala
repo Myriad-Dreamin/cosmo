@@ -81,6 +81,7 @@ class ExprEnv(val env: Env) {
       case s.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt).e
       case s.TmplApply(Ident("b"), rhs) => Bytes(rhs.head._1.getBytes()).e
       case s.TmplApply(lhs, rhs) => Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */")
+      case s.Lambda(lhs, rhs)    => Opaque.expr(s"0/* lambda: ${lhs} ${rhs} */")
       case s.Semi(None)          => ir.NoneKind(0).e
       case s.Semi(Some(value))   => expr(value)
       // todo: decorator
@@ -98,6 +99,9 @@ class ExprEnv(val env: Env) {
       case i: s.Impl         => impl(i, ct("$impl", hidden = true))
       // syntax errors
       case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
+      case b: s.ParamsLit =>
+        err(s"params lit without body")
+        Opaque.expr(s"0/* error: case block without body */")
       case b: s.CaseBlock =>
         err(s"case block without match")
         Opaque.expr(s"0/* error: case block without match */")

@@ -15,10 +15,8 @@ class ParserTest extends munit.FunSuite {
     val result = compiler.parse(src)
     val snapshot = pprint.apply(result).plainText;
 
-    val snapshotPath = "packages/cosmo/snapshots/ParserTests/" + path.slice(
-      0,
-      path.length - 4,
-    ) + ".cos-ast"
+    val snapshotPath = "packages/cosmo/snapshots/ParserTests/" +
+      path.slice(0, path.length - 4) + ".cos-ast"
 
     if (updateSnapshot) {
       val dirPath = snapshotPath.slice(0, snapshotPath.lastIndexOf("/"))
@@ -80,6 +78,9 @@ class ParserTest extends munit.FunSuite {
   }
   test("Syntax/decl.syntax") {
     runTestOnFile("samples/Syntax/decl.syntax.cos")
+  }
+  test("Syntax/lambda.syntax") {
+    runTestOnFile("samples/Syntax/lambda.syntax.cos")
   }
   test("Vec/push") {
     runTestOnFile("samples/Vec/push.cos")

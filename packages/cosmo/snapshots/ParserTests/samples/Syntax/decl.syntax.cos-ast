@@ -3,8 +3,9 @@ Some(
     stmts = List(
       Decorate(
         lhs = Apply(lhs = Ident(name = "noCore"), rhs = List(), ct = false),
-        rhs = Class(name = Ident(name = "A"), ps = None, body = Block(stmts = List()), ab = false)
+        rhs = Semi(semi = None)
       ),
+      Class(name = Ident(name = "A"), ps = None, body = Block(stmts = List()), ab = false),
       Class(
         name = Ident(name = "A"),
         ps = Some(value = List()),

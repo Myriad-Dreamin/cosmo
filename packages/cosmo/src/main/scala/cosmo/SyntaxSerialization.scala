@@ -55,6 +55,10 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(s""" "float", "value": "$value"}""")
     case StrLit(value) =>
       buf.append(s""" "string", "value": "$value"}""")
+    case ParamsLit(values) =>
+      buf.append(""" "params", "values": [""")
+      j(values, buf)
+      buf.append("]}")
     case ArgsLit(values) =>
       buf.append(""" "args", "values": [""")
       j(values, buf)
@@ -201,6 +205,12 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "rhs": [""")
       j(rhs, buf)
       buf.append("]}")
+    case Lambda(lhs, rhs) =>
+      buf.append(""" "lambda", "lhs": """)
+      j(lhs, buf)
+      buf.append(""", "rhs": """)
+      j(rhs, buf)
+      buf.append("}")
     case TmplApply(lhs, rhs) =>
       buf.append(""" "tmplapply", "lhs": """)
       j(lhs, buf)
