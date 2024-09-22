@@ -2,6 +2,7 @@ package cosmo.syntax
 
 import cosmo.DefId
 import fastparse._
+import cosmo.Parser.paramsLit
 
 private type N = Ident
 private type Str = String
@@ -21,6 +22,7 @@ sealed abstract class Node {
     case IntLit(value)       => Iterator.empty
     case FloatLit(value)     => Iterator.empty
     case StrLit(value)       => Iterator.empty
+    case ParamsLit(values)   => values.iterator
     case ArgsLit(values)     => values.iterator
     case Block(stmts)        => stmts.iterator
     case CaseBlock(stmts)    => stmts.iterator
@@ -49,6 +51,7 @@ sealed abstract class Node {
     case Match(lhs, rhs)     => Iterator(lhs, rhs)
     case As(lhs, rhs)        => Iterator(lhs, rhs)
     case Select(lhs, rhs, _) => Iterator(lhs, rhs)
+    case Lambda(lhs, rhs)    => Iterator(lhs, rhs)
     case Apply(lhs, rhs, _)  => Iterator(lhs) ++ rhs.iterator
     case TmplApply(lhs, rhs) =>
       Iterator(lhs) ++ rhs.iterator.flatMap(_._2.map(_._1))
@@ -87,6 +90,8 @@ final case class IntLit(value: BigInt) extends Node
 final case class FloatLit(value: BigDecimal) extends Node
 // String Literal
 final case class StrLit(value: Str) extends Node
+// todo: Param Literal, remove me
+final case class ParamsLit(values: List[Param]) extends Node
 // Argument Literal (Named and Nameless Tuples)
 final case class ArgsLit(values: List[Node]) extends Node
 
@@ -129,6 +134,7 @@ final case class BinOp(op: Str, lhs: Node, rhs: Node) extends Node
 final case class Match(lhs: Node, rhs: Node) extends Node
 final case class As(lhs: Node, rhs: Node) extends Node
 final case class Select(lhs: Node, rhs: Ident, ct: Boolean) extends Node
+final case class Lambda(lhs: Node, rhs: Node) extends Node
 final case class Apply(lhs: Node, rhs: List[Node], ct: Boolean) extends Node
 final case class TmplApply(lhs: Node, rhs: List[(String, TmplExp)]) extends Node
 final case class KeyedArg(key: Node, value: Node) extends Node

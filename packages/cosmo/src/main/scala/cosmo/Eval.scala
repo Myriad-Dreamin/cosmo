@@ -145,10 +145,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager) {
   def entry(ast: syntax.Block): Env = {
     stgE.module = stgE.expr(ast)
 
-    if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
-    val m = term(stgE.module)(0)
-    if !m.isInstanceOf[Region] then err("module must be a block")
-    module = m.asInstanceOf[Region]
+    // if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
+    // val m = term(stgE.module)(0)
+    // if !m.isInstanceOf[Region] then err("module must be a block")
+    // module = m.asInstanceOf[Region]
 
     this
   }

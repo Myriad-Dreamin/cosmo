@@ -1,0 +1,22 @@
+
+@noCore();
+
+def main() = {
+  val lam = a => 1;
+  val lam = (a) => 1;
+  val lam = (Point(x1, y1), Point(x2, y2)) => Point(x1 + x2, y1 + y2);
+
+  // Generialized Id functor
+  val id = (T: Type, a: T) => a;
+  // Untyped Id functor
+  val idMacro = (T: Type, a: Expr[T]) => std.codeExpr[T](a);
+
+  // Generialized Adder by constraint
+  val adder = [T<: std::ops::Add](a: T, b: T) => a + b;
+  // Generialized Adder by constraint
+  val partialAdder = [L, R <: std::ops::AddR[L, R]](a: L, b: R) => a + b;
+  // Generialized Id functor by constraint
+  val id = [T: Type](a: T) => a;
+  // Untyped Id functor by constraint
+  val idMacro = [T: Type](a: Expr[T]) => std.codeExpr[T](a);
+}

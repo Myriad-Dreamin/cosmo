@@ -1,5 +1,5 @@
 
-@noCore()
+@noCore();
 
 class A {}
 class A[] {}
