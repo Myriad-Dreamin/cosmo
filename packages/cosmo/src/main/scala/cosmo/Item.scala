@@ -1,6 +1,6 @@
 package cosmo.ir
 
-import scala.collection.mutable.{Map as MutMap};
+import scala.collection.mutable.{LinkedHashMap as MutMap};
 
 import cosmo.{DefInfo, FileId}
 
@@ -283,7 +283,7 @@ final case class EnumVariant(
 final case class EnumDestruct(
     item: Item,
     variant: Class,
-    bindings: List[Term | EnumDestruct],
+    bindings: List[Item],
 ) extends Item {}
 final case class Class(
     id: DefInfo,

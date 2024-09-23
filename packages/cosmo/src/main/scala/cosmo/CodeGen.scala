@@ -586,7 +586,8 @@ class CodeGen(implicit val env: Env) {
         //   .mkString("\n")
         // val vname = v.variant.id.defName(stem = true)
         // s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
-        ???
+        // ???
+        s""
       }
       case v: ir.TypeMatch => {
         val clsName = storeTy(v.by)

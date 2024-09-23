@@ -2,7 +2,7 @@ package cosmo
 
 import scala.collection.mutable.{
   ListBuffer,
-  Map as MutMap,
+  LinkedHashMap as MutMap,
   LongMap as MutLongMap,
 }
 
@@ -191,7 +191,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       // todo: check is compile time
       case SelectExpr(lhs, rhs) => deref(select(term(lhs), rhs))
       case Apply(lhs, rhs)      => $apply(term(lhs), rhs.map(term))
-      case b: MatchExpr         => matchExpr(b)
+      case b: MatchExpr         => matchTerm(b)
       case ItemE(item)          => term(item)
       // declarations
       case v: VarExpr      => DeclRef(checkVar(v))
@@ -280,9 +280,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def select(lhs: Item, field: String)(implicit level: Int): Item = {
-    debugln(s"select $lhs ${lhs.getClass().getName()} $field")
+    logln(s"select $lhs ${lhs.getClass().getName()} $field")
     val x = dispatch(lhs, lhs, field, false)
-    debugln(s"select $lhs $field => $x")
+    logln(s"select $lhs $field => $x")
     x.getOrElse(Select(lhs, field))
   }
 
@@ -399,6 +399,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def applyF(fn: Sig, info: Option[Fn], args: List[Item]): Item = {
     val Sig(params, ret_ty, body) = fn
     if (ret_ty.level <= 1) {
+      println(s"applyF ${fn.params} $args")
       return Apply(info.getOrElse(fn), castArgs(fn.params, args));
     }
 
@@ -444,86 +445,25 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       defaultCase: Option[Item],
   );
 
-  def matchExpr(b: MatchExpr)(implicit level: Int): Item = {
-    var lhs = term(b.lhs)
-    var lhsTy = tyOf(lhs) match
+  def matchTerm(b: MatchExpr)(implicit level: Int): Item = {
+    val lhs = term(b.lhs)
+    val lhsTy = tyOf(lhs) match
       case None     => return err("cannot match a untyped value")
       case Some(ty) => ty;
+    val lhsShape = curryView(lhs, lhsTy);
 
-    logln(s"matchExpr $lhs ($lhsTy) on ${b.body}")
-    // val sCases = b.rhs match {
-    //   case b: syntax.CaseBlock                  => b.stmts
-    //   case b: syntax.Block if (b.stmts.isEmpty) => List()
-    //   case b: syntax.Block => return err("match body contains non-case items")
-    //   case _               => return err("match body must be a case block")
-    // }
+    logln(s"matchExpr $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
 
     // // Calculate the kind of match.
     // var defaultCase: Option[Item] = None
     // var matchCases: List[MatchCaseInfo] = List()
 
-    // val (patterns, restTy) =
-    //   sCases.foldLeft((List[(Item, Item)](), curryView(lhsTy))) {
-    //     case ((patterns, lhs), syntax.Case(destructor, body)) =>
-    //       val (pattern, rests) = destruct(lhs, destructor, valueTermO(body))
-    //       (patterns :+ pattern, rests)
-    //   }
-
-    // checkedDestructed(restTy)
-    // ValueMatch(lhs, lhsTy, patterns, Some(Unreachable))
-    NoneItem
-  }
-
-  def destruct(lhs: DestructShape, by: syntax.Node, cont: => Item)(implicit
-      level: Int,
-  ): ((Item, Item), DestructShape) = {
-
-    // for (syntax.Case(destructor, body) <- sCases) {
-    //   destructor match {
-    //     case Ident("_") =>
-    //       defaultCase match {
-    //         case Some(_) =>
-    //           errors = s"multiple default cases" :: errors
-    //         case None =>
-    //           defaultCase = valueTermO(body)
-    //       }
-    //     case _ =>
-    //       val casePattern = destruct(lhs, destructor);
-    //       matchCases =
-    //         matchCases :+ MatchCaseInfo(destructor, body, casePattern)
-    //   }
-    // }
-    val (name, args) = by match {
-      // Consider destructing cases.
-      case name: (syntax.Ident | syntax.Select) => (name, None)
-      // TODO: nested apply matching
-      case syntax.Apply(name, rhs, _) => (name, Some(rhs))
-      // Matching by value, just return the value.
-      case _ => return ((expGG(by), cont), lhs)
-    }
-    val variant = enumShape(expGG(name)) match {
-      case Some(v)              => v
-      case None if args.isEmpty =>
-        // Must be resolved ident/select, also use matching by value.
-        // TODO: Better fuse the check with the lines above.
-        return ((expGG(by), cont), lhs)
-      case None =>
-        err(s"Invalid enum variant $name"); return ((expGG(by), cont), lhs)
-    }
-    // val binding = args.iterator.flatten.map {
-    //   case syntax.Ident(name) => name
-    //   case _                  => ""
-    // }
-    // EnumDestruct(lhs, variant, binding.toList, None)
-    ???
-
-    // If any of matchCases is a EnumDestruct, ...
-
-    // val isValueMatch = matchCases.headOption match {
-    //   case None                                       => ???
-    //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
-    //   case _                                          => true
-    // }
+    val (patterns, restTy) =
+      b.body.cases.foldLeft((List[(Item, Item)](), lhsShape)) {
+        case ((patterns, lhs), (destructor, body)) =>
+          val (pattern, rests) = matchPat(lhs, curryExpr(destructor))
+          (patterns :+ (pattern, valTermO(body)), rests)
+      }
 
     // var vMappings =
     //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
@@ -581,6 +521,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
     // val defaultCaseItem = defaultCase.getOrElse(Unreachable)
     // TypeMatch(lhs, ty, matchBody, defaultCaseItem)
+
+    // checkedDestructed(restTy)
+    ValueMatch(lhs, lhsTy, patterns, Some(Unreachable))
   }
 
   /// Declarations
@@ -648,15 +591,16 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def checkClass(e: ClassExpr): Class = {
-    val ClassExpr(info, ps, constraints, cFields) = e
+    val ClassExpr(info, ps, constraints, fields) = e
     val ss = selfRef; selfRef = Some(e);
 
     val params = resolveParams(ps);
-    val cls2 = Class(info, params, cFields);
+    val cls2 = Class(info, params, fields); selfRef = Some(cls2);
     noteDecl(cls2);
-    val fields: FieldMap = MutMap();
-    for (f <- cFields.values) {
+    println(s"check class ${fields.values.toSeq}")
+    for (f <- fields.values.toSeq) {
       fields.addOne(f.name -> checkField(f))
+      println(s"checked field ${f.name}")
     }
     val cls = Class(info, params, fields)
     info.ty = cls
@@ -667,17 +611,17 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def checkImpl(e: ImplExpr) = {
-    val ImplExpr(info, ps, constraints, i, c, cFields) = e
+    val ImplExpr(info, ps, constraints, i, c, fields) = e
     val cls = tyTerm(c);
     val ss2 = selfRef; selfRef = Some(cls);
     val ss = selfImplRef; selfImplRef = Some(e);
 
     val iface = i.map(tyTerm);
     val params = resolveParams(ps);
-    val impl2 = Impl(info, params, iface.get, cls, cFields);
+    val impl2 = Impl(info, params, iface.get, cls, fields);
+    selfRef = Some(impl2);
     noteDecl(impl2);
-    val fields: FieldMap = MutMap();
-    for (f <- cFields.values) {
+    for (f <- fields.values.toSeq) {
       fields.addOne(f.name -> checkField(f))
     }
     val impl = Impl(info, params, iface.get, cls, fields)

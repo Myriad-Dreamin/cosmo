@@ -1,6 +1,6 @@
 package cosmo
 
-import scala.collection.mutable.{ListBuffer, Map as MutMap};
+import scala.collection.mutable.{ListBuffer, LinkedHashMap as MutMap};
 import scala.annotation.tailrec
 
 import ir._
@@ -238,9 +238,15 @@ trait ExprEnv { self: Env =>
 
   def enumClass(body: s.CaseBlock, fields: FieldMap, isAbstract: Boolean) = {
     if (isAbstract) then err(s"abstract trait cannot have cases")
-    for ((stmt, index) <- body.stmts.zipWithIndex) {
-      val variant = scopes.withScope(enumVariant(stmt, fields))
-      addField(EEnumField(variant, index), fields)
+    for ((stmt, index) <- body.stmts.zipWithIndex) stmt match {
+      case s.Case(Ident("_"), None) =>
+      case s.Case(Ident("_"), Some(body)) =>
+        if (!body.isInstanceOf[s.Block]) then
+          err(s"enum case body must be a block")
+        baseClass(body.asInstanceOf[s.Block], fields, isAbstract)
+      case _ =>
+        val variant = scopes.withScope(enumVariant(stmt, fields))
+        addField(EEnumField(variant, index), fields)
     }
   }
 
