@@ -111,10 +111,20 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   /// Entry
 
   def entry(ast: syntax.Block): Env = {
+    // FIXME: better noCore handling
+    ast.stmts.takeWhile {
+      case syntax.Decorate(syntax.Apply(Ident("noCore"), _, _), _) =>
+        noCore = true; false
+      case syntax.Decorate(syntax.Apply(Ident("syntaxOnly"), _, _), _) =>
+        syntaxOnly = true; false
+      case _ => true
+    }
+    if (!noCore) then
+      expr(syntax.Import(libPath("std.prelude"), Some(Ident("_"))))
+
     moduleAst = Region(ast.stmts.map(expr), true)
     if (syntaxOnly) return this
 
-    if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
     val m = valTerm(moduleAst)
     if !m.isInstanceOf[Region] then err("module must be a block")
     module = m.asInstanceOf[Region]
