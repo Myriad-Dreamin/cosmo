@@ -384,7 +384,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case BoundField(_, by, _, EnumField(ev)) =>
         $apply(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
-        Apply(lhs.e, castArgs(f.sig.params, rhs, Some(Right(that))))
+        Apply(lhs, castArgs(f.sig.params, rhs, Some(Right(that))))
       case HKTInstance(ty, syntax) =>
         val res = hktTranspose(syntax, $apply(ty, rhs))
         if (res.level == 0) {
