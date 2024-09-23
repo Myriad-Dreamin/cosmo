@@ -109,7 +109,7 @@ target_link_libraries(cosmo-user-prog PUBLIC cosmo_std cosmo_json)
 
         // todo: this only works with ninja
         val programPath = s"$buildDir/$relReleaseDir/$target$execSuffix"
-        logln(s"programPath: $programPath")
+        debugln(s"programPath: $programPath")
         Some(NodePath.resolve(programPath))
       }
 

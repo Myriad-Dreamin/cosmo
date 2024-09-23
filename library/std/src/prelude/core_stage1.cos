@@ -1,0 +1,172 @@
+
+import "@lib/c++/cstdio"
+import "@lib/c++/string"
+import "@lib/c++/utility"
+import "@lib/c++/iostream"
+
+import _ from std::prelude::lang
+
+code("""
+// pub def str: Type = stringSys::std::string
+using str = std::string;
+template <typename T, typename Cond = void> struct DisplayTrait {};
+""")
+
+code("""
+
+template <typename T> inline void print(const T &x) {
+  using TT = std::decay_t<T>;
+  DisplayTrait<TT>::print(x);
+}
+
+template <typename T> inline void println(const T &x) {
+  using TT = std::decay_t<T>;
+  // todo: atomic print
+  DisplayTrait<TT>::print(x);
+  printf("\n");
+}
+
+template <> struct DisplayTrait<str> {
+  static void print(const str &x) { printf("%s", x.c_str()); }
+};
+
+template <> struct DisplayTrait<bool> {
+  static void print(bool x) {
+    if (x) {
+      printf("true");
+    } else {
+      printf("false");
+    }
+   }
+};
+template <typename T>
+struct DisplayTrait<
+    T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {
+  static void print(T x) { printf("%lld", static_cast<long long>(x)); }
+};
+
+template <typename T>
+struct DisplayTrait<
+    T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>>> {
+  static void print(T x) { printf("%llu", static_cast<unsigned long long>(x)); }
+};
+template <> struct DisplayTrait<float32_t> {
+  static void print(float32_t x) { printf("%f", x); }
+};
+template <> struct DisplayTrait<float64_t> {
+  static void print(float64_t x) { printf("%lf", x); }
+};
+""")
+
+code("""
+
+[[noreturn]] inline void panic(const std::string& msg) {
+  fprintf(stderr, "unreachable: %s\n", msg.data());
+  abort();
+}
+
+template <typename... Tys> inline void compile_time_error_(const char msg[]);
+#define compile_time_error(msg, ...) compile_time_error_<##__VA_ARGS__>(msg)
+
+template <typename V> struct Range {
+  const V start_v;
+  const V stop_v;
+
+  Range(V start, V stop) : start_v(start), stop_v(stop) {}
+
+  struct Iter {
+    V current;
+    V end;
+
+    Iter(V current, V end) : current(current), end(end) {}
+
+    Iter &operator++() {
+      current += 1;
+      return *this;
+    }
+
+    bool operator!=(const Iter &other) const {
+      return current != other.current;
+    }
+
+    V operator*() const { return current; }
+  };
+
+  Iter begin() const { return Iter(start_v, stop_v); }
+  Iter end() const { return Iter(stop_v, stop_v); }
+};
+
+template <typename V> struct LoopRange {
+  const V start_v;
+  const V stop_v;
+  const V step_v;
+
+  LoopRange(V start, V stop, V step = 1)
+      : start_v(start), stop_v(calcEnd(start, stop, step)), step_v(step) {}
+
+  struct Iter {
+    V current;
+    V end;
+    V step;
+
+    Iter(V current, V end, V step) : current(current), end(end), step(step) {}
+
+    Iter &operator++() {
+      current += step;
+      return *this;
+    }
+
+    bool operator!=(const Iter &other) const {
+      return current != other.current;
+    }
+
+    V operator*() const { return current; }
+  };
+
+  Iter begin() const { return Iter(start_v, stop_v, step_v); }
+  Iter end() const { return Iter(stop_v, stop_v, step_v); }
+
+  static V calcEnd(V start, V stop, V step) {
+    if (step == 0) {
+      panic("step must be non-zero");
+    }
+    if (step > 0 && start >= stop) {
+      panic("start must be less than stop for positive step");
+    }
+    if (step < 0 && start <= stop) {
+      panic("start must be greater than stop for negative step");
+    }
+    V diff = stop - start;
+    V mod = diff % step;
+    if (mod != 0) {
+      stop = stop + step - mod;
+    }
+    return stop;
+  }
+};
+""")
+
+code("""
+
+template <typename... Args> struct DisplayTrait<std::tuple<Args...>> {
+  static void print(const std::tuple<Args...> &x) {
+    // interperses with commas
+    constexpr int N = sizeof...(Args);
+    if constexpr (N == 0) {
+      printf("()");
+    } else {
+      printf("(");
+      // First
+      ::print(std::get<0>(x));
+      // Rest
+      std::apply(
+          [](const auto &head, const auto &...tail) {
+            ((printf(", "), ::print(tail)), ...);
+          },
+          x);
+
+      printf(")");
+    }
+  }
+};
+""")

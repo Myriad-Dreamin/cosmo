@@ -6,7 +6,7 @@ import _ from std.prelude.core_stage1
 def main() = {
   var a: i32 = 0
   for (i in 0..10000) {
-    a = a + 1
+    a = a + i
   }
   println(a);
 }

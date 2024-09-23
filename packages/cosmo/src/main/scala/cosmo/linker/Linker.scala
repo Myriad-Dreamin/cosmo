@@ -1,6 +1,7 @@
 package cosmo.linker
 
 import cosmo.{Transpiler, Package}
+import cosmo.NodePath
 
 trait Linker {
   def assemblePkg(pkg: Package, t: Transpiler, releaseDir: String): Unit
@@ -20,7 +21,7 @@ def writeIfDiff(
     }
   } else {
     val dirPath = path.substring(0, path.lastIndexOf("/"))
-    system.mkdir(dirPath)
+    system.mkdir(NodePath.resolve(dirPath))
     system.writeFile(path, content)
   }
 }

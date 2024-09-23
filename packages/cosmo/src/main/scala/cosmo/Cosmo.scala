@@ -12,30 +12,6 @@ import cosmo.formatter.formatCode
 @main
 def CosmoMain() = {}
 
-case class FileId(val pkg: Package, val path: String) {
-  lazy val ns = calcNs
-  def calcNs =
-    val pns = List(pkg.namespace + "_" + pkg.name)
-    val relPath = pkg.root.map(r => NodePath.relative(r, path)).getOrElse(path)
-    val fns = canoPath(relPath).stripSuffix(".cos").split("/").toList
-    pns ::: fns
-  override def toString(): String = s"$pkg/$path"
-  def stripPath = path.stripSuffix(".cos")
-}
-object FileId {
-  def any = FileId(Package.any, "")
-  // from string
-  def fromString(s: String, pkg: String => Option[Package]): Option[FileId] = {
-    val parts = s.split(":", 2)
-    val parts2 = parts(1).split("/", 2)
-    pkg(parts(0) + ":" + parts2(0)).map(FileId(_, "/" + canoPath(parts2(1))))
-  }
-
-  def fromPkg(pkg: Package, path: String): FileId = {
-    FileId(pkg, "/" + canoPath(NodePath.relative(pkg.fsPath, path)))
-  }
-}
-
 trait PackageManager {
   def resolvePackage(path: syntax.Node): FileId;
   def loadModule(fid: FileId): Option[Env]
@@ -211,7 +187,6 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
         throw new Exception("Invalid path")
     }
 
-    println((path, names))
     val mayNs = names(0)
     val (ns, name, dropped) = if (mayNs == "std") {
       ("cosmo", mayNs, 1)
@@ -226,7 +201,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
       case paths  => paths.mkString("", "/", ".cos")
     }
 
-    FileId(pkg, canoPath(pkg.root.getOrElse("src") + "/" + pathInPkg))
+    FileId(pkg, canoPath(NodePath.join(pkg.root.getOrElse("src"), pathInPkg)))
   }
 
   def parseBase(src: String): syntax.Node = {
