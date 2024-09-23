@@ -1,4 +1,6 @@
 
+@noCore();
+
 import _ from std::prelude::lang;
 
 class Result[T, E] {

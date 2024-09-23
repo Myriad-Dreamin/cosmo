@@ -37,57 +37,9 @@ class Scopes {
     scopes = scopes.updated(0, scopes.head.removed(name))
 }
 
-class DefInfo(
-    val name: String,
-    val namespaces: List[String],
-    var id: DefId,
-    var env: Env,
-    var syntax: Expr = Opaque.empty,
-    var ty: Type = TopTy,
-    var impls: List[Impl] = List(),
-    var pos: Option[(Int, Int)] = None,
-    var noMangle: Boolean = false,
-    var isVar: Boolean = false,
-    var isPhantom: Boolean = false,
-    var isTypeVar: Boolean = false,
-    var inClass: Boolean = false,
-    var isBuiltin: Boolean = false,
-    var isDependent: Boolean = true,
-    var isOverride: Boolean = false,
-    var isVirtual: Boolean = false,
-    var isHidden: Boolean = false,
-    var isMut: Boolean = true,
-) {
-  def isTrait = isVirtual
-  def defName(stem: Boolean = false): String = {
-    if (noMangle) this.name
-    else if (isVar || stem) this.nameStem(this.id.id)
-    else this.fullMangledName(this.id.id)
-  }
-  def nameStem(disambiguator: Int) =
-    if (noMangle) name
-    else mangledName(disambiguator)
-  def fullName(disambiguator: Int) =
-    if (noMangle) name
-    else fullMangledName(disambiguator)
-  // todo: ${disambiguator}
-  def mangledName(disambiguator: Int) = name
-  def fullMangledName(disambiguator: Int) =
-    val ens = env.fid.map(_.ns).getOrElse(List())
-    ((ens ::: namespaces) :+ s"${name}").mkString("::")
-  def value = env.items.get(id)
-  def instantiateTy = ty // todo: instantiate type
-  def mod = if isTypeVar then "type "
-  else if isMut then "var "
-  else "val "
-}
-
-object DefInfo {
-  def just(id: Int, env: Env) = new DefInfo("", List(), DefId(id), env)
-}
-
 class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
-    extends ExprEnv with TypeEnv {
+    extends ExprEnv
+    with TypeEnv {
 
   var noCore = false
   var syntaxOnly = false
@@ -107,8 +59,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   var rawDeps = Map[FileId, Option[Env]]()
   var checkStatus = MutLongMap[Unit]()
 
-  var moduleAst: Expr = Opaque.expr("")
-  var module: ir.Region = Region(List())
+  var moduleAst: Region = Region(List(), false)
+  var module: ir.Region = Region(List(), false)
 
   /// Builtin Items
 
@@ -159,7 +111,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   /// Entry
 
   def entry(ast: syntax.Block): Env = {
-    moduleAst = expr(ast)
+    moduleAst = Region(ast.stmts.map(expr), true)
     if (syntaxOnly) return this
 
     if (!noCore) then importNative(libPath("std.prelude"), Some(Ident("_")))
@@ -219,8 +171,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case If(cond, x, y)        => If(term(cond), term(x), y.map(term))
       case Loop(body)            => Loop(term(body))
       case While(cond, body)     => While(term(cond), term(body))
-      case For(name, iter, body) => For(name, term(iter), term(body))
-      case Region(stmts)         => Region(stmts.map(term))
+      case For(name, iter, body) => For(term(name), term(iter), term(body))
+      case Region(stmts, semi)   => Region(stmts.map(term), semi)
       // operations
       case Name(id, None) =>
         val t = byRef(id);
@@ -242,12 +194,13 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case b: MatchExpr         => matchExpr(b)
       case ItemE(item)          => term(item)
       // declarations
-      case v: VarExpr     => DeclRef(checkVar(v))
-      case d: DefExpr     => DeclRef(checkDef(d))
-      case c: ClassExpr   => DeclRef(checkClass(c))
-      case i: ImplExpr    => DeclRef(checkImpl(i))
-      case Hole(id)       => err(s"hole $id in the air")
-      case cr: CaseRegion => err(s"case region $cr in the air")
+      case v: VarExpr      => DeclRef(checkVar(v))
+      case d: DefExpr      => DeclRef(checkDef(d))
+      case c: ClassExpr    => DeclRef(checkClass(c))
+      case i: ImplExpr     => DeclRef(checkImpl(i))
+      case d: DestructExpr => checkDestruct(d)
+      case Hole(id)        => err(s"hole $id in the air")
+      case cr: CaseRegion  => err(s"case region $cr in the air")
     }
   }
 
@@ -272,7 +225,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       (CModuleKind.Source, path)
     }
     val defInfo = ct("$module")
-    importDest(dest, defInfo, CModule(defInfo, kind, includePath))
+    val moduleIns = CModule(defInfo, kind, includePath)
+    items += (defInfo.id -> moduleIns)
+    defInfo.ty = moduleIns
+    moduleIns
   }
 
   def importNative(p: syntax.Node, dest: Option[syntax.Node]): Item = {
@@ -286,34 +242,15 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val env = pacMgr.loadModule(fid)
     rawDeps += (fid -> env)
     val moduleIns = env match {
-      case Some(env) =>
-        NativeModule(defInfo, env)
+      case Some(env) => NativeModule(defInfo, env)
       case None => {
         err(s"Failed to load module $p")
         Unresolved(defInfo)
       }
     }
-    importDest(dest, defInfo, moduleIns)
-  }
-
-  def importDest(dest: Option[syntax.Node], defInfo: DefInfo, v: Item): Item = {
-    val di = dest match {
-      case Some(syntax.Ident("_")) =>
-        val env = v.asInstanceOf[NativeModule].env
-        val exts = env.scopes.scopes.head
-        for ((name, info) <- exts.filter(!_._2.isBuiltin)) {
-          items += (ct(name).id -> env.byRef(info)(0))
-        }
-
-        ct("$module")
-      case Some(syntax.Ident(name)) => ct(name)
-      case Some(v) =>
-        err(s"Invalid import destination $v")
-        ct("$module")
-      case None => defInfo
-    }
-    di.ty = v
-    v
+    items += (defInfo.id -> moduleIns)
+    defInfo.ty = moduleIns
+    moduleIns
   }
 
   /// Expressions
@@ -422,7 +359,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def $apply(lhs: Item, rhs: List[Item])(implicit level: Int): Item = {
-    logln(s"apply $lhs |||| ${rhs}")
+    debugln(s"apply $lhs |||| ${rhs}")
     lhs match {
       case Term(id, _, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
         return rhs.head match {
@@ -508,12 +445,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   );
 
   def matchExpr(b: MatchExpr)(implicit level: Int): Item = {
-    // var lhs = expGG(b.lhs)
-    // var lhsTy = tyOf(lhs) match
-    //   case None     => return err("cannot match a untyped value")
-    //   case Some(ty) => ty;
+    var lhs = term(b.lhs)
+    var lhsTy = tyOf(lhs) match
+      case None     => return err("cannot match a untyped value")
+      case Some(ty) => ty;
 
-    // debugln(s"matchExpr $lhs ($lhsTy) on ${b.rhs}")
+    logln(s"matchExpr $lhs ($lhsTy) on ${b.body}")
     // val sCases = b.rhs match {
     //   case b: syntax.CaseBlock                  => b.stmts
     //   case b: syntax.Block if (b.stmts.isEmpty) => List()
@@ -534,7 +471,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
     // checkedDestructed(restTy)
     // ValueMatch(lhs, lhsTy, patterns, Some(Unreachable))
-    ???
+    NoneItem
   }
 
   def destruct(lhs: DestructShape, by: syntax.Node, cont: => Item)(implicit
@@ -670,6 +607,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     info.ty = initTy.getOrElse(createInfer(info, valLvl + 1))
     items += (info.id -> initExpr.getOrElse(res))
     res
+  }
+
+  def checkDestruct(d: DestructExpr): Item = {
+    ???
   }
 
   def resolveParams(params: Option[EParams]) = params.map { params =>

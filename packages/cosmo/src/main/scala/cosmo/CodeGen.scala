@@ -23,6 +23,10 @@ class CodeGen(implicit val env: Env) {
     s"$prelude$itemCode\n#if (${errorCode.length} > 0)\n#error \"cosmo finds some error\"\n#endif\n#if 0\n$errorCode\n#endif$postlude"
   }
 
+  def genField(ast: ir.VField): String = {
+    genDef(ast.item.asInstanceOf[DeclItem])
+  }
+
   def genDef(ast: ir.Item): String = {
     mayGenDef(ast).getOrElse(expr(ast))
   }
@@ -102,7 +106,7 @@ class CodeGen(implicit val env: Env) {
         // todo: unreliable path conversion
         val fid = env.fid.get
         val path = fid.path.slice(0, fid.path.length - 4) + ".h"
-        s"#include <${fid.pkg.namespace}/${fid.pkg.name}/src${path}>"
+        s"#include <${fid.pkg.namespace}/${fid.pkg.name}/${path}>"
       case ir.CModule(id, kind, path) =>
         kind match {
           case ir.CModuleKind.Builtin =>
@@ -112,150 +116,143 @@ class CodeGen(implicit val env: Env) {
           case ir.CModuleKind.Source =>
             s"""#include "$path" // IWYU pragma: keep"""
         }
-//       case ir.Class(defInfo, params, _, vars, restFields, true, _, _) =>
-//         val gii = genInImpl
-//         genInImpl = false
-//         val name = defInfo.defName(stem = true);
-//         val templateCode = typeParams(params).getOrElse("");
-//         val defsCode = restFields
-//           .map(p => genDef(p.item.asInstanceOf[DeclItem]))
-//           .mkString("\n  ")
-//         genInImpl = gii
-//         s"""$nsb$templateCode struct ${defInfo.name} {using Self = $name;  $defsCode
-//   virtual ~${defInfo.name}() = default;
-// };$nse"""
-//       case ir.Class(defInfo, params, _, vars, restFields, false, _, _) =>
-//         val gii = genInImpl
-//         genInImpl = false
-//         val variants = restFields.filter(_.isInstanceOf[ir.EnumField])
-//         val defs = restFields.filter(_.isInstanceOf[ir.DefField])
-//         val item = env.items(defInfo.id)
-//         val name = defInfo.defName(stem = true)
-//         val templateCode = typeParams(params).getOrElse("")
-//         val emptyConstructable = vars.forall(!_.item.init.isEmpty)
-//         val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
-//         val defsCode =
-//           defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
-//         val consPref = if (vars.isEmpty) "" else s":"
-//         val consCode =
-//           s"$name(${vars.map(p => genVarParam(p.item)).mkString(", ")})$consPref${vars
-//               .map(p => genVarCons(p.item))
-//               .mkString(", ")} {}"
-//         val emptyConsCode =
-//           if variants.isEmpty && emptyConstructable && !vars.isEmpty then
-//             s"$name() = default;"
-//           else ""
-//         val variantNames = variants.map(_.item.id.defName(stem = true))
-//         val variantBases = variants.map(e =>
-//           e.item match
-//             case EnumVariant(_, base: ir.Class) => Some(base)
-//             case _                              => None,
-//         )
-//         val variantVars =
-//           variantBases.map(e => e.map(_.vars).getOrElse(List.empty))
-//         val bodyCode =
-//           variantBases.flatMap(id => id.map(genDef(_))).mkString(";\n")
-//         val enumIdxCode = variantNames.zipWithIndex
-//           .map { case (name, idx) =>
-//             s"kIdx$name = $idx"
-//           }
-//           .mkString(", ")
-//         val dataCode = variantNames.mkString(", ")
-//         val variantCons =
-//           variantNames
-//             .map(vn => s"$name($vn &&v): data(std::move(v)) {}")
-//             .mkString("\n  ")
-//         val variantCons2 = variantNames
-//           .map(vn =>
-//             s"""template <typename... Args> static $name ${vn}_cons(Args &&...args) {
-//     return {${vn}(std::forward<Args>(args)...)};
-//   }""",
-//           )
-//           .mkString("\n  ")
-//         val variantFields =
-//           variantNames
-//             .zip(variantVars)
-//             .zipWithIndex
-//             .flatMap { case ((vn, vars), index) =>
-//               vars.map(v =>
-//                 val defInfo = v.item.id
-//                 val name = defInfo.nameStem(defInfo.id.id)
-//                 val ty = defInfo.instantiateTy
-//                 val mayDeref = if ty == SelfTy then "*" else ""
-//                 s"""const ${returnTy(
-//                     ty,
-//                   )} &${vn}${name}() const { return $mayDeref(std::get<$index>(data)).${name};};""",
-//               )
-//             }
-//             .mkString("\n  ")
-//         val variantClones: String =
-//           variantNames
-//             .zip(variantVars)
-//             .zipWithIndex
-//             .map { case ((vn, vars), index) =>
-//               val clones = vars
-//                 .map(v =>
-//                   val defInfo = v.item.id
-//                   val name = defInfo.nameStem(defInfo.id.id)
-//                   val ty = defInfo.instantiateTy
-//                   val mayClone = if ty == SelfTy then "->clone()" else ""
-//                   s"std::get<$index>(data).${name}$mayClone",
-//                 )
-//                 .mkString(",")
-//               s"""case ${index}: return ${vn}_cons($clones);"""
-//             }
-//             .mkString("\n    ")
-//         genInImpl = gii
-//         if (variants.isEmpty) {
-//           s"$nsb$templateCode struct $name {using Self = $name;$varsCode$emptyConsCode$consCode$defsCode};$nse"
-//         } else {
-//           s"""$nsb$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+      case ir.Class(defInfo, params, fields, _, _, _) if defInfo.isTrait =>
+        val gii = genInImpl
+        genInImpl = false
+        val name = defInfo.defName(stem = true);
+        val templateCode = typeParams(params).getOrElse("");
+        val defsCode = fields.values.map(genField).mkString("\n  ")
+        genInImpl = gii
+        s"""$nsb$templateCode struct ${defInfo.name} {using Self = $name;  $defsCode
+  virtual ~${defInfo.name}() = default;
+};$nse"""
+      case cls @ ir.Class(defInfo, params, fields, _, _, _) =>
+        val gii = genInImpl
+        genInImpl = false
+        val vars = cls.vars
+        val variants = cls.variants
+        val defs = cls.defs
+        val item = env.items(defInfo.id)
+        val name = defInfo.defName(stem = true)
+        val templateCode = typeParams(params).getOrElse("")
+        val emptyConstructable = vars.forall(!_.item.init.isEmpty)
+        val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
+        val defsCode =
+          defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
+        val consPref = if (vars.isEmpty) "" else s":"
+        val consCode =
+          s"$name(${vars.map(p => genVarParam(p.item)).mkString(", ")})$consPref${vars
+              .map(p => genVarCons(p.item))
+              .mkString(", ")} {}"
+        val emptyConsCode =
+          if variants.isEmpty && emptyConstructable && !vars.isEmpty then
+            s"$name() = default;"
+          else ""
+        val variantNames = variants.map(_.item.id.defName(stem = true))
+        val variantBases = variants.map(_.item)
+        val variantVars = variantBases.map(_.vars)
+        val bodyCode = variantBases.map(genDef).mkString(";\n")
+        val enumIdxCode = variantNames.zipWithIndex
+          .map { case (name, idx) =>
+            s"kIdx$name = $idx"
+          }
+          .mkString(", ")
+        val dataCode = variantNames.mkString(", ")
+        val variantCons =
+          variantNames
+            .map(vn => s"$name($vn &&v): data(std::move(v)) {}")
+            .mkString("\n  ")
+        val variantCons2 = variantNames
+          .map(vn =>
+            s"""template <typename... Args> static $name ${vn}_cons(Args &&...args) {
+    return {${vn}(std::forward<Args>(args)...)};
+  }""",
+          )
+          .mkString("\n  ")
+        val variantFields =
+          variantNames
+            .zip(variantVars)
+            .zipWithIndex
+            .flatMap { case ((vn, vars), index) =>
+              vars.map(v =>
+                val defInfo = v.item.id
+                val name = defInfo.nameStem(defInfo.id.id)
+                val ty = defInfo.instantiateTy
+                val mayDeref = if ty == SelfTy then "*" else ""
+                s"""const ${returnTy(
+                    ty,
+                  )} &${vn}${name}() const { return $mayDeref(std::get<$index>(data)).${name};};""",
+              )
+            }
+            .mkString("\n  ")
+        val variantClones: String =
+          variantNames
+            .zip(variantVars)
+            .zipWithIndex
+            .map { case ((vn, vars), index) =>
+              val clones = vars
+                .map(v =>
+                  val defInfo = v.item.id
+                  val name = defInfo.nameStem(defInfo.id.id)
+                  val ty = defInfo.instantiateTy
+                  val mayClone = if ty == SelfTy then "->clone()" else ""
+                  s"std::get<$index>(data).${name}$mayClone",
+                )
+                .mkString(",")
+              s"""case ${index}: return ${vn}_cons($clones);"""
+            }
+            .mkString("\n    ")
+        genInImpl = gii
+        if (variants.isEmpty) {
+          s"$nsb$templateCode struct $name {using Self = $name;$varsCode$emptyConsCode$consCode$defsCode};$nse"
+        } else {
+          s"""$nsb$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
 
-//   enum { $enumIdxCode };
+  enum { $enumIdxCode };
 
-//   $name($name &&n) : data(std::move(n.data)) {}
-//   $name &operator=($name &&n) {
-//     data = std::move(n.data);
-//     return *this;
-//   }
+  $name($name &&n) : data(std::move(n.data)) {}
+  $name &operator=($name &&n) {
+    data = std::move(n.data);
+    return *this;
+  }
 
-//   $variantCons
+  $variantCons
 
-//   $variantCons2
+  $variantCons2
 
-//   $variantFields
+  $variantFields
 
-//   Self clone() const { // NOLINT(misc-no-recursion)
-//     switch (data.index()) {
-//     $variantClones
-//     default:
-//       unreachable();
-//     }
-//   }
+  Self clone() const { // NOLINT(misc-no-recursion)
+    switch (data.index()) {
+    $variantClones
+    default:
+      unreachable();
+    }
+  }
 
-//   $defsCode
-// };$nse"""
-//         }
-//       case ir.Impl(defInfo, params, iface, cls, defs) =>
-//         val gii = genInImpl
-//         genInImpl = true
-//         val (ifaceTy, that) = (storeTy(iface), storeTy(cls))
-//         val name = s"::cosmo::Impl<$that, $ifaceTy, isMut>"
-//         val templateCode =
-//           typeParams(params)
-//             .map(p => p.stripSuffix(">") + ", bool isMut>")
-//             .getOrElse("template<bool isMut>");
-//         val defsCode =
-//           defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
-//         genInImpl = gii
-//         s"""${templateCode} struct $name final: public $ifaceTy {using Self = $name;
-//   using That = $that;
-//   That & self_;
-//   Impl(That &self_): self_(self_) {}
-//   template<bool isMutW = isMut>
-//   Impl(const That &self_, typename std::enable_if<!isMutW, int>::type* = 0): self_(const_cast<That&>(self_)) {} ~Impl() override {}
-//   const That &self() const { return self_; }
-//   That &self() { if (!isMut) {unreachable();} return self_; } $defsCode};"""
+  $defsCode
+};$nse"""
+        }
+      case impl @ ir.Impl(defInfo, params, iface, cls, defs) =>
+        val defs = impl.defs
+        val gii = genInImpl
+        genInImpl = true
+        val (ifaceTy, that) = (storeTy(iface), storeTy(cls))
+        val name = s"::cosmo::Impl<$that, $ifaceTy, isMut>"
+        val templateCode =
+          typeParams(params)
+            .map(p => p.stripSuffix(">") + ", bool isMut>")
+            .getOrElse("template<bool isMut>");
+        val defsCode = defs.map(genField).mkString("\n")
+        genInImpl = gii
+        s"""${templateCode} struct $name final: public $ifaceTy {using Self = $name;
+  using That = $that;
+  That & self_;
+  Impl(That &self_): self_(self_) {}
+  template<bool isMutW = isMut>
+  Impl(const That &self_, typename std::enable_if<!isMutW, int>::type* = 0): self_(const_cast<That&>(self_)) {} ~Impl() override {}
+  const That &self() const { return self_; }
+  That &self() { if (!isMut) {unreachable();} return self_; } $defsCode};"""
       case v: ir.Var => genVarStore(v)
       case a         => return None
     }
@@ -292,8 +289,15 @@ class CodeGen(implicit val env: Env) {
     else s"$name($p)"
   }
 
-  def genVarStore(node: ir.Var) = {
+  def genVarStore(node: ir.Var): String = {
     val ir.Var(info, init, _) = node
+    if (info.isTypeVar) {
+      return init match {
+        case Some(m: (CModule | NativeModule)) => genDef(m)
+        case _                                 => s"/* type var $info */"
+      }
+    }
+
     val name = info.nameStem(info.id.id)
     val ty = storeTy(info.instantiateTy)
     var constantStr = if info.isMut then "" else "const "
@@ -394,18 +398,20 @@ class CodeGen(implicit val env: Env) {
 
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
+      case NoneKind(_)           => ""
       case Integer(value)        => value.toString
       case Opaque(_, Some(stmt)) => stmt
       case Opaque(Some(expr), _) => expr
-      case Region(stmts) => {
+      case Region(stmts, semi) => {
         val (rests, last) = stmts.length match {
           case 0 => return "{}"
           case 1 => (List.empty, stmts.head)
           case _ => (stmts.dropRight(1), stmts.last)
         }
+        val nRecv = if semi then ValRecv.None else recv
 
         return (rests.map(genDef) :+ mayGenDef(last).getOrElse(
-          exprWith(last, recv),
+          exprWith(last, nRecv),
         ))
           .mkString("{", ";\n", ";}")
       }
@@ -415,14 +421,15 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Term => v.id.env.varByRef(v)
-      case v: Fn   => v.id.defName()
+      case ir.DeclRef(d) => return genDef(d)
+      case v: Term       => v.id.env.varByRef(v)
+      case v: Fn         => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.While(cond, body) =>
         return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.For(name, iter, body) =>
-        return s"for(auto $name : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
+      case ir.For(DeclRef(name: Var), iter, body) =>
+        return s"for(auto ${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
       case ir.Continue() => return "continue"
       case ir.TodoLit    => return "unimplemented();"
@@ -502,56 +509,55 @@ class CodeGen(implicit val env: Env) {
       case v: ir.CIdent     => storeTy(v)
       case v: ir.CppInsType => storeTy(v)
       case v: ir.Var        => v.id.defName(stem = false)
-      // case v: ClassInstance if v.con.variantOf.isDefined => {
-      //   val args = v.args.flatMap {
-      //     case v: KeyedArg => Some((v.key, v.value))
-      //     case v           => None
-      //   }.toMap
-      //   val positions = v.args.iterator.flatMap {
-      //     case v: KeyedArg => None
-      //     case v           => Some(v)
-      //   }.iterator
-      //   val ty = v.con.id.defName(stem = true)
-      //   val vars = v.con.vars.map { v =>
-      //     {
-      //       val name = v.item.id.name;
-      //       val value = args.get(Str(name).e).orElse(positions.nextOption)
-      //       mayClone(
-      //         v,
-      //         value
-      //           .map(expr)
-      //           .getOrElse(s"$ty::k${name.capitalize}Default"),
-      //       )
-      //     }
-      //   }
-      //   val initArgs = vars.mkString(", ")
+      case v: ClassInstance if v.con.variantOf.isDefined => {
+        val args = v.args.flatMap {
+          case v: KeyedArg => Some((v.key, v.value))
+          case v           => None
+        }.toMap
+        val positions = v.args.iterator.flatMap {
+          case v: KeyedArg => None
+          case v           => Some(v)
+        }.iterator
+        val ty = v.con.id.defName(stem = true)
+        val vars = v.con.vars.map { v =>
+          {
+            val name = v.item.id.name;
+            val value = args.get(Str(name).e).orElse(positions.nextOption)
+            mayClone(
+              v,
+              value
+                .map(expr)
+                .getOrElse(s"$ty::k${name.capitalize}Default"),
+            )
+          }
+        }
+        val initArgs = vars.mkString(", ")
 
-      //   val base = v.con.resolvedAs match {
-      //     case Some(t) => storeTy(HKTInstance(v.con, t))
-      //     case None    => s"${storeTy(v.con.variantOf.get)}::${ty}"
-      //   }
-      //   s"${base}_cons($initArgs)"
-      // }
-      // case v: ir.ClassInstance => {
-      //   val args = v.args.flatMap {
-      //     case v: KeyedArg => Some((v.key, v.value))
-      //     case v           => None
-      //   }.toMap
-      //   val positions = v.args.iterator.flatMap {
-      //     case v: KeyedArg => None
-      //     case v           => Some(v)
-      //   }.iterator
-      //   val ty = storeTy(v.con)
-      //   val vars = v.con.vars.map { v =>
-      //     val s = v.item.id.name
-      //     val value = args.get(Str(s).e).orElse(positions.nextOption)
-      //     value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default")
-      //   }
-      //   val initArgs = vars.mkString(", ")
+        val base = v.con.resolvedAs match {
+          case Some(t) => storeTy(HKTInstance(v.con, t))
+          case None    => s"${storeTy(v.con.variantOf.get)}::${ty}"
+        }
+        s"${base}_cons($initArgs)"
+      }
+      case v: ir.ClassInstance => {
+        val args = v.args.flatMap {
+          case v: KeyedArg => Some((v.key, v.value))
+          case v           => None
+        }.toMap
+        val positions = v.args.iterator.flatMap {
+          case v: KeyedArg => None
+          case v           => Some(v)
+        }.iterator
+        val ty = storeTy(v.con)
+        val vars = v.con.vars.map { v =>
+          val s = v.item.id.name
+          val value = args.get(Str(s).e).orElse(positions.nextOption)
+          value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default")
+        }
+        val initArgs = vars.mkString(", ")
 
-      //   s"$ty($initArgs)"
-      // }
-      // case v: ir.Sig()
+        s"$ty($initArgs)"
+      }
       case v: ir.EnumDestruct if v.bindings.isEmpty => s""
       case v: ir.EnumDestruct => {
 

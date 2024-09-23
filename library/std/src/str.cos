@@ -21,42 +21,42 @@ pub class String {
 }
 
 
-pub class Bytes {
-  var internal: CppString = stringSys.std.string();
-}
+// pub class Bytes {
+//   var internal: CppString = stringSys.std.string();
+// }
 
-code("""
-namespace cosmo_std::str {
-inline bool operator<(const String &lhs, const String &rhs) {
-  return lhs.internal < rhs.internal;
-}
-inline bool operator<(const Bytes &lhs, const Bytes &rhs) {
-  return lhs.internal < rhs.internal;
-}
-inline bool operator==(const Rune &lhs, const Rune &rhs) {
-  return lhs.internal == rhs.internal;
-}
-}  // namespace cosmo_std::str
+// code("""
+// namespace cosmo_std::str {
+// inline bool operator<(const String &lhs, const String &rhs) {
+//   return lhs.internal < rhs.internal;
+// }
+// inline bool operator<(const Bytes &lhs, const Bytes &rhs) {
+//   return lhs.internal < rhs.internal;
+// }
+// inline bool operator==(const Rune &lhs, const Rune &rhs) {
+//   return lhs.internal == rhs.internal;
+// }
+// }  // namespace cosmo_std::str
 
-template <> struct DisplayTrait<cosmo_std::str::Rune> {
-  static void print(const cosmo_std::str::Rune &x) {
-    if (x.internal < 0x80 && std::isprint(x.internal)) {
-      printf("'%c'", x.internal);
-    } else {
-      printf("c\"\\u{%x}\"", x.internal);
-    }
-  }
-};
-template <> struct DisplayTrait<cosmo_std::str::String> {
-  static void print(const cosmo_std::str::String &x) { printf("%s", x.internal.c_str()); }
-};
-template <> struct DisplayTrait<cosmo_std::str::Bytes> {
-  static void print(const cosmo_std::str::Bytes &x) {
-    printf("b\"");
-    for (char c : x.internal) {
-      printf("\\x%02x", (unsigned char)c);
-    }
-    printf("\"");
-  }
-};
-""")
+// template <> struct DisplayTrait<cosmo_std::str::Rune> {
+//   static void print(const cosmo_std::str::Rune &x) {
+//     if (x.internal < 0x80 && std::isprint(x.internal)) {
+//       printf("'%c'", x.internal);
+//     } else {
+//       printf("c\"\\u{%x}\"", x.internal);
+//     }
+//   }
+// };
+// template <> struct DisplayTrait<cosmo_std::str::String> {
+//   static void print(const cosmo_std::str::String &x) { printf("%s", x.internal.c_str()); }
+// };
+// template <> struct DisplayTrait<cosmo_std::str::Bytes> {
+//   static void print(const cosmo_std::str::Bytes &x) {
+//     printf("b\"");
+//     for (char c : x.internal) {
+//       printf("\\x%02x", (unsigned char)c);
+//     }
+//     printf("\"");
+//   }
+// };
+// """)

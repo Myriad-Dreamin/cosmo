@@ -2,7 +2,7 @@ package cosmo.linker
 
 import cosmo.system.CosmoSystem
 import cosmo.artifact._
-import cosmo.{Package, Transpiler, FileId}
+import cosmo.{Package, NodePath, Transpiler, FileId}
 
 def headOnlyPkg(
     pkg: Package,
@@ -20,7 +20,7 @@ def headOnlyPkg(
       // .cos -> .cc, .h
       var stripPath = src.fid.stripPath
       var fileName = stripPath.substring(stripPath.lastIndexOf("/") + 1)
-      var absStripPath = destDir + stripPath
+      var absStripPath = NodePath.resolve(destDir, stripPath)
 
       var subIdentifier =
         (identifier + "_" + stripPath.replace("/", "_")).toUpperCase

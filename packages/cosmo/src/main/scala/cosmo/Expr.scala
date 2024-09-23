@@ -71,11 +71,13 @@ trait ExprEnv { self: Env =>
       case i: s.Ident        => byName(i)
       case s.ArgsLit(values) => argsLit(values)
       // control flow
-      case b: s.Block       => block(b)
-      case b: s.CaseBlock   => CaseRegion(caseBlock(b))
-      case l: s.Loop        => Loop(expr(l.body))
-      case w: s.While       => While(expr(w.cond), expr(w.body))
-      case f: s.For         => For(expr(f.name), expr(f.iter), expr(f.body))
+      case b: s.Block     => block(b)
+      case b: s.CaseBlock => CaseRegion(caseBlock(b))
+      case l: s.Loop      => Loop(expr(l.body))
+      case w: s.While     => While(expr(w.cond), expr(w.body))
+      case f: s.For =>
+        val lb = $var(ct(f.name), None, None, false, false);
+        For(lb, expr(f.iter), expr(f.body))
       case s.Break()        => Break()
       case s.Continue()     => Continue()
       case s.Return(value)  => Return(expr(value))
@@ -106,7 +108,7 @@ trait ExprEnv { self: Env =>
         NoneItem.e
       case s.Decorate(lhs, rhs) => expr(rhs)
       // declarations
-      case s.Import(p, dest) => $import(p, dest).e
+      case s.Import(p, dest) => importDest(dest, $import(p, dest))
       case s.Val(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, false, false))
       case s.Typ(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, false, true))
       case s.Var(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, true, false))
@@ -142,7 +144,9 @@ trait ExprEnv { self: Env =>
     Hole(di)
   }
 
-  def block(ast: s.Block) = Region(scopes.withScope(ast.stmts.map(expr)))
+  def block(ast: s.Block) =
+    val semi = ast.stmts.lastOption.map(_.isInstanceOf[s.Semi]).getOrElse(false)
+    Region(scopes.withScope(ast.stmts.map(expr)), semi)
 
   def caseBlock(b: s.CaseBlock) = b.stmts.map { c =>
     scopes.withScope {
@@ -172,6 +176,27 @@ trait ExprEnv { self: Env =>
       case _          => return errE("match body must be a case block")
     }
     MatchExpr(lhs, CaseRegion(cases))
+  }
+
+  def importDest(dest: Option[syntax.Node], v: Item): Expr = {
+    val pat = dest match {
+      case Some(syntax.Ident("_")) =>
+        if (v.isInstanceOf[NativeModule]) {
+          val env = v.asInstanceOf[NativeModule].env
+          val exts = env.scopes.scopes.head
+          for ((name, info) <- exts.filter(!_._2.isBuiltin)) {
+            items += (ct(name).id -> env.byRef(info)(0))
+          }
+        }
+
+        return v.e
+      case None => return v.e
+      case Some(i: s.Ident) =>
+        val info = ct(i); info.isTypeVar = true; info.isVar = true;
+        return VarExpr(info, None, Some(v.e))
+      case Some(pat) => pat
+    }
+    DestructExpr(destruct(pat), v.e)
   }
 
   def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): VarExpr = {

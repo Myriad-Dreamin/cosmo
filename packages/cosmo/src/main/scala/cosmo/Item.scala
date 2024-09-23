@@ -65,7 +65,7 @@ object Opaque {
   def expr(expr: String) = Opaque(Some(expr), None)
   def stmt(stmt: String) = Opaque(None, Some(stmt))
 }
-final case class Region(stmts: List[Item]) extends Expr {
+final case class Region(stmts: List[Item], semi: Boolean) extends Expr {
   override def toString: String = stmts.mkString("Region{ ", "; ", " }")
 }
 final case class Loop(body: Item) extends Expr {}
@@ -94,6 +94,9 @@ final case class Hole(id: DefInfo) extends DeclExpr {
 final case class VarExpr(id: DefInfo, ty: Option[Type], init: Option[Expr])
     extends DeclExpr {
   override def toString: String = s"var(${id.defName(false)})"
+}
+final case class DestructExpr(dst: Expr, src: Expr) extends Expr {
+  override def toString: String = s"$dst = $src"
 }
 sealed abstract class ParamExpr extends DeclExpr {
   val id: DefInfo
@@ -294,6 +297,14 @@ final case class Class(
   override def toString: String = s"class(${repr()})"
   def isPhantomClass: Boolean = id.isPhantom
   def justInit: Boolean = !id.isTrait && params.isEmpty && isPhantomClass
+  def vars =
+    fields.values.filter(_.isInstanceOf[VarField]).asInstanceOf[List[VarField]]
+  def defs =
+    fields.values.filter(_.isInstanceOf[DefField]).asInstanceOf[List[DefField]]
+  def variants =
+    fields.values
+      .filter(_.isInstanceOf[EnumField])
+      .asInstanceOf[List[EnumField]]
 
   def repr(implicit rec: Item => String = _.toString): String =
     val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
@@ -314,6 +325,14 @@ final case class Impl(
     fields: FieldMap,
 ) extends DeclItem {
   override val level: Int = 1
+  def vars =
+    fields.values.filter(_.isInstanceOf[VarField]).asInstanceOf[List[VarField]]
+  def defs =
+    fields.values.filter(_.isInstanceOf[DefField]).asInstanceOf[List[DefField]]
+  def variants =
+    fields.values
+      .filter(_.isInstanceOf[EnumField])
+      .asInstanceOf[List[EnumField]]
 
   def pretty(implicit rec: Item => String = _.toString): String = ???
 }

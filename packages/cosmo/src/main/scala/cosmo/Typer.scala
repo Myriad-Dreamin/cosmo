@@ -333,14 +333,16 @@ trait TypeEnv { self: Env =>
   def tyOf(lhs: Item): Option[Type] = {
     debugln(s"tyOf $lhs")
     lhs match {
-      case _: Integer                       => Some(IntegerTy(32, false))
-      case _: Rune                          => Some(IntegerTy(32, false))
-      case _: Str                           => Some(StrTy)
-      case _: (Apply | Select | Unresolved) => Some(TopTy)
+      case _: Integer => Some(IntegerTy(32, false))
+      case _: Rune    => Some(IntegerTy(32, false))
+      case _: Str     => Some(StrTy)
+      case NoneItem   => Some(TopTy)
+      case _: (Apply | Opaque | Select | Unresolved)  => Some(TopTy)
       case _: (While | Loop | For | Break | Continue) => Some(UnitTy)
       case Unreachable                                => Some(BottomTy)
-      case _: (CIdent | Class | CppInsType) =>
+      case _: (CIdent | TopKind | NoneKind | Class | CppInsType) =>
         Some(UniverseTy)
+      case _: (CModule | NativeModule)      => Some(UniverseTy)
       case RefItem(lhs, isMut)              => tyOf(lhs).map(RefItem(_, isMut))
       case v: ClassInstance                 => Some(v.con)
       case BoundField(_, _, _, VarField(v)) => Some(v.id.ty)
@@ -352,13 +354,9 @@ trait TypeEnv { self: Env =>
       case v: Var =>
         debugln(s"tyOf(Var) ${v.id.ty}")
         Some(v.id.ty)
-      case TodoLit => Some(BottomTy)
-      case reg: Region => {
-        reg.stmts.lastOption match {
-          case None    => Some(UnitTy)
-          case Some(v) => tyOf(v)
-        }
-      }
+      case TodoLit                 => Some(BottomTy)
+      case reg: Region if reg.semi => Some(UnitTy)
+      case reg: Region             => reg.stmts.lastOption.flatMap(tyOf)
       case TypeMatch(_, _, cases, d) => {
         val types = (cases.map(_._2) :+ d).map(tyOf).flatten
         debugln(s"coerce enumMatch $types")
