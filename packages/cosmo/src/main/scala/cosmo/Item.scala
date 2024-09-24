@@ -2,7 +2,7 @@ package cosmo.ir
 
 import scala.collection.mutable.{LinkedHashMap as MutMap};
 
-import cosmo.{DefInfo, FileId}
+import cosmo.{DefInfo, ExprInfo, FileId}
 
 import cosmo.ir.Value
 import cosmo.{DefId, DefInfo, Doc, Env}
@@ -15,30 +15,31 @@ val CODE_FUNC = 1
 
 private[cosmo] type Defo = DefInfo;
 private[cosmo] type Ni = Option[Item];
+private[cosmo] type Ne = Option[Expr];
 private[cosmo] type FieldMap = MutMap[String, VField];
+
+/// Relationship
+///
+/// Expr, Term, Type, Value are Item
+/// Item is used for Semantic Analysis
+/// Value and (Concrete) Expr has Type
+/// Term is Type
+/// Op is not Item, Op is (optionally) converted from Expr, thus has type
+///
+/// Source Code -> Expr -> Instrs with Types -> Output
+
+sealed abstract trait DeclLike {
+  val id: DefInfo
+  def name = id.name
+}
+sealed abstract trait CallableTerm(raw: Option[List[Param]]) {
+  lazy val params: Array[Param] = raw.map(_.toArray).getOrElse(Array())
+  lazy val callByName: Boolean = raw.isEmpty;
+}
 
 sealed abstract class Item {
   val level: Int = 0;
 
-  def instantiate(implicit lvl: Int): Item = {
-    // this match {
-    //   case Term(info, lvl, v) =>
-    //     val ty = info.upperBounds.find {
-    //       case Term(_, info, lvl, v) => false
-    //       case _                         => true
-    //     }
-    //     val ty2 = ty.map { ty =>
-    //       if ty.level > lvl then ty.instantiate
-    //       else ty
-    //     }
-    //     ty2.getOrElse(TopKind(lvl))
-    //   case TopKind(level)    => TopKind((level - 1).min(lvl))
-    //   case BottomKind(level) => BottomKind((level - 1).min(lvl))
-    //   case SelfKind(level)   => SelfKind((level - 1).min(lvl))
-    //   case ty                => ty
-    // }
-    ???
-  }
   val isBuilitin: Boolean = false
 
   def langObj: LangObject = LangObject(this)
@@ -46,10 +47,8 @@ sealed abstract class Item {
   def toDoc: Doc = Doc.buildItem(this)
 }
 // todo: don't inherit item?
-sealed abstract class Expr extends Item {
-  def isWildcard: Boolean = this match {
-    case d: DeclExpr if d.id.name == "_" => true; case _ => false
-  }
+sealed abstract class Expr {
+  val info: ExprInfo = ExprInfo.empty;
 }
 sealed abstract class DeclExpr extends Expr with DeclLike {
   val id: DefInfo
@@ -57,30 +56,50 @@ sealed abstract class DeclExpr extends Expr with DeclLike {
 
 /// Expressions
 
+final case class RegionExpr(stmts: List[Expr], semi: Boolean) extends Expr {
+  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
+}
+final case class LoopExpr(body: Expr) extends Expr {}
+final case class WhileExpr(cond: Expr, body: Expr) extends Expr {}
+final case class ForExpr(name: VarExpr, iter: Expr, body: Expr) extends Expr {}
+final case class BreakExpr() extends Expr {}
+final case class ContinueExpr() extends Expr {}
+final case class ReturnExpr(value: Expr) extends Expr {}
+final case class IfExpr(cond: Expr, yes: Expr, no: Option[Expr]) extends Expr {}
+final case class AsExpr(lhs: Expr, rhs: Expr) extends Expr {}
+final case class UnOpExpr(op: String, lhs: Expr) extends Expr {}
+final case class BinOpExpr(op: String, lhs: Expr, rhs: Expr) extends Expr {}
+final case class KeyedArgExpr(key: Expr, value: Expr) extends Expr {}
+final case class ApplyExpr(lhs: Expr, rhs: List[Expr]) extends Expr {
+  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+}
+final case class TupleLitExpr(elems: Array[Expr]) extends Expr {
+  override def toString: String = elems.mkString("tup(", ", ", ")")
+}
+
+final case class Region(stmts: List[Term], semi: Boolean) extends Term {
+  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
+}
+final case class If(cond: Term, yes: Term, no: Option[Term]) extends Term {}
+final case class Loop(body: Term) extends Term {}
+final case class For(name: Term, iter: Term, body: Term) extends Term {}
+final case class Break() extends Term {}
+final case class Continue() extends Term {}
+final case class Return(value: Term) extends Term {}
+
 final case class ItemE(item: Item) extends Expr {}
 final case class Opaque(expr: Option[String], stmt: Option[String])
-    extends Expr {}
+    extends Term {}
 object Opaque {
   val empty = Opaque(None, None)
   def expr(expr: String) = Opaque(Some(expr), None)
   def stmt(stmt: String) = Opaque(None, Some(stmt))
 }
-final case class Region(stmts: List[Item], semi: Boolean) extends Expr {
-  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
-}
-final case class Loop(body: Item) extends Expr {}
-final case class While(cond: Item, body: Item) extends Expr {}
-final case class For(name: Item, iter: Item, body: Item) extends Expr {}
-final case class Break() extends Expr {}
-final case class Continue() extends Expr {}
-final case class Return(value: Item) extends Expr {}
-final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
-    extends Expr {}
-final case class As(lhs: Item, rhs: Item) extends Expr {}
-final case class UnOp(op: String, lhs: Item) extends Expr {}
-final case class BinOp(op: String, lhs: Item, rhs: Item) extends Expr {}
-final case class KeyedArg(key: Item, value: Item) extends Expr {}
-final case class Apply(lhs: Item, rhs: List[Item]) extends Expr {
+final case class As(lhs: Term, rhs: Term) extends Term {}
+final case class UnOp(op: String, lhs: Term) extends Term {}
+final case class BinOp(op: String, lhs: Term, rhs: Term) extends Term {}
+final case class KeyedArg(key: Term, value: Term) extends Term {}
+final case class Apply(lhs: Term, rhs: List[Term]) extends Term {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
 }
 final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {}
@@ -91,7 +110,7 @@ final case class Name(val id: DefInfo, val of: Option[Expr] = None)
 final case class Hole(id: DefInfo) extends DeclExpr {
   override def toString: String = s"hole(${id.defName(false)})"
 }
-final case class VarExpr(id: DefInfo, ty: Option[Type], init: Option[Expr])
+final case class VarExpr(id: DefInfo, ty: Option[Expr], init: Option[Expr])
     extends DeclExpr {
   override def toString: String = s"var(${id.defName(false)})"
 }
@@ -107,8 +126,8 @@ final case class DefExpr(
     id: DefInfo,
     params: Option[List[VarExpr]],
     constraints: List[Expr],
-    ret_ty: Option[Type],
-    body: Option[Item],
+    ret_ty: Option[Expr],
+    body: Option[Expr],
 ) extends ParamExpr {
   override def toString: String = s"fn(${id.defName(false)})"
 }
@@ -122,8 +141,8 @@ final case class ImplExpr(
     id: DefInfo,
     params: Option[List[VarExpr]],
     constraints: List[Expr],
-    iface: Option[Type],
-    cls: Type,
+    iface: Option[Expr],
+    cls: Expr,
     fields: FieldMap,
 ) extends ParamExpr {}
 final case class CaseRegion(cases: List[(Expr, Option[Expr])]) extends Expr {}
@@ -132,6 +151,7 @@ final case class MatchExpr(lhs: Expr, body: CaseRegion) extends Expr {}
 /// Types
 
 type Type = Item
+type Term = Item
 case class TopKind(
     override val level: Int,
 ) extends Item {
@@ -181,17 +201,12 @@ final case class TypeMatch(
     cases: List[(Class, Item)],
     orElse: Item,
 ) extends Item {}
-sealed abstract trait DeclLike {
-  val id: DefInfo
-  def name = id.name
-}
 abstract class DeclItem extends Item with DeclLike {}
-case class DeclRef(item: DeclItem) extends DeclItem {
-  val id = item.id
-  override def toString: String = s"decl(${id.defName(false)})"
-}
 
-final case class Param(id: DefInfo, override val level: Int) extends DeclItem {
+final case class Param(of: Var) extends DeclItem {
+  override val id: DefInfo = of.id
+  override val level: Int = of.level
+
   def pretty(implicit rec: Item => String = _.toString): String =
     s"${id.defName(false)}: ${rec(id.ty)}"
 }
@@ -211,31 +226,23 @@ final case class Var(
 }
 final case class Fn(
     id: DefInfo,
-    sig: Sig,
-    override val level: Int,
-) extends DeclItem {
-  override def toString: String = s"fn(${id.defName(false)})"
-
-  def pretty(implicit rec: Item => String = _.toString): String =
-    val params = sig.params.map(_.map(rec).mkString(", ")).getOrElse("")
-    val ret = rec(sig.ret_ty)
-    s"def ${id.defName(false)}($params): $ret"
-}
-final case class Sig(
-    params: Option[List[Param]],
+    rawParams: Option[List[Param]],
     ret_ty: Type,
     body: Option[Item],
-) extends Item {
-  def resolveLevel = (ret_ty.level - 1).max(0)
-  def selfParam: Option[Param] =
-    params.iterator.flatten.find(_.id.name == "self")
+    override val level: Int,
+) extends DeclItem
+    with CallableTerm(rawParams) {
+  def selfParam: Option[Param] = params.find(_.id.name == "self")
   def selfIsMut: Option[Boolean] = selfParam.map(_.id.ty).map {
     case RefItem(lhs, isMut) => isMut
     case _                   => false
   }
+  override def toString: String = s"fn(${id.defName(false)})"
+
+  def pretty(implicit rec: Item => String = _.toString): String = ???
 }
 
-final case class Term(
+final case class Ref(
     val id: DefInfo,
     override val level: Int,
     val value: Option[Item] = None,
@@ -258,7 +265,7 @@ final case class HKTInstance(ty: Type, syntax: Item) extends Item {
   override val level: Int = 1
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
   def repr(rec: Type => String): String = syntax match {
-    case t: (Term | Fn) => rec(t)
+    case t: (Ref | Fn) => rec(t)
     case Apply(lhs, rhs) =>
       s"${rec(HKTInstance(ty, lhs))}<${rhs.map(rec).mkString(", ")}>::type"
     case Select(lhs, rhs) => s"${rec(HKTInstance(ty, lhs))}::$rhs"
@@ -287,24 +294,20 @@ final case class EnumDestruct(
 ) extends Item {}
 final case class Class(
     id: DefInfo,
-    params: Option[List[Param]],
+    rawParams: Option[List[Param]],
     fields: FieldMap,
     args: Option[List[Item]] = None,
     variantOf: Option[Type] = None,
     resolvedAs: Option[Type] = None,
-) extends DeclItem {
+) extends DeclItem
+    with CallableTerm(rawParams) {
   override val level: Int = 1
   override def toString: String = s"class(${repr()})"
   def isPhantomClass: Boolean = id.isPhantom
   def justInit: Boolean = !id.isTrait && params.isEmpty && isPhantomClass
-  def vars =
-    fields.values.filter(_.isInstanceOf[VarField]).asInstanceOf[List[VarField]]
-  def defs =
-    fields.values.filter(_.isInstanceOf[DefField]).asInstanceOf[List[DefField]]
-  def variants =
-    fields.values
-      .filter(_.isInstanceOf[EnumField])
-      .asInstanceOf[List[EnumField]]
+  lazy val vars = fields.values.collect { case a: VarField => a }.toList
+  def defs = fields.values.collect { case a: DefField => a }.toList
+  def variants = fields.values.collect { case a: EnumField => a }.toList
 
   def repr(implicit rec: Item => String = _.toString): String =
     val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
@@ -319,11 +322,12 @@ object Class {
 }
 final case class Impl(
     id: DefInfo,
-    params: Option[List[Param]],
+    rawParams: Option[List[Param]],
     iface: Type,
     cls: Type,
     fields: FieldMap,
-) extends DeclItem {
+) extends DeclItem
+    with CallableTerm(rawParams) {
   override val level: Int = 1
   def vars =
     fields.values.filter(_.isInstanceOf[VarField]).asInstanceOf[List[VarField]]
@@ -413,9 +417,9 @@ final case class CppInsType(val target: CIdent, val arguments: List[Type])
   def repr(rec: Type => String): String =
     target.repr + "<" + arguments
       .map {
-        case Term(defId, level, None) => defId.name
-        case Term(id, level, Some(v)) => rec(v)
-        case ty                       => rec(ty)
+        case Ref(defId, level, None) => defId.name
+        case Ref(id, level, Some(v)) => rec(v)
+        case ty                      => rec(ty)
       }
       .mkString(", ") + ">"
 }

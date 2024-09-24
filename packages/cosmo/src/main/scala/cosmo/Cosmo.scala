@@ -65,11 +65,19 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
 
   /// Exposed APIs
 
+  def empty: Env = createEnv(None)
+
   def parse(s: String): Option[syntax.Block] =
     Some(parseBase(s)).map(_.asInstanceOf[syntax.Block])
 
+  def expr(s: String, env: Env = empty): Option[Env] =
+    parse(s).map(env.exprStage)
+
+  def evaluate(src: String, env: Env = empty): Option[Env] =
+    expr(src, env).map(_.emitTask)
+
   def transpile(src: String): Option[(String, Env)] =
-    loadModuleBySrc(createEnv(None), src).flatMap(cppBackend)
+    evaluate(src).flatMap(cppBackend)
 
   def mayGetExecutable(path: String): Option[String] =
     linker.compile(path, this, releaseDir)
@@ -127,19 +135,10 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
     loading += fid
-    val res = loadModuleBySrc(env, fid.pkg.sources(fid.path).source)
+    val res = evaluate(fid.pkg.sources(fid.path).source, env)
     modules += (fid -> res)
     loading -= fid
     res
-  }
-
-  def loadModuleBySrc(env: Env, src: String): Option[Env] = {
-    env.entry(parse(src).get)
-    for (error <- env.errors) {
-      println(error)
-    }
-
-    Some(env)
   }
 
   def loadPackage(source: PackageMetaSource): Unit = {

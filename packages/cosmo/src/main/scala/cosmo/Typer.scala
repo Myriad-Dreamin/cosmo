@@ -34,42 +34,45 @@ trait TypeEnv { self: Env =>
   }
 
   def castArgs(
-      eParams: Option[List[Param]],
+      eParams: Array[Param],
       eArgs: List[Item],
       self: Option[Either[Unit, Item]] = None,
   ): List[Item] = {
-    val params = eParams.map(_.filter(_.level == 0)).map { p =>
-      self match {
-        case None => p
-        case Some(_) =>
-          println(s"check self $self, params $p, params $eParams")
-          if (p.headOption.exists(_.id.name == "self")) {
-            p.tail
-          } else {
-            p
-          }
-      }
-    }
+    // val params = eParams.filter(_.level == 0).map { p =>
+    //   self match {
+    //     case None => p
+    //     case Some(_) =>
+    //       println(s"check self $self, params $p, params $eParams")
+    //       if (p.headOption.exists(_.id.name == "self")) {
+    //         p.tail
+    //       } else {
+    //         p
+    //       }
+    //   }
+    // }
 
-    val firstArgs = eArgs.takeWhile(_.level > 0)
-    val args = eArgs.drop(firstArgs.length)
+    // val firstArgs = eArgs.takeWhile(_.level > 0)
+    // val args = eArgs.drop(firstArgs.length)
 
-    val paramsLength = params.map(_.length).getOrElse(0)
-    if (paramsLength != args.length) {
-      println(("self", self))
-      errors =
-        s"Invalid number of params v.s. arguments (${paramsLength} v.s. ${args.length}) $params v.s. $args" :: errors
-      return args
-    }
+    // val paramsLength = params.map(_.length).getOrElse(0)
+    // if (paramsLength != args.length) {
+    //   println(("self", self))
+    //   errors =
+    //     s"Invalid number of params v.s. arguments (${paramsLength} v.s. ${args.length}) $params v.s. $args" :: errors
+    //   return args
+    // }
 
-    var argsPair = params.iterator.flatten.zip(args);
-    firstArgs ::: (argsPair.map { case (p, a) =>
-      val info = p.id
-      val casted = castTo(a, info.ty)
-      items += (info.id -> casted)
-      // todo: cast type
-      casted
-    }.toList)
+    // var argsPair = params.iterator.flatten.zip(args);
+    // firstArgs ::: (argsPair.map { case (p, a) =>
+    //   val info = p.id
+    //   val casted = castTo(a, info.ty)
+    //   items += (info.id -> casted)
+    //   // todo: cast type
+    //   casted
+    // }.toList)
+
+    // todo
+    ???
   }
 
   def castTo(item: Item, nty: Type): Item = {
@@ -106,10 +109,10 @@ trait TypeEnv { self: Env =>
 
             rty match {
               case tr: Class if tr.id.isTrait => {
-                As(item.e, implClass(lty, tr).get.e)
+                As(item, implClass(lty, tr).get)
               }
               case _ =>
-                As(item.e, nty.e)
+                As(item, nty)
             }
           }
           case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
@@ -124,8 +127,8 @@ trait TypeEnv { self: Env =>
 
   def defByName(info: DefInfo): String = info.defName(stem = false)
 
-  def varByRef(vv: Term): String = {
-    val ir.Term(id, level, v) = vv
+  def varByRef(vv: Ref): String = {
+    val ir.Ref(id, level, v) = vv
     v.map {
       case v: CppInsType => Some(storeTy(v))
       case v: CIdent     => Some(v.repr)
@@ -160,10 +163,10 @@ trait TypeEnv { self: Env =>
         }
       case cls: Class if cls.variantOf.isDefined => storeTy(cls.variantOf.get)
       case cls: Class                            => cls.repr(storeTy)
-      case v: Term if v.value.isEmpty            => v.id.defName(stem = false)
+      case v: Ref if v.value.isEmpty             => v.id.defName(stem = false)
       case v: Var if v.init.isEmpty              => v.id.defName(stem = false)
       case v: Fn                                 => v.id.defName(stem = false)
-      case Term(_, _, Some(v))                   => storeTy(v)
+      case Ref(_, _, Some(v))                    => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
       case Apply(lhs, rhs) => {
@@ -180,7 +183,7 @@ trait TypeEnv { self: Env =>
     val lhsIsMut = item match {
       case RefItem(lhs, rhsIsMut) => return checkedMut(lhs, rhsIsMut)
       case SelfTy                 => return
-      case v: Term                => v.id.isMut
+      case v: Ref                 => v.id.isMut
       case v: Var                 => v.id.isMut
       case _                      => return
     }
@@ -219,13 +222,11 @@ trait TypeEnv { self: Env =>
   def curryExpr(v: Expr): TeleShape = {
     logln(s"curryExpr $v")
     v match {
-      case Apply(lhs, rhs) =>
-        val lhsTy = lhs match {
-          case e: Expr => canonicalTy(valTerm(e))
-          case e       => canonicalTy(e)
-        }
-        val args = TupleLit(rhs.toArray)
-        TeleShape.Atom(args, lhsTy)
+      case ApplyExpr(lhs, rhs) =>
+        val lhsTy = canonicalTy(valTerm(lhs))
+        val args = TupleLitExpr(rhs.toArray)
+        // TeleShape.Atom(args, lhsTy)
+        ???
       case _ => TeleShape.AtomExp(v)
     }
   }
@@ -235,8 +236,8 @@ trait TypeEnv { self: Env =>
     ty match {
       case SelfTy =>
         selfRef.map(curryView(v, _)).getOrElse(TeleShape.Atom(v, ty))
-      case Term(_, _, Some(ty)) => curryView(v, ty)
-      case _                    => TeleShape.Atom(v, ty)
+      case Ref(_, _, Some(ty)) => curryView(v, ty)
+      case _                   => TeleShape.Atom(v, ty)
     }
   }
 
@@ -267,7 +268,7 @@ trait TypeEnv { self: Env =>
         (NoneItem, Invalid("cannot match a untyped value"))
       case (lhs: Atom, AtomExp(Hole(id))) =>
         id.ty = lhs.ty; // todo: this has side effect
-        val t = Term(id, (lhs.ty.level - 1).max(0), None)
+        val t = Ref(id, (lhs.ty.level - 1).max(0), None)
         items += (id.id -> t)
         (t, lhs)
       case (lhs: Atom, AtomExp(rhs)) => matchPat(lhs, curryTerm(rhs))
@@ -312,24 +313,25 @@ trait TypeEnv { self: Env =>
             //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
             //   case _                                          => true
             // }
-            return (BinOp("==", lhsVal, rhsVal), lhs)
+            return (BinOp("==", patHolder, rhsVal), lhs)
         }
     }
   }
 
   def classBinds(cls: Class): List[Item] = {
     // take args and rest params
-    val params = cls.params.getOrElse(List())
-    val args = cls.args.getOrElse(List())
-    val tyLevel = args ::: params.drop(args.length)
-    tyLevel ::: cls.vars.map(_.item)
+    // val params = cls.params
+    // val args = cls.args.getOrElse(List())
+    // val tyLevel = args ::: params.drop(args.length)
+    // tyLevel ::: cls.vars.map(_.item)
+    ???
   }
 
   def classParams(v: Item, cls: Class, varaint: Class): List[Item] = {
     logln(s"classParams $v by $cls of $varaint")
     v match {
-      case Term(_, _, Some(v)) => classParams(v, cls, varaint)
-      case Var(id, _, _)       => classParams(id.ty, cls, varaint)
+      case Ref(_, _, Some(v)) => classParams(v, cls, varaint)
+      case Var(id, _, _)      => classParams(id.ty, cls, varaint)
       case SelfVal if selfRef.isDefined =>
         classParams(selfRef.get, cls, varaint)
       case v: ClassInstance =>
@@ -344,7 +346,7 @@ trait TypeEnv { self: Env =>
         err(s"cannot destruct $v by $cls")
         val params = classBinds(v.con);
         val instances = params.dropRight(v.args.length) ::: v.args;
-        if (instances.length != cls.params.getOrElse(List()).length) {
+        if (instances.length != cls.params.length) {
           err(s"internal error: $instances is not correct $cls")
         }
         instances
@@ -383,8 +385,8 @@ trait TypeEnv { self: Env =>
     val e = eval;
     item match {
       case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
-      case Term(id, lvl, value) if level <= lvl => items(id.id)
-      case _                                    => item
+      case Ref(id, lvl, value) if level <= lvl => items(id.id)
+      case _                                   => item
     }
   }
 
@@ -420,11 +422,11 @@ trait TypeEnv { self: Env =>
     rhs match {
       case SelfVal if selfImplRef.isDefined =>
         selfRef.map(canonicalTy).getOrElse(TopTy)
-      case SelfVal                               => SelfTy
-      case Term(_, level, Some(v)) if level == 1 => canonicalTy(v)
-      case v: Term                               => canonicalTy(v.id.ty)
-      case v: Var                                => canonicalTy(v.id.ty)
-      case BoundField(_, by, _, EnumField(v))    => v.copy(variantOf = Some(by))
+      case SelfVal                              => SelfTy
+      case Ref(_, level, Some(v)) if level == 1 => canonicalTy(v)
+      case v: Ref                               => canonicalTy(v.id.ty)
+      case v: Var                               => canonicalTy(v.id.ty)
+      case BoundField(_, by, _, EnumField(v))   => v.copy(variantOf = Some(by))
       case RefItem(lhs, isMut) => RefItem(canonicalTy(lhs), isMut)
       case _                   => rhs
     }
@@ -433,7 +435,7 @@ trait TypeEnv { self: Env =>
   def isSubtype(lhs: Item, rhs: Item): Boolean = {
     debugln(s"isSubtype $lhs $rhs")
     rhs match {
-      case Term(_, _, Some(v)) => isSubtype(lhs, v)
+      case Ref(_, _, Some(v))  => isSubtype(lhs, v)
       case RefItem(rhs, isMut) => isSubtype(lhs, rhs)
       // todo: same level
       case cls: Class         => implClass(lhs, cls).isDefined
@@ -442,7 +444,7 @@ trait TypeEnv { self: Env =>
       case StrTy | BoolTy if isBuiltin(lhs, rhs) => true
       case _ => {
         lhs match {
-          case Term(_, _, Some(v)) => isSubtype(v, rhs)
+          case Ref(_, _, Some(v))  => isSubtype(v, rhs)
           case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
           case BottomTy            => true
           case StrTy | BoolTy      => isBuiltin(lhs, rhs)
@@ -455,12 +457,12 @@ trait TypeEnv { self: Env =>
   def isBuiltin(lhs: Item, rhs: Item): Boolean = {
     debugln(s"isBuiltin $lhs $rhs")
     lhs match {
-      case Term(_, _, Some(v)) => isBuiltin(v, rhs)
-      case TopTy | UniverseTy  => true
-      case BottomTy            => true
-      case Bool(_)             => lhs == rhs || rhs == BoolTy
-      case Str(_)              => lhs == rhs || rhs == StrTy
-      case _                   => lhs == rhs
+      case Ref(_, _, Some(v)) => isBuiltin(v, rhs)
+      case TopTy | UniverseTy => true
+      case BottomTy           => true
+      case Bool(_)            => lhs == rhs || rhs == BoolTy
+      case Str(_)             => lhs == rhs || rhs == StrTy
+      case _                  => lhs == rhs
     }
   }
 
@@ -468,7 +470,7 @@ trait TypeEnv { self: Env =>
     lhs match {
       case ClassInstance(con, _) => con
       case v: Class              => v
-      case Term(_, _, Some(v))   => classRepr(v)
+      case Ref(_, _, Some(v))    => classRepr(v)
       case RefItem(lhs, isMut)   => classRepr(lhs)
       case _ if lhs.isBuilitin   => builtinClasses(lhs)
       case l @ (Bool(_))         => builtinClasses(l.ty)
@@ -496,9 +498,9 @@ trait TypeEnv { self: Env =>
   @tailrec
   final def enumShape(ty: Item): Option[Class] = {
     ty match {
-      case v: Term if v.value.isEmpty =>
+      case v: Ref if v.value.isEmpty =>
         enumShape(items.getOrElse(v.id.id, NoneItem))
-      case Term(_, _, Some(v)) => enumShape(v)
+      case Ref(_, _, Some(v)) => enumShape(v)
       case BoundField(_, by, _, EnumField(v)) =>
         Some(v.copy(variantOf = Some(by)))
       case ClassInstance(con, _)             => enumShape(con)
@@ -514,9 +516,10 @@ trait TypeEnv { self: Env =>
       case _: Rune    => Some(IntegerTy(32, false))
       case _: Str     => Some(StrTy)
       case NoneItem   => Some(TopTy)
-      case _: (Apply | Opaque | Select | Unresolved)  => Some(TopTy)
-      case _: (While | Loop | For | Break | Continue) => Some(UnitTy)
-      case Unreachable                                => Some(BottomTy)
+      case _: (Apply | Opaque | Select | Unresolved) => Some(TopTy)
+      case _: (Loop | For | Break | Continue) =>
+        Some(UnitTy)
+      case Unreachable => Some(BottomTy)
       case _: (CIdent | TopKind | NoneKind | Class | CppInsType) =>
         Some(UniverseTy)
       case _: (CModule | NativeModule)      => Some(UniverseTy)
@@ -526,8 +529,8 @@ trait TypeEnv { self: Env =>
       case b: BinOp                         => coerce(tyOf(b.lhs), tyOf(b.rhs))
       case If(_, x, y)                      => coerce(tyOf(x), y.flatMap(tyOf))
       case SelfVal                          => Some(SelfTy)
-      case Term(id, _, Some(v))             => tyOf(v)
-      case Term(id, level, _) if level == 0 => Some(id.ty)
+      case Ref(id, _, Some(v))              => tyOf(v)
+      case Ref(id, level, _) if level == 0  => Some(id.ty)
       case v: Var =>
         debugln(s"tyOf(Var) ${v.id.ty}")
         Some(v.id.ty)

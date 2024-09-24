@@ -39,7 +39,7 @@ trait ExprEnv { self: Env =>
         case s.Param(Ident("-"), Some(ty @ s.BinOp(op, x: Ident, y)), _, _) =>
           op match {
             case "<:" | ":" | ">:" if !vars.contains(x.name) =>
-              vars.addOne($var(ct(x), Some(UniverseTy), None, false, true))
+              vars.addOne($var(ct(x), Some(UniverseTy.e), None, false, true))
             case _ =>
           }
           constraints.addOne(expr(ty))
@@ -63,8 +63,8 @@ trait ExprEnv { self: Env =>
       case s.BoolLit(value) => Bool(value).e
       case s.IntLit(value) =>
         if (value.isValidInt) Integer(value.toInt).e
-        else Opaque.expr(value.toString)
-      case s.FloatLit(value) => Opaque.expr(value.toString)
+        else Opaque.expr(value.toString).e
+      case s.FloatLit(value) => Opaque.expr(value.toString).e
       case s.StrLit(value)   => Str(value).e
       case s.Ident("self")   => SelfVal.e
       case s.Ident("Self")   => SelfTy.e
@@ -73,32 +73,32 @@ trait ExprEnv { self: Env =>
       // control flow
       case b: s.Block     => block(b)
       case b: s.CaseBlock => CaseRegion(caseBlock(b))
-      case l: s.Loop      => Loop(expr(l.body))
-      case w: s.While     => While(expr(w.cond), expr(w.body))
+      case l: s.Loop      => LoopExpr(expr(l.body))
+      case w: s.While     => WhileExpr(expr(w.cond), expr(w.body))
       case f: s.For =>
         val lb = $var(ct(f.name), None, None, false, false);
-        For(lb, expr(f.iter), expr(f.body))
-      case s.Break()        => Break()
-      case s.Continue()     => Continue()
-      case s.Return(value)  => Return(expr(value))
-      case s.If(cond, x, y) => If(expr(cond), expr(x), y.map(expr))
+        ForExpr(lb, expr(f.iter), expr(f.body))
+      case s.Break()        => BreakExpr()
+      case s.Continue()     => ContinueExpr()
+      case s.Return(value)  => ReturnExpr(expr(value))
+      case s.If(cond, x, y) => IfExpr(expr(cond), expr(x), y.map(expr))
       // operations
-      case s.UnOp(op, lhs)       => UnOp(op, expr(lhs))
-      case s.BinOp(op, lhs, rhs) => BinOp(op, expr(lhs), expr(rhs))
-      case s.As(lhs, rhs)        => As(expr(lhs), expr(rhs))
-      case s.KeyedArg(k, v)      => KeyedArg(keyExpr(k), expr(v))
+      case s.UnOp(op, lhs)       => UnOpExpr(op, expr(lhs))
+      case s.BinOp(op, lhs, rhs) => BinOpExpr(op, expr(lhs), expr(rhs))
+      case s.As(lhs, rhs)        => AsExpr(expr(lhs), expr(rhs))
+      case s.KeyedArg(k, v)      => KeyedArgExpr(keyExpr(k), expr(v))
       // todo: check is compile time
       case s.Select(lhs, rhs, _) => SelectExpr(expr(lhs), rhs.name)
       case b: s.Match            => $match(b)
       // todo: check is compile time
-      case s.Apply(lhs, rhs, _)         => Apply(expr(lhs), rhs.map(expr))
+      case s.Apply(lhs, rhs, _)         => ApplyExpr(expr(lhs), rhs.map(expr))
       case s.TmplApply(Ident("a"), rhs) => Rune(rhs.head._1.head.toInt).e
       case s.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt).e
       case s.TmplApply(Ident("b"), rhs) => Bytes(rhs.head._1.getBytes()).e
-      case s.TmplApply(lhs, rhs) => Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */")
-      case s.Lambda(lhs, rhs)    => Opaque.expr(s"0/* lambda: ${lhs} ${rhs} */")
-      case s.Semi(None)          => ir.NoneKind(0).e
-      case s.Semi(Some(value))   => expr(value)
+      case s.TmplApply(lhs, rhs) => Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */").e
+      case s.Lambda(lhs, rhs)  => Opaque.expr(s"0/* lambda: ${lhs} ${rhs} */").e
+      case s.Semi(None)        => ir.NoneKind(0).e
+      case s.Semi(Some(value)) => expr(value)
       // todo: decorator
       case s.Decorate(s.Apply(Ident("noCore"), _, _), _) =>
         noCore = true
@@ -116,13 +116,13 @@ trait ExprEnv { self: Env =>
       case c: s.Class        => decl($class(c, ct(c.name)))
       case i: s.Impl         => decl(impl(i, ct("$impl", hidden = true)))
       // syntax errors
-      case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
+      case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")").e
       case b: s.ParamsLit =>
         errE(s"params lit without body")
-        Opaque.expr(s"0/* error: case block without body */")
+        Opaque.expr(s"0/* error: case block without body */").e
       case s.Case(cond, body) =>
         errE(s"case clause without match")
-        Opaque.expr(s"0/* error: case clause without match */")
+        Opaque.expr(s"0/* error: case clause without match */").e
     }
   }
 
@@ -131,7 +131,7 @@ trait ExprEnv { self: Env =>
     for (v <- values) {
       arr = arr :+ expr(v)
     }
-    return TupleLit(arr.toArray).e
+    return TupleLitExpr(arr.toArray)
   }
 
   def keyExpr(n: s.Node): Expr = n match {
@@ -146,7 +146,7 @@ trait ExprEnv { self: Env =>
 
   def block(ast: s.Block) =
     val semi = ast.stmts.lastOption.map(_.isInstanceOf[s.Semi]).getOrElse(false)
-    Region(scopes.withScope(ast.stmts.map(expr)), semi)
+    RegionExpr(scopes.withScope(ast.stmts.map(expr)), semi)
 
   def caseBlock(b: s.CaseBlock) = b.stmts.map { c =>
     scopes.withScope {
@@ -159,8 +159,8 @@ trait ExprEnv { self: Env =>
   def destruct(ast: s.Node): Expr = ast match {
     case i: Ident => nameOrProduce(i, false)
     // todo: check is compile time
-    case s.Apply(l, r, ct) => Apply(expr(l), r.map(destruct))
-    case s.KeyedArg(l, r)  => KeyedArg(keyExpr(l), destruct(r))
+    case s.Apply(l, r, ct) => ApplyExpr(expr(l), r.map(destruct))
+    case s.KeyedArg(l, r)  => KeyedArgExpr(keyExpr(l), destruct(r))
     case _                 => expr(ast)
   }
 
@@ -199,7 +199,7 @@ trait ExprEnv { self: Env =>
     DestructExpr(destruct(pat), v.e)
   }
 
-  def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): VarExpr = {
+  def $var(info: Defo, ty: Ne, init: No, mut: Boolean, ct: Boolean): VarExpr = {
     info.isMut = mut; info.isTypeVar = ct; info.isVar = true;
     VarExpr(info, ty, init.map(expr))
   }

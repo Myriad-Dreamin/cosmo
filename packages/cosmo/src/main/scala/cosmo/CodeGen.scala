@@ -33,8 +33,8 @@ class CodeGen(implicit val env: Env) {
 
   def mayGenDef(ast: ir.Item): Option[String] = {
     val info = ast match {
-      case ir.Var(info, _, _) => Some(info)
-      case ir.Fn(info, _, _)  => Some(info)
+      case ir.Var(info, _, _)      => Some(info)
+      case ir.Fn(info, _, _, _, _) => Some(info)
       case ir.Class(info, _, _, _, _, _) =>
         Some(info)
       case ir.Impl(info, _, _, _, _) => Some(info)
@@ -44,19 +44,18 @@ class CodeGen(implicit val env: Env) {
     val nsb = if inClass then "" else nsb_
     val nse = if inClass then "" else nse_
     val res: String = ast match {
-      case ir.NoneItem   => ""
-      case ir.DeclRef(d) => return mayGenDef(d)
-      case Fn(defInfo, Sig(params, retTy, body), level) if level > 0 =>
+      case ir.NoneItem => ""
+      case Fn(defInfo, params, retTy, body, level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
         val bodyCode =
           if defInfo.isDependent then s" using type =${storeTy(body.get)};"
           else ""
         s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
-      case Fn(defInfo, Sig(None, ret_ty, body), _) =>
+      case Fn(defInfo, None, ret_ty, body, _) =>
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(defInfo, Sig(Some(params), ret_ty, body), _) =>
+      case Fn(defInfo, Some(params), ret_ty, body, _) =>
         val name = defInfo.defName(stem = true)
         val hasSelf = params.exists(_.id.name == "self")
         val selfIsConst = defInfo.inClass && hasSelf && {
@@ -421,15 +420,13 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case ir.DeclRef(d) => return genDef(d)
-      case v: Term       => v.id.env.varByRef(v)
-      case v: Fn         => v.id.defName()
+      case v: Ref => v.id.env.varByRef(v)
+      case v: Fn  => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.While(cond, body) =>
-        return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.For(DeclRef(name: Var), iter, body) =>
-        return s"for(auto ${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
+      // case ir.For(name: Var, iter, body) =>
+      //   return s"for(auto ${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
+      case _: ir.For     => ???
       case ir.Break()    => return "break"
       case ir.Continue() => return "continue"
       case ir.TodoLit    => return "unimplemented();"
@@ -670,17 +667,15 @@ class CodeGen(implicit val env: Env) {
 }
 
 def isStaticMethod(f: ir.Item): Boolean = f match {
-  case ir.Fn(_, sig, _) => isStaticMethod(sig)
-  case ir.Sig(params, _, _) =>
-    !params.iterator.flatten.exists(p => p.id.name == "self")
-  case _ => false
+  case f: ir.Fn => f.selfParam.isEmpty
+  case _        => false
 }
 
 def lhsIsType(lhs: ir.Item): Boolean = {
   lhs match {
-    case ir.Term(_, _, _) if lhs.level >= 1 => true
-    case ir.Select(lhs, _)                  => lhsIsType(lhs)
-    case _                                  => false
+    case ir.Ref(_, _, _) if lhs.level >= 1 => true
+    case ir.Select(lhs, _)                 => lhsIsType(lhs)
+    case _                                 => false
   }
 }
 
