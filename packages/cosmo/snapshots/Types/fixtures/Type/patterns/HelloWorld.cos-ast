@@ -1,1 +1,1 @@
-[T match T] => "=="("$", T)
+[T match T] => none, err: "required destructed type, but got Invalid(class mismatch lhs: class(Type) rhs: class(T))"

@@ -36,43 +36,58 @@ trait TypeEnv { self: Env =>
   def castArgs(
       eParams: Array[Param],
       eArgs: List[Item],
-      self: Option[Either[Unit, Item]] = None,
   ): List[Item] = {
-    // val params = eParams.filter(_.level == 0).map { p =>
-    //   self match {
-    //     case None => p
-    //     case Some(_) =>
-    //       println(s"check self $self, params $p, params $eParams")
-    //       if (p.headOption.exists(_.id.name == "self")) {
-    //         p.tail
-    //       } else {
-    //         p
-    //       }
-    //   }
-    // }
+    if (eParams.length != eArgs.length) {
+      errors =
+        s"Invalid number of params v.s. arguments (${eParams.length} v.s. ${eArgs.length}) ${eParams.toList} v.s. $eArgs" :: errors
+    }
 
-    // val firstArgs = eArgs.takeWhile(_.level > 0)
-    // val args = eArgs.drop(firstArgs.length)
+    val args = eArgs.flatMap {
+      case KeyedArg(Str(s), value) => Some((s, value))
+      case v                       => None
+    }.toMap
+    var positions = eArgs.flatMap {
+      case v: KeyedArg => None
+      case v           => Some(v)
+    }.iterator
 
-    // val paramsLength = params.map(_.length).getOrElse(0)
-    // if (paramsLength != args.length) {
-    //   println(("self", self))
-    //   errors =
-    //     s"Invalid number of params v.s. arguments (${paramsLength} v.s. ${args.length}) $params v.s. $args" :: errors
-    //   return args
-    // }
+    val allowNamedAsPositional = args.isEmpty
 
-    // var argsPair = params.iterator.flatten.zip(args);
-    // firstArgs ::: (argsPair.map { case (p, a) =>
-    //   val info = p.id
-    //   val casted = castTo(a, info.ty)
-    //   items += (info.id -> casted)
-    //   // todo: cast type
-    //   casted
-    // }.toList)
+    debugln(s"castArgs ${eParams.toList} $args $positions")
 
-    // todo
-    ???
+    val res = eParams.iterator.flatMap { param =>
+      val res =
+        if (param.of.name == "self") None
+        else if (param.named) {
+          val name = param.of.name
+          val value = args.get(name).orElse {
+            if (allowNamedAsPositional) {
+              positions.nextOption
+            } else {
+              None
+            }
+          }
+          Some(value.getOrElse {
+            errors = s"Missing named argument $name" :: errors
+            Opaque.expr(s"\n#error \"Missing named argument $name\"\n")
+          })
+        } else {
+          Some(positions.nextOption.getOrElse {
+            errors = s"Missing positional argument" :: errors
+            Opaque.expr(s"\n#error \"Missing positional argument\"\n")
+          })
+        }
+      val info = param.id
+      val casted = res.map(castTo(_, info.ty))
+      casted.map { v =>
+        items += (info.id -> v)
+      }
+
+      casted
+    }.toList
+
+    debugln(s"castArgs res => $res")
+    res
   }
 
   def castTo(item: Item, nty: Type): Item = {
@@ -205,8 +220,8 @@ trait TypeEnv { self: Env =>
       case TeleShape.Atom(v, ty) =>
         ty match
           case BottomKind(_) =>
-          case ty =>
-            err(s"required destructed type, but got $ty")
+          case ty            => // todo: coverage checking
+      // err(s"required destructed type, but got $ty")
       case _ => err(s"required destructed type, but got $shape")
     }
   }
@@ -220,7 +235,7 @@ trait TypeEnv { self: Env =>
   }
 
   def curryExpr(v: Expr): TeleShape = {
-    logln(s"curryExpr $v")
+    debugln(s"curryExpr $v")
     v match {
       case Apply(lhs, rhs) =>
         val lhsTy = lhs match {
@@ -234,7 +249,7 @@ trait TypeEnv { self: Env =>
   }
 
   def curryView(v: Item, ty: Type): TeleShape = {
-    logln(s"curryView $ty")
+    debugln(s"curryView $ty")
     ty match {
       case SelfTy =>
         selfRef.map(curryView(v, _)).getOrElse(TeleShape.Atom(v, ty))
@@ -244,17 +259,19 @@ trait TypeEnv { self: Env =>
   }
 
   def matchOne(lhs: Item, rhs: Item): Item = {
-    logln(s"matchArgs $lhs by $rhs")
+    debugln(s"matchArgs $lhs by $rhs")
     val lhsView = curryTermView(lhs)
     val rhsView = rhs match
       case v: Expr => curryExpr(v)
       case _       => curryView(rhs, tyOf(rhs).get)
     // todo: error report
-    matchPat(lhsView, rhsView)._1
+    val res = matchPat(lhsView, rhsView)
+    checkedDestructed(res._2)
+    res._1
   }
 
   def matchArgs(lhs: List[Item], rhs: List[Item]): List[Item] = {
-    logln(s"matchArgs $lhs by $rhs")
+    debugln(s"matchArgs $lhs by $rhs")
     if (lhs.length != rhs.length) {
       err(s"args length mismatch $lhs by $rhs")
     }
@@ -264,7 +281,7 @@ trait TypeEnv { self: Env =>
   @tailrec
   final def matchPat(lhs: TeleShape, rhs: TeleShape): (Item, TeleShape) = {
     import TeleShape._;
-    logln(s"matchPat $lhs by $rhs")
+    debugln(s"matchPat $lhs by $rhs")
     (lhs, rhs) match {
       case (lhs: AtomExp, _) =>
         (NoneItem, Invalid("cannot match a untyped value"))
@@ -276,20 +293,64 @@ trait TypeEnv { self: Env =>
       case (lhs: Atom, AtomExp(rhs)) => matchPat(lhs, curryTerm(rhs))
       case (lhs: Invalid, _)         => (NoneItem, lhs)
       case (_, rhs: Invalid)         => (NoneItem, rhs)
+      case (Atom(lhsVal, lhsTy), Atom(rhsTy, UniverseTy)) =>
+        val lhsCls = classRepr(lhsTy);
+        enumShape(rhsTy) match {
+          case Some(v)
+              if v.variantOf.map(isSubtype(_, lhsCls)).getOrElse(false) =>
+            val rhsVariant = v
+            debugln(
+              s"checkClsMatch!! $lhsCls ($lhsVal) by $rhsVariant (nothing)",
+            )
+
+            val rhsBase = rhsVariant.variantOf.get.asInstanceOf[Class];
+
+            debugln(s"cls level $lhsCls, ${rhsBase}")
+            debugln(s"args level $lhsVal, nothing")
+            // val binding = args.iterator.flatten.map {
+            //   case syntax.Ident(name) => name
+            //   case _                  => ""
+            // }
+
+            val lhsParams = classParams(lhsVal, rhsBase, rhsVariant);
+            val rhsArgTails = rhsVariant.args.getOrElse(List())
+            val rhsArgs = rhsBase.args.getOrElse(List()) ::: rhsArgTails;
+
+            val matched = matchArgs(lhsParams, rhsArgs);
+            (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
+          case rhsRestCls =>
+            val rhsCls = rhsRestCls.getOrElse(classRepr(rhsTy));
+            if (rhsCls.id.isTrait) {
+              return (NoneItem, Invalid("trait cannot be destructed"))
+            }
+            if ((!eqClass(lhsCls, rhsCls))) {
+              return (
+                NoneItem,
+                Invalid(s"class mismatch lhs: $lhsCls rhs: $rhsCls"),
+              )
+            }
+
+            // val isValueMatch = matchCases.headOption match {
+            //   case None                                       => ???
+            //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
+            //   case _                                          => true
+            // }
+            return (BinOp("<:", patHolder, rhsCls), lhs)
+        }
       case (Atom(lhsVal, lhsTy), Atom(rhsVal, rhsTy)) =>
         val lhsCls = classRepr(lhsTy);
         enumShape(rhsTy) match {
           case Some(v)
               if v.variantOf.map(isSubtype(_, lhsCls)).getOrElse(false) =>
             val rhsVariant = v
-            println(
+            debugln(
               s"checkClsMatch!! $lhsCls ($lhsVal) by $rhsVariant ($rhsVal)",
             )
 
             val rhsBase = rhsVariant.variantOf.get.asInstanceOf[Class];
 
-            println(s"cls level $lhsCls, ${rhsBase}")
-            println(s"args level $lhsVal, ${rhsVal}")
+            debugln(s"cls level $lhsCls, ${rhsBase}")
+            debugln(s"args level $lhsVal, ${rhsVal}")
             // val binding = args.iterator.flatten.map {
             //   case syntax.Ident(name) => name
             //   case _                  => ""
@@ -299,7 +360,7 @@ trait TypeEnv { self: Env =>
             val rhsArgTails = classArgs(rhsVal, rhsVariant)
             val rhsArgs = rhsBase.args.getOrElse(List()) ::: rhsArgTails;
 
-            val matched = matchArgs(lhsParams, rhsArgTails);
+            val matched = matchArgs(lhsParams, rhsArgs);
             (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
           case rhsRestCls =>
             val rhsCls = rhsRestCls.getOrElse(classRepr(rhsTy));
@@ -307,7 +368,10 @@ trait TypeEnv { self: Env =>
               return (NoneItem, Invalid("trait cannot be destructed"))
             }
             if (!eqClass(lhsCls, rhsCls)) {
-              return (NoneItem, Invalid("class mismatch"))
+              return (
+                NoneItem,
+                Invalid(s"class mismatch lhs: $lhsCls rhs: $rhsCls"),
+              )
             }
 
             // val isValueMatch = matchCases.headOption match {
@@ -315,7 +379,13 @@ trait TypeEnv { self: Env =>
             //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
             //   case _                                          => true
             // }
-            return (BinOp("==", patHolder, rhsVal), lhs)
+            rhsVal match {
+              case TupleLit(elems) =>
+                val ins = $apply(rhsCls, elems.map(valTerm).toList)(0)
+                (BinOp("==", patHolder, ins), lhs)
+              case _ =>
+                (BinOp("==", patHolder, rhsVal), lhs)
+            }
         }
     }
   }
@@ -330,7 +400,7 @@ trait TypeEnv { self: Env =>
   }
 
   def classParams(v: Item, cls: Class, varaint: Class): List[Item] = {
-    logln(s"classParams $v by $cls of $varaint")
+    debugln(s"classParams $v by $cls of $varaint")
     v match {
       case Ref(_, _, Some(v)) => classParams(v, cls, varaint)
       case Var(id, _, _)      => classParams(id.ty, cls, varaint)
@@ -356,7 +426,7 @@ trait TypeEnv { self: Env =>
         val clsArgs = v.args.getOrElse(List())
         val args = classBinds(v);
         val args2 = classBinds(varaint)
-        println(s"args2 $args $args2")
+        debugln(s"args2 $args $args2")
         return args ::: args2.drop(args.length)
       case v =>
         err(s"cannot destruct $v by $cls")
@@ -365,7 +435,7 @@ trait TypeEnv { self: Env =>
   }
 
   def classArgs(v: Item, cls: Class): List[Item] = {
-    logln(s"classArgs $v by $cls")
+    debugln(s"classArgs $v by $cls")
     v match {
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
@@ -410,6 +480,13 @@ trait TypeEnv { self: Env =>
   }
 
   def eqClass(lhs: Class, rhs: Class): Boolean = {
+    if (lhs.variantOf.isDefined) {
+      return eqClass(lhs.variantOf.get.asInstanceOf[Class], rhs)
+    }
+    if (rhs.variantOf.isDefined) {
+      return eqClass(lhs, rhs.variantOf.get.asInstanceOf[Class])
+    }
+
     lhs.id.id.id == rhs.id.id.id
   }
 
@@ -499,6 +576,7 @@ trait TypeEnv { self: Env =>
 
   @tailrec
   final def enumShape(ty: Item): Option[Class] = {
+    debugln(s"enumShape $ty")
     ty match {
       case v: Ref if v.value.isEmpty =>
         enumShape(items.getOrElse(v.id.id, NoneItem))
@@ -523,15 +601,16 @@ trait TypeEnv { self: Env =>
       case Unreachable                                => Some(BottomTy)
       case _: (CIdent | TopKind | NoneKind | Class | CppInsType) =>
         Some(UniverseTy)
-      case _: (CModule | NativeModule)      => Some(UniverseTy)
-      case RefItem(lhs, isMut)              => tyOf(lhs).map(RefItem(_, isMut))
-      case v: ClassInstance                 => Some(v.con)
-      case BoundField(_, _, _, VarField(v)) => Some(v.id.ty)
-      case b: BinOp                         => coerce(tyOf(b.lhs), tyOf(b.rhs))
-      case If(_, x, y)                      => coerce(tyOf(x), y.flatMap(tyOf))
-      case SelfVal                          => Some(SelfTy)
-      case Ref(id, _, Some(v))              => tyOf(v)
-      case Ref(id, level, _) if level == 0  => Some(id.ty)
+      case _: (CModule | NativeModule)       => Some(UniverseTy)
+      case BoundField(_, _, _, EnumField(v)) => Some(UniverseTy)
+      case RefItem(lhs, isMut)               => tyOf(lhs).map(RefItem(_, isMut))
+      case v: ClassInstance                  => Some(v.con)
+      case BoundField(_, _, _, VarField(v, _)) => Some(v.id.ty)
+      case b: BinOp                        => coerce(tyOf(b.lhs), tyOf(b.rhs))
+      case If(_, x, y)                     => coerce(tyOf(x), y.flatMap(tyOf))
+      case SelfVal                         => Some(SelfTy)
+      case Ref(id, _, Some(v))             => tyOf(v)
+      case Ref(id, level, _) if level == 0 => Some(id.ty)
       case v: Var =>
         debugln(s"tyOf(Var) ${v.id.ty}")
         Some(v.id.ty)

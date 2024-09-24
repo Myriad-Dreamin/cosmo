@@ -1,0 +1,9 @@
+[T(x: 1, y: 2) match T] => "<:"("$", T), err: ""
+[T(x: 1, y: 2) match T(x: 1)] => "=="("$", instance T(1, Opaque(Some(
+#error "Missing named argument y"
+),None))), err: "Missing named argument y
+Invalid number of params v.s. arguments (2 v.s. 1) List(param(x), param(y)) v.s. List(KeyedArg(Str(x),Integer(1)))"
+[T(x: 1) match T(x: 1)] => "=="("$", instance T(1, Opaque(Some(
+#error "Missing named argument y"
+),None))), err: "Missing named argument y
+Invalid number of params v.s. arguments (2 v.s. 1) List(param(x), param(y)) v.s. List(KeyedArg(Str(x),Integer(1)))"

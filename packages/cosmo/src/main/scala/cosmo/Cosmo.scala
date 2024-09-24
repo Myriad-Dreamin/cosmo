@@ -74,7 +74,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
     parse(s).map(env.exprStage)
 
   def evaluate(src: String, env: Env = empty): Option[Env] =
-    expr(src, env).map(_.emitTask)
+    expr(src, env).map(_.evalStage)
 
   def transpile(src: String): Option[(String, Env)] =
     evaluate(src).flatMap(cppBackend)

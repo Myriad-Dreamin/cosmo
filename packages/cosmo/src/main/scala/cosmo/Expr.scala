@@ -229,7 +229,7 @@ trait ExprEnv { self: Env =>
     for (stmt <- body.stmts.iterator.map(expr)) stmt match {
       case v: VarExpr =>
         if (isAbstract) then err(s"abstract class cannot have fields")
-        addField(EVarField(v, index), fields); index += 1;
+        addField(VarField(ir.Var(v.id, v.init, -1), index), fields); index += 1;
       case d: DefExpr =>
         addField(EDefField(d), fields); d.id.isVirtual = isAbstract;
       case node => err(s"Invalid class field $node")

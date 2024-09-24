@@ -182,12 +182,14 @@ final case class TypeMatch(
 ) extends Item {}
 abstract class DeclItem extends Item with DeclLike {}
 
-final case class Param(of: Var) extends DeclItem {
+final case class Param(of: Var, named: Boolean) extends DeclItem {
   override val id: DefInfo = of.id
   override val level: Int = of.level
 
   def pretty(implicit rec: Item => String = _.toString): String =
     s"${id.defName(false)}: ${rec(id.ty)}"
+
+  override def toString: String = s"param(${id.defName(false)})"
 }
 final case class Var(
     id: DefInfo,
@@ -226,7 +228,7 @@ final case class Ref(
     override val level: Int,
     val value: Option[Item] = None,
 ) extends DeclItem {
-  override def toString: String = s"term(${id.defName(false)})"
+  override def toString: String = s"ref(${id.defName(false)})"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclItem {
@@ -278,13 +280,18 @@ final case class Class(
     args: Option[List[Item]] = None,
     variantOf: Option[Type] = None,
     resolvedAs: Option[Type] = None,
-) extends DeclItem
-    with CallableTerm(rawParams) {
+) extends DeclItem {
+  lazy val params: Array[Param] = {
+    val varsParams = vars.map(v => Param(v.item, true))
+    (rawParams.getOrElse(List()) ::: varsParams).toArray
+  }
+  lazy val callByName: Boolean = rawParams.isEmpty;
+
   override val level: Int = 1
   override def toString: String = s"class(${repr()})"
   def isPhantomClass: Boolean = id.isPhantom
   def justInit: Boolean = !id.isTrait && params.isEmpty && isPhantomClass
-  lazy val vars = fields.values.collect { case a: VarField => a }.toList
+  def vars = fields.values.collect { case a: VarField => a }.toList
   def defs = fields.values.collect { case a: DefField => a }.toList
   def variants = fields.values.collect { case a: EnumField => a }.toList
 
@@ -427,9 +434,8 @@ sealed abstract class VField {
 
   def pretty(implicit rec: Item => String = _.toString): String = ???
 }
-final case class EVarField(item: VarExpr, index: Int) extends VField
 final case class EDefField(item: DefExpr) extends VField
 final case class EEnumField(item: ClassExpr, index: Int) extends VField
-final case class VarField(item: Var) extends VField
+final case class VarField(item: Var, index: Int) extends VField
 final case class DefField(item: Fn) extends VField
 final case class EnumField(item: Class) extends VField

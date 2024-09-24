@@ -1,3 +1,5 @@
 class T { val x = 1; }
 -----
 T(x: 1) match T
+T(x: 1) match T(x: 1)
+T match T(x: 1)

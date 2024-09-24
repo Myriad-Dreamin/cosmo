@@ -13,8 +13,11 @@ class PatternTest extends TestBase:
     var snapshot = List[String]();
     for (case Array(x, y) <- cases.split("\n").map(_.split("match"))) {
       val (lhs, rhs) = (env.valTerm(expr(x)), expr(y));
+      env.errors = List();
       val result = env.matchOne(lhs, rhs).toDoc.pretty;
-      snapshot = snapshot :+ s"[${x}match${y}] => $result";
+      val errors = env.errors.mkString("\n");
+      snapshot =
+        snapshot :+ s"[${x.trim} match ${y.trim}] => $result, err: \"$errors\"";
     }
 
     snapshot.mkString("\n");
@@ -23,7 +26,13 @@ class PatternTest extends TestBase:
   test("HelloWorld") {
     runTestOnFile("fixtures/Type/patterns/HelloWorld.cos-ast");
   }
-  test("class".only) {
+  test("class") {
     runTestOnFile("fixtures/Type/patterns/class.cos-ast");
+  }
+  test("class2") {
+    runTestOnFile("fixtures/Type/patterns/class2.cos-ast");
+  }
+  test("nat") {
+    runTestOnFile("fixtures/Type/patterns/nat.cos-ast");
   }
 end PatternTest

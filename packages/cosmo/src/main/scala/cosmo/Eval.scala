@@ -390,7 +390,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def $apply(lhs: Item, rhs: List[Item])(implicit level: Int): Item = {
-    debugln(s"apply $lhs |||| ${rhs}")
+    logln(s"apply $lhs |||| ${rhs}")
     lhs match {
       case Ref(id, _, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
         return rhs.head match {
@@ -410,11 +410,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case Ref(id, _, Some(v))                  => $apply(v, rhs)
       case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
       case BoundField(_, by, _, EnumField(ev)) =>
-        applyC(ev.copy(variantOf = Some(by)), Some(rhs))
+        println(s"applyEnum $lhs $rhs")
+        applyC(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
-        Apply(lhs, castArgs(f.params, rhs, Some(Right(that))))
+        Apply(lhs, castArgs(f.params, rhs))
       case f: Fn    => applyF(f, rhs)
-      case c: Class => applyC(c, Some(rhs))
+      case c: Class => applyC(c, rhs)
       case HKTInstance(ty, syntax) =>
         val res = hktTranspose(syntax, $apply(ty, rhs))
         if (res.level == 0) {
@@ -444,22 +445,21 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def applyC(node: Class, args: Option[List[Item]]): Item = {
+  def applyC(node: Class, args: List[Item]): Item = {
     logln(s"applyClass ${node.id} ${node.variantOf} $args")
-    val Class(clsInfo, params, fields, baseArgsT, _, _) =
-      node
-    val baseArgs = baseArgsT.getOrElse(List())
-    val isTypeLevel = params.map(baseArgs.length < _.length).getOrElse(false);
-    if (!isTypeLevel) {
-      println(node.vars)
+    val typeParams = node.rawParams
+    val allArgs = node.args.getOrElse(List()) ::: args
+    val isTypeLevel =
+      typeParams.map(allArgs.length < _.length).getOrElse(false);
+    if (isTypeLevel) {
+      return node.copy(args = Some(allArgs))
     }
-    args match {
-      case Some(args) if isTypeLevel =>
-        return node.copy(args = Some(baseArgs ::: args))
-      case Some(args)             => ClassInstance(node, args)
-      case None if params.isEmpty => ClassInstance(node, List())
-      case _                      => node
-    };
+
+    val castedArgs = castArgs(node.params, allArgs)
+    val typeLevelArgs = typeParams.map(p => castedArgs.take(p.size))
+
+    val clsFinal = node.copy(args = typeLevelArgs)
+    ClassInstance(clsFinal, castedArgs.drop(typeParams.size))
   }
 
   case class MatchCaseInfo(
@@ -586,7 +586,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def resolveParams(params: Option[EParams]) = params.map { params =>
-    params.map(p => Param(checkDecl(p, checkVar(p))))
+    params.map(p => Param(checkDecl(p, checkVar(p)), false))
   }
 
   def checkDef(e: DefExpr) = {
@@ -659,7 +659,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def checkField(f: VField) = {
     f match {
-      case e: EVarField  => VarField(checkVar(e.item))
+      case e: VarField =>
+        VarField(checkVar(e.item.id.syntax.asInstanceOf[VarExpr]), e.index)
       case e: EDefField  => DefField(checkDef(e.item))
       case e: EEnumField => EnumField(checkClass(e.item))
       case _             => ???
