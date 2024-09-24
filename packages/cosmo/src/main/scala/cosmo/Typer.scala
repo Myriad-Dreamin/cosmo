@@ -109,10 +109,10 @@ trait TypeEnv { self: Env =>
 
             rty match {
               case tr: Class if tr.id.isTrait => {
-                As(item, implClass(lty, tr).get)
+                As(item.e, implClass(lty, tr).get.e)
               }
               case _ =>
-                As(item, nty)
+                As(item.e, nty.e)
             }
           }
           case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
@@ -222,11 +222,13 @@ trait TypeEnv { self: Env =>
   def curryExpr(v: Expr): TeleShape = {
     logln(s"curryExpr $v")
     v match {
-      case ApplyExpr(lhs, rhs) =>
-        val lhsTy = canonicalTy(valTerm(lhs))
-        val args = TupleLitExpr(rhs.toArray)
-        // TeleShape.Atom(args, lhsTy)
-        ???
+      case Apply(lhs, rhs) =>
+        val lhsTy = lhs match {
+          case e: Expr => canonicalTy(valTerm(e))
+          case e       => canonicalTy(e)
+        }
+        val args = TupleLit(rhs.toArray)
+        TeleShape.Atom(args, lhsTy)
       case _ => TeleShape.AtomExp(v)
     }
   }
@@ -516,10 +518,9 @@ trait TypeEnv { self: Env =>
       case _: Rune    => Some(IntegerTy(32, false))
       case _: Str     => Some(StrTy)
       case NoneItem   => Some(TopTy)
-      case _: (Apply | Opaque | Select | Unresolved) => Some(TopTy)
-      case _: (Loop | For | Break | Continue) =>
-        Some(UnitTy)
-      case Unreachable => Some(BottomTy)
+      case _: (Apply | Opaque | Select | Unresolved)  => Some(TopTy)
+      case _: (While | Loop | For | Break | Continue) => Some(UnitTy)
+      case Unreachable                                => Some(BottomTy)
       case _: (CIdent | TopKind | NoneKind | Class | CppInsType) =>
         Some(UniverseTy)
       case _: (CModule | NativeModule)      => Some(UniverseTy)

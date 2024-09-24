@@ -92,22 +92,6 @@ object Doc {
   implicit class ItemOps(val o: ir.Item) extends AnyVal {
     def d: Doc = Doc.buildItem(o)
   }
-
-  implicit class ConcatExprOps(val seq: Seq[ir.Expr]) extends AnyVal {
-    def d(implicit sep: Doc = Doc.empty): Doc =
-      Doc.Concat(seq.map(Doc.buildExpr).toArray, sep)
-  }
-  implicit class ConcatExpr2Ops(val seq: Array[ir.Expr]) extends AnyVal {
-    def d(implicit sep: Doc = Doc.empty): Doc =
-      Doc.Concat(seq.map(Doc.buildExpr).toArray, sep)
-  }
-  implicit class ExprOptionOps(val o: Option[ir.Expr]) extends AnyVal {
-    def d: Option[Doc] = o.map(Doc.buildExpr)
-  }
-  implicit class ExprOps(val o: ir.Expr) extends AnyVal {
-    def d: Doc = Doc.buildExpr(o)
-  }
-
   implicit class StringOps(val o: String) extends AnyVal {
     def d: Doc = Doc.Str(o)
   }
@@ -118,7 +102,7 @@ object Doc {
   def paramDecl(
       kind: String,
       pe: ir.ParamExpr,
-      ret_ty: Option[ir.Expr],
+      ret_ty: Option[ir.Type],
       body: => Doc,
   ): Doc = {
     val n = s"${pe.id.name}@${pe.id.id.id}"
@@ -139,32 +123,8 @@ object Doc {
     val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
   }
-  def buildExpr(item: ir.Expr): Doc = item match {
-    case b: ir.RegionExpr   => Doc.block("block", b.stmts.d(NewLine))
-    case _: ir.BreakExpr    => Doc.Str("break")
-    case _: ir.ContinueExpr => Doc.Str("continue")
-    case ir.ReturnExpr(v)   => Array("return ".d, v.d).d
-    case ir.SelectExpr(lhs, rhs) =>
-      Array(lhs.d, ".".d, rhs.d).d
-    case ir.ForExpr(name, iter, body) =>
-      Array("for (".d, name.d, " in ".d, iter.d, ") ".d, body.d).d
-    case ir.WhileExpr(cond, body) =>
-      Array("while (".d, cond.d, ") ".d, body.d).d
-    case ir.LoopExpr(body) =>
-      Array("loop ".d, body.d).d
-    case ir.IfExpr(cond, thenp, elsep) =>
-      val el = elsep.d.map { e => Array(" else ".d, e).d }.getOrElse(empty)
-      Array("if (".d, cond.d, ") ".d, thenp.d, el).d
-    case ir.MatchExpr(cond, cb) =>
-      val cs = cb.cases.map { c =>
-        Array("case (".d, c._1.d, ") => ".d, c._2.d.getOrElse("_".d)).d
-      }
-      val body = (") {".d +: cs).d(NewLine)
-      Array("match (".d, cond.d, indent(1, body), NewLine, "}".d).d
-    case i: ir.Hole =>
-      Array("hole ".d, i.id.d).d
-    case i: ir.Name     => Doc.item(i)
-    case ir.ItemE(item) => item.d
+  def buildItem(item: ir.Item): Doc = item match {
+    case b: ir.Region => Doc.block("block", b.stmts.d(NewLine))
     case f: ir.DefExpr =>
       paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))
     case c: ir.ClassExpr if !c.id.isTrait =>
@@ -182,10 +142,11 @@ object Doc {
       val r = i.ty.d.getOrElse("_".d)
       val b = i.init.d.getOrElse("_".d)
       Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
-    case _ => ???
-  }
-  def buildItem(item: ir.Item): Doc = item match {
+    case i: ir.Hole =>
+      Array("hole ".d, i.id.d).d
     case i: ir.Apply        => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
+    case i: ir.Name         => Doc.item(i)
+    case ir.ItemE(item)     => item.d
     case ir.TupleLit(items) => Doc.paren(items.d(", ".d))
     case ir.KeyedArg(k, v) =>
       Doc.Concat(Array(k.d, v.d), ": ".d)
@@ -202,7 +163,27 @@ object Doc {
     case ir.BinOp(op, lhs, rhs) =>
       val args = Doc.paren(Seq(lhs, rhs).d(", ".d))
       Array("\"".d, op.d, "\"".d, args).d
-    case ir.As(v, ty) => Array(v.d, " as ".d, ty.d).d
+    case ir.SelectExpr(lhs, rhs) =>
+      Array(lhs.d, ".".d, rhs.d).d
+    case ir.For(name, iter, body) =>
+      Array("for (".d, name.d, " in ".d, iter.d, ") ".d, body.d).d
+    case ir.While(cond, body) =>
+      Array("while (".d, cond.d, ") ".d, body.d).d
+    case ir.Loop(body) =>
+      Array("loop ".d, body.d).d
+    case ir.If(cond, thenp, elsep) =>
+      val el = elsep.d.map { e => Array(" else ".d, e).d }.getOrElse(empty)
+      Array("if (".d, cond.d, ") ".d, thenp.d, el).d
+    case ir.MatchExpr(cond, cb) =>
+      val cs = cb.cases.map { c =>
+        Array("case (".d, c._1.d, ") => ".d, c._2.d.getOrElse("_".d)).d
+      }
+      val body = (") {".d +: cs).d(NewLine)
+      Array("match (".d, cond.d, indent(1, body), NewLine, "}".d).d
+    case ir.As(v, ty)  => Array(v.d, " as ".d, ty.d).d
+    case ir.Break()    => Doc.Str("break")
+    case ir.Continue() => Doc.Str("continue")
+    case ir.Return(v)  => Array("return ".d, v.d).d
     case ir.Class(id, params, fields, _, _, _) =>
       val p = params.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(fields)

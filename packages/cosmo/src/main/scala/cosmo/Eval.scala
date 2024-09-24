@@ -60,9 +60,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   var checkStatus = MutLongMap[Unit]()
 
   val patHolder = Str("$")
-  var moduleAst: RegionExpr = RegionExpr(List(), false)
+  var moduleAst: Region = Region(List(), false)
   var moduleInst = InstModule()
-  var module: Region = Region(List(), false)
+  var module: ir.Region = Region(List(), false)
 
   /// Builtin Items
 
@@ -124,7 +124,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     if (!syntaxOnly && !noCore) then
       expr(syntax.Import(libPath("std.prelude"), Some(Ident("_"))))
 
-    moduleAst = RegionExpr(ast.stmts.map(expr), true)
+    moduleAst = Region(ast.stmts.map(expr), true)
 
     this
   }
@@ -141,7 +141,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def emitTask: Env = {
     if (syntaxOnly) return this
+
     moduleInst = emitModule(module)
+
     this
   }
 
@@ -188,43 +190,41 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def valTermO(node: Option[Expr])(implicit level: Int = 0): Item =
+  def valTermO(node: Option[Item])(implicit level: Int = 0): Item =
     node.map(valTerm).getOrElse(NoneItem)
-  def valTerm(node: Expr)(implicit level: Int = 0): Item = term(node)
-  def tyTerm(node: Expr)(implicit level: Int = 1): Type = term(node)
-  def term(item: Expr)(implicit level: Int): ir.Item = {
-    item match {
+  def valTerm(node: Item)(implicit level: Int = 0): Item = term(node)
+  def tyTerm(node: Item)(implicit level: Int = 1): Type = term(node)
+  def term(item: Item)(implicit level: Int): ir.Item = {
+    if !item.isInstanceOf[Expr] then return item
+    item.asInstanceOf[Expr] match {
       // control flow, todo: duplicate patterns
-      case _: BreakExpr       => Break()
-      case _: ContinueExpr    => Continue()
-      case ReturnExpr(v)      => Return(term(v))
-      case IfExpr(cond, x, y) => If(term(cond), term(x), y.map(term))
-      case LoopExpr(body)     => Loop(term(body))
-      case WhileExpr(cond, body) =>
-        Loop(If(term(cond), term(body), Some(Break())))
-      case ForExpr(name, iter, body) =>
-        For(term(name), term(iter), term(body))
-      case RegionExpr(stmts, semi) => Region(stmts.map(term), semi)
+      case item: (Break | Continue | Opaque) => item
+      case Return(v)                         => Return(term(v))
+      case If(cond, x, y)        => If(term(cond), term(x), y.map(term))
+      case Loop(body)            => Loop(term(body))
+      case While(cond, body)     => While(term(cond), term(body))
+      case For(name, iter, body) => For(term(name), term(iter), term(body))
+      case Region(stmts, semi)   => Region(stmts.map(term), semi)
       // operations
       case Name(id, None) =>
         val t = byRef(id);
         if t.value.isEmpty then err(s"undefined $id")
         t
-      case Name(id, Some(of))                  => term(of)
-      case UnOpExpr("&", UnOpExpr("mut", lhs)) => RefItem(term(lhs), true)
-      case UnOpExpr("&", lhs)                  => RefItem(term(lhs), false)
-      case UnOpExpr("mut", lhs) =>
+      case Name(id, Some(of))          => term(of)
+      case UnOp("&", UnOp("mut", lhs)) => RefItem(term(lhs), true)
+      case UnOp("&", lhs)              => RefItem(term(lhs), false)
+      case UnOp("mut", lhs) =>
         errors = s"mut must be used after &" :: errors; term(lhs)
-      case UnOpExpr("*", lhs)      => derefPtr(term(lhs))
-      case UnOpExpr(op, lhs)       => UnOp(op, term(lhs))
-      case BinOpExpr(op, lhs, rhs) => binOp(op, term(lhs), term(rhs))
-      case AsExpr(lhs, rhs)        => As(term(lhs), tyTerm(rhs))
-      case KeyedArgExpr(k, v)      => KeyedArg(term(k), term(v))
+      case UnOp("*", lhs)      => derefPtr(lhs)
+      case UnOp(op, lhs)       => UnOp(op, term(lhs))
+      case BinOp(op, lhs, rhs) => binOp(op, term(lhs), term(rhs))
+      case As(lhs, rhs)        => As(term(lhs), tyTerm(rhs))
+      case KeyedArg(k, v)      => KeyedArg(term(k), term(v))
       // todo: check is compile time
       case SelectExpr(lhs, rhs) => deref(select(term(lhs), rhs))
-      case ApplyExpr(lhs, rhs)  => $apply(term(lhs), rhs.map(term))
+      case Apply(lhs, rhs)      => $apply(term(lhs), rhs.map(term))
       case b: MatchExpr         => matchTerm(b)
-      case ItemE(item)          => item
+      case ItemE(item)          => term(item)
       // declarations
       case v: VarExpr      => checkVar(v)
       case d: DefExpr      => checkDef(d)
@@ -290,7 +290,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def derefPtr(lhs: Item)(implicit level: Int): Item = {
     lhs match {
       case SelfVal => SelfVal
-      case lhs     => UnOp("*", lhs)
+      case lhs     => UnOp("*", term(lhs))
     }
   }
 
@@ -616,7 +616,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def checkClass(e: ClassExpr): Class = {
     val ClassExpr(info, ps, constraints, fields) = e
-    val ss = selfRef; selfRef = Some(SelfTy);
+    val ss = selfRef; selfRef = Some(e);
 
     val params = resolveParams(ps);
     val cls2 = Class(info, params, fields); selfRef = Some(cls2);
@@ -638,7 +638,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val ImplExpr(info, ps, constraints, i, c, fields) = e
     val cls = tyTerm(c);
     val ss2 = selfRef; selfRef = Some(cls);
-    val ss = selfImplRef; selfImplRef = Some(SelfTy);
+    val ss = selfImplRef; selfImplRef = Some(e);
 
     val iface = i.map(tyTerm);
     val params = resolveParams(ps);
