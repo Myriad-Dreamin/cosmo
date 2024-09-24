@@ -233,6 +233,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case d: DestructExpr => checkDestruct(d)
       case Hole(id)        => err(s"hole $id in the air")
       case cr: CaseRegion  => err(s"case region $cr in the air")
+      case c: CaseExpr =>
+        errE(s"case clause without match")
+        Opaque.expr(s"0/* error: case clause without match $c */")
     }
   }
 
@@ -489,7 +492,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
     val (patterns, restTy) =
       b.body.cases.foldLeft((List[(Item, Item)](), lhsShape)) {
-        case ((patterns, lhs), (destructor, body)) =>
+        case ((patterns, lhs), CaseExpr(destructor, body)) =>
           val (pattern, rests) = matchPat(lhs, curryExpr(destructor))
           (patterns :+ (pattern, valTermO(body)), rests)
       }

@@ -1,0 +1,2 @@
+[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)] => ClassDestruct((class(Result::Ok))(Integer(1)),class(Result::Ok),List(NoneKind(0))), err: "required destructed type, but got Invalid(class mismatch lhs: class(Type) rhs: class(i32))"
+[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(t)] => ClassDestruct((class(Result::Ok))(Integer(1)),class(Result::Ok),List(ref(t))), err: ""

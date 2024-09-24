@@ -12,7 +12,9 @@ class PatternTest extends TestBase:
 
     var snapshot = List[String]();
     for (case Array(x, y) <- cases.split("\n").map(_.split("match"))) {
-      val (lhs, rhs) = (env.valTerm(expr(x)), expr(y));
+      val (lhs, rhsCase) =
+        env.scopes.withScope((env.valTerm(expr(x)), expr("case " + y)));
+      val rhs = rhsCase.asInstanceOf[ir.CaseExpr].cond;
       env.errors = List();
       val result = env.matchOne(lhs, rhs).toDoc.pretty;
       val errors = env.errors.mkString("\n");
@@ -34,5 +36,8 @@ class PatternTest extends TestBase:
   }
   test("nat") {
     runTestOnFile("fixtures/Type/patterns/nat.cos-ast");
+  }
+  test("result") {
+    runTestOnFile("fixtures/Type/patterns/result.cos-ast");
   }
 end PatternTest

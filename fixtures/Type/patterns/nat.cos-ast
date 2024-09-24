@@ -14,3 +14,7 @@ v1 match Nat.Succ(Nat.Zero)
 v2 match Nat.Succ(Nat.Zero)
 v2 match Nat.Succ
 v2 match Nat
+Nat.Zero match Nat.Succ(t)
+v1 match Nat.Succ(t)
+Nat.Succ(Nat.Zero) match Nat.Succ(t)
+v2 match Nat.Succ(t)

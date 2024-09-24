@@ -312,7 +312,7 @@ trait TypeEnv { self: Env =>
             //   case _                  => ""
             // }
 
-            val lhsParams = classParams(lhsVal, rhsBase, rhsVariant);
+            val lhsParams = classParams(lhsVal, rhsBase, Some(rhsVariant));
             val rhsArgTails = rhsVariant.args.getOrElse(List())
             val rhsArgs = rhsBase.args.getOrElse(List()) ::: rhsArgTails;
 
@@ -323,7 +323,7 @@ trait TypeEnv { self: Env =>
             if (rhsCls.id.isTrait) {
               return (NoneItem, Invalid("trait cannot be destructed"))
             }
-            if ((!eqClass(lhsCls, rhsCls))) {
+            if ((!isClass(rhsCls, lhsCls))) {
               return (
                 NoneItem,
                 Invalid(s"class mismatch lhs: $lhsCls rhs: $rhsCls"),
@@ -356,9 +356,11 @@ trait TypeEnv { self: Env =>
             //   case _                  => ""
             // }
 
-            val lhsParams = classParams(lhsVal, rhsBase, rhsVariant);
+            val lhsParams = classParams(lhsVal, rhsBase, Some(rhsVariant));
             val rhsArgTails = classArgs(rhsVal, rhsVariant)
             val rhsArgs = rhsBase.args.getOrElse(List()) ::: rhsArgTails;
+
+            println(s"lhsParams $lhsParams use $rhsArgs")
 
             val matched = matchArgs(lhsParams, rhsArgs);
             (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
@@ -367,7 +369,7 @@ trait TypeEnv { self: Env =>
             if (rhsCls.id.isTrait) {
               return (NoneItem, Invalid("trait cannot be destructed"))
             }
-            if (!eqClass(lhsCls, rhsCls)) {
+            if (!isClass(rhsCls, lhsCls)) {
               return (
                 NoneItem,
                 Invalid(s"class mismatch lhs: $lhsCls rhs: $rhsCls"),
@@ -380,9 +382,14 @@ trait TypeEnv { self: Env =>
             //   case _                                          => true
             // }
             rhsVal match {
-              case TupleLit(elems) =>
-                val ins = $apply(rhsCls, elems.map(valTerm).toList)(0)
-                (BinOp("==", patHolder, ins), lhs)
+              case TupleLit(elems) if eqClass(lhsCls, rhsCls) =>
+                val lhsParams =
+                  classParams(lhsVal, rhsCls, None);
+                val rhsArgTails = classArgs(rhsVal, rhsCls)
+                val rhsArgs = rhsCls.args.getOrElse(List()) ::: rhsArgTails;
+
+                val matched = matchArgs(lhsParams, rhsArgs);
+                (ClassDestruct(lhsVal, rhsCls, matched), lhs)
               case _ =>
                 (BinOp("==", patHolder, rhsVal), lhs)
             }
@@ -392,30 +399,35 @@ trait TypeEnv { self: Env =>
 
   def classBinds(cls: Class): List[Item] = {
     // take args and rest params
-    // val params = cls.params
-    // val args = cls.args.getOrElse(List())
-    // val tyLevel = args ::: params.drop(args.length)
-    // tyLevel ::: cls.vars.map(_.item)
-    ???
+    val params = cls.params
+    val args = cls.args.getOrElse(List())
+    args ::: params.drop(args.length).toList
   }
 
-  def classParams(v: Item, cls: Class, varaint: Class): List[Item] = {
-    debugln(s"classParams $v by $cls of $varaint")
+  @tailrec
+  final def classParams(
+      v: Item,
+      cls: Class,
+      varaint: Option[Class],
+  ): List[Item] = {
+    logln(s"classParams $v by $cls of $varaint")
     v match {
       case Ref(_, _, Some(v)) => classParams(v, cls, varaint)
       case Var(id, _, _)      => classParams(id.ty, cls, varaint)
+      case Param(of, _)       => classParams(of, cls, varaint)
       case SelfVal if selfRef.isDefined =>
         classParams(selfRef.get, cls, varaint)
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
           val args = v.con.args.getOrElse(List());
-          val args2 = classBinds(varaint)
+          val args2 = classBinds(varaint.getOrElse(cls))
+          println(s"args2 ! $args $args2")
           return args ::: args2.drop(args.length)
         }
-        if (eqClass(v.con, varaint)) {
+        if (varaint.isDefined && eqClass(v.con, varaint.get)) {
           return classBinds(v.con)
         }
-        err(s"cannot destruct $v by $cls")
+        err(s"cannot destruct case 1 $v by $cls")
         val params = classBinds(v.con);
         val instances = params.dropRight(v.args.length) ::: v.args;
         if (instances.length != cls.params.length) {
@@ -425,12 +437,11 @@ trait TypeEnv { self: Env =>
       case v: Class if eqClass(v, cls) =>
         val clsArgs = v.args.getOrElse(List())
         val args = classBinds(v);
-        val args2 = classBinds(varaint)
-        debugln(s"args2 $args $args2")
+        val args2 = classBinds(varaint.getOrElse(cls))
         return args ::: args2.drop(args.length)
       case v =>
-        err(s"cannot destruct $v by $cls")
-        classBinds(varaint)
+        err(s"cannot destruct case 2 $v by $cls")
+        classBinds(varaint.getOrElse(cls))
     }
   }
 
@@ -441,11 +452,11 @@ trait TypeEnv { self: Env =>
         if (eqClass(v.con, cls)) {
           return v.args
         }
-        err(s"cannot destruct $v by $cls")
+        err(s"cannot destruct case 4 $v by $cls")
         v.args
       case TupleLit(items) => items.toList
       case v =>
-        err(s"cannot destruct $v by $cls")
+        err(s"cannot destruct case 3 $v by $cls")
         List()
     }
   }
@@ -479,14 +490,20 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def eqClass(lhs: Class, rhs: Class): Boolean = {
-    if (lhs.variantOf.isDefined) {
-      return eqClass(lhs.variantOf.get.asInstanceOf[Class], rhs)
+  def isClass(child: Class, parent: Class): Boolean = {
+    if (eqClass(child, parent)) {
+      return true
     }
-    if (rhs.variantOf.isDefined) {
-      return eqClass(lhs, rhs.variantOf.get.asInstanceOf[Class])
+    if (child.variantOf.isDefined) {
+      return eqClass(child.variantOf.get.asInstanceOf[Class], parent)
     }
+    if (parent.variantOf.isDefined) {
+      return eqClass(child, parent.variantOf.get.asInstanceOf[Class])
+    }
+    false
+  }
 
+  def eqClass(lhs: Class, rhs: Class): Boolean = {
     lhs.id.id.id == rhs.id.id.id
   }
 
@@ -545,12 +562,15 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def classRepr(lhs: Type): Class = {
+  @tailrec
+  final def classRepr(lhs: Type): Class = {
     lhs match {
       case ClassInstance(con, _) => con
       case v: Class              => v
       case Ref(_, _, Some(v))    => classRepr(v)
       case RefItem(lhs, isMut)   => classRepr(lhs)
+      case Var(id, _, _)         => classRepr(id.ty)
+      case Param(of, _)          => classRepr(of)
       case _ if lhs.isBuilitin   => builtinClasses(lhs)
       case l @ (Bool(_))         => builtinClasses(l.ty)
       case l @ (Str(_))          => builtinClasses(l.ty)
@@ -611,12 +631,11 @@ trait TypeEnv { self: Env =>
       case SelfVal                         => Some(SelfTy)
       case Ref(id, _, Some(v))             => tyOf(v)
       case Ref(id, level, _) if level == 0 => Some(id.ty)
-      case v: Var =>
-        debugln(s"tyOf(Var) ${v.id.ty}")
-        Some(v.id.ty)
-      case TodoLit                 => Some(BottomTy)
-      case reg: Region if reg.semi => Some(UnitTy)
-      case reg: Region             => reg.stmts.lastOption.flatMap(tyOf)
+      case v: Var                          => Some(v.id.ty)
+      case v: Param                        => tyOf(v.of)
+      case TodoLit                         => Some(BottomTy)
+      case reg: Region if reg.semi         => Some(UnitTy)
+      case reg: Region                     => reg.stmts.lastOption.flatMap(tyOf)
       case TypeMatch(_, _, cases, d) => {
         val types = (cases.map(_._2) :+ d).map(tyOf).flatten
         debugln(s"coerce enumMatch $types")

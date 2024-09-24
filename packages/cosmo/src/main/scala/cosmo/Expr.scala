@@ -120,9 +120,10 @@ trait ExprEnv { self: Env =>
       case b: s.ParamsLit =>
         errE(s"params lit without body")
         Opaque.expr(s"0/* error: case block without body */")
-      case s.Case(cond, body) =>
-        errE(s"case clause without match")
-        Opaque.expr(s"0/* error: case clause without match */")
+      case c: s.Case =>
+        val cond = destruct(c.cond);
+        val body = c.body.map(expr);
+        CaseExpr(cond, body)
     }
   }
 
@@ -152,7 +153,7 @@ trait ExprEnv { self: Env =>
     scopes.withScope {
       val cond = destruct(c.cond);
       val body = c.body.map(expr);
-      (cond, body)
+      CaseExpr(cond, body)
     }
   }
 

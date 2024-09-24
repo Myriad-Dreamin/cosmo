@@ -81,7 +81,9 @@ final case class KeyedArg(key: Item, value: Item) extends Expr {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Expr {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
 }
-final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {}
+final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {
+  override def toString: String = s"$lhs.$rhs"
+}
 final case class Name(val id: DefInfo, val of: Option[Expr] = None)
     extends DeclExpr {
   override def toString: String = s"${id.defName(false)}@${id.id.id}"
@@ -124,7 +126,8 @@ final case class ImplExpr(
     cls: Type,
     fields: FieldMap,
 ) extends ParamExpr {}
-final case class CaseRegion(cases: List[(Expr, Option[Expr])]) extends Expr {}
+final case class CaseExpr(cond: Expr, body: Option[Expr]) extends Expr {}
+final case class CaseRegion(cases: List[CaseExpr]) extends Expr {}
 final case class MatchExpr(lhs: Expr, body: CaseRegion) extends Expr {}
 
 /// Types
@@ -268,6 +271,11 @@ final case class EnumVariant(
 ) extends DeclItem {
   override val level: Int = 1
 }
+final case class ClassDestruct(
+    item: Item,
+    cls: Class,
+    bindings: List[Item],
+) extends Item {}
 final case class EnumDestruct(
     item: Item,
     variant: Class,
