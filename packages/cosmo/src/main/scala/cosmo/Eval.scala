@@ -126,25 +126,18 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       expr(syntax.Import(libPath("std.prelude"), Some(Ident("_"))))
 
     moduleAst = Region(ast.stmts.map(expr), true)
-
     this
   }
 
   def evalStage: Env = {
-    if (syntaxOnly) return this
-
-    val m = valTerm(moduleAst)
-    if !m.isInstanceOf[Region] then err("module must be a block")
-    module = m.asInstanceOf[Region]
-
+    module =
+      if (syntaxOnly) then Region(List(), true)
+      else valTerm(moduleAst).asInstanceOf[Region]
     this
   }
 
   def emitTask: Env = {
-    if (syntaxOnly) return this
-
     moduleInst = emitModule(module)
-
     this
   }
 
@@ -224,7 +217,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       // todo: check is compile time
       case SelectExpr(lhs, rhs) => deref(select(term(lhs), rhs))
       case Apply(lhs, rhs)      => $apply(term(lhs), rhs.map(term))
-      case b: MatchExpr         => matchTerm(b)
+      case b: MatchExpr         => checkMatch(b)
       case ItemE(item)          => term(item)
       // declarations
       case v: VarExpr      => checkVar(v)
@@ -466,35 +459,25 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     ClassInstance(clsFinal, castedArgs.drop(tpSize))
   }
 
-  case class MatchCaseInfo(
-      destructor: syntax.Node,
-      body: Option[syntax.Node],
-      pattern: Item,
-  );
-
-  case class MatchInfo(
-      lhs: Item,
-      cases: List[MatchCaseInfo],
-      defaultCase: Option[Item],
-  );
-
-  def matchTerm(b: MatchExpr)(implicit level: Int): Item = {
+  def checkMatch(b: MatchExpr)(implicit level: Int): Item = {
     val lhs = term(b.lhs)
     val lhsTy = tyOf(lhs) match
       case None     => return err("cannot match a untyped value")
       case Some(ty) => ty;
     val lhsShape = curryView(lhs, lhsTy);
 
-    debugln(s"matchExpr $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
-
-    // // Calculate the kind of match.
-    // var defaultCase: Option[Item] = None
-    // var matchCases: List[MatchCaseInfo] = List()
+    debugln(s"checkMatch $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
 
     val patterns = b.body.cases.map { case CaseExpr(destructor, body) =>
       val pattern = matchPat(lhsShape, curryExpr(destructor))
       (pattern, valTermO(body))
     }
+
+    println(s"checkedMatch patterns $patterns")
+
+    // // Calculate the kind of match.
+    // var defaultCase: Option[Item] = None
+    // var matchCases: List[MatchCaseInfo] = List()
 
     // var vMappings =
     //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
@@ -524,8 +507,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     // val (_, cases) = vMappings.head
     // val ty = cases.head._1.variant.variantOf.get
 
-    // debugln(s"matchExpr mappings default $defaultCase")
-    // debugln(s"matchExpr mappings $ty => $cases")
+    // debugln(s"checkMatch mappings default $defaultCase")
+    // debugln(s"checkMatch mappings $ty => $cases")
 
     // var matchBody = List[(Class, Item)]()
     // for ((ed, body) <- cases) {
@@ -687,5 +670,58 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         return
     }
     id.impls = id.impls :+ impl
+  }
+
+  def defByName(info: DefInfo): String = info.defName(stem = false)
+
+  def varByRef(vv: Ref): String = {
+    val ir.Ref(id, level, v) = vv
+    v.map {
+      case v: CppInsType => Some(storeTy(v))
+      case v: CIdent     => Some(v.repr)
+      case _             => None
+    }.flatten
+      .getOrElse(defByName(id))
+  }
+
+  def storeTy(ty: Type): String = {
+    debugln(s"storeTy $ty")
+    ty match {
+      case IntegerTy(size, isUnsigned) =>
+        s"${if (isUnsigned) "u" else ""}int${size}_t"
+      case FloatTy(size)   => s"float${size}_t"
+      case UnitTy          => "void"
+      case BoolTy          => "bool"
+      case StrTy           => "::str"
+      case SelfTy          => "self_t"
+      case TopTy           => "auto"
+      case BottomTy        => "void"
+      case ty: Integer     => "int32_t"
+      case ty: Str         => "::str"
+      case ty: CIdent      => ty.repr
+      case ty: CppInsType  => ty.repr(storeTy)
+      case ty: HKTInstance => ty.repr(storeTy)
+      case ty: TupleLit =>
+        s"std::tuple<${ty.elems.map(storeTy).mkString(", ")}>"
+      case cls: Class if cls.resolvedAs.isDefined =>
+        (cls.variantOf, cls.resolvedAs) match {
+          case (Some(v), Some(Select(lhs, _))) => storeTy(HKTInstance(v, lhs))
+          case _ => storeTy(HKTInstance(cls, cls.resolvedAs.get))
+        }
+      case cls: Class if cls.variantOf.isDefined => storeTy(cls.variantOf.get)
+      case cls: Class                            => cls.repr(storeTy)
+      case v: Ref if v.value.isEmpty             => v.id.defName(stem = false)
+      case v: Var if v.init.isEmpty              => v.id.defName(stem = false)
+      case v: Fn                                 => v.id.defName(stem = false)
+      case Ref(_, _, Some(v))                    => storeTy(v)
+      case RefItem(lhs, isMut) =>
+        s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
+      case Apply(lhs, rhs) => {
+        val lhsTy = storeTy(lhs)
+        val rhsTy = rhs.map(storeTy).mkString(", ")
+        s"$lhsTy<$rhsTy>"
+      }
+      case ty => "auto"
+    }
   }
 }
