@@ -66,4 +66,10 @@ class MatchTest extends TestBase:
   test("HelloWorld") {
     runTestOnFile("fixtures/Type/matches/HelloWorld.cos-ast");
   }
+  test("string".only) {
+    runTestOnFile("fixtures/Type/matches/string.cos-ast");
+  }
+  test("number".only) {
+    runTestOnFile("fixtures/Type/matches/number.cos-ast");
+  }
 end MatchTest

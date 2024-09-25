@@ -24,19 +24,10 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def checkedDestructed(shape: PatShape) = {
-    shape match {
-      case v: PatShape.Cons => // todo: coverage checking
-      case PatShape.Atom(v, ty) =>
-        ty match
-          case BottomKind(_) =>
-          case ty            => // todo: coverage checking
-      // err(s"required destructed type, but got $ty")
-      case _ => err(s"required destructed type, but got $shape")
-    }
-  }
+  type ExtractedPat =
+    NoneKind | Ref | Bool | BinOp | EnumDestruct | ClassDestruct
 
-  final def matchPat(lhs: PatShape, rhs: PatShape): Item = {
+  final def matchPat(lhs: PatShape, rhs: PatShape): ExtractedPat = {
     import PatShape._;
     debugln(s"matchPat $lhs by $rhs")
     (lhs, rhs) match {
@@ -47,9 +38,9 @@ trait TypeEnv { self: Env =>
         t
       case (Hole(_), _) => err("cannot destruct hole")
       case (Atom(lhsTy, UniverseTy), Atom(rhsTy, UniverseTy)) =>
-        return BinOp("==", lhsTy, rhsTy) // we can evaluate it in place
-      case (_, Atom(rhsTy, UniverseTy)) =>
-        return BinOp("<:", patHolder, rhsTy) // we can evaluate it in place
+        return Bool(isSubtype(lhsTy, rhsTy))
+      case (Cons(_, lCls, _), Atom(rhsTy, UniverseTy)) =>
+        return Bool(isSubtype(lCls, rhsTy))
       case (_, Atom(rv, rhsTy)) =>
         return BinOp("==", patHolder, rv)
       case (lhs: Atom, rhs: Cons) => // todo: can cons primitives

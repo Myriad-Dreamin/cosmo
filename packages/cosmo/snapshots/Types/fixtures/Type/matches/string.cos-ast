@@ -1,0 +1,12 @@
+["yes" match {
+  case "yes" => 1
+}] => if ("=="("yes", "yes")) 1 else Unreachable, err: ""
+["yes" match {
+  case "no" => 2
+}] => if ("=="("yes", "no")) 2 else Unreachable, err: ""
+[v1 match {
+  case "yes" => 3
+}] => if ("=="(val v1@47, "yes")) 3 else Unreachable, err: ""
+[v1 match {
+  case "no" => 4
+}] => if ("=="(val v1@47, "no")) 4 else Unreachable, err: ""

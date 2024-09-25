@@ -1,0 +1,17 @@
+val v1 = "yes"
+----- -----
+"yes" match {
+  case "yes" => 1
+}
+-----
+"yes" match {
+  case "no" => 2
+}
+-----
+v1 match {
+  case "yes" => 3
+}
+-----
+v1 match {
+  case "no" => 4
+}

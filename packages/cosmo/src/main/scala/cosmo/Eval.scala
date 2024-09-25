@@ -150,7 +150,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   /// Item Creation
 
-  def err(msg: String): Item =
+  def err(msg: String): NoneKind =
     errors = errors :+ msg; return NoneItem
 
   /// Creates Def
@@ -468,76 +468,164 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
     debugln(s"checkMatch $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
 
-    val patterns = b.body.cases.map { case CaseExpr(destructor, body) =>
-      val pattern = matchPat(lhsShape, curryExpr(destructor))
-      (pattern, valTermO(body))
+    // NoneKind | Ref | Bool | BinOp | EnumDestruct | ClassDestruct, Item
+
+    // by Ref | Bool
+    enum MatchState {
+      case Init; case Exhausted
+      case ValueMode(values: List[(Item, Item)])
+      case EnumMode(cases: List[EnumDestruct])
+      case ClassMode(cases: List[ClassDestruct])
+    }
+    import MatchState._
+
+    var mode = Init
+    var finalized: Option[Item] = None
+    // var defaultBranch: Option[(Option[Ref], Item)] = None
+    // var classDestructs = List[ClassDestruct]()
+    // var enumDestructs = List[EnumDestruct]()
+
+    def addValue(v: Item, body: Item) = {
+      mode = mode match {
+        case ValueMode(values) => ValueMode(values :+ (v, body))
+        case _                 => ValueMode(List((v, body)))
+      }
     }
 
-    println(s"checkedMatch patterns $patterns")
+    def finalize(defaultRef: Option[Ref], defaultBody: Item): Item = 
+      if finalized.isDefined then return finalized.get
+      mode match {
+      case Init =>
+        val v = defaultRef.filter(_.id.name != "_").map { r => 
+          Var(r.id, Some(lhs), r.level)
+        }
+        finalized = Some(Region(v.toList :+ defaultBody, false))
+        finalized.get
+      case ValueMode(values) =>
+        println(s"finalize values $values $defaultRef $defaultBody")
+        // finalized = Some(ValueMatch(lhs, lhsTy, List(), Some(Unreachable)))
+        // finalized.get
 
-    // // Calculate the kind of match.
-    // var defaultCase: Option[Item] = None
-    // var matchCases: List[MatchCaseInfo] = List()
+        // fold as if chain
+        finalized = Some(values.foldRight(defaultBody) { (v, acc) =>
+          val cond = BinOp("==", lhs, v._1)
+          If(cond, v._2, Some(acc))
+        })
+        finalized.get
+      case ClassMode(values) =>
+        println(s"finalize classes $values $defaultRef $defaultBody")
+        finalized = Some(ValueMatch(lhs, lhsTy, List(), Some(Unreachable)))
+        finalized.get
+      case EnumMode(values) =>
+        println(s"finalize enumes $values $defaultRef $defaultBody")
+        finalized = Some(ValueMatch(lhs, lhsTy, List(), Some(Unreachable)))
+        finalized.get
+        // println(s"checkedMatch patterns $patterns")
 
-    // var vMappings =
-    //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
+        // // Calculate the kind of match.
+        // var defaultCase: Option[Item] = None
+        // var matchCases: List[MatchCaseInfo] = List()
 
-    // matchCases.foreach {
-    //   case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
-    //     // todo: stable toString
-    //     val variantBase = ed.variant.variantOf.get
-    //     val vs = storeTy(variantBase)
-    //     vMappings.get(vs) match {
-    //       case Some(lst) =>
-    //         vMappings = vMappings + (vs -> (lst :+ (ed, body)))
-    //       case None =>
-    //         vMappings = vMappings + (vs -> List((ed, body)))
-    //     }
-    //   // Check if the value matches.
-    //   case _ =>
-    //     errors = s"not implemented mixed enum match" :: errors
-    // }
+        // var vMappings =
+        //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
 
-    // // assert that there is only one match
-    // if (vMappings.size != 1) {
-    //   errors = s"not implemented mixed enum match" :: errors
-    //   return NoneItem
-    // }
+        // matchCases.foreach {
+        //   case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
+        //     // todo: stable toString
+        //     val variantBase = ed.variant.variantOf.get
+        //     val vs = storeTy(variantBase)
+        //     vMappings.get(vs) match {
+        //       case Some(lst) =>
+        //         vMappings = vMappings + (vs -> (lst :+ (ed, body)))
+        //       case None =>
+        //         vMappings = vMappings + (vs -> List((ed, body)))
+        //     }
+        //   // Check if the value matches.
+        //   case _ =>
+        //     errors = s"not implemented mixed enum match" :: errors
+        // }
 
-    // val (_, cases) = vMappings.head
-    // val ty = cases.head._1.variant.variantOf.get
+        // // assert that there is only one match
+        // if (vMappings.size != 1) {
+        //   errors = s"not implemented mixed enum match" :: errors
+        //   return NoneItem
+        // }
 
-    // debugln(s"checkMatch mappings default $defaultCase")
-    // debugln(s"checkMatch mappings $ty => $cases")
+        // val (_, cases) = vMappings.head
+        // val ty = cases.head._1.variant.variantOf.get
 
-    // var matchBody = List[(Class, Item)]()
-    // for ((ed, body) <- cases) {
-    //   val variant = ed.variant
-    //   val bindings = ed.bindings
+        // debugln(s"checkMatch mappings default $defaultCase")
+        // debugln(s"checkMatch mappings $ty => $cases")
 
-    //   val stmts = body.map(body =>
-    //     scopes.withScope {
-    //       // bindings
-    //       variant.vars.zip(bindings).map { (vv, name) =>
-    //         val defInfo = ct(name); defInfo.isVar = true
-    //         defInfo.ty = vv.item.id.ty
-    //         val ty: Type = defInfo.ty
-    //         val tyLvl = ty.level
-    //         val valLvl = (tyLvl - 1).max(0)
-    //         val res = Term(defInfo, valLvl)
-    //         items += (defInfo.id -> res)
-    //       }
-    //       List(EnumDestruct(lhs, variant, bindings, None)) :+ valTerm(body)
-    //     },
-    //   );
-    //   matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
-    // }
+        // var matchBody = List[(Class, Item)]()
+        // for ((ed, body) <- cases) {
+        //   val variant = ed.variant
+        //   val bindings = ed.bindings
 
-    // val defaultCaseItem = defaultCase.getOrElse(Unreachable)
-    // TypeMatch(lhs, ty, matchBody, defaultCaseItem)
+        //   val stmts = body.map(body =>
+        //     scopes.withScope {
+        //       // bindings
+        //       variant.vars.zip(bindings).map { (vv, name) =>
+        //         val defInfo = ct(name); defInfo.isVar = true
+        //         defInfo.ty = vv.item.id.ty
+        //         val ty: Type = defInfo.ty
+        //         val tyLvl = ty.level
+        //         val valLvl = (tyLvl - 1).max(0)
+        //         val res = Term(defInfo, valLvl)
+        //         items += (defInfo.id -> res)
+        //       }
+        //       List(EnumDestruct(lhs, variant, bindings, None)) :+ valTerm(body)
+        //     },
+        //   );
+        //   matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
+        // }
 
-    // checkedDestructed(restTy)
-    ValueMatch(lhs, lhsTy, patterns, Some(Unreachable))
+        // val defaultCaseItem = defaultCase.getOrElse(Unreachable)
+        // TypeMatch(lhs, ty, matchBody, defaultCaseItem)
+
+        // checkedDestructed(restTy)
+    } 
+
+    b.body.cases.foreach { case CaseExpr(destructor, body) =>
+      val pattern = matchPat(lhsShape, curryExpr(destructor))
+      val cont = valTermO(body)
+
+      pattern match {
+        case _ if mode == Exhausted => err(s"unreachable pattern $pattern")
+        case _: NoneKind            =>
+        case Bool(constantly) => {
+          if constantly then finalize(None, cont)
+          else err(s"unreachable pattern $pattern")
+          mode = MatchState.Exhausted
+        }
+        case v: Ref => {
+          finalize(Some(v), cont)
+          mode = MatchState.Exhausted
+        }
+        case ir.BinOp("<:", _, rhs) =>
+          println(s"isType $rhs")
+        case ir.BinOp("==", _, rhs) => addValue(rhs, cont)
+        case _: ir.BinOp => ???
+        case ed: EnumDestruct =>
+          println(s"EnumDestruct $ed")
+        case cd: ClassDestruct =>
+          println(s"ClassDestruct $cd")
+      }
+    }
+
+    finalize(None, Unreachable)
+  }
+
+  def checkedDestructed(shape: PatShape) = {
+    shape match {
+      case v: PatShape.Cons => // todo: coverage checking
+      case PatShape.Atom(v, ty) =>
+        ty match
+          case BottomKind(_) =>
+          case ty            => // todo: coverage checking
+      // err(s"required destructed type, but got $ty")
+      case _ => err(s"required destructed type, but got $shape")
+    }
   }
 
   /// Declarations

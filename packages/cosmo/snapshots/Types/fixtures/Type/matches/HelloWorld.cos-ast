@@ -1,6 +1,10 @@
 [T match {
   case T => 1
-}] => ValueMatch(ref(T),TopKind(2),List((BinOp(==,ref(T),ref(T)),Integer(1))),Some(Unreachable)), err: ""
+}] => block {
+ 1
+}, err: ""
 [T match {
   case _ => 1
-}] => ValueMatch(ref(T),TopKind(2),List((ref(_),Integer(1))),Some(Unreachable)), err: ""
+}] => block {
+ 1
+}, err: ""
