@@ -19,7 +19,7 @@ class PatternTest extends TestBase:
       val result = env.matchOne(lhs, rhs).toDoc.pretty;
       val errors = env.errors.mkString("\n");
       snapshot =
-        snapshot :+ s"[${x.trim} match ${y.trim}] => $result, err: \"$errors\"";
+        snapshot :+ s"[${x.trim} match ${y.trim}] => $result, err: \"${escapeStr(errors)}\"";
     }
 
     snapshot.mkString("\n");
@@ -28,7 +28,7 @@ class PatternTest extends TestBase:
   test("HelloWorld") {
     runTestOnFile("fixtures/Type/patterns/HelloWorld.cos-ast");
   }
-  test("class".only) {
+  test("class") {
     runTestOnFile("fixtures/Type/patterns/class.cos-ast");
   }
   test("class2") {

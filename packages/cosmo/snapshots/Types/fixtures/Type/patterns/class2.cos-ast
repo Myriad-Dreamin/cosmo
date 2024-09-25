@@ -1,9 +1,5 @@
 [T(x: 1, y: 2) match T] => "<:"("$", T), err: ""
-[T(x: 1, y: 2) match T(x: 1)] => "=="("$", instance T(1, Opaque(Some(
+[T(x: 1, y: 2) match T(x: 1)] => ClassDestruct((class(T))(Integer(1), Integer(2)),class(T),List(BinOp(==,Str($),Integer(1)), BinOp(==,Str($),param(y)))), err: "Invalid number of params v.s. arguments (2 v.s. 1) List(param(x), param(y)) v.s. List(KeyedArg(ItemE(Str(x)),ItemE(Integer(1))))"
+[T(x: 1) match T(x: 1)] => ClassDestruct((class(T))(Integer(1), Opaque(Some(
 #error "Missing named argument y"
-),None))), err: "Missing named argument y
-Invalid number of params v.s. arguments (2 v.s. 1) List(param(x), param(y)) v.s. List(KeyedArg(Str(x),Integer(1)))"
-[T(x: 1) match T(x: 1)] => "=="("$", instance T(1, Opaque(Some(
-#error "Missing named argument y"
-),None))), err: "Missing named argument y
-Invalid number of params v.s. arguments (2 v.s. 1) List(param(x), param(y)) v.s. List(KeyedArg(Str(x),Integer(1)))"
+),None)),class(T),List(BinOp(==,Str($),Integer(1)), BinOp(==,Str($),param(y)))), err: "Invalid number of params v.s. arguments (2 v.s. 1) List(param(x), param(y)) v.s. List(KeyedArg(ItemE(Str(x)),ItemE(Integer(1))))"

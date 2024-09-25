@@ -447,10 +447,14 @@ trait TypeEnv { self: Env =>
 
   final def classSelfParams(
       cls: Class,
-      varaint: Option[Class],
+      variant: Option[Class],
   ): List[Item] = {
+    if (variant.isEmpty) {
+      return classBinds(cls)
+    }
+
     val clsParams = classBinds(cls).take(cls.rawParams.map(_.size).getOrElse(0))
-    val varaintParams = varaint.map(classBinds).getOrElse(List())
+    val varaintParams = variant.map(classBinds).getOrElse(List())
     clsParams ::: varaintParams
   }
 
@@ -458,24 +462,24 @@ trait TypeEnv { self: Env =>
   final def classParams(
       v: Item,
       cls: Class,
-      varaint: Option[Class],
+      variant: Option[Class],
   ): List[Item] = {
-    logln(s"classParams $v by $cls of $varaint")
+    logln(s"classParams $v by $cls of $variant")
     v match {
-      case Ref(_, _, Some(v)) => classParams(v, cls, varaint)
-      case Var(id, _, _)      => classParams(id.ty, cls, varaint)
-      case Param(of, _)       => classParams(of, cls, varaint)
+      case Ref(_, _, Some(v)) => classParams(v, cls, variant)
+      case Var(id, _, _)      => classParams(id.ty, cls, variant)
+      case Param(of, _)       => classParams(of, cls, variant)
       case SelfVal if selfRef.isDefined =>
-        classParams(selfRef.get, cls, varaint)
+        classParams(selfRef.get, cls, variant)
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
-          val args = classSelfParams(v.con, varaint)
+          val args = classSelfParams(v.con, variant)
           val args2 = v.args
           return args.dropRight(args2.length) ::: args2
         }
-        if (varaint.isDefined && eqClass(v.con, varaint.get)) {
-          println(s"params variant ($cls $varaint) !")
-          return classSelfParams(cls, varaint) ::: classBinds(v.con)
+        if (variant.isDefined && eqClass(v.con, variant.get)) {
+          println(s"params variant ($cls $variant) !")
+          return classSelfParams(cls, variant) ::: classBinds(v.con)
         }
         err(s"cannot destruct case 1 $v by $cls")
         val params = classBinds(v.con);
@@ -485,11 +489,11 @@ trait TypeEnv { self: Env =>
         }
         instances
       case v: Class if eqClass(v, cls) =>
-        println(s"params casexxx ($cls $varaint) !")
-        classSelfParams(v, varaint)
+        println(s"params casexxx ($cls $variant) !")
+        classSelfParams(v, variant)
       case v =>
         err(s"cannot destruct case 2 $v by $cls")
-        classSelfParams(cls, varaint)
+        classSelfParams(cls, variant)
     }
   }
 
@@ -505,7 +509,10 @@ trait TypeEnv { self: Env =>
       case TupleLit(items) =>
         var reorded =
           matchParams(cls.varsParams, items.toList, (param, value) => value)
-        classSelfParams(cls, None) ::: reorded
+        // take args and rest params
+        val params = cls.params
+        val args = cls.args.getOrElse(List()) ::: reorded
+        args ::: params.drop(args.length).toList
       case v =>
         err(s"cannot destruct case 3 $v by $cls")
         List()
