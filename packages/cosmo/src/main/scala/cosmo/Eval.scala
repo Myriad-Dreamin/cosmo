@@ -106,7 +106,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def newType(name: String, ty: Type, tyty: Type = UniverseTy) = {
     val info = ct(name); info.noMangle = true; info.isBuiltin = true
     info.ty = tyty
-    val cls = Class.empty(this, false).copy(id = info, resolvedAs =  Some(ty));
+    val cls = Class.empty(this, false).copy(id = info, resolvedAs = Some(ty));
     builtinClasses += (ty -> cls)
     items += (info.id -> ty)
   }
@@ -581,7 +581,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val valLvl = (initTy.map(_.level).getOrElse(0) - 1).max(0)
     val res = ir.Var(info, initExpr, valLvl)
     info.ty = initTy.getOrElse(createInfer(info, valLvl + 1))
-    items += (info.id -> initExpr.getOrElse(res))
+    val itemState = if (valLvl == 0) {
+      res
+    } else {
+      initExpr.getOrElse(res)
+    }
+    items += (info.id -> itemState)
     res
   }
 

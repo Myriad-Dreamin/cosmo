@@ -28,7 +28,7 @@ class PatternTest extends TestBase:
   test("HelloWorld") {
     runTestOnFile("fixtures/Type/patterns/HelloWorld.cos-ast");
   }
-  test("class") {
+  test("class".only) {
     runTestOnFile("fixtures/Type/patterns/class.cos-ast");
   }
   test("class2") {
@@ -37,7 +37,7 @@ class PatternTest extends TestBase:
   test("nat") {
     runTestOnFile("fixtures/Type/patterns/nat.cos-ast");
   }
-  test("result".only) {
+  test("result") {
     runTestOnFile("fixtures/Type/patterns/result.cos-ast");
   }
 end PatternTest

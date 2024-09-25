@@ -289,9 +289,9 @@ final case class Class(
     variantOf: Option[Type] = None,
     resolvedAs: Option[Type] = None,
 ) extends DeclItem {
+  lazy val varsParams = vars.map(v => Param(v.item, true)).toArray
   lazy val params: Array[Param] = {
-    val varsParams = vars.map(v => Param(v.item, true))
-    (rawParams.getOrElse(List()) ::: varsParams).toArray
+    (rawParams.getOrElse(List()) ::: varsParams.toList).toArray
   }
   lazy val callByName: Boolean = rawParams.isEmpty;
 

@@ -33,61 +33,80 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def castArgs(
+  def matchParams[T](
       eParams: Array[Param],
       eArgs: List[Item],
-  ): List[Item] = {
+      f: (Param, Option[Item]) => Option[T],
+  ): List[T] = {
     if (eParams.length != eArgs.length) {
       errors =
         s"Invalid number of params v.s. arguments (${eParams.length} v.s. ${eArgs.length}) ${eParams.toList} v.s. $eArgs" :: errors
     }
 
     val args = eArgs.flatMap {
-      case KeyedArg(Str(s), value) => Some((s, value))
-      case v                       => None
+      case KeyedArg(ItemE(Str(s)), value) => Some((s, value))
+      case KeyedArg(Str(s), value)        => Some((s, value))
+      case v                              => None
     }.toMap
     var positions = eArgs.flatMap {
       case v: KeyedArg => None
       case v           => Some(v)
     }.iterator
-
     val allowNamedAsPositional = args.isEmpty
 
-    debugln(s"castArgs ${eParams.toList} $args $positions")
-
-    val res = eParams.iterator.flatMap { param =>
-      val res =
-        if (param.of.name == "self") None
-        else if (param.named) {
-          val name = param.of.name
-          val value = args.get(name).orElse {
-            if (allowNamedAsPositional) {
-              positions.nextOption
-            } else {
-              None
-            }
+    eParams.iterator.flatMap { param =>
+      if (param.of.name == "self") None // todo: skip self
+      else if (param.named) {
+        val name = param.of.name
+        val value = args.get(name).orElse {
+          if (allowNamedAsPositional) {
+            positions.nextOption
+          } else {
+            None
           }
-          Some(value.getOrElse {
-            errors = s"Missing named argument $name" :: errors
-            Opaque.expr(s"\n#error \"Missing named argument $name\"\n")
-          })
-        } else {
-          Some(positions.nextOption.getOrElse {
-            errors = s"Missing positional argument" :: errors
-            Opaque.expr(s"\n#error \"Missing positional argument\"\n")
-          })
         }
-      val info = param.id
-      val casted = res.map(castTo(_, info.ty))
-      casted.map { v =>
-        items += (info.id -> v)
+        f(param, value)
+      } else {
+        f(param, positions.nextOption)
       }
-
-      casted
     }.toList
+  }
 
-    debugln(s"castArgs res => $res")
-    res
+  def castArgs(
+      eParams: Array[Param],
+      eArgs: List[Item],
+  ): List[Item] = {
+
+    debugln(s"castArgs ${eParams.toList} $eArgs")
+
+    matchParams(
+      eParams,
+      eArgs,
+      (param, value) => {
+        val res =
+          if (param.of.name == "self") None
+          else if (param.named) {
+            Some(value.getOrElse {
+              errors = s"Missing named argument ${param.of.name}" :: errors
+              Opaque.expr(
+                s"\n#error \"Missing named argument ${param.of.name}\"\n",
+              )
+            })
+          } else {
+            Some(value.getOrElse {
+              errors = s"Missing positional argument" :: errors
+              Opaque.expr(s"\n#error \"Missing positional argument\"\n")
+            })
+          }
+        val info = param.id
+        val casted = res.map(castTo(_, info.ty))
+        casted.map { v =>
+          items += (info.id -> v)
+        }
+
+        casted
+      },
+    )
   }
 
   def castTo(item: Item, nty: Type): Item = {
@@ -294,6 +313,8 @@ trait TypeEnv { self: Env =>
       case (lhs: Atom, AtomExp(rhs)) => matchPat(lhs, curryTerm(rhs))
       case (lhs: Invalid, _)         => (NoneItem, lhs)
       case (_, rhs: Invalid)         => (NoneItem, rhs)
+      case (Atom(lhsVal, UniverseTy), Atom(rhsTy, UniverseTy)) =>
+        return (BinOp("<:", patHolder, rhsTy), lhs)
       case (Atom(lhsVal, lhsTy), Atom(rhsTy, UniverseTy)) =>
         val lhsCls = classRepr(lhsTy);
         enumShape(rhsTy) match {
@@ -450,10 +471,10 @@ trait TypeEnv { self: Env =>
         if (eqClass(v.con, cls)) {
           val args = classSelfParams(v.con, varaint)
           val args2 = v.args
-          println(s"args2 ($cls $varaint) ! $args $args2")
-          return args ::: args2
+          return args.dropRight(args2.length) ::: args2
         }
         if (varaint.isDefined && eqClass(v.con, varaint.get)) {
+          println(s"params variant ($cls $varaint) !")
           return classSelfParams(cls, varaint) ::: classBinds(v.con)
         }
         err(s"cannot destruct case 1 $v by $cls")
@@ -464,10 +485,8 @@ trait TypeEnv { self: Env =>
         }
         instances
       case v: Class if eqClass(v, cls) =>
-        val clsArgs = v.args.getOrElse(List())
-        val args = classBinds(v);
-        val args2 = classSelfParams(cls, varaint)
-        return args ::: args2.drop(args.length)
+        println(s"params casexxx ($cls $varaint) !")
+        classSelfParams(v, varaint)
       case v =>
         err(s"cannot destruct case 2 $v by $cls")
         classSelfParams(cls, varaint)
@@ -484,7 +503,9 @@ trait TypeEnv { self: Env =>
         err(s"cannot destruct case 4 $v by $cls")
         v.args
       case TupleLit(items) =>
-        classSelfParams(cls, None) ::: items.toList
+        var reorded =
+          matchParams(cls.varsParams, items.toList, (param, value) => value)
+        classSelfParams(cls, None) ::: reorded
       case v =>
         err(s"cannot destruct case 3 $v by $cls")
         List()
@@ -661,6 +682,7 @@ trait TypeEnv { self: Env =>
       case Unreachable                                => Some(BottomTy)
       case _: (CIdent | TopKind | NoneKind | Class | CppInsType) =>
         Some(UniverseTy)
+      case v if v.level == 1                 => Some(UniverseTy)
       case _: (CModule | NativeModule)       => Some(UniverseTy)
       case BoundField(_, _, _, EnumField(v)) => Some(UniverseTy)
       case RefItem(lhs, isMut)               => tyOf(lhs).map(RefItem(_, isMut))
