@@ -491,11 +491,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     // var defaultCase: Option[Item] = None
     // var matchCases: List[MatchCaseInfo] = List()
 
-    val patterns =
-      b.body.cases.map { case CaseExpr(destructor, body) =>
-        val pattern = matchPat(lhsShape, curryExpr(destructor))
-        (pattern, valTermO(body))
-      }
+    val patterns = b.body.cases.map { case CaseExpr(destructor, body) =>
+      val pattern = matchPat(lhsShape, curryExpr(destructor))
+      (pattern, valTermO(body))
+    }
 
     // var vMappings =
     //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()

@@ -3,10 +3,10 @@ import scala.scalajs.js
 
 implicit val storePath: String = "packages/cosmo/snapshots/Types/";
 
-class PatternTest extends TestBase:
+class CaseTest extends TestBase:
 
-  def runTestOnFile(path: String) = checkSnapshot(path, patternOn);
-  def patternOn(content: String) = {
+  def runTestOnFile(path: String) = checkSnapshot(path, caseOn);
+  def caseOn(content: String) = {
     val Array(defs, cases) = content.split("-----");
     implicit val env: Env = compiler.evaluate("@noCore();\n" + defs).get
 
@@ -40,4 +40,30 @@ class PatternTest extends TestBase:
   test("result") {
     runTestOnFile("fixtures/Type/patterns/result.cos-ast");
   }
-end PatternTest
+end CaseTest
+
+class MatchTest extends TestBase:
+
+  def runTestOnFile(path: String) = checkSnapshot(path, matchOn);
+  def matchOn(content: String) = {
+    val Array(defs, cases) = content.split("----- -----");
+    implicit val env: Env = compiler.evaluate("@noCore();\n" + defs).get
+
+    var snapshot = List[String]();
+    for (matchExpr <- cases.split("-----")) {
+      env.errors = List();
+      val t =
+        env.scopes.withScope((env.valTerm(expr(matchExpr))));
+      val result = t.toDoc.pretty;
+      val errors = env.errors.mkString("\n");
+      snapshot =
+        snapshot :+ s"[${matchExpr.trim}] => $result, err: \"${escapeStr(errors)}\"";
+    }
+
+    snapshot.mkString("\n");
+  }
+
+  test("HelloWorld") {
+    runTestOnFile("fixtures/Type/matches/HelloWorld.cos-ast");
+  }
+end MatchTest

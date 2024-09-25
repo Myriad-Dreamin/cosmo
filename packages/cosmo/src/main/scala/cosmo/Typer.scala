@@ -348,15 +348,9 @@ trait TypeEnv { self: Env =>
       case (lhs: Atom, rhs: Cons) => // todo: can cons primitives
         err(s"cannot destructed type ($lhs) by class ($rhs)")
       case (Cons(lv, lCls, lAdt), Cons(rv, rCls, true)) =>
-        // todo: completely check nested adt
         val related =
           rCls.variantOf.map(isSubtype(_, lCls)).getOrElse(false) ||
             isSubtype(rCls, lCls);
-
-        debugln(
-          s"checkAdtMatch!! $lCls ($lv) by $rCls (variantOf: ${rCls.variantOf}), related: $related",
-        )
-
         if (!related) {
           return err(s"cannot destruct class $lCls by enum class $rCls")
         }
