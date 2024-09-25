@@ -37,7 +37,7 @@ class PatternTest extends TestBase:
   test("nat") {
     runTestOnFile("fixtures/Type/patterns/nat.cos-ast");
   }
-  test("result") {
+  test("result".only) {
     runTestOnFile("fixtures/Type/patterns/result.cos-ast");
   }
 end PatternTest

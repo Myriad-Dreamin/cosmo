@@ -106,7 +106,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def newType(name: String, ty: Type, tyty: Type = UniverseTy) = {
     val info = ct(name); info.noMangle = true; info.isBuiltin = true
     info.ty = tyty
-    builtinClasses += (ty -> Class.empty(this, false).copy(id = info))
+    val cls = Class.empty(this, false).copy(id = info, resolvedAs =  Some(ty));
+    builtinClasses += (ty -> cls)
     items += (info.id -> ty)
   }
 
@@ -314,9 +315,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def select(lhs: Item, field: String)(implicit level: Int): Item = {
-    logln(s"select $lhs ${lhs.getClass().getName()} $field")
+    debugln(s"select $lhs ${lhs.getClass().getName()} $field")
     val x = dispatch(lhs, lhs, field, false)
-    logln(s"select $lhs $field => $x")
+    debugln(s"select $lhs $field => $x")
     x.getOrElse(Select(lhs, field))
   }
 
@@ -393,7 +394,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def $apply(lhs: Item, rhs: List[Item])(implicit level: Int): Item = {
-    logln(s"apply $lhs |||| ${rhs}")
+    debugln(s"apply $lhs |||| ${rhs}")
     lhs match {
       case Ref(id, _, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
         return rhs.head match {
@@ -449,7 +450,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   }
 
   def applyC(node: Class, args: List[Item]): Item = {
-    logln(s"applyClass ${node.id} ${node.variantOf} $args")
+    debugln(s"applyClass ${node.id} ${node.variantOf} $args")
     val typeParams = node.rawParams
     val allArgs = node.args.getOrElse(List()) ::: args
     val isTypeLevel =
@@ -484,7 +485,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case Some(ty) => ty;
     val lhsShape = curryView(lhs, lhsTy);
 
-    logln(s"matchExpr $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
+    debugln(s"matchExpr $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
 
     // // Calculate the kind of match.
     // var defaultCase: Option[Item] = None

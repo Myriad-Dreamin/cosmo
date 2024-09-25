@@ -2,6 +2,11 @@ class Result[T, E] {
   case Ok(T);
   case Err(E);
 };
+val v0: Result(i32, i32) = Result(i32, i32).Ok(1);
+val v1 = v0;
 -----
 Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)
 Result(i32, i32).Ok(1) match Result(i32, i32).Ok(t)
+Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)
+v0 match Result(i32, i32).Ok(t)
+v1 match Result(i32, i32).Ok(t)

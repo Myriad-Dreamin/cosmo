@@ -254,6 +254,7 @@ trait TypeEnv { self: Env =>
       case SelfTy =>
         selfRef.map(curryView(v, _)).getOrElse(TeleShape.Atom(v, ty))
       case Ref(_, _, Some(ty)) => curryView(v, ty)
+      case ItemE(item)         => curryView(item, ty)
       case _                   => TeleShape.Atom(v, ty)
     }
   }
@@ -271,7 +272,7 @@ trait TypeEnv { self: Env =>
   }
 
   def matchArgs(lhs: List[Item], rhs: List[Item]): List[Item] = {
-    debugln(s"matchArgs $lhs by $rhs")
+    logln(s"matchArgs $lhs by $rhs")
     if (lhs.length != rhs.length) {
       err(s"args length mismatch $lhs by $rhs")
     }
@@ -281,7 +282,7 @@ trait TypeEnv { self: Env =>
   @tailrec
   final def matchPat(lhs: TeleShape, rhs: TeleShape): (Item, TeleShape) = {
     import TeleShape._;
-    debugln(s"matchPat $lhs by $rhs")
+    logln(s"matchPat $lhs by $rhs")
     (lhs, rhs) match {
       case (lhs: AtomExp, _) =>
         (NoneItem, Invalid("cannot match a untyped value"))
@@ -319,7 +320,13 @@ trait TypeEnv { self: Env =>
             val matched = matchArgs(lhsParams, rhsArgs);
             (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
           case rhsRestCls =>
-            val rhsCls = rhsRestCls.getOrElse(classRepr(rhsTy));
+            val rhsClsOrTy =
+              rhsRestCls.map(Right(_)).getOrElse(weakClassRepr(rhsTy));
+            val rhsCls = rhsClsOrTy match {
+              case Left(rhsTy) =>
+                return (NoneItem, Invalid("cannot destructed"))
+              case Right(rhsCls) => rhsCls
+            }
             if (rhsCls.id.isTrait) {
               return (NoneItem, Invalid("trait cannot be destructed"))
             }
@@ -365,7 +372,20 @@ trait TypeEnv { self: Env =>
             val matched = matchArgs(lhsParams, rhsArgs);
             (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
           case rhsRestCls =>
-            val rhsCls = rhsRestCls.getOrElse(classRepr(rhsTy));
+            val rhsClsOrTy =
+              rhsRestCls.map(Right(_)).getOrElse(weakClassRepr(rhsTy));
+            val rhsCls = rhsClsOrTy match {
+              case Left(rhsTy) =>
+                if (eqType(lhsTy, rhsTy)) {
+                  return (BinOp("==", patHolder, rhsVal), lhs)
+                }
+
+                return (
+                  NoneItem,
+                  Invalid(s"cannot destructed primitive types on $lhsCls"),
+                )
+              case Right(rhsCls) => rhsCls
+            }
             if (rhsCls.id.isTrait) {
               return (NoneItem, Invalid("trait cannot be destructed"))
             }
@@ -404,6 +424,15 @@ trait TypeEnv { self: Env =>
     args ::: params.drop(args.length).toList
   }
 
+  final def classSelfParams(
+      cls: Class,
+      varaint: Option[Class],
+  ): List[Item] = {
+    val clsParams = classBinds(cls).take(cls.rawParams.map(_.size).getOrElse(0))
+    val varaintParams = varaint.map(classBinds).getOrElse(List())
+    clsParams ::: varaintParams
+  }
+
   @tailrec
   final def classParams(
       v: Item,
@@ -419,13 +448,13 @@ trait TypeEnv { self: Env =>
         classParams(selfRef.get, cls, varaint)
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
-          val args = v.con.args.getOrElse(List());
-          val args2 = classBinds(varaint.getOrElse(cls))
-          println(s"args2 ! $args $args2")
-          return args ::: args2.drop(args.length)
+          val args = classSelfParams(v.con, varaint)
+          val args2 = v.args
+          println(s"args2 ($cls $varaint) ! $args $args2")
+          return args ::: args2
         }
         if (varaint.isDefined && eqClass(v.con, varaint.get)) {
-          return classBinds(v.con)
+          return classSelfParams(cls, varaint) ::: classBinds(v.con)
         }
         err(s"cannot destruct case 1 $v by $cls")
         val params = classBinds(v.con);
@@ -437,16 +466,16 @@ trait TypeEnv { self: Env =>
       case v: Class if eqClass(v, cls) =>
         val clsArgs = v.args.getOrElse(List())
         val args = classBinds(v);
-        val args2 = classBinds(varaint.getOrElse(cls))
+        val args2 = classSelfParams(cls, varaint)
         return args ::: args2.drop(args.length)
       case v =>
         err(s"cannot destruct case 2 $v by $cls")
-        classBinds(varaint.getOrElse(cls))
+        classSelfParams(cls, varaint)
     }
   }
 
   def classArgs(v: Item, cls: Class): List[Item] = {
-    debugln(s"classArgs $v by $cls")
+    logln(s"classArgs $v by $cls")
     v match {
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
@@ -454,7 +483,8 @@ trait TypeEnv { self: Env =>
         }
         err(s"cannot destruct case 4 $v by $cls")
         v.args
-      case TupleLit(items) => items.toList
+      case TupleLit(items) =>
+        classSelfParams(cls, None) ::: items.toList
       case v =>
         err(s"cannot destruct case 3 $v by $cls")
         List()
@@ -537,7 +567,7 @@ trait TypeEnv { self: Env =>
       case cls: Class         => implClass(lhs, cls).isDefined
       case TopTy | UniverseTy => true
       case BottomTy           => false
-      case StrTy | BoolTy if isBuiltin(lhs, rhs) => true
+      case IntegerTy(_, _) | StrTy | BoolTy if isBuiltin(lhs, rhs) => true
       case _ => {
         lhs match {
           case Ref(_, _, Some(v))  => isSubtype(v, rhs)
@@ -556,9 +586,19 @@ trait TypeEnv { self: Env =>
       case Ref(_, _, Some(v)) => isBuiltin(v, rhs)
       case TopTy | UniverseTy => true
       case BottomTy           => true
+      case Integer(_)         => lhs == rhs || rhs == IntegerTy(32, false)
       case Bool(_)            => lhs == rhs || rhs == BoolTy
       case Str(_)             => lhs == rhs || rhs == StrTy
       case _                  => lhs == rhs
+    }
+  }
+
+  final def weakClassRepr(lhs: Type): Either[Type, Class] = {
+    val cls = classRepr(lhs)
+    if (cls.id.isBuiltin) {
+      Left(cls.resolvedAs.get)
+    } else {
+      Right(cls)
     }
   }
 
