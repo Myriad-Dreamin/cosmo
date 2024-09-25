@@ -3,6 +3,7 @@ package cosmo
 import scala.collection.mutable.{
   ListBuffer,
   LinkedHashMap as MutMap,
+  ArrayBuffer as MutArray,
   LongMap as MutLongMap,
 }
 
@@ -459,161 +460,179 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     ClassInstance(clsFinal, castedArgs.drop(tpSize))
   }
 
-  def checkMatch(b: MatchExpr)(implicit level: Int): Item = {
-    val lhs = term(b.lhs)
-    val lhsTy = tyOf(lhs) match
-      case None     => return err("cannot match a untyped value")
-      case Some(ty) => ty;
-    val lhsShape = curryView(lhs, lhsTy);
+  // match state machine
+  enum MatchM {
 
-    debugln(s"checkMatch $lhs ($lhsTy qualified as $lhsShape) on ${b.body}")
+    case Init; case Finalized(body: Item);
+    case MValue(values: List[(Item, MatchM)])
+    case MEnum(use: Class, cases: MutMap[DefId, MatchM])
+    case MClass(cd: ClassDestruct, inner: MutArray[MatchM])
 
-    // NoneKind | Ref | Bool | BinOp | EnumDestruct | ClassDestruct, Item
+    type M = MatchM
+    type CD = ClassDestruct
+    type ED = EnumDestruct
 
-    // by Ref | Bool
-    enum MatchState {
-      case Init; case Exhausted
-      case ValueMode(values: List[(Item, Item)])
-      case EnumMode(cases: List[EnumDestruct])
-      case ClassMode(cases: List[ClassDestruct])
-    }
-    import MatchState._
-
-    var mode = Init
-    var finalized: Option[Item] = None
-    // var defaultBranch: Option[(Option[Ref], Item)] = None
-    // var classDestructs = List[ClassDestruct]()
-    // var enumDestructs = List[EnumDestruct]()
-
-    def addValue(v: Item, body: Item) = {
-      mode = mode match {
-        case ValueMode(values) => ValueMode(values :+ (v, body))
-        case _                 => ValueMode(List((v, body)))
+    def finalize(lhs: Item, rename: Option[Ref], body: Option[Item]): Item = {
+      val res = doFinalize(lhs, rename, body)
+      debugln(s"finalize $this => $res")
+      res match {
+        case Finalized(body) => body
+        case _               => err(s"unreachable pattern")
       }
     }
 
-    def finalize(defaultRef: Option[Ref], defaultBody: Item): Item = 
-      if finalized.isDefined then return finalized.get
-      mode match {
+    def addOne(lhs: Item, pattern: Item, body: Item): M = pattern match {
+      case _ if this.isInstanceOf[MatchM.Finalized] =>
+        err(s"unreachable pattern $pattern"); this
+      case _: NoneKind => this
+      case Bool(constantly) => {
+        if !constantly then err(s"unreachable pattern $pattern")
+        val cont = if constantly then body else Unreachable
+        this.doFinalize(lhs, None, Some(cont))
+      }
+      case v: Ref                 => this.doFinalize(lhs, Some(v), Some(body))
+      case ir.BinOp("<:", _, rhs) => logln(s"isType $rhs"); ???
+      case ir.BinOp("==", _, rhs) => this.addValue(rhs, body)
+      case b: ir.BinOp            => logln(s"binop $b"); ???
+      case ed: EnumDestruct       => this.addEnum(lhs, ed, body)
+      case cd: ClassDestruct      => this.addClass(lhs, cd, body)
+      case _ => throw new Exception(s"cannot add invalid pattern $this")
+    }
+
+    def addValue(v: Item, body: Item) = this match {
+      case MValue(values) => MValue(values :+ (v, Finalized(body)))
+      case Init           => MValue(List((v, Finalized(body))))
+      case state => throw new Exception(s"cannot add value at state $state")
+    }
+
+    @tailrec
+    final def addClass(lhs: Item, c: CD, body: Item): M = this match {
       case Init =>
-        val v = defaultRef.filter(_.id.name != "_").map { r => 
-          Var(r.id, Some(lhs), r.level)
-        }
-        finalized = Some(Region(v.toList :+ defaultBody, false))
-        finalized.get
-      case ValueMode(values) =>
-        println(s"finalize values $values $defaultRef $defaultBody")
-        // finalized = Some(ValueMatch(lhs, lhsTy, List(), Some(Unreachable)))
-        // finalized.get
-
-        // fold as if chain
-        finalized = Some(values.foldRight(defaultBody) { (v, acc) =>
-          val cond = BinOp("==", lhs, v._1)
-          If(cond, v._2, Some(acc))
-        })
-        finalized.get
-      case ClassMode(values) =>
-        println(s"finalize classes $values $defaultRef $defaultBody")
-        finalized = Some(ValueMatch(lhs, lhsTy, List(), Some(Unreachable)))
-        finalized.get
-      case EnumMode(values) =>
-        println(s"finalize enumes $values $defaultRef $defaultBody")
-        finalized = Some(ValueMatch(lhs, lhsTy, List(), Some(Unreachable)))
-        finalized.get
-        // println(s"checkedMatch patterns $patterns")
-
-        // // Calculate the kind of match.
-        // var defaultCase: Option[Item] = None
-        // var matchCases: List[MatchCaseInfo] = List()
-
-        // var vMappings =
-        //   Map[String, List[(EnumDestruct, Option[syntax.Node])]]()
-
-        // matchCases.foreach {
-        //   case MatchCaseInfo(destructor, body, ed: EnumDestruct) =>
-        //     // todo: stable toString
-        //     val variantBase = ed.variant.variantOf.get
-        //     val vs = storeTy(variantBase)
-        //     vMappings.get(vs) match {
-        //       case Some(lst) =>
-        //         vMappings = vMappings + (vs -> (lst :+ (ed, body)))
-        //       case None =>
-        //         vMappings = vMappings + (vs -> List((ed, body)))
-        //     }
-        //   // Check if the value matches.
-        //   case _ =>
-        //     errors = s"not implemented mixed enum match" :: errors
+        logln(s"addClass init $c $body")
+        val params = c.cls.params.map { v => v }.toList
+        // todo: fresh variables ???
+        // variant.vars.zip(bindings).map { (vv, name) =>
+        //   val defInfo = ct(name); defInfo.isVar = true
+        //   defInfo.ty = vv.item.id.ty
+        //   val ty: Type = defInfo.ty
+        //   val tyLvl = ty.level
+        //   val valLvl = (tyLvl - 1).max(0)
+        //   val res = Term(defInfo, valLvl)
+        //   items += (defInfo.id -> res)
         // }
-
-        // // assert that there is only one match
-        // if (vMappings.size != 1) {
-        //   errors = s"not implemented mixed enum match" :: errors
-        //   return NoneItem
-        // }
-
-        // val (_, cases) = vMappings.head
-        // val ty = cases.head._1.variant.variantOf.get
-
-        // debugln(s"checkMatch mappings default $defaultCase")
-        // debugln(s"checkMatch mappings $ty => $cases")
-
-        // var matchBody = List[(Class, Item)]()
-        // for ((ed, body) <- cases) {
-        //   val variant = ed.variant
-        //   val bindings = ed.bindings
-
-        //   val stmts = body.map(body =>
-        //     scopes.withScope {
-        //       // bindings
-        //       variant.vars.zip(bindings).map { (vv, name) =>
-        //         val defInfo = ct(name); defInfo.isVar = true
-        //         defInfo.ty = vv.item.id.ty
-        //         val ty: Type = defInfo.ty
-        //         val tyLvl = ty.level
-        //         val valLvl = (tyLvl - 1).max(0)
-        //         val res = Term(defInfo, valLvl)
-        //         items += (defInfo.id -> res)
-        //       }
-        //       List(EnumDestruct(lhs, variant, bindings, None)) :+ valTerm(body)
-        //     },
-        //   );
-        //   matchBody = matchBody :+ (variant, Region(stmts.getOrElse(List())))
-        // }
-
-        // val defaultCaseItem = defaultCase.getOrElse(Unreachable)
-        // TypeMatch(lhs, ty, matchBody, defaultCaseItem)
-
-        // checkedDestructed(restTy)
-    } 
-
-    b.body.cases.foreach { case CaseExpr(destructor, body) =>
-      val pattern = matchPat(lhsShape, curryExpr(destructor))
-      val cont = valTermO(body)
-
-      pattern match {
-        case _ if mode == Exhausted => err(s"unreachable pattern $pattern")
-        case _: NoneKind            =>
-        case Bool(constantly) => {
-          if constantly then finalize(None, cont)
-          else err(s"unreachable pattern $pattern")
-          mode = MatchState.Exhausted
+        if params.isEmpty then return doFinalize(lhs, None, Some(body))
+        val cd = ClassDestruct(lhs, c.cls, params)
+        MClass(cd, MutArray.fill(c.cls.params.length)(Init))
+          .addClass(lhs, c, body)
+      case MClass(cd, inner) =>
+        if (cd.cls.id.id != c.cls.id.id) {
+          err(s"cannot mix classes match previous $cd, next $c")
+          return this
         }
-        case v: Ref => {
-          finalize(Some(v), cont)
-          mode = MatchState.Exhausted
+        // todo: O(n) length check
+        val paramSize = cd.bindings.length;
+        if (c.bindings.length != paramSize) {
+          throw new Exception("bindings length mismatch")
         }
-        case ir.BinOp("<:", _, rhs) =>
-          println(s"isType $rhs")
-        case ir.BinOp("==", _, rhs) => addValue(rhs, cont)
-        case _: ir.BinOp => ???
-        case ed: EnumDestruct =>
-          println(s"EnumDestruct $ed")
-        case cd: ClassDestruct =>
-          println(s"ClassDestruct $cd")
-      }
+        // inner.addClassField(cd.bindings, c.bindings, body)
+        var finalized = false
+
+        for (case ((lv, rv), i) <- cd.bindings.zip(c.bindings).zipWithIndex) {
+          logln(s"addClassField at $i $lv match $rv $body")
+          val cont =
+            if i + 1 == paramSize then body
+            else Opaque.stmt(s"0/* match goto? $i */;")
+          val innerChange = inner(i).addOne(lv, rv, cont)
+          finalized = finalized || innerChange.isInstanceOf[Finalized]
+          inner.update(i, innerChange)
+        }
+
+        if (finalized) {
+          doFinalize(lhs, None, Some(Unreachable))
+        } else {
+          this
+        }
+      case state => throw new Exception(s"cannot add class at state $state")
     }
 
-    finalize(None, Unreachable)
+    @tailrec
+    final def addEnum(lhs: Item, e: ED, body: Item): M = this match {
+      case Init =>
+        val cls = e.variant
+        val variantOf = cls.variantOf.get.asInstanceOf[Class]
+        if (variantOf.variantOf.isDefined) then
+          throw new Exception("nested enum")
+        logln(s"addEnum init $e $cls $variantOf $body")
+        MEnum(variantOf, MutMap()).addEnum(lhs, e, body)
+      case MEnum(use, cases) =>
+        val cls = e.variant
+        val variantOf = cls.variantOf.get.asInstanceOf[Class]
+        if (variantOf.variantOf.isDefined) then
+          throw new Exception("nested enum")
+        if (use.id.id != variantOf.id.id) {
+          err(s"cannot mix enums match previous $use, next $variantOf")
+          return this
+        }
+        logln(s"addEnum cont $e $cls $variantOf $body")
+        val contD = ClassDestruct(e.item, e.variant, e.bindings)
+        cases.updateWith(cls.id.id) { m =>
+          Some(m.getOrElse(Init).addClass(lhs, contD, body))
+        }
+        this
+      case state => throw new Exception(s"cannot add enum at state $state")
+    }
+
+    def doFinalize(lhs: Item, rename: Option[Ref], body: Option[Item]): M =
+      this match {
+        case Init =>
+          val v = rename.filter(_.id.name != "_").map { r =>
+            Var(r.id, Some(lhs), r.level)
+          }
+          Finalized(
+            Region(v.toList :+ body.getOrElse(Unreachable), false),
+          )
+        case b: Finalized => b
+        case MValue(values) =>
+          debugln(s"finalize values $values $rename $body")
+          val cases = values.map { case (v, m) =>
+            (v, m.finalize(lhs, rename, body))
+          }
+          Finalized(ValueMatch(lhs, tyOf(lhs).get, cases, Some(Unreachable)))
+        case MClass(cd, inner) =>
+          println(s"finalize classes $cd $rename $body")
+          val matchBody = cd +: inner.map(_.finalize(lhs, rename, body)).toList
+          Finalized(Region(matchBody, false))
+        case MEnum(use, caseMs) =>
+          println(s"finalize enums $use $caseMs $rename $body")
+          val useVariants = use.variants
+          val numOfVariants = useVariants.length
+          var cases = ListBuffer[(Class, Item)]()
+          for (v <- useVariants) {
+            val caseBody = caseMs.get(v.item.id.id) match {
+              case None =>
+                err(s"missing case $v when matching $lhs on $use")
+                Unreachable
+              case Some(state) => state.finalize(lhs, rename, body)
+            }
+            cases.addOne((v.item, caseBody))
+          }
+          Finalized(TypeMatch(lhs, use, cases.toList, Unreachable))
+      }
+  }
+
+  def checkMatch(b: MatchExpr)(implicit level: Int): Item = {
+    import MatchM._
+    val lhs = term(b.lhs)
+    val lhsShape = curryTermView(lhs);
+
+    debugln(s"checkMatch $lhs ($lhsShape) on ${b.body}")
+    val state = b.body.cases.foldLeft(Init) {
+      case (m, CaseExpr(destructor, bodyExpr)) =>
+        val pattern = matchPat(lhsShape, curryExpr(destructor))
+        m.addOne(lhs, pattern, valTermO(bodyExpr))
+    }
+
+    state.finalize(lhs, None, None)
   }
 
   def checkedDestructed(shape: PatShape) = {

@@ -1,0 +1,14 @@
+class Nat {
+  case Zero
+  case Succ(Nat)
+};
+val v1 = Nat.Zero;
+val v2 = Nat.Succ(Nat.Zero);
+----- -----
+Nat.Zero match {
+  case Nat.Zero => 1
+}
+-----
+Nat.Succ(Nat.Zero) match {
+  case Nat.Succ(Nat.Zero) => 1
+}

@@ -15,3 +15,23 @@ v1 match {
 v1 match {
   case "no" => 4
 }
+-----
+"yes" match {
+  case "yes" => 5
+  case "no" => 6
+}
+-----
+"no" match {
+  case "yes" => 7
+  case "no" => 8
+}
+-----
+v1 match {
+  case "yes" => 5
+  case "no" => 6
+}
+-----
+v1 match {
+  case "yes" => 7
+  case "no" => 8
+}
