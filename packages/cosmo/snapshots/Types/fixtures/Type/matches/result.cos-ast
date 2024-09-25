@@ -1,0 +1,31 @@
+[v0 match {
+  case Result(i32, i32).Ok(t) => t
+}] => typeMatch (val v0@58: Result<int32_t, int32_t> = instance Result::Ok(1) by Result<int32_t, int32_t>) {
+ case Result::Ok => block {
+  ClassDestruct(ref(v0),class(Result::Ok),List((var i32_73:73 = NoneKind(0)), (var i32_74:74 = NoneKind(0)), (var _0_75:75 = NoneKind(0))))
+  block {
+   var t@71: val T@48: TopKind(2) = _ = var _0_75@75: val T@48: TopKind(2) = _ = _
+   ref(t)
+  }
+ }
+ case Result::Err => Unreachable
+} else Unreachable, err: "undefined reference t at :41\nmissing case EnumField(class(Result::Err)) when matching ref(v0) on class(Result<ref(i32), ref(i32)>)"
+[v1 match {
+  case Result(i32, i32).Ok(t) => t
+  case Result(i32, i32).Err(e) => ???
+}] => typeMatch (val v1@65: Result<int32_t, int32_t> = val v0@58: Result<int32_t, int32_t> = instance Result::Ok(1) by Result<int32_t, int32_t>) {
+ case Result::Ok => block {
+  ClassDestruct(ref(v1),class(Result::Ok),List((var i32_86:86 = NoneKind(0)), (var i32_87:87 = NoneKind(0)), (var _0_88:88 = NoneKind(0))))
+  block {
+   var t@80: val T@48: TopKind(2) = _ = var _0_88@88: val T@48: TopKind(2) = _ = _
+   ref(t)
+  }
+ }
+ case Result::Err => block {
+  ClassDestruct(ref(v1),class(Result::Err),List((var i32_89:89 = NoneKind(0)), (var i32_90:90 = NoneKind(0)), (var _0_91:91 = NoneKind(0))))
+  block {
+   var e@85: val E@50: TopKind(2) = _ = var _0_91@91: val E@50: TopKind(2) = _ = _
+   TodoLit
+  }
+ }
+} else Unreachable, err: "undefined reference t at :41"

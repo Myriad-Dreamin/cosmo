@@ -180,6 +180,38 @@ object Doc {
       }
       val body = (") {".d +: cs).d(NewLine)
       Array("match (".d, cond.d, indent(1, body), NewLine, "}".d).d
+    case ir.ValueMatch(lhs, by, cases, orElse) =>
+      val cs = cases.map { c =>
+        Array("case ".d, c._1.d, " => ".d, c._2.d).d
+      }
+      val body = (") {".d +: cs).d(NewLine)
+      val o = orElse.d.map { e => Array(" else ".d, e).d }.getOrElse(empty)
+      Array(
+        "valueMatch (".d,
+        lhs.d,
+        " by ".d,
+        by.d,
+        indent(1, body),
+        NewLine,
+        "}".d,
+        o,
+      ).d
+    case ir.TypeMatch(lhs, by, cases, orElse) =>
+      val cs = cases.map { c =>
+        Array("case ".d, c._1.d, " => ".d, c._2.d).d
+      }
+      val body = (") {".d +: cs).d(NewLine)
+      val o = Array(" else ".d, orElse.d).d
+      Array(
+        "typeMatch (".d,
+        lhs.d,
+        " by ".d,
+        by.d,
+        indent(1, body),
+        NewLine,
+        "}".d,
+        o,
+      ).d
     case ir.As(v, ty)  => Array(v.d, " as ".d, ty.d).d
     case ir.Break()    => Doc.Str("break")
     case ir.Continue() => Doc.Str("continue")
@@ -188,19 +220,19 @@ object Doc {
     //   val p = params.map(_.d(", ".d)).getOrElse(empty)
     //   val f = fieldDecls(fields)
     //   Array("class ".d, id.d, Doc.paren(p), " = ".d, f).d
-    // case ir.Var(id, init, _) =>
-    //   val ty = id.ty.d
-    //   val i = init.d.getOrElse("_".d)
-    //   Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
+    case ir.Var(id, init, _) =>
+      val ty = id.ty.d
+      val i = init.d.getOrElse("_".d)
+      Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
     // case f: ir.Fn =>
     //   val p = f.rawParams.map(_.d(", ".d)).getOrElse(empty)
     //   val r = f.ret_ty.d
     //   val b = f.body.d.getOrElse("_".d)
     //   Array("def ".d, f.id.d, Doc.paren(p), ": ".d, r, " = ".d, b).d
     case c: ir.Class => c.repr(c.id.env.storeTy).d
-    case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
-    case f: ir.Fn    => Array("def ".d, f.id.d).d
-    case i: ir.Impl  => Array("impl ".d, i.id.d).d
+    // case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
+    case f: ir.Fn   => Array("def ".d, f.id.d).d
+    case i: ir.Impl => Array("impl ".d, i.id.d).d
     case ir.Param(of, _) =>
       Array(of.id.d, ": ".d, of.id.ty.d).d
     case ir.Ref(_, _, Some(v)) => buildItem(v)

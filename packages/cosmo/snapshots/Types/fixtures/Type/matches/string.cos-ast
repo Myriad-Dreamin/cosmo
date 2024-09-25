@@ -1,12 +1,48 @@
 ["yes" match {
   case "yes" => 1
-}] => if ("=="("yes", "yes")) 1 else Unreachable, err: ""
+}] => valueMatch ("yes" by str) {
+ case "yes" => 1
+} else Unreachable, err: ""
 ["yes" match {
   case "no" => 2
-}] => if ("=="("yes", "no")) 2 else Unreachable, err: ""
+}] => valueMatch ("yes" by str) {
+ case "no" => 2
+} else Unreachable, err: ""
 [v1 match {
   case "yes" => 3
-}] => if ("=="(val v1@47, "yes")) 3 else Unreachable, err: ""
+}] => valueMatch (val v1@47: str = "yes" by str) {
+ case "yes" => 3
+} else Unreachable, err: ""
 [v1 match {
   case "no" => 4
-}] => if ("=="(val v1@47, "no")) 4 else Unreachable, err: ""
+}] => valueMatch (val v1@47: str = "yes" by str) {
+ case "no" => 4
+} else Unreachable, err: ""
+["yes" match {
+  case "yes" => 5
+  case "no" => 6
+}] => valueMatch ("yes" by str) {
+ case "yes" => 5
+ case "no" => 6
+} else Unreachable, err: ""
+["no" match {
+  case "yes" => 7
+  case "no" => 8
+}] => valueMatch ("no" by str) {
+ case "yes" => 7
+ case "no" => 8
+} else Unreachable, err: ""
+[v1 match {
+  case "yes" => 5
+  case "no" => 6
+}] => valueMatch (val v1@47: str = "yes" by str) {
+ case "yes" => 5
+ case "no" => 6
+} else Unreachable, err: ""
+[v1 match {
+  case "yes" => 7
+  case "no" => 8
+}] => valueMatch (val v1@47: str = "yes" by str) {
+ case "yes" => 7
+ case "no" => 8
+} else Unreachable, err: ""

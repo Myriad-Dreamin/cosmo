@@ -69,7 +69,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def builtins() = {
     newBuiltin("print")
-    newBuiltin("println")
+    newBuiltin("logln")
     newBuiltin("unreachable")
     newBuiltin("unimplemented")
     newBuiltin("panic")
@@ -144,7 +144,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def report: Env = {
     for (error <- errors) {
-      println(error)
+      logln(error)
     }
     this
   }
@@ -203,7 +203,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       // operations
       case Name(id, None) =>
         val t = byRef(id);
-        if t.value.isEmpty then err(s"undefined $id")
+        if t.value.isEmpty then err(s"undefined reference $id")
         t
       case Name(id, Some(of))          => term(of)
       case UnOp("&", UnOp("mut", lhs)) => RefItem(term(lhs), true)
@@ -464,66 +464,82 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   enum MatchM {
 
     case Init; case Finalized(body: Item);
-    case MValue(values: List[(Item, MatchM)])
-    case MEnum(use: Class, cases: MutMap[DefId, MatchM])
-    case MClass(cd: ClassDestruct, inner: MutArray[MatchM])
+    case MRef(lhs: Item, rhs: Ref, inner: MatchM)
+    case MValue(lhs: Item, values: List[(Item, MatchM)])
+    case MEnum(lhs: Item, use: Class, cases: MutMap[DefId, MatchM])
+    case MClass(cd: ClassDestruct, inner: MatchM)
 
     type M = MatchM
     type CD = ClassDestruct
     type ED = EnumDestruct
+    type UD = MatchM => MatchM
 
-    def finalize(lhs: Item, rename: Option[Ref], body: Option[Item]): Item = {
-      val res = doFinalize(lhs, rename, body)
+    def finalize(body: UD = id => id): Item = {
+      val res = doFinalize(body)
       debugln(s"finalize $this => $res")
       res match {
+        case Init            => NoneItem
         case Finalized(body) => body
         case _               => err(s"unreachable pattern")
       }
     }
 
-    def addOne(lhs: Item, pattern: Item, body: Item): M = pattern match {
+    def dropCase(body: Item): UD = m =>
+      m match {
+        case Init => Finalized(body)
+        case m    => err(s"cannot add body to state $m, with body $body"); m
+      }
+
+    def addPattern(lhs: Item, pattern: Item, body: Item): M = {
+      addOne(lhs, pattern, dropCase(body))
+    }
+
+    def addOne(lhs: Item, pattern: Item, body: UD): M = pattern match {
       case _ if this.isInstanceOf[MatchM.Finalized] =>
         err(s"unreachable pattern $pattern"); this
       case _: NoneKind => this
       case Bool(constantly) => {
         if !constantly then err(s"unreachable pattern $pattern")
-        val cont = if constantly then body else Unreachable
-        this.doFinalize(lhs, None, Some(cont))
+        val cont = if constantly then body else dropCase(Unreachable)
+        this.doFinalize(cont)
       }
-      case v: Ref                 => this.doFinalize(lhs, Some(v), Some(body))
+      case v: Ref                 => this.addRef(lhs, v, body)
       case ir.BinOp("<:", _, rhs) => logln(s"isType $rhs"); ???
-      case ir.BinOp("==", _, rhs) => this.addValue(rhs, body)
+      case ir.BinOp("==", _, rhs) => this.addValue(lhs, rhs, body)
       case b: ir.BinOp            => logln(s"binop $b"); ???
       case ed: EnumDestruct       => this.addEnum(lhs, ed, body)
       case cd: ClassDestruct      => this.addClass(lhs, cd, body)
       case _ => throw new Exception(s"cannot add invalid pattern $this")
     }
 
-    def addValue(v: Item, body: Item) = this match {
-      case MValue(values) => MValue(values :+ (v, Finalized(body)))
-      case Init           => MValue(List((v, Finalized(body))))
+    def addRef(lhs: Item, rhs: Ref, body: UD) = this match {
+      case Init => MRef(lhs, rhs, body(Init))
+      case MRef(u, v, inner) =>
+        err(
+          s"exhaused case, already bind lhs before, lhs is $lhs, bound $v, expected rebind $rhs",
+        );
+        this
+      case state => throw new Exception(s"cannot add ref at state $state")
+    }
+
+    def addValue(lhs: Item, v: Item, body: UD) = this match {
+      // todo: value coverage checking
+      case MValue(l, values) => MValue(l, values :+ (v, body(Init)))
+      case Init              => MValue(lhs, List((v, body(Init))))
       case state => throw new Exception(s"cannot add value at state $state")
     }
 
     @tailrec
-    final def addClass(lhs: Item, c: CD, body: Item): M = this match {
+    final def addClass(lhs: Item, c: CD, body: UD): M = this match {
       case Init =>
         logln(s"addClass init $c $body")
-        val params = c.cls.params.map { v => v }.toList
-        // todo: fresh variables ???
-        // variant.vars.zip(bindings).map { (vv, name) =>
-        //   val defInfo = ct(name); defInfo.isVar = true
-        //   defInfo.ty = vv.item.id.ty
-        //   val ty: Type = defInfo.ty
-        //   val tyLvl = ty.level
-        //   val valLvl = (tyLvl - 1).max(0)
-        //   val res = Term(defInfo, valLvl)
-        //   items += (defInfo.id -> res)
-        // }
-        if params.isEmpty then return doFinalize(lhs, None, Some(body))
+        val params = classBinds(c.cls).map {
+          case d: DeclItem => genVar(d.id, None, d.level)
+          case v           => genVar(ct("b"), Some(v), v.level)
+        }
+        if params.isEmpty then return doFinalize(body)
         val cd = ClassDestruct(lhs, c.cls, params)
-        MClass(cd, MutArray.fill(c.cls.params.length)(Init))
-          .addClass(lhs, c, body)
+        MClass(cd, Init).addClass(lhs, c, body)
       case MClass(cd, inner) =>
         if (cd.cls.id.id != c.cls.id.id) {
           err(s"cannot mix classes match previous $cd, next $c")
@@ -532,39 +548,36 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         // todo: O(n) length check
         val paramSize = cd.bindings.length;
         if (c.bindings.length != paramSize) {
-          throw new Exception("bindings length mismatch")
+          throw new Exception(s"bindings length mismatch $cd $c")
         }
         // inner.addClassField(cd.bindings, c.bindings, body)
         var finalized = false
 
-        for (case ((lv, rv), i) <- cd.bindings.zip(c.bindings).zipWithIndex) {
-          logln(s"addClassField at $i $lv match $rv $body")
-          val cont =
-            if i + 1 == paramSize then body
-            else Opaque.stmt(s"0/* match goto? $i */;")
-          val innerChange = inner(i).addOne(lv, rv, cont)
-          finalized = finalized || innerChange.isInstanceOf[Finalized]
-          inner.update(i, innerChange)
+        var pairs = cd.bindings.zip(c.bindings).iterator;
+        def binder(m: M): M = {
+          pairs.nextOption() match {
+            case Some((lv, rv)) => m.addOne(lv, rv, binder)
+            case None           => body(m)
+          }
         }
 
-        if (finalized) {
-          doFinalize(lhs, None, Some(Unreachable))
-        } else {
-          this
+        binder(inner) match {
+          case Finalized(body) => doFinalize(dropCase(body))
+          case next            => MClass(cd, next)
         }
       case state => throw new Exception(s"cannot add class at state $state")
     }
 
     @tailrec
-    final def addEnum(lhs: Item, e: ED, body: Item): M = this match {
+    final def addEnum(lhs: Item, e: ED, body: UD): M = this match {
       case Init =>
         val cls = e.variant
         val variantOf = cls.variantOf.get.asInstanceOf[Class]
         if (variantOf.variantOf.isDefined) then
           throw new Exception("nested enum")
         logln(s"addEnum init $e $cls $variantOf $body")
-        MEnum(variantOf, MutMap()).addEnum(lhs, e, body)
-      case MEnum(use, cases) =>
+        MEnum(lhs, variantOf, MutMap()).addEnum(lhs, e, body)
+      case MEnum(lhs, use, cases) =>
         val cls = e.variant
         val variantOf = cls.variantOf.get.asInstanceOf[Class]
         if (variantOf.variantOf.isDefined) then
@@ -582,28 +595,27 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case state => throw new Exception(s"cannot add enum at state $state")
     }
 
-    def doFinalize(lhs: Item, rename: Option[Ref], body: Option[Item]): M =
+    // rename: Option[Ref],
+    def doFinalize(body: UD): M =
       this match {
-        case Init =>
-          val v = rename.filter(_.id.name != "_").map { r =>
-            Var(r.id, Some(lhs), r.level)
-          }
-          Finalized(
-            Region(v.toList :+ body.getOrElse(Unreachable), false),
-          )
+        case Init         => body(Init)
         case b: Finalized => b
-        case MValue(values) =>
-          debugln(s"finalize values $values $rename $body")
+        case MRef(_, rename, inner) if rename.id.name == "_" =>
+          Finalized(inner.finalize(body))
+        case MRef(t, rename, inner) =>
+          val v = Var(rename.id, Some(t), rename.level)
+          Finalized(Region(List(v, inner.finalize(body)), false))
+        case MValue(lhs, values) =>
+          debugln(s"finalize values $values $body")
           val cases = values.map { case (v, m) =>
-            (v, m.finalize(lhs, rename, body))
+            (v, m.finalize(body))
           }
           Finalized(ValueMatch(lhs, tyOf(lhs).get, cases, Some(Unreachable)))
         case MClass(cd, inner) =>
-          println(s"finalize classes $cd $rename $body")
-          val matchBody = cd +: inner.map(_.finalize(lhs, rename, body)).toList
-          Finalized(Region(matchBody, false))
-        case MEnum(use, caseMs) =>
-          println(s"finalize enums $use $caseMs $rename $body")
+          logln(s"finalize classes $cd $body")
+          Finalized(Region(List(cd, inner.finalize(body)), false))
+        case MEnum(lhs, use, caseMs) =>
+          logln(s"finalize enums $use $caseMs $body")
           val useVariants = use.variants
           val numOfVariants = useVariants.length
           var cases = ListBuffer[(Class, Item)]()
@@ -612,7 +624,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
               case None =>
                 err(s"missing case $v when matching $lhs on $use")
                 Unreachable
-              case Some(state) => state.finalize(lhs, rename, body)
+              case Some(state) => state.finalize(body)
             }
             cases.addOne((v.item, caseBody))
           }
@@ -629,10 +641,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val state = b.body.cases.foldLeft(Init) {
       case (m, CaseExpr(destructor, bodyExpr)) =>
         val pattern = matchPat(lhsShape, curryExpr(destructor))
-        m.addOne(lhs, pattern, valTermO(bodyExpr))
+        m.addPattern(lhs, pattern, valTermO(bodyExpr))
     }
 
-    state.finalize(lhs, None, None)
+    state.finalize(id => id)
   }
 
   def checkedDestructed(shape: PatShape) = {
@@ -656,6 +668,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val res = f
     checkStatus -= id.id.id.id
     res
+
+  def genVar(id: DefInfo, init: Option[Term], level: Int): Var = {
+    val nv = ct(id.name + s"_${defAlloc + 1}")
+    nv.ty = id.ty
+    Var(nv, init, level)
+  }
 
   def checkVar(v: VarExpr): ir.Var = {
     val VarExpr(info, oty, initExprE) = v

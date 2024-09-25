@@ -3,7 +3,7 @@ class Nat {
   case Succ(Nat)
 };
 val v1 = Nat.Zero;
-val v2 = Nat.Succ(Nat.Zero);
+val v2: Nat = Nat.Succ(Nat.Zero);
 ----- -----
 Nat.Zero match {
   case Nat.Zero => 1
@@ -11,4 +11,15 @@ Nat.Zero match {
 -----
 Nat.Succ(Nat.Zero) match {
   case Nat.Succ(Nat.Zero) => 1
+}
+-----
+v2 match {
+  case Nat.Zero => 0
+  case Nat.Succ(x) => 1
+}
+-----
+v2 match {
+  case Nat.Zero => 0
+  case Nat.Succ(Nat.Zero) => 1
+  case Nat.Succ(Nat.Succ(x)) => 2
 }
