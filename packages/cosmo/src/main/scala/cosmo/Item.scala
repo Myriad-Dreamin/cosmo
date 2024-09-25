@@ -22,7 +22,7 @@ private[cosmo] type FieldMap = MutMap[String, VField];
 /// Expr, Term, Type, Value are Item
 /// Item is used for Semantic Analysis
 /// Value and (Concrete) Expr has Type
-/// Term is Type
+/// Term is Type with operations
 /// Op is not Item, Op is (optionally) converted from Expr, thus has type
 ///
 /// Source Code -> Expr -> Instrs with Types -> Output
@@ -263,7 +263,7 @@ final case class ClassInstance(
   override def toString: String =
     val conAs =
       if con.resolvedAs.isDefined then s"${con.resolvedAs.get} as " else ""
-    s"(${conAs}${con})(${args.mkString(", ")})"
+    s"ins (${conAs}${con})(${args.mkString(", ")})"
 }
 final case class EnumVariant(
     id: DefInfo,

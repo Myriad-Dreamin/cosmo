@@ -414,7 +414,6 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case Ref(id, _, Some(v))                  => $apply(v, rhs)
       case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
       case BoundField(_, by, _, EnumField(ev)) =>
-        println(s"applyEnum $lhs $rhs")
         applyC(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
         Apply(lhs, castArgs(f.params, rhs))
@@ -452,18 +451,19 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def applyC(node: Class, args: List[Item]): Item = {
     debugln(s"applyClass ${node.id} ${node.variantOf} $args")
     val typeParams = node.rawParams
+    val tpSize = typeParams.map(_.size).getOrElse(0);
     val allArgs = node.args.getOrElse(List()) ::: args
     val isTypeLevel =
-      typeParams.map(allArgs.length < _.length).getOrElse(false);
+      if typeParams.isEmpty then false else allArgs.length <= tpSize
     if (isTypeLevel) {
       return node.copy(args = Some(allArgs))
     }
 
     val castedArgs = castArgs(node.params, allArgs)
-    val typeLevelArgs = typeParams.map(p => castedArgs.take(p.size))
+    val typeLevelArgs = typeParams.map(p => castedArgs.take(tpSize))
 
     val clsFinal = node.copy(args = typeLevelArgs)
-    ClassInstance(clsFinal, castedArgs.drop(typeParams.size))
+    ClassInstance(clsFinal, castedArgs.drop(tpSize))
   }
 
   case class MatchCaseInfo(
@@ -491,11 +491,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     // var defaultCase: Option[Item] = None
     // var matchCases: List[MatchCaseInfo] = List()
 
-    val (patterns, restTy) =
-      b.body.cases.foldLeft((List[(Item, Item)](), lhsShape)) {
-        case ((patterns, lhs), CaseExpr(destructor, body)) =>
-          val (pattern, rests) = matchPat(lhs, curryExpr(destructor))
-          (patterns :+ (pattern, valTermO(body)), rests)
+    val patterns =
+      b.body.cases.map { case CaseExpr(destructor, body) =>
+        val pattern = matchPat(lhsShape, curryExpr(destructor))
+        (pattern, valTermO(body))
       }
 
     // var vMappings =
@@ -573,10 +572,11 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val VarExpr(info, oty, initExprE) = v
     info.isVar = true;
     val initExpr = initExprE.map(valTerm).map(normalize)
-    val initTy = (oty.map(tyTerm), info.name) match {
-      case (Some(ty), _)  => Some(ty)
-      case (None, "self") => Some(RefItem(SelfTy, false))
-      case _              => initExpr.flatMap(tyOf)
+    val initTy = oty.map(tyTerm).orElse {
+      info.name match {
+        case "self" => Some(RefItem(SelfTy, false))
+        case _      => initExpr.flatMap(tyOf)
+      }
     }
     val valLvl = (initTy.map(_.level).getOrElse(0) - 1).max(0)
     val res = ir.Var(info, initExpr, valLvl)
@@ -630,10 +630,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val params = resolveParams(ps);
     val cls2 = Class(info, params, fields); selfRef = Some(cls2);
     noteDecl(cls2);
-    println(s"check class ${fields.values.toSeq}")
     for (f <- fields.values.toSeq) {
       fields.addOne(f.name -> checkField(f))
-      println(s"checked field ${f.name}")
     }
     val cls = Class(info, params, fields)
     info.ty = cls

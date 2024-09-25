@@ -43,7 +43,7 @@ trait TypeEnv { self: Env =>
         s"Invalid number of params v.s. arguments (${eParams.length} v.s. ${eArgs.length}) ${eParams.toList} v.s. $eArgs" :: errors
     }
 
-    val args = eArgs.flatMap {
+    val named = eArgs.flatMap {
       case KeyedArg(ItemE(Str(s)), value) => Some((s, value))
       case KeyedArg(Str(s), value)        => Some((s, value))
       case v                              => None
@@ -52,13 +52,13 @@ trait TypeEnv { self: Env =>
       case v: KeyedArg => None
       case v           => Some(v)
     }.iterator
-    val allowNamedAsPositional = args.isEmpty
+    val allowNamedAsPositional = named.isEmpty
 
     eParams.iterator.flatMap { param =>
       if (param.of.name == "self") None // todo: skip self
       else if (param.named) {
         val name = param.of.name
-        val value = args.get(name).orElse {
+        val value = named.get(name).orElse {
           if (allowNamedAsPositional) {
             positions.nextOption
           } else {
@@ -228,15 +228,24 @@ trait TypeEnv { self: Env =>
 
   // : Computing Part
 
-  enum TeleShape {
-    case Invalid(msg: String);
+  enum PatShape {
+    // case Invalid(msg: String);
+    case Hole(id: Defo);
+    case Cons(v: Option[Item], ty: Class, isAdt: Boolean);
+    // Not interested by tele
     case Atom(v: Item, ty: Type);
-    case AtomExp(v: Expr);
+
+    def getTy: Type = this match {
+      case Cons(_, ty, _) => ty
+      case Atom(_, ty)    => ty
+      case _              => ???
+    }
   }
 
-  def checkedDestructed(shape: TeleShape) = {
+  def checkedDestructed(shape: PatShape) = {
     shape match {
-      case TeleShape.Atom(v, ty) =>
+      case v: PatShape.Cons => // todo: coverage checking
+      case PatShape.Atom(v, ty) =>
         ty match
           case BottomKind(_) =>
           case ty            => // todo: coverage checking
@@ -245,15 +254,16 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def curryTerm(exp: Expr): TeleShape = curryTermView(valTerm(exp))
-  def curryTermView(lhs: Item): TeleShape = {
+  def curryTerm(exp: Expr): PatShape = curryTermView(valTerm(exp))
+  def curryTermView(lhs: Item): PatShape = {
     val lhsTy = tyOf(lhs) match
-      case None     => return TeleShape.Invalid("cannot match a untyped value")
+      case None     => throw Exception("cannot match a untyped value");
       case Some(ty) => ty;
+    debugln(s"curryTermView $lhs % $lhsTy")
     curryView(lhs, lhsTy)
   }
 
-  def curryExpr(v: Expr): TeleShape = {
+  def curryExpr(v: Expr): PatShape = {
     debugln(s"curryExpr $v")
     v match {
       case Apply(lhs, rhs) =>
@@ -261,179 +271,134 @@ trait TypeEnv { self: Env =>
           case e: Expr => canonicalTy(valTerm(e))
           case e       => canonicalTy(e)
         }
-        val args = TupleLit(rhs.toArray)
-        TeleShape.Atom(args, lhsTy)
-      case _ => TeleShape.AtomExp(v)
+
+        debugln(s"curryApplyE $lhs by $rhs")
+
+        lhsTy match {
+          case norm: Class =>
+            val adt = enumShape(norm)
+            val isAdt = adt.isDefined
+            val cls = adt.getOrElse(norm)
+            val args = TupleLit(rhs.toArray)
+            PatShape.Cons(Some(args), cls, isAdt)
+          case _ =>
+            curryTermView(valTerm(v))
+        }
+      case Hole(id) => PatShape.Hole(id)
+      case v        => curryTermView(valTerm(v))
     }
   }
 
-  def curryView(v: Item, ty: Type): TeleShape = {
-    debugln(s"curryView $ty")
-    ty match {
-      case SelfTy =>
-        selfRef.map(curryView(v, _)).getOrElse(TeleShape.Atom(v, ty))
-      case Ref(_, _, Some(ty)) => curryView(v, ty)
-      case ItemE(item)         => curryView(item, ty)
-      case _                   => TeleShape.Atom(v, ty)
+  def curryView(v: Item, ty: Type): PatShape = {
+    debugln(s"curryView $v $ty")
+    if ty.isInstanceOf[ClassInstance] then throw Exception("what's you?")
+
+    canonicalTy(v) match {
+      case norm: Class =>
+        val adt = enumShape(norm)
+        val isAdt = adt.isDefined
+        val cls = adt.getOrElse(norm)
+        PatShape.Cons(None, cls, isAdt)
+      case _ =>
+    }
+
+    canonicalTy(ty) match {
+      case norm: Class =>
+        val adt = enumShape(norm)
+        val isAdt = adt.isDefined
+        val cls = adt.getOrElse(norm)
+        PatShape.Cons(Some(v), cls, isAdt)
+      case _ => PatShape.Atom(v, ty)
     }
   }
 
   def matchOne(lhs: Item, rhs: Item): Item = {
-    debugln(s"matchArgs $lhs by $rhs")
+    debugln(s"matchOne $lhs by $rhs [${rhs.isInstanceOf[Expr]}]")
     val lhsView = curryTermView(lhs)
     val rhsView = rhs match
-      case v: Expr => curryExpr(v)
-      case _       => curryView(rhs, tyOf(rhs).get)
-    // todo: error report
-    val res = matchPat(lhsView, rhsView)
-    checkedDestructed(res._2)
-    res._1
+      case v: Expr if rhs.isInstanceOf[Expr] => curryExpr(v)
+      case _                                 => curryView(rhs, tyOf(rhs).get)
+    matchPat(lhsView, rhsView)
   }
 
   def matchArgs(lhs: List[Item], rhs: List[Item]): List[Item] = {
-    logln(s"matchArgs $lhs by $rhs")
+    debugln(s"matchArgs $lhs by $rhs")
     if (lhs.length != rhs.length) {
-      err(s"args length mismatch $lhs by $rhs")
+      err(s"matchArgs length mismatch $lhs by $rhs")
     }
     lhs.zip(rhs).map { case (l, r) => matchOne(l, r) }
   }
 
-  @tailrec
-  final def matchPat(lhs: TeleShape, rhs: TeleShape): (Item, TeleShape) = {
-    import TeleShape._;
-    logln(s"matchPat $lhs by $rhs")
+  final def matchPat(lhs: PatShape, rhs: PatShape): Item = {
+    import PatShape._;
+    debugln(s"matchPat $lhs by $rhs")
     (lhs, rhs) match {
-      case (lhs: AtomExp, _) =>
-        (NoneItem, Invalid("cannot match a untyped value"))
-      case (lhs: Atom, AtomExp(Hole(id))) =>
-        id.ty = lhs.ty; // todo: this has side effect
-        val t = Ref(id, (lhs.ty.level - 1).max(0), None)
+      case (lhs, Hole(id)) =>
+        id.ty = lhs.getTy; // todo: id.ty assignment has side effect
+        val t = Ref(id, (lhs.getTy.level - 1).max(0), None)
         items += (id.id -> t)
-        (t, lhs)
-      case (lhs: Atom, AtomExp(rhs)) => matchPat(lhs, curryTerm(rhs))
-      case (lhs: Invalid, _)         => (NoneItem, lhs)
-      case (_, rhs: Invalid)         => (NoneItem, rhs)
-      case (Atom(lhsVal, UniverseTy), Atom(rhsTy, UniverseTy)) =>
-        return (BinOp("<:", patHolder, rhsTy), lhs)
-      case (Atom(lhsVal, lhsTy), Atom(rhsTy, UniverseTy)) =>
-        val lhsCls = classRepr(lhsTy);
-        enumShape(rhsTy) match {
-          case Some(v)
-              if v.variantOf.map(isSubtype(_, lhsCls)).getOrElse(false) =>
-            val rhsVariant = v
-            debugln(
-              s"checkClsMatch!! $lhsCls ($lhsVal) by $rhsVariant (nothing)",
-            )
+        t
+      case (Hole(_), _) => err("cannot destructed hole")
+      case (Cons(_, lCls, isAdt), Atom(rhsTy, UniverseTy)) =>
+        return BinOp("<:", patHolder, rhsTy)
+      case (_, Atom(rhsTy, UniverseTy)) =>
+        return BinOp("<:", patHolder, rhsTy)
+      case (_, Atom(rv, rhsTy)) =>
+        return BinOp("==", patHolder, rv)
+      case (lhs: Atom, rhs: Cons) => // todo: can cons primitives
+        err(s"cannot destructed type ($lhs) by class ($rhs)")
+      case (Cons(lv, lCls, lAdt), Cons(rv, rCls, true)) =>
+        // todo: completely check nested adt
+        val related =
+          rCls.variantOf.map(isSubtype(_, lCls)).getOrElse(false) ||
+            isSubtype(rCls, lCls);
 
-            val rhsBase = rhsVariant.variantOf.get.asInstanceOf[Class];
+        debugln(
+          s"checkAdtMatch!! $lCls ($lv) by $rCls (variantOf: ${rCls.variantOf}), related: $related",
+        )
 
-            debugln(s"cls level $lhsCls, ${rhsBase}")
-            debugln(s"args level $lhsVal, nothing")
-            // val binding = args.iterator.flatten.map {
-            //   case syntax.Ident(name) => name
-            //   case _                  => ""
-            // }
-
-            val lhsParams = classParams(lhsVal, rhsBase, Some(rhsVariant));
-            val rhsArgTails = rhsVariant.args.getOrElse(List())
-            val rhsArgs = rhsBase.args.getOrElse(List()) ::: rhsArgTails;
-
-            val matched = matchArgs(lhsParams, rhsArgs);
-            (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
-          case rhsRestCls =>
-            val rhsClsOrTy =
-              rhsRestCls.map(Right(_)).getOrElse(weakClassRepr(rhsTy));
-            val rhsCls = rhsClsOrTy match {
-              case Left(rhsTy) =>
-                return (NoneItem, Invalid("cannot destructed"))
-              case Right(rhsCls) => rhsCls
-            }
-            if (rhsCls.id.isTrait) {
-              return (NoneItem, Invalid("trait cannot be destructed"))
-            }
-            if ((!isClass(rhsCls, lhsCls))) {
-              return (
-                NoneItem,
-                Invalid(s"class mismatch lhs: $lhsCls rhs: $rhsCls"),
-              )
-            }
-
-            // val isValueMatch = matchCases.headOption match {
-            //   case None                                       => ???
-            //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
-            //   case _                                          => true
-            // }
-            return (BinOp("<:", patHolder, rhsCls), lhs)
+        if (!related) {
+          return err(s"cannot destruct class $lCls by enum class $rCls")
         }
-      case (Atom(lhsVal, lhsTy), Atom(rhsVal, rhsTy)) =>
-        val lhsCls = classRepr(lhsTy);
-        enumShape(rhsTy) match {
-          case Some(v)
-              if v.variantOf.map(isSubtype(_, lhsCls)).getOrElse(false) =>
-            val rhsVariant = v
-            debugln(
-              s"checkClsMatch!! $lhsCls ($lhsVal) by $rhsVariant ($rhsVal)",
-            )
 
-            val rhsBase = rhsVariant.variantOf.get.asInstanceOf[Class];
+        val rhsBase = rCls.variantOf.get.asInstanceOf[Class];
 
-            debugln(s"cls level $lhsCls, ${rhsBase}")
-            debugln(s"args level $lhsVal, ${rhsVal}")
-            // val binding = args.iterator.flatten.map {
-            //   case syntax.Ident(name) => name
-            //   case _                  => ""
-            // }
+        debugln(s"cls level $lCls, $rCls, ${rhsBase}")
+        debugln(s"args level $lv, nothing")
 
-            val lhsParams = classParams(lhsVal, rhsBase, Some(rhsVariant));
-            val rhsArgTails = classArgs(rhsVal, rhsVariant)
-            val rhsArgs = rhsBase.args.getOrElse(List()) ::: rhsArgTails;
+        val args = rv match {
+          case None     => classBinds(rCls)
+          case Some(rv) => classArgs(rv, rCls)
+        }
+        val lhsParams = classParams(lv.get);
+        val params = if (lhsParams.length < args.length) {
+          lhsParams ::: classParams(rCls).drop(lhsParams.length)
+        } else {
+          lhsParams
+        }
 
-            println(s"lhsParams $lhsParams use $rhsArgs")
+        val matched = matchArgs(params, args);
+        EnumDestruct(patHolder, rCls, matched)
+      case (Cons(lv, lCls, lAdt), Cons(rv, rCls, false)) =>
+        if (rCls.id.isTrait) then return err("trait cannot be destructed")
+        if ((!isClass(rCls, lCls))) then
+          return err(s"class mismatch lhs: $lCls rhs: $rCls")
 
-            val matched = matchArgs(lhsParams, rhsArgs);
-            (EnumDestruct(lhsVal, rhsVariant, matched), lhs)
-          case rhsRestCls =>
-            val rhsClsOrTy =
-              rhsRestCls.map(Right(_)).getOrElse(weakClassRepr(rhsTy));
-            val rhsCls = rhsClsOrTy match {
-              case Left(rhsTy) =>
-                if (eqType(lhsTy, rhsTy)) {
-                  return (BinOp("==", patHolder, rhsVal), lhs)
-                }
-
-                return (
-                  NoneItem,
-                  Invalid(s"cannot destructed primitive types on $lhsCls"),
-                )
-              case Right(rhsCls) => rhsCls
-            }
-            if (rhsCls.id.isTrait) {
-              return (NoneItem, Invalid("trait cannot be destructed"))
-            }
-            if (!isClass(rhsCls, lhsCls)) {
-              return (
-                NoneItem,
-                Invalid(s"class mismatch lhs: $lhsCls rhs: $rhsCls"),
-              )
+        rv match {
+          case Some(rv) if eqClass(lCls, rCls) => {
+            val args = classArgs(rv, rCls)
+            val lhsParams = classParams(lv.get);
+            val params = if (lhsParams.length < args.length) {
+              lhsParams ::: classParams(rCls).drop(lhsParams.length)
+            } else {
+              lhsParams
             }
 
-            // val isValueMatch = matchCases.headOption match {
-            //   case None                                       => ???
-            //   case Some(MatchCaseInfo(_, _, _: EnumDestruct)) => false
-            //   case _                                          => true
-            // }
-            rhsVal match {
-              case TupleLit(elems) if eqClass(lhsCls, rhsCls) =>
-                val lhsParams =
-                  classParams(lhsVal, rhsCls, None);
-                val rhsArgTails = classArgs(rhsVal, rhsCls)
-                val rhsArgs = rhsCls.args.getOrElse(List()) ::: rhsArgTails;
-
-                val matched = matchArgs(lhsParams, rhsArgs);
-                (ClassDestruct(lhsVal, rhsCls, matched), lhs)
-              case _ =>
-                (BinOp("==", patHolder, rhsVal), lhs)
-            }
+            val matched = matchArgs(params, args);
+            ClassDestruct(patHolder, rCls, matched)
+          }
+          case None     => BinOp("<:", patHolder, rCls)
+          case Some(rv) => BinOp("==", patHolder, rv)
         }
     }
   }
@@ -442,63 +407,39 @@ trait TypeEnv { self: Env =>
     // take args and rest params
     val params = cls.params
     val args = cls.args.getOrElse(List())
-    args ::: params.drop(args.length).toList
-  }
-
-  final def classSelfParams(
-      cls: Class,
-      variant: Option[Class],
-  ): List[Item] = {
-    if (variant.isEmpty) {
-      return classBinds(cls)
-    }
-
-    val clsParams = classBinds(cls).take(cls.rawParams.map(_.size).getOrElse(0))
-    val varaintParams = variant.map(classBinds).getOrElse(List())
-    clsParams ::: varaintParams
+    val variantBind = cls.variantOf
+      .map {
+        case v: Class => classBinds(v)
+        case _        => List()
+      }
+      .getOrElse(List())
+    variantBind ::: args ::: params.drop(args.length).toList
   }
 
   @tailrec
   final def classParams(
       v: Item,
-      cls: Class,
-      variant: Option[Class],
+      // cls: Class,
+      // variant: Option[Class],
   ): List[Item] = {
-    logln(s"classParams $v by $cls of $variant")
+    debugln(s"classParams $v")
     v match {
-      case Ref(_, _, Some(v)) => classParams(v, cls, variant)
-      case Var(id, _, _)      => classParams(id.ty, cls, variant)
-      case Param(of, _)       => classParams(of, cls, variant)
-      case SelfVal if selfRef.isDefined =>
-        classParams(selfRef.get, cls, variant)
+      case Ref(_, _, Some(v))           => classParams(v)
+      case Var(id, _, _)                => classParams(id.ty)
+      case Param(of, _)                 => classParams(of)
+      case SelfVal if selfRef.isDefined => classParams(selfRef.get)
       case v: ClassInstance =>
-        if (eqClass(v.con, cls)) {
-          val args = classSelfParams(v.con, variant)
-          val args2 = v.args
-          return args.dropRight(args2.length) ::: args2
-        }
-        if (variant.isDefined && eqClass(v.con, variant.get)) {
-          println(s"params variant ($cls $variant) !")
-          return classSelfParams(cls, variant) ::: classBinds(v.con)
-        }
-        err(s"cannot destruct case 1 $v by $cls")
         val params = classBinds(v.con);
-        val instances = params.dropRight(v.args.length) ::: v.args;
-        if (instances.length != cls.params.length) {
-          err(s"internal error: $instances is not correct $cls")
-        }
-        instances
-      case v: Class if eqClass(v, cls) =>
-        println(s"params casexxx ($cls $variant) !")
-        classSelfParams(v, variant)
+        params.dropRight(v.args.length) ::: v.args
+      case v: Class => classBinds(v)
       case v =>
-        err(s"cannot destruct case 2 $v by $cls")
-        classSelfParams(cls, variant)
+        err(s"cannot extract class params $v")
+        List()
     }
   }
 
   def classArgs(v: Item, cls: Class): List[Item] = {
-    logln(s"classArgs $v by $cls")
+    debugln(s"classArgs $v by $cls")
     v match {
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
@@ -509,10 +450,9 @@ trait TypeEnv { self: Env =>
       case TupleLit(items) =>
         var reorded =
           matchParams(cls.varsParams, items.toList, (param, value) => value)
-        // take args and rest params
-        val params = cls.params
-        val args = cls.args.getOrElse(List()) ::: reorded
-        args ::: params.drop(args.length).toList
+        // todo: dropped all vars params
+        val preArgs = classBinds(cls).dropRight(cls.varsParams.length);
+        preArgs ::: reorded
       case v =>
         err(s"cannot destruct case 3 $v by $cls")
         List()
@@ -582,7 +522,9 @@ trait TypeEnv { self: Env =>
       case v: Var                               => canonicalTy(v.id.ty)
       case BoundField(_, by, _, EnumField(v))   => v.copy(variantOf = Some(by))
       case RefItem(lhs, isMut) => RefItem(canonicalTy(lhs), isMut)
-      case _                   => rhs
+      case ItemE(item)         => canonicalTy(item)
+      // todo: canonical hkt types
+      case _ => rhs
     }
   }
 
@@ -678,7 +620,7 @@ trait TypeEnv { self: Env =>
   }
 
   def tyOf(lhs: Item): Option[Type] = {
-    debugln(s"tyOf $lhs")
+    debugln(s"tyOf $lhs (level ${lhs.level})")
     lhs match {
       case _: Integer => Some(IntegerTy(32, false))
       case _: Rune    => Some(IntegerTy(32, false))
@@ -700,6 +642,7 @@ trait TypeEnv { self: Env =>
       case SelfVal                         => Some(SelfTy)
       case Ref(id, _, Some(v))             => tyOf(v)
       case Ref(id, level, _) if level == 0 => Some(id.ty)
+      case v: Var if v.level > 0           => tyOf(items(v.id.id))
       case v: Var                          => Some(v.id.ty)
       case v: Param                        => tyOf(v.of)
       case TodoLit                         => Some(BottomTy)
