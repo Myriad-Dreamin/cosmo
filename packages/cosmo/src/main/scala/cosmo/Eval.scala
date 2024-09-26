@@ -81,6 +81,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     newType("Nothing", BottomTy)
     newType("str", StrTy)
     newType("any", TopTy)
+    newType("cstd", CIdent("std", List(), 1))
     newType("Ref", RefTy(true, false))
     newType("Mut", RefTy(false, true))
     newType("RefMut", RefTy(true, true))
@@ -347,7 +348,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
     def dField(fields: FieldMap, field: String): Option[VField] = {
       fields.get(field).map {
-        case e: (EDefField | EEnumField) => 
+        case e: (EDefField | EEnumField) =>
           val f = checkField(e)
           fields.addOne(f.name -> f); f
         case f => f
@@ -726,7 +727,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       }
   }
 
-  def placeVal(v: Item, m: Item): Item =  m match {
+  def placeVal(v: Item, m: Item): Item = m match {
     case Region(stmts, semi) => Region(v +: stmts, semi)
     case m                   => Region(List(v, m), false)
   }
@@ -792,7 +793,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val annotated = ret_ty.map(tyTerm)
     val infer = annotated.getOrElse(createInfer(info, 1));
     val fn = Fn(info, params, infer, None, 0);
-    if !fn.ret_ty.isInstanceOf[InferVar] then checked += (info.id.id.toLong -> fn)
+    if !fn.ret_ty.isInstanceOf[InferVar] then
+      checked += (info.id.id.toLong -> fn)
     noteDecl(fn);
     val body = rhs.map(e => normalize(valTerm(e)))
     val bodyTy = body.flatMap(tyOf)
@@ -830,12 +832,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def checkImpl(e: ImplExpr) = {
     val ImplExpr(info, ps, constraints, i, c, fields) = e
+    val params = resolveParams(ps);
     val cls = tyTerm(c);
     val ss2 = selfRef; selfRef = Some(cls);
     val ss = selfImplRef; selfImplRef = Some(e);
 
     val iface = i.map(tyTerm);
-    val params = resolveParams(ps);
     val impl2 = Impl(info, params, iface.get, cls, fields);
     selfImplRef = Some(impl2);
     noteDecl(impl2);
@@ -926,7 +928,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case v: Var if v.init.isEmpty  => v.id.defName(stem = false)
       case v: Fn                     => v.id.defName(stem = false)
       // case Ref(id, _, Some(_))        => id.defName(stem = false)
-      case Ref(_, _, Some(v))        => storeTy(v)
+      case Ref(_, _, Some(v)) => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
       case Apply(lhs, rhs) => {
