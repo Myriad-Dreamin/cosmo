@@ -1,3 +1,8 @@
+
+@noCore();
+
+import _ from std.prelude.core_stage1
+
 class Nat {
   case Zero
   case Succ(Nat)

@@ -19,8 +19,12 @@ class CodeGen(implicit val env: Env) {
   // Generate Cxx code from the env
   def gen(): String = {
     val itemCode = env.module.stmts.map(genDef).mkString("\n")
-    val errorCode = env.errors.mkString("\n")
-    s"$prelude$itemCode\n#if (${errorCode.length} > 0)\n#error \"cosmo finds some error\"\n#endif\n#if 0\n$errorCode\n#endif$postlude"
+    val errorShow = if (!env.errors.isEmpty) {
+      s"\n#error \"cosmo found some error\"\n#if 0\n${env.errors.mkString("\n")}\n#endif"
+    } else {
+      ""
+    }
+    Seq(prelude, itemCode, errorShow, postlude).mkString("\n")
   }
 
   def genField(ast: ir.VField): String = {
@@ -33,8 +37,8 @@ class CodeGen(implicit val env: Env) {
 
   def mayGenDef(ast: ir.Item): Option[String] = {
     val info = ast match {
-      case ir.Var(info, _, _) => Some(info)
-      case ir.Fn(info, _, _)  => Some(info)
+      case ir.Var(info, _, _)      => Some(info)
+      case ir.Fn(info, _, _, _, _) => Some(info)
       case ir.Class(info, _, _, _, _, _) =>
         Some(info)
       case ir.Impl(info, _, _, _, _) => Some(info)
@@ -44,19 +48,19 @@ class CodeGen(implicit val env: Env) {
     val nsb = if inClass then "" else nsb_
     val nse = if inClass then "" else nse_
     val res: String = ast match {
-      case ir.NoneItem   => ""
-      case ir.DeclRef(d) => return mayGenDef(d)
-      case Fn(defInfo, Sig(params, retTy, body), level) if level > 0 =>
+      case ir.NoneItem => ""
+      case Fn(info, params, retTy, body, level)
+          if level > 0 && !info.isDependent =>
+        s"/** optimized cosmo type function ${info.defName()} */"
+      case Fn(defInfo, params, retTy, body, level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
-        val bodyCode =
-          if defInfo.isDependent then s" using type =${storeTy(body.get)};"
-          else ""
+        val bodyCode = s" using type =${storeTy(body.get)};"
         s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
-      case Fn(defInfo, Sig(None, ret_ty, body), _) =>
+      case Fn(defInfo, None, ret_ty, body, _) =>
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(defInfo, Sig(Some(params), ret_ty, body), _) =>
+      case Fn(defInfo, Some(params), ret_ty, body, _) =>
         val name = defInfo.defName(stem = true)
         val hasSelf = params.exists(_.id.name == "self")
         val selfIsConst = defInfo.inClass && hasSelf && {
@@ -203,10 +207,13 @@ class CodeGen(implicit val env: Env) {
             }
             .mkString("\n    ")
         genInImpl = gii
+        val usingSelf =
+          if (defInfo.inClass) ""
+          else s"using Self = $name;" // todo: self reference
         if (variants.isEmpty) {
-          s"$nsb$templateCode struct $name {using Self = $name;$varsCode$emptyConsCode$consCode$defsCode};$nse"
+          s"$nsb$templateCode struct $name {$usingSelf$varsCode$emptyConsCode$consCode$defsCode};$nse"
         } else {
-          s"""$nsb$templateCode struct $name {using Self = ${name};using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
+          s"""$nsb$templateCode struct $name {${usingSelf}using self_t = std::unique_ptr<Self>; $bodyCode;std::variant<${dataCode}> data;
 
   enum { $enumIdxCode };
 
@@ -309,11 +316,12 @@ class CodeGen(implicit val env: Env) {
         }
         s"static inline $ty k${name.capitalize}Default = ${initStr};"
       else ""
-    val initStr =
-      if (init.isEmpty) then ""
-      else if (info.inClass) then s" = k${name.capitalize}Default"
-      else s" = ${expr(init.getOrElse(NoneItem))}"
-    s"$kInit$constantStr$ty $name$initStr"
+    val (initBefore, initExpr) =
+      if (init.isEmpty) then ("", "")
+      else if (info.inClass) then ("", s"k${name.capitalize}Default")
+      else moveExpr(init.getOrElse(NoneItem))(false)
+    val initStr = if (initExpr.isEmpty) "" else s" = $initExpr"
+    s"$initBefore$kInit$constantStr$ty $name$initStr"
   }
 
   def paramTy(ty: Type): String = {
@@ -421,14 +429,11 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case ir.DeclRef(d) => return genDef(d)
-      case v: Term       => v.id.env.varByRef(v)
-      case v: Fn         => v.id.defName()
+      case v: Ref => v.id.env.varByRef(v)
+      case v: Fn  => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.While(cond, body) =>
-        return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.For(DeclRef(name: Var), iter, body) =>
+      case ir.For(name: Var, iter, body) =>
         return s"for(auto ${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
       case ir.Continue() => return "continue"
@@ -540,53 +545,50 @@ class CodeGen(implicit val env: Env) {
         s"${base}_cons($initArgs)"
       }
       case v: ir.ClassInstance => {
-        val args = v.args.flatMap {
-          case v: KeyedArg => Some((v.key, v.value))
-          case v           => None
-        }.toMap
-        val positions = v.args.iterator.flatMap {
-          case v: KeyedArg => None
-          case v           => Some(v)
-        }.iterator
         val ty = storeTy(v.con)
-        val vars = v.con.vars.map { v =>
-          val s = v.item.id.name
-          val value = args.get(Str(s).e).orElse(positions.nextOption)
-          value.map(expr).getOrElse(s"$ty::k${s.capitalize}Default")
+        val vars = v.con.vars.zip(v.args).map { case (p, a) =>
+          a match {
+            case Opaque(Some("kDefault"), None) =>
+              val s = p.item.id.name
+              s"$ty::k${s.capitalize}Default"
+            case v => expr(v)
+          }
         }
-        val initArgs = vars.mkString(", ")
-
-        s"$ty($initArgs)"
+        s"$ty(${vars.mkString(", ")})"
       }
-      case v: ir.EnumDestruct if v.bindings.isEmpty => s""
-      case v: ir.EnumDestruct => {
-
-        // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
-        // auto n = std::move(*nn);
-
-        // val base = storeTy(v.variant.variantOf.get);
-        // val namelist = v.bindings
-        //   .map {
-        //     case "_" => ""
-        //     case s   => s"_destructed_${s}"
-        //   }
-        //   .mkString(", ")
-        // val rebind = v.bindings
-        //   .zip(v.variant.vars)
-        //   .map {
-        //     case ("_", _) => ""
-        //     case (s, v) => {
-        //       val defInfo = v.item.id
-        //       val name = defInfo.nameStem(defInfo.id.id)
-        //       val ty = defInfo.instantiateTy
-        //       val mayDeref = if ty == SelfTy then "*" else ""
-        //       s"auto $s = std::move(${mayDeref}_destructed_${s});"
-        //     }
-        //   }
-        //   .mkString("\n")
-        // val vname = v.variant.id.defName(stem = true)
-        // s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
-        ???
+      case v: ir.EnumDestruct                        => ???
+      case v: ir.ClassDestruct if v.bindings.isEmpty => s""
+      case v: ir.ClassDestruct => {
+        val base = storeTy(v.cls.variantOf.get);
+        val bindingNames = v.bindings.filter(_.level == 0).map {
+          case d: DeclItem => d.id.nameStem(d.id.id.id)
+          case _           => "_"
+        }
+        val namelist = bindingNames
+          .map {
+            case "_" => ""
+            case s   => s"_destructed_${s}"
+          }
+          .mkString(", ")
+        val rebind = bindingNames
+          .zip(v.cls.vars)
+          .map {
+            case ("_", _) => ""
+            case (s, v) => {
+              val defInfo = v.item.id
+              val name = defInfo.nameStem(defInfo.id.id)
+              val ty = defInfo.instantiateTy
+              val mayDeref = if ty == SelfTy then "*" else ""
+              s"auto &&$s = std::move(${mayDeref}_destructed_${s});"
+            }
+          }
+          .mkString("\n")
+        if (bindingNames.isEmpty) {
+          ""
+        } else {
+          val vname = v.cls.id.defName(stem = true)
+          s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
+        }
       }
       case v: ir.TypeMatch => {
         val clsName = storeTy(v.by)
@@ -601,14 +603,27 @@ class CodeGen(implicit val env: Env) {
         // todo: value receiver
         return s"switch(${expr(v.lhs)}.data.index()) {${cases.mkString("\n")}\n$orElse}"
       }
-      case v: ir.ValueMatch =>
+      case v: ir.ValueMatch if canCSwitch(v.by) =>
         val cases = v.cases.map { case (cond, body) =>
           val name = expr(cond)
           s"case $name: ${blockizeExpr(body, recv)}; break;"
         }
-        val orElse =
-          v.orElse.map(e => s"default: ${blockizeExpr(e, recv)}").getOrElse("")
+        val orElse = v.orElse match {
+          case ir.NoneItem => ""
+          case e           => s"default: ${blockizeExpr(e, recv)}"
+        }
         return s"switch(${expr(v.lhs)}) {${cases.mkString("\n")}\n$orElse}"
+      case v: ir.ValueMatch => {
+        val cases = v.cases.map { case (cond, body) =>
+          val name = expr(cond)
+          s"if(${expr(v.lhs)} == $name) ${blockizeExpr(body, recv)}"
+        }
+        val orElse = v.orElse match {
+          case ir.NoneItem => ""
+          case e           => s"else ${blockizeExpr(e, recv)}"
+        }
+        return cases.mkString("", "else ", orElse)
+      }
       case a => {
         logln(s"unhandled expr: $a")
         a.toString()
@@ -669,17 +684,23 @@ class CodeGen(implicit val env: Env) {
 }
 
 def isStaticMethod(f: ir.Item): Boolean = f match {
-  case ir.Fn(_, sig, _) => isStaticMethod(sig)
-  case ir.Sig(params, _, _) =>
-    !params.iterator.flatten.exists(p => p.id.name == "self")
-  case _ => false
+  case f: ir.Fn => f.selfParam.isEmpty
+  case _        => false
 }
 
 def lhsIsType(lhs: ir.Item): Boolean = {
   lhs match {
-    case ir.Term(_, _, _) if lhs.level >= 1 => true
-    case ir.Select(lhs, _)                  => lhsIsType(lhs)
-    case _                                  => false
+    case ir.Ref(_, _, _) if lhs.level >= 1 => true
+    case ir.Select(lhs, _)                 => lhsIsType(lhs)
+    case _                                 => false
+  }
+}
+
+def canCSwitch(lhs: ir.Item): Boolean = {
+  lhs match {
+    case _: (IntegerTy | FloatTy) => true
+    case CEnumTy                  => true
+    case _                        => false
   }
 }
 

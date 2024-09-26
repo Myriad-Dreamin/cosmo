@@ -1,4 +1,6 @@
 
+@noCore();
+
 import std::result;
 import std::str;
 

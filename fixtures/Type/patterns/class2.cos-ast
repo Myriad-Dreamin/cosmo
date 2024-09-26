@@ -1,0 +1,5 @@
+class T { val x = 1; val y = 1; }
+-----
+T(x: 1, y: 2) match T
+T(x: 1, y: 2) match T(x: 1)
+T(x: 1) match T(x: 1)

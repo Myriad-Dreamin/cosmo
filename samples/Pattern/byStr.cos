@@ -7,5 +7,5 @@ def main() = {
     case "hello" => println("world");
     case "world" => println("hello");
     case _ => println("neither");
-  }
+  };
 }

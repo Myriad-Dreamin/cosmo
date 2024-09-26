@@ -20,8 +20,7 @@ def writeIfDiff(
       system.writeFile(path, content)
     }
   } else {
-    val dirPath = path.substring(0, path.lastIndexOf("/"))
-    system.mkdir(NodePath.resolve(dirPath))
+    system.mkdir(NodePath.dirname(path))
     system.writeFile(path, content)
   }
 }

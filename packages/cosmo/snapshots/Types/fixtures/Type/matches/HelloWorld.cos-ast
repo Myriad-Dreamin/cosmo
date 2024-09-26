@@ -1,0 +1,6 @@
+[T match {
+  case T => 1
+}] => 1, err: ""
+[T match {
+  case _ => 1
+}] => 1, err: ""

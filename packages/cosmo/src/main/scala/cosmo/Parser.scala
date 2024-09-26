@@ -68,14 +68,14 @@ object Parser {
   def int[$: P]: P[BigInt] =
     P(octinteger | hexinteger | bininteger | decimalinteger)
   def decimalinteger[$: P]: P[BigInt] =
-    P(nonzerodigit ~ digit.rep | "0").!.map(scala.BigInt(_))
+    P(nonzerodigit ~~ digit.rep | "0").!.map(scala.BigInt(_))
   def octinteger[$: P]: P[BigInt] = P(
-    "0" ~ ("o" | "O") ~ octdigit.rep(1).! | "0" ~ octdigit.rep(1).!,
+    "0" ~ ("o" | "O") ~~ octdigit.rep(1).! | "0" ~ octdigit.rep(1).!,
   ).map(scala.BigInt(_, 8))
   def hexinteger[$: P]: P[BigInt] =
-    P("0" ~ ("x" | "X") ~ hexdigit.rep(1).!).map(scala.BigInt(_, 16))
+    P("0" ~ ("x" | "X") ~~ hexdigit.rep(1).!).map(scala.BigInt(_, 16))
   def bininteger[$: P]: P[BigInt] =
-    P("0" ~ ("b" | "B") ~ bindigit.rep(1).!).map(scala.BigInt(_, 2))
+    P("0" ~ ("b" | "B") ~~ bindigit.rep(1).!).map(scala.BigInt(_, 2))
   def nonzerodigit[$: P]: P[Unit] = P(CharIn("1-9"))
   def octdigit[$: P]: P[Unit] = P(CharIn("0-7"))
   def bindigit[$: P]: P[Unit] = P("0" | "1")
@@ -83,12 +83,12 @@ object Parser {
 
   def float[$: P]: P[BigDecimal] = P(pointfloat | exponentfloat)
   def pointfloat[$: P]: P[BigDecimal] =
-    P(intpart.? ~ fraction | intpart ~ "." ~~ !".").!.map(BigDecimal(_))
+    P(intpart.? ~~ fraction | intpart ~~ "." ~~ !".").!.map(BigDecimal(_))
   def exponentfloat[$: P]: P[BigDecimal] =
-    P((intpart | pointfloat) ~ exponent).!.map(BigDecimal(_))
+    P((intpart | pointfloat) ~~ exponent).!.map(BigDecimal(_))
   def intpart[$: P]: P[BigDecimal] = P(digit.rep(1)).!.map(BigDecimal(_))
-  def fraction[$: P]: P[Unit] = P("." ~ digit.rep(1))
-  def exponent[$: P]: P[Unit] = P(("e" | "E") ~ ("+" | "-").? ~ digit.rep(1))
+  def fraction[$: P]: P[Unit] = P("." ~~ digit.rep(1))
+  def exponent[$: P]: P[Unit] = P(("e" | "E") ~~ ("+" | "-").? ~ digit.rep(1))
 
   // Terms
   def term[$: P]: P[Node] = P(

@@ -1,4 +1,6 @@
 
+@noCore();
+
 import cSys from "@lib/c++/cstdlib"
 
 import _ from std::prelude::lang

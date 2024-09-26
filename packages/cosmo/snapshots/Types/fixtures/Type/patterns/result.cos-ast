@@ -1,0 +1,5 @@
+[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)] => EnumDestruct(Str($),class(Result::Ok),List(BinOp(<:,Str($),ref(i32)), BinOp(<:,Str($),ref(i32)), BinOp(==,Str($),Integer(1)))), err: ""
+[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(BinOp(<:,Str($),ref(i32)), BinOp(<:,Str($),ref(i32)), ref(t))), err: ""
+[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)] => EnumDestruct(Str($),class(Result::Ok),List(BinOp(<:,Str($),ref(i32)), BinOp(<:,Str($),ref(i32)), BinOp(==,Str($),Integer(1)))), err: ""
+[v0 match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(BinOp(<:,Str($),ref(i32)), BinOp(<:,Str($),ref(i32)), ref(t))), err: ""
+[v1 match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(BinOp(<:,Str($),ref(i32)), BinOp(<:,Str($),ref(i32)), ref(t))), err: ""

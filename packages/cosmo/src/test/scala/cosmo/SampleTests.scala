@@ -47,10 +47,10 @@ class SampleTest extends TestBase:
   test("Class/jsonValue") {
     compilePath("samples/Class/jsonValue.cos")
   }
-  test("Class/nat") {
+  test("Class/nat") { // broken by self ref
     compilePath("samples/Class/nat.cos")
   }
-  test("Class/natCons") {
+  test("Class/natCons") { // broken by self ref
     compilePath("samples/Class/natCons.cos")
   }
   test("Class/method") {
@@ -95,7 +95,7 @@ class SampleTest extends TestBase:
   test("Format/templateLit") {
     compilePath("samples/Format/templateLit.cos")
   }
-  test("Pattern/natAdd".only) {
+  test("Pattern/natAdd") {
     compilePath("samples/Pattern/natAdd.cos")
   }
   test("Pattern/option") {
@@ -104,7 +104,7 @@ class SampleTest extends TestBase:
   test("Pattern/result") {
     compilePath("samples/Pattern/result.cos")
   }
-  test("Pattern/byStr") {
+  test("Pattern/byStr".only) {
     compilePath("samples/Pattern/byStr.cos")
   }
   test("Io/readFile") {

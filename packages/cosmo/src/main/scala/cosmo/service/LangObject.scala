@@ -7,7 +7,7 @@ class LangObject(val item: Item) {
     case i: Class        => Some(i.id)
     case i: EnumVariant  => Some(i.id)
     case i: Impl         => Some(i.id)
-    case i: Term         => Some(i.id)
+    case i: Ref          => Some(i.id)
     case i: Fn           => Some(i.id)
     case i: CModule      => Some(i.id)
     case i: NativeModule => Some(i.id)
@@ -23,15 +23,15 @@ class LangObject(val item: Item) {
     @tailrec
     def go(i: Item): String =
       i match {
-        case Term(_, _, Some(v)) => go(v)
-        case i: Var              => i.pretty
-        case i: Class            => i.pretty
-        case i: Fn               => i.pretty
-        case i: Impl             => i.pretty
-        case i: NativeModule     => i.pretty
-        case i: CModule          => i.pretty
-        case i: Param            => i.pretty
-        case i                   => i.toString
+        case Ref(_, _, Some(v)) => go(v)
+        case i: Var             => i.pretty
+        case i: Class           => i.pretty
+        case i: Fn              => i.pretty
+        case i: Impl            => i.pretty
+        case i: NativeModule    => i.pretty
+        case i: CModule         => i.pretty
+        case i: Param           => i.pretty
+        case i                  => i.toString
       }
     go(item)
   }
