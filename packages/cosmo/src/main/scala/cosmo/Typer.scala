@@ -25,7 +25,7 @@ trait TypeEnv { self: Env =>
   }
 
   type ExtractedPat =
-    NoneKind | Ref | Bool | BinOp | EnumDestruct | ClassDestruct
+    NoneKind | Var | Bool | BinOp | EnumDestruct | ClassDestruct
 
   final def matchPat(lhs: PatShape, rhs: PatShape): ExtractedPat = {
     import PatShape._;
@@ -33,14 +33,18 @@ trait TypeEnv { self: Env =>
     (lhs, rhs) match {
       case (lhs, Hole(id)) =>
         id.ty = lhs.getTy; // todo: id.ty assignment has side effect
-        val t = Ref(id, (lhs.getTy.level - 1).max(0), None)
+        val t = Var(id, None, (id.ty.level - 1).max(0))
         items += (id.id -> t)
         t
       case (Hole(_), _) => err("cannot destruct hole")
       case (Atom(lhsTy, UniverseTy), Atom(rhsTy, UniverseTy)) =>
-        return Bool(isSubtype(lhsTy, rhsTy))
+        val v = isSubtype(canonicalTy(lhsTy), canonicalTy(rhsTy));
+        if !v then err(s"cannot match type $lhsTy by $rhsTy")
+        return Bool(v)
       case (Cons(_, lCls, _), Atom(rhsTy, UniverseTy)) =>
-        return Bool(isSubtype(lCls, rhsTy))
+        val v = isSubtype(lCls, canonicalTy(rhsTy));
+        if !v then err(s"cannot match class $lCls by $rhsTy")
+        return Bool(v)
       case (_, Atom(rv, rhsTy)) =>
         return BinOp("==", patHolder, rv)
       case (lhs: Atom, rhs: Cons) => // todo: can cons primitives
@@ -56,7 +60,7 @@ trait TypeEnv { self: Env =>
         val rhsBase = rCls.variantOf.get.asInstanceOf[Class];
 
         debugln(s"cls level $lCls, $rCls, ${rhsBase}")
-        debugln(s"args level $lv, nothing")
+        debugln(s"args level $lv, $rv")
 
         val args = rv match {
           case None     => classBinds(rCls)
@@ -89,7 +93,10 @@ trait TypeEnv { self: Env =>
             val matched = matchSeq(params, args);
             ClassDestruct(patHolder, rCls, matched)
           }
-          case None     => BinOp("<:", patHolder, rCls)
+          case None =>
+            val v = isSubtype(lCls, rCls);
+            if !v then err(s"cannot match class $lCls by $rCls")
+            return Bool(v)
           case Some(rv) => BinOp("==", patHolder, rv)
         }
     }
@@ -132,24 +139,25 @@ trait TypeEnv { self: Env =>
 
   def curryView(v: Item, ty: Type): PatShape = {
     debugln(s"curryView $v $ty")
-    if ty.isInstanceOf[ClassInstance] then throw Exception("what's you?")
 
-    canonicalTy(v) match {
-      case norm: Class =>
-        val adt = enumShape(norm)
-        val isAdt = adt.isDefined
-        val cls = adt.getOrElse(norm)
-        PatShape.Cons(None, cls, isAdt)
-      case _ =>
+    if v.level > 0 then {
+      weakClassRepr(canonicalTy(v)) match {
+        case Right(norm: Class) =>
+          val adt = enumShape(norm)
+          val isAdt = adt.isDefined
+          val cls = adt.getOrElse(norm)
+          return PatShape.Cons(None, cls, isAdt)
+        case Left(_) =>
+      }
     }
 
-    canonicalTy(ty) match {
-      case norm: Class =>
+    weakClassRepr(canonicalTy(ty)) match {
+      case Right(norm: Class) =>
         val adt = enumShape(norm)
         val isAdt = adt.isDefined
         val cls = adt.getOrElse(norm)
         PatShape.Cons(Some(v), cls, isAdt)
-      case _ => PatShape.Atom(v, ty)
+      case Left(_) => PatShape.Atom(v, ty)
     }
   }
 
@@ -249,10 +257,10 @@ trait TypeEnv { self: Env =>
     v match {
       case v: ClassInstance =>
         if (eqClass(v.con, cls)) {
-          return v.args
+          return classBinds(v.con).dropRight(v.con.varsParams.length) ::: v.args
         }
         err(s"cannot destruct case 4 $v by $cls")
-        v.args
+        classBinds(cls).dropRight(cls.varsParams.length) ::: v.args
       case TupleLit(items) =>
         var reorded =
           matchParams(cls.varsParams, items.toList, (param, value) => value)
@@ -451,9 +459,9 @@ trait TypeEnv { self: Env =>
         selfRef.map(canonicalTy).getOrElse(TopTy)
       case SelfVal                              => SelfTy
       case Ref(_, level, Some(v)) if level == 1 => canonicalTy(v)
-      case v: Ref                               => canonicalTy(v.id.ty)
-      case v: Var                               => canonicalTy(v.id.ty)
-      case BoundField(_, by, _, EnumField(v))   => v.copy(variantOf = Some(by))
+      // case v: Ref                               => canonicalTy(v.id.ty)
+      // case v: Var                               => canonicalTy(v.id.ty)
+      case BoundField(_, by, _, EnumField(v)) => v.copy(variantOf = Some(by))
       case RefItem(lhs, isMut) => RefItem(canonicalTy(lhs), isMut)
       case ItemE(item)         => canonicalTy(item)
       // todo: canonical hkt types
@@ -471,10 +479,20 @@ trait TypeEnv { self: Env =>
       case TopTy | UniverseTy => true
       case BottomTy           => false
       case IntegerTy(_, _) | StrTy | BoolTy if isBuiltin(lhs, rhs) => true
+      case v: Var if v.level == 1 =>
+        lhs match {
+          case Ref(_, _, Some(v))  => isSubtype(v, rhs)
+          case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
+          case Var(id, _, _)       => id.id == v.id.id
+          case p: Param            => isSubtype(p.of, rhs)
+          case BottomTy            => true
+          case _                   => false
+        }
       case _ => {
         lhs match {
           case Ref(_, _, Some(v))  => isSubtype(v, rhs)
           case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
+          case p: Param            => isSubtype(p.of, rhs)
           case BottomTy            => true
           case StrTy | BoolTy      => isBuiltin(lhs, rhs)
           case _                   => false
@@ -497,34 +515,39 @@ trait TypeEnv { self: Env =>
   }
 
   final def weakClassRepr(lhs: Type): Either[Type, Class] = {
-    val cls = classRepr(lhs)
-    if (cls.id.isBuiltin) {
-      Left(cls.resolvedAs.get)
-    } else {
-      Right(cls)
+    classRepr(lhs) match {
+      case Some(cls) =>
+        if (cls.id.isBuiltin) {
+          Left(cls.resolvedAs.get)
+        } else {
+          Right(cls)
+        }
+      case None => Left(lhs)
     }
   }
 
   @tailrec
-  final def classRepr(lhs: Type): Class = {
-    lhs match {
+  final def classRepr(lhs: Type): Option[Class] = {
+    Some(lhs match {
       case ClassInstance(con, _) => con
       case v: Class              => v
-      case Ref(_, _, Some(v))    => classRepr(v)
-      case RefItem(lhs, isMut)   => classRepr(lhs)
-      case Var(id, _, _)         => classRepr(id.ty)
-      case Param(of, _)          => classRepr(of)
-      case _ if lhs.isBuilitin   => builtinClasses(lhs)
-      case l @ (Bool(_))         => builtinClasses(l.ty)
-      case l @ (Str(_))          => builtinClasses(l.ty)
-      case l @ (Integer(_))      => builtinClasses(l.ty)
-      case Unresolved(_)         => Class.empty(this, false)
+      case Ref(_, _, Some(v))    => return classRepr(v)
+      case Ref(_, _, None)       => return None
+      case RefItem(lhs, isMut)   => return classRepr(lhs)
+      case Var(id, _, _)         => return classRepr(id.ty)
+      case Param(of, _)          => return classRepr(of)
+      case SelfTy              => return classRepr(selfRef.getOrElse(NoneItem))
+      case _ if lhs.isBuilitin => builtinClasses(lhs)
+      case l @ (Bool(_))       => builtinClasses(l.ty)
+      case l @ (Str(_))        => builtinClasses(l.ty)
+      case l @ (Integer(_))    => builtinClasses(l.ty)
+      case Unresolved(_) | NoneKind(_) => return None
       case _ => throw new Exception(s"cannot get class $lhs")
-    }
+    })
   }
 
   def implClass(lhs: Item, goal: Class): Option[Item] = {
-    val cls = classRepr(lhs)
+    val cls = classRepr(lhs).get
     debugln(
       s"implClass? $goal(${goal.id.isTrait}) for $lhs ($cls) impls ${cls.id.impls} ",
     )
@@ -576,11 +599,12 @@ trait TypeEnv { self: Env =>
       case Ref(id, _, Some(v))             => tyOf(v)
       case Ref(id, level, _) if level == 0 => Some(id.ty)
       case v: Var if v.level > 0           => tyOf(items(v.id.id))
-      case v: Var                          => Some(v.id.ty)
-      case v: Param                        => tyOf(v.of)
-      case TodoLit                         => Some(BottomTy)
-      case reg: Region if reg.semi         => Some(UnitTy)
-      case reg: Region                     => reg.stmts.lastOption.flatMap(tyOf)
+      case v: Var =>
+        Some(v.id.ty)
+      case v: Param                => tyOf(v.of)
+      case TodoLit                 => Some(BottomTy)
+      case reg: Region if reg.semi => Some(UnitTy)
+      case reg: Region             => reg.stmts.lastOption.flatMap(tyOf)
       case TypeMatch(_, _, cases, d) => {
         val types = (cases.map(_._2) :+ d).map(tyOf).flatten
         debugln(s"coerce enumMatch $types")

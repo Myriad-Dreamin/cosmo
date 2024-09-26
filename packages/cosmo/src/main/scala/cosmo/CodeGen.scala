@@ -45,12 +45,13 @@ class CodeGen(implicit val env: Env) {
     val nse = if inClass then "" else nse_
     val res: String = ast match {
       case ir.NoneItem => ""
+      case Fn(info, params, retTy, body, level)
+          if level > 0 && !info.isDependent =>
+        s"/** optimized cosmo type function ${info.defName()} */"
       case Fn(defInfo, params, retTy, body, level) if level > 0 =>
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
-        val bodyCode =
-          if defInfo.isDependent then s" using type =${storeTy(body.get)};"
-          else ""
+        val bodyCode = s" using type =${storeTy(body.get)};"
         s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
       case Fn(defInfo, None, ret_ty, body, _) =>
         val name = defInfo.defName(stem = true)
@@ -555,36 +556,35 @@ class CodeGen(implicit val env: Env) {
 
         s"$ty($initArgs)"
       }
-      case v: ir.EnumDestruct if v.bindings.isEmpty => s""
-      case v: ir.EnumDestruct => {
-
-        // const auto [nn] = std::get<Nat::kIdxSucc>(std::move((*this).data));
-        // auto n = std::move(*nn);
-
-        // val base = storeTy(v.variant.variantOf.get);
-        // val namelist = v.bindings
-        //   .map {
-        //     case "_" => ""
-        //     case s   => s"_destructed_${s}"
-        //   }
-        //   .mkString(", ")
-        // val rebind = v.bindings
-        //   .zip(v.variant.vars)
-        //   .map {
-        //     case ("_", _) => ""
-        //     case (s, v) => {
-        //       val defInfo = v.item.id
-        //       val name = defInfo.nameStem(defInfo.id.id)
-        //       val ty = defInfo.instantiateTy
-        //       val mayDeref = if ty == SelfTy then "*" else ""
-        //       s"auto $s = std::move(${mayDeref}_destructed_${s});"
-        //     }
-        //   }
-        //   .mkString("\n")
-        // val vname = v.variant.id.defName(stem = true)
-        // s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
-        // ???
-        s""
+      case v: ir.EnumDestruct                        => ???
+      case v: ir.ClassDestruct if v.bindings.isEmpty => s""
+      case v: ir.ClassDestruct => {
+        val base = storeTy(v.cls.variantOf.get);
+        val bindingNames = v.bindings.filter(_.level == 0).map {
+          case d: DeclItem => d.id.nameStem(d.id.id.id)
+          case _           => "_"
+        }
+        val namelist = bindingNames
+          .map {
+            case "_" => ""
+            case s   => s"_destructed_${s}"
+          }
+          .mkString(", ")
+        val rebind = bindingNames
+          .zip(v.cls.vars)
+          .map {
+            case ("_", _) => ""
+            case (s, v) => {
+              val defInfo = v.item.id
+              val name = defInfo.nameStem(defInfo.id.id)
+              val ty = defInfo.instantiateTy
+              val mayDeref = if ty == SelfTy then "*" else ""
+              s"auto &&$s = std::move(${mayDeref}_destructed_${s});"
+            }
+          }
+          .mkString("\n")
+        val vname = v.cls.id.defName(stem = true)
+        s"auto [$namelist] = std::get<${base}::kIdx$vname>(std::move(${expr(v.item)}.data));$rebind"
       }
       case v: ir.TypeMatch => {
         val clsName = storeTy(v.by)

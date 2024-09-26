@@ -81,4 +81,7 @@ class MatchTest extends TestBase:
   test("result") {
     runTestOnFile("fixtures/Type/matches/result.cos-ast");
   }
+  test("json") {
+    runTestOnFile("fixtures/Type/matches/json.cos-ast");
+  }
 end MatchTest
