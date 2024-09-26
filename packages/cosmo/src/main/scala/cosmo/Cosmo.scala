@@ -40,6 +40,9 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
     this.releaseDir = releaseDir
 
   @JSExport
+  def createEnv(): Env = fileEnv(None)
+
+  @JSExport
   def loadPackageByPath(path: String): Unit =
     loadPackage(PackageMetaSource.ProjectPath(path))
 
@@ -59,13 +62,23 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
   def parseAsJson(s: String): String =
     parse(s).map(syntax.toJson).getOrElse("")
 
+  @JSExportAll
+  class ReplResult(val result: String, val errors: js.Array[String])
+  @JSExport
+  def repl(src: String, env: Env = empty): ReplResult =
+    env.errors = List()
+    val ts = parse(src).get.stmts.map(env.expr).map(env.valTerm);
+    val result = ts.map(_.toDoc.pretty).mkString("\n")
+    val errors = js.Array(env.errors.map(_.toString): _*)
+    ReplResult(result, errors)
+
   /// Exposed language service methods
   @JSExport
   val service = new cosmo.service.CosmoService(this)
 
   /// Exposed APIs
 
-  def empty: Env = createEnv(None)
+  def empty: Env = fileEnv(None)
 
   def parse(s: String): Option[syntax.Block] =
     Some(parseBase(s)).map(_.asInstanceOf[syntax.Block])
@@ -127,7 +140,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
           system.readFile(dPath).split("\n").map(_.trim).filter(!_.isEmpty);
         lines.toList.flatMap(FileId.fromString(_, pkgFromPairString))
 
-    val env = createEnv(Some(fid));
+    val env = fileEnv(Some(fid));
     debugln(
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
@@ -210,7 +223,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
     }
   }
 
-  def createEnv(fid: Option[FileId]): Env = {
+  def fileEnv(fid: Option[FileId]): Env = {
     val env = new Env(fid, this)
     env.defAlloc = envBase.defAlloc
     env.scopes.scopes = envBase.scopes.scopes
