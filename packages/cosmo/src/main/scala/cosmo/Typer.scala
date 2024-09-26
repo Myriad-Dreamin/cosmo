@@ -183,10 +183,6 @@ trait TypeEnv { self: Env =>
       eArgs: List[Item],
       f: (Param, Option[Item]) => Option[T],
   ): List[T] = {
-    if (eParams.length != eArgs.length) {
-      errors =
-        s"Invalid number of params v.s. arguments (${eParams.length} v.s. ${eArgs.length}) ${eParams.toList} v.s. $eArgs" :: errors
-    }
 
     val named = eArgs.flatMap {
       case KeyedArg(ItemE(Str(s)), value) => Some((s, value))
@@ -199,7 +195,7 @@ trait TypeEnv { self: Env =>
     }.iterator
     val allowNamedAsPositional = named.isEmpty
 
-    eParams.iterator.flatMap { param =>
+    val res = eParams.iterator.flatMap { param =>
       if (param.of.name == "self") None // todo: skip self
       else if (param.named) {
         val name = param.of.name
@@ -215,6 +211,13 @@ trait TypeEnv { self: Env =>
         f(param, positions.nextOption)
       }
     }.toList
+
+    if (eParams.count(_.of.name != "self") != res.length) {
+      errors =
+        s"Invalid number of params v.s. arguments (${eParams.length} v.s. ${eArgs.length}) ${eParams.toList} v.s. $eArgs as $res" :: errors
+    }
+
+    res
   }
 
   def classBinds(cls: Class): List[Item] = {
@@ -288,10 +291,16 @@ trait TypeEnv { self: Env =>
           if (param.of.name == "self") None
           else if (param.named) {
             Some(value.getOrElse {
-              errors = s"Missing named argument ${param.of.name}" :: errors
-              Opaque.expr(
-                s"\n#error \"Missing named argument ${param.of.name}\"\n",
-              )
+              if (!param.of.id.inClass) {
+                errors = s"Missing named argument ${param.of.name}" :: errors
+                Opaque.expr(
+                  s"\n#error \"Missing named argument ${param.of.name}\"\n",
+                )
+              } else {
+                Opaque.expr(
+                  "kDefault",
+                ) // todo: way of representing field default
+              }
             })
           } else {
             Some(value.getOrElse {
@@ -529,13 +538,14 @@ trait TypeEnv { self: Env =>
   @tailrec
   final def classRepr(lhs: Type): Option[Class] = {
     Some(lhs match {
-      case ClassInstance(con, _) => con
-      case v: Class              => v
-      case Ref(_, _, Some(v))    => return classRepr(v)
-      case Ref(_, _, None)       => return None
-      case RefItem(lhs, isMut)   => return classRepr(lhs)
-      case Var(id, _, _)         => return classRepr(id.ty)
-      case Param(of, _)          => return classRepr(of)
+      case ClassInstance(con, _)    => con
+      case v: Class                 => v
+      case _: (CIdent | CppInsType) => return None
+      case Ref(_, _, Some(v))       => return classRepr(v)
+      case Ref(_, _, None)          => return None
+      case RefItem(lhs, isMut)      => return classRepr(lhs)
+      case Var(id, _, _)            => return classRepr(id.ty)
+      case Param(of, _)             => return classRepr(of)
       case SelfTy              => return classRepr(selfRef.getOrElse(NoneItem))
       case _ if lhs.isBuilitin => builtinClasses(lhs)
       case l @ (Bool(_))       => builtinClasses(l.ty)

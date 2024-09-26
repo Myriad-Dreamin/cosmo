@@ -59,6 +59,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   var selfImplRef: Option[Item] = None
   var rawDeps = Map[FileId, Option[Env]]()
   var checkStatus = MutLongMap[Unit]()
+  var checked = MutLongMap[Item]()
 
   val patHolder = Str("$")
   var moduleAst: Region = Region(List(), false)
@@ -221,10 +222,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case b: MatchExpr         => checkMatch(b)
       case ItemE(item)          => term(item)
       // declarations
-      case v: VarExpr      => checkVar(v)
-      case d: DefExpr      => checkDef(d)
-      case c: ClassExpr    => checkClass(c)
-      case i: ImplExpr     => checkImpl(i)
+      case v: VarExpr      => checkDecl(v, checkVar(v))
+      case d: DefExpr      => checkDecl(d, checkDef(d))
+      case c: ClassExpr    => checkDecl(c, checkClass(c))
+      case i: ImplExpr     => checkDecl(i, checkImpl(i))
       case d: DestructExpr => checkDestruct(d)
       case Hole(id)        => err(s"hole $id in the air")
       case cr: CaseRegion  => err(s"case region $cr in the air")
@@ -411,6 +412,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         applyC(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
         Apply(lhs, castArgs(f.params, rhs))
+      case BoundField(that, by, _, EDefField(fExp)) =>
+        val f = checkDecl(fExp, checkDef(fExp)) // todo: check twice?
+        Apply(f, castArgs(f.params, rhs))
       case f: Fn    => applyF(f, rhs)
       case c: Class => applyC(c, rhs)
       case HKTInstance(ty, syntax) =>
@@ -446,8 +450,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val typeParams = node.rawParams
     val tpSize = typeParams.map(_.size).getOrElse(0);
     val allArgs = node.args.getOrElse(List()) ::: args
+    val al = allArgs.length;
     val isTypeLevel =
-      if typeParams.isEmpty then false else allArgs.length <= tpSize
+      if typeParams.isEmpty then false
+      else al < tpSize || (al == tpSize && !args.isEmpty)
     if (isTypeLevel) {
       return node.copy(args = Some(allArgs))
     }
@@ -677,11 +683,14 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   /// Declarations
 
   def noteDecl(id: DeclItem) = items += (id.id.id -> id)
-  def checkDecl[T](id: DeclExpr, f: => T): T =
-    if checkStatus.contains(id.id.id.id) then throw new Exception("recursive")
-    checkStatus += (id.id.id.id.toLong -> ());
+  def checkDecl[T <: Item](id: DeclExpr, f: => T): T =
+    val intId = id.id.id.id
+    if checked.contains(intId) then return checked(intId).asInstanceOf[T]
+    if checkStatus.contains(intId) then throw new Exception("recursive")
+    checkStatus += (intId.toLong -> ());
     val res = f
-    checkStatus -= id.id.id.id
+    checkStatus -= intId
+    checked += (intId.toLong -> res)
     res
 
   def genVar(id: DefInfo, init: Option[Term], level: Int): Var = {
@@ -699,10 +708,14 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         case "self" => Some(RefItem(SelfTy, false))
         case _      => initExpr.flatMap(tyOf)
       }
+    } match {
+      case Some(t) => t
+      case None    => createInfer(info, 1)
     }
-    val valLvl = (initTy.map(_.level).getOrElse(0) - 1).max(0)
+
+    val valLvl = (initTy.level - 1).max(0)
     val res = ir.Var(info, initExpr, valLvl)
-    info.ty = initTy.getOrElse(createInfer(info, valLvl + 1))
+    info.ty = initTy
     val itemState = if (valLvl == 0) {
       res
     } else {
@@ -850,10 +863,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         }
       case cls: Class if cls.variantOf.isDefined => storeTy(cls.variantOf.get)
       case cls: Class                            => cls.repr(storeTy)
-      case v: Ref if v.value.isEmpty             => v.id.defName(stem = false)
-      case v: Var if v.init.isEmpty              => v.id.defName(stem = false)
-      case v: Fn                                 => v.id.defName(stem = false)
-      case Ref(_, _, Some(v))                    => storeTy(v)
+      // todo: this is not good
+      case ins: ClassInstance        => storeTy(ins.con)
+      case v: Ref if v.value.isEmpty => v.id.defName(stem = false)
+      case v: Var if v.init.isEmpty  => v.id.defName(stem = false)
+      case v: Fn                     => v.id.defName(stem = false)
+      case Ref(_, _, Some(v))        => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
       case Apply(lhs, rhs) => {

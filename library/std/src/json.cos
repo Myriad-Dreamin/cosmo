@@ -79,35 +79,34 @@ class NlohmannJsonImpl {
     val mTag: c_enum = NlohmannJsonTag(Ref(j.internal));
     // stdSys.printf("%d\n".data(), mTag);
 
-    // mTag match {
-    //   case NlohmannJsonTag.null => ValueT(NlohmannJsonImpl).Null
-    //   case NlohmannJsonTag.boolean => ValueT(NlohmannJsonImpl).Bool(j.getAs(bool)())
-    //   case NlohmannJsonTag.number_integer => ValueT(NlohmannJsonImpl).NumberSigned(j.getAs(i64)())
-    //   case NlohmannJsonTag.number_unsigned => ValueT(NlohmannJsonImpl).NumberUnsigned(j.getAs(u64)())
-    //   case NlohmannJsonTag.number_float => ValueT(NlohmannJsonImpl).Number(j.getAs(f64)())
-    //   case NlohmannJsonTag.string => {
-    //     val s = String(j.getAs(str)())
-    //     ValueT(NlohmannJsonImpl).Str(s)
-    //   }
-    //   case NlohmannJsonTag.array => {
-    //     var a = vec.Vec(NlohmannJsonImpl)()
-    //     code("""
-    //     for (const auto &i : j.internal) {
-    //       a.push(cosmo_std::json::NlohmannJsonImpl(i));
-    //     }""");
-    //     ValueT(NlohmannJsonImpl).Array(a)
-    //   }
-    //   case NlohmannJsonTag.object => {
-    //     var o = map.Map(String, NlohmannJsonImpl)();
-    //     code("""
-    //     for (const auto &[k, v] : j.internal.items()) {
-    //       o.internal.insert({cosmo_std::str::String(k), cosmo_std::json::NlohmannJsonImpl(v)});
-    //     }""");
-    //     ValueT(NlohmannJsonImpl).Object(o)
-    //   }
-    //   case _ => panic("Invalid JSON type ");
-    // }
-    ???
+    mTag match {
+      case NlohmannJsonTag.null => ValueT(NlohmannJsonImpl).Null
+      case NlohmannJsonTag.boolean => ValueT(NlohmannJsonImpl).Bool(j.getAs(bool)())
+      case NlohmannJsonTag.number_integer => ValueT(NlohmannJsonImpl).NumberSigned(j.getAs(i64)())
+      case NlohmannJsonTag.number_unsigned => ValueT(NlohmannJsonImpl).NumberUnsigned(j.getAs(u64)())
+      case NlohmannJsonTag.number_float => ValueT(NlohmannJsonImpl).Number(j.getAs(f64)())
+      case NlohmannJsonTag.string => {
+        val s = String(j.getAs(str)())
+        ValueT(NlohmannJsonImpl).Str(s)
+      }
+      case NlohmannJsonTag.array => {
+        var a = vec.Vec(NlohmannJsonImpl)()
+        code("""
+        for (const auto &i : j.internal) {
+          a.push(cosmo_std::json::NlohmannJsonImpl(i));
+        }""");
+        ValueT(NlohmannJsonImpl).Array(a)
+      }
+      case NlohmannJsonTag.object => {
+        var o = map.Map(String, NlohmannJsonImpl)();
+        code("""
+        for (const auto &[k, v] : j.internal.items()) {
+          o.internal.insert({cosmo_std::str::String(k), cosmo_std::json::NlohmannJsonImpl(v)});
+        }""");
+        ValueT(NlohmannJsonImpl).Object(o)
+      }
+      case _ => panic("Invalid JSON type ");
+    }
   }
 }
 

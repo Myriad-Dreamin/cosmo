@@ -5,6 +5,6 @@ class Basic {
 }
 
 def main() = {
-  var b: Basic = Basic()
-  println(b.method())
+  var b: Basic = Basic();
+  println(b.method());
 }

@@ -128,9 +128,6 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
         lines.toList.flatMap(FileId.fromString(_, pkgFromPairString))
 
     val env = createEnv(Some(fid));
-    if (fid._1.toString().startsWith("@cosmo/std:")) {
-      env.noCore = true
-    }
     debugln(
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
