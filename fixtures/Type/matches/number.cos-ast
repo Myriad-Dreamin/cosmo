@@ -1,0 +1,32 @@
+val n1 = 1
+----- -----
+1 match {
+  case 1 => 2
+}
+-----
+1 match {
+  case 0 => 2
+}
+-----
+n1 match {
+  case 1 => 3
+}
+-----
+n1 match {
+  case 0 => 4
+}
+-----
+1 match {
+  case 0 => 5
+  case 1 => 6
+}
+-----
+1 match {
+  case 0 => 7
+  case 1 => 8
+}
+-----
+n1 + 1 match {
+  case 0 => 3
+  case 1 => 4
+}

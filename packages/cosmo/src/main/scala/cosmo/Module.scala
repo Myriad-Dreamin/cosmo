@@ -7,6 +7,8 @@ import scala.scalajs.js.JSON
 import ir._
 import system.CosmoSystem
 
+final class DefId(val id: Int) extends AnyVal {}
+
 case class FileId(val pkg: Package, val path: String) {
   lazy val ns = calcNs
   def calcNs =
@@ -36,7 +38,7 @@ class DefInfo(
     val namespaces: List[String],
     var id: DefId,
     var env: Env,
-    var syntax: Expr = Opaque.empty,
+    var syntax: Expr = Opaque.empty.e,
     var ty: Type = TopTy,
     var impls: List[Impl] = List(),
     var pos: Option[(Int, Int)] = None,
@@ -81,6 +83,11 @@ class DefInfo(
 
 object DefInfo {
   def just(id: Int, env: Env) = new DefInfo("", List(), DefId(id), env)
+}
+
+class ExprInfo(var id: DefId) {}
+object ExprInfo {
+  def empty = new ExprInfo(DefId(0))
 }
 
 class Package(metaSource: PackageMetaSource, system: CosmoSystem) {

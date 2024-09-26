@@ -1,6 +1,6 @@
 package cosmo
 
-import scala.collection.mutable.{ListBuffer, Map as MutMap};
+import scala.collection.mutable.{ListBuffer, LinkedHashMap as MutMap};
 import scala.annotation.tailrec
 
 import ir._
@@ -120,9 +120,10 @@ trait ExprEnv { self: Env =>
       case b: s.ParamsLit =>
         errE(s"params lit without body")
         Opaque.expr(s"0/* error: case block without body */")
-      case s.Case(cond, body) =>
-        errE(s"case clause without match")
-        Opaque.expr(s"0/* error: case clause without match */")
+      case c: s.Case =>
+        val cond = destruct(c.cond);
+        val body = c.body.map(expr);
+        CaseExpr(cond, body)
     }
   }
 
@@ -152,7 +153,7 @@ trait ExprEnv { self: Env =>
     scopes.withScope {
       val cond = destruct(c.cond);
       val body = c.body.map(expr);
-      (cond, body)
+      CaseExpr(cond, body)
     }
   }
 
@@ -229,7 +230,7 @@ trait ExprEnv { self: Env =>
     for (stmt <- body.stmts.iterator.map(expr)) stmt match {
       case v: VarExpr =>
         if (isAbstract) then err(s"abstract class cannot have fields")
-        addField(EVarField(v, index), fields); index += 1;
+        addField(VarField(ir.Var(v.id, v.init, -1), index), fields); index += 1;
       case d: DefExpr =>
         addField(EDefField(d), fields); d.id.isVirtual = isAbstract;
       case node => err(s"Invalid class field $node")
@@ -238,9 +239,15 @@ trait ExprEnv { self: Env =>
 
   def enumClass(body: s.CaseBlock, fields: FieldMap, isAbstract: Boolean) = {
     if (isAbstract) then err(s"abstract trait cannot have cases")
-    for ((stmt, index) <- body.stmts.zipWithIndex) {
-      val variant = scopes.withScope(enumVariant(stmt, fields))
-      addField(EEnumField(variant, index), fields)
+    for ((stmt, index) <- body.stmts.zipWithIndex) stmt match {
+      case s.Case(Ident("_"), None) =>
+      case s.Case(Ident("_"), Some(body)) =>
+        if (!body.isInstanceOf[s.Block]) then
+          err(s"enum case body must be a block")
+        baseClass(body.asInstanceOf[s.Block], fields, isAbstract)
+      case _ =>
+        val variant = scopes.withScope(enumVariant(stmt, fields))
+        addField(EEnumField(variant, index), fields)
     }
   }
 

@@ -1,16 +1,20 @@
 
+@noCore();
+
 import "@lib/c++/cstdint"
 import "@lib/c++/cinttypes"
 import "@lib/c++/cstdio"
 import "@lib/c++/memory"
 import "@lib/c++/variant"
 import "@lib/c++/tuple"
+import "@lib/c++/string"
 import cSys from "@lib/c++/cstdlib"
 
 code("""
 using float32_t = float;
 using float64_t = double;
 using float128_t = long double;
+using str = std::string;
 
 namespace cosmo {
 template<typename T, typename I, bool isMut = false, typename Cond = void>
@@ -28,3 +32,54 @@ struct Impl;
 }
 
 """);
+
+code("""
+// pub def str: Type = stringSys::std::string
+template <typename T, typename Cond = void> struct DisplayTrait {};
+""")
+
+code("""
+
+template <typename T> inline void print(const T &x) {
+  using TT = std::decay_t<T>;
+  DisplayTrait<TT>::print(x);
+}
+
+template <typename T> inline void println(const T &x) {
+  using TT = std::decay_t<T>;
+  // todo: atomic print
+  DisplayTrait<TT>::print(x);
+  printf("\n");
+}
+
+template <> struct DisplayTrait<str> {
+  static void print(const str &x) { printf("%s", x.c_str()); }
+};
+
+template <> struct DisplayTrait<bool> {
+  static void print(bool x) {
+    if (x) {
+      printf("true");
+    } else {
+      printf("false");
+    }
+   }
+};
+template <typename T>
+struct DisplayTrait<
+    T, std::enable_if_t<std::is_integral_v<T> && std::is_signed_v<T>>> {
+  static void print(T x) { printf("%lld", static_cast<long long>(x)); }
+};
+
+template <typename T>
+struct DisplayTrait<
+    T, std::enable_if_t<std::is_integral_v<T> && std::is_unsigned_v<T>>> {
+  static void print(T x) { printf("%llu", static_cast<unsigned long long>(x)); }
+};
+template <> struct DisplayTrait<float32_t> {
+  static void print(float32_t x) { printf("%f", x); }
+};
+template <> struct DisplayTrait<float64_t> {
+  static void print(float64_t x) { printf("%lf", x); }
+};
+""")

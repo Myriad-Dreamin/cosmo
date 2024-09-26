@@ -1,6 +1,4 @@
 
-@noCore();
-
 def main() = {
   println("Hello, World!")
 
