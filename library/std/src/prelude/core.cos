@@ -31,44 +31,76 @@ trait ToString {
   def toString(&self): String;
 }
 
-// impl Display for bool {
-//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
-//     if (*self) {
-//       f.write("true")
-//     } else {
-//       f.write("false")
-//     }
-//   }
-// }
+impl Display for bool {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    if (*self) {
+      f.write("true")
+    } else {
+      f.write("false")
+    }
+  }
+}
 
-// impl Display for str {
-//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
-//     f.write(&self)
-//   }
-// }
+impl Display for str {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    f.write(&self)
+  }
+}
 
-// impl Display for f32 {
-//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
-//     // cSys
-//     val t: str = cSys.std::to_string(*self);
-//     f.write(&t)
-//   }
-// }
+impl Display for f32 {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    // cSys
+    val t: str = cSys.std::to_string(*self);
+    f.write(&t)
+  }
+}
 
-// impl Display for f64 {
-//   def display(&self, f: &mut Formatter): fmt::Result(()) = {
-//     // cSys
-//     val t: str = cSys.std::to_string(*self);
-//     f.write(&t)
-//   }
-// }
+impl Display for f64 {
+  def display(&self, f: &mut Formatter): fmt::Result(()) = {
+    // cSys
+    val t: str = cSys.std::to_string(*self);
+    f.write(&t)
+  }
+}
 
-// impl Formatter for String {
-//   def write(&mut self, s: &str): fmt::Result(()) = {
-//     self.push_str(s);
-//     fmt::Result(())::Ok(())
-//   }
-// }
+impl Formatter for String {
+  def write(&mut self, s: &str): fmt::Result(()) = {
+    self.push_str(s);
+    fmt::Result(())::Ok(())
+  }
+}
+
+impl ToString for bool {
+  def toString(&self): String = {
+    if (*self) {
+      String("true")
+    } else {
+      String("false")
+    }
+  }
+}
+
+impl ToString for str {
+  def toString(&self): String = {
+    String(*self)
+  }
+}
+
+impl ToString for f32 {
+  def toString(&self): String = {
+    // cSys
+    val t: str = cSys.std::to_string(*self);
+    String(t)
+  }
+}
+
+impl ToString for f64 {
+  def toString(&self): String = {
+    // cSys
+    val t: str = cSys.std::to_string(*self);
+    String(t)
+  }
+}
 
 // // todo: correct signature is [T <: Display]
 // def mprintln(t: &Display) = {

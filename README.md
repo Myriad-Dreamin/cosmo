@@ -52,7 +52,7 @@ Demonstration:
   - [x] Boolean
   - [x] String
 - Compound Literals
-  - [ ] Template Literals
+  - [x] Template Literals
   - [x] Char
   - [x] Bytes
   - [x] Byte
@@ -87,10 +87,10 @@ Value Semantics:
 - Literals
   - [x] TodoLit
   - [x] BoolLit
-  - [ ] IntLit
+  - [x] IntLit
     - [x] i32
     - [ ] bigint
-  - [ ] FloatLit
+  - [x] FloatLit
   - [x] StringLit
   - [x] SelfVal, SelfTy
   - [x] Identifier

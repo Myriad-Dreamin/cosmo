@@ -63,4 +63,27 @@ template <> struct DisplayTrait<cosmo_std::str::Bytes> {
     printf("\"");
   }
 };
-""")
+
+namespace cosmo {
+
+using String = cosmo_std::str::String;
+
+template <typename T> inline String stringAdaptor(const T &x) {
+  using decayT = std::decay_t<T>;
+  if constexpr (std::is_same_v<decayT, String>) {
+    return x;
+  } else if constexpr (std::is_same_v<decayT, str>) {
+    return String(x);
+  } else {
+    panic("stringAdaptor: unknown type");
+  }
+}
+
+template <typename ...Args> inline String mkString(Args &&...args) {
+  String s;
+  (s.push_str(stringAdaptor<Args>(args).internal), ...);
+  return s;
+}
+}  // namespace cosmo
+
+""");

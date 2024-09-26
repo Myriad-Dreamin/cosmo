@@ -92,7 +92,7 @@ class SampleTest extends TestBase:
   test("ControlFlow/mainIf") {
     compilePath("samples/ControlFlow/mainIf.cos")
   }
-  test("Format/templateLit") {
+  test("Format/templateLit".only) {
     compilePath("samples/Format/templateLit.cos")
   }
   test("Pattern/natAdd") {
@@ -104,7 +104,7 @@ class SampleTest extends TestBase:
   test("Pattern/result") {
     compilePath("samples/Pattern/result.cos")
   }
-  test("Pattern/byStr".only) {
+  test("Pattern/byStr") {
     compilePath("samples/Pattern/byStr.cos")
   }
   test("Io/readFile") {

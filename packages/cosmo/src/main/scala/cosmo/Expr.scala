@@ -62,9 +62,13 @@ trait ExprEnv { self: Env =>
       case s.TodoLit        => TodoLit.e
       case s.BoolLit(value) => Bool(value).e
       case s.IntLit(value) =>
-        if (value.isValidInt) Integer(value.toInt).e
+        if (value.isValidInt) Int32(value.toInt).e
+        else if (value.isValidLong) Int64(value.toLong).e
         else Opaque.expr(value.toString)
-      case s.FloatLit(value) => Opaque.expr(value.toString)
+      case s.FloatLit(value) =>
+        if (value.isBinaryFloat) Float32(value.toFloat).e
+        else if (value.isBinaryDouble) Float64(value.toDouble).e
+        else Opaque.expr(value.toString)
       case s.StrLit(value)   => Str(value).e
       case s.Ident("self")   => SelfVal.e
       case s.Ident("Self")   => SelfTy.e
@@ -91,14 +95,11 @@ trait ExprEnv { self: Env =>
       case s.Select(lhs, rhs, _) => SelectExpr(expr(lhs), rhs.name)
       case b: s.Match            => $match(b)
       // todo: check is compile time
-      case s.Apply(lhs, rhs, _)         => Apply(expr(lhs), rhs.map(expr))
-      case s.TmplApply(Ident("a"), rhs) => Rune(rhs.head._1.head.toInt).e
-      case s.TmplApply(Ident("c"), rhs) => Rune(rhs.head._1.head.toInt).e
-      case s.TmplApply(Ident("b"), rhs) => Bytes(rhs.head._1.getBytes()).e
-      case s.TmplApply(lhs, rhs) => Opaque.expr(s"0/* tmpl: ${lhs} ${rhs} */")
-      case s.Lambda(lhs, rhs)    => Opaque.expr(s"0/* lambda: ${lhs} ${rhs} */")
-      case s.Semi(None)          => ir.NoneKind(0).e
-      case s.Semi(Some(value))   => expr(value)
+      case s.Apply(lhs, rhs, _) => Apply(expr(lhs), rhs.map(expr))
+      case t: s.TmplApply       => tmplExpr(t)
+      case s.Lambda(lhs, rhs)   => Opaque.expr(s"0/* lambda: ${lhs} ${rhs} */")
+      case s.Semi(None)         => ir.NoneKind(0).e
+      case s.Semi(Some(value))  => expr(value)
       // todo: decorator
       case s.Decorate(s.Apply(Ident("noCore"), _, _), _) =>
         noCore = true
@@ -177,6 +178,43 @@ trait ExprEnv { self: Env =>
       case _          => return errE("match body must be a case block")
     }
     MatchExpr(lhs, CaseRegion(cases))
+  }
+
+  def tmplExpr(b: s.TmplApply): Expr = {
+    val strs = ListBuffer[String]()
+    val pols = ListBuffer[(Expr, Option[String])]()
+
+    for (case (x, y) <- b.rhs) {
+      strs.addOne(x)
+      y match {
+        case Some((y, t)) => pols.addOne((expr(y), t))
+        case None         =>
+      }
+    }
+
+    if (strs.length == pols.length) {
+      strs.addOne("")
+    }
+
+    if (strs.length != pols.length + 1) {
+      return errE(
+        s"bad tmpl parsing: strings $strs and interpolations $pols",
+      )
+    }
+
+    b.lhs match {
+      case s.Ident(f @ ("a" | "b" | "c")) =>
+        if (!pols.isEmpty) {
+          return errE(s"cannot call template function ${f} with interpolations")
+        }
+      case _ =>
+    }
+    b.lhs match {
+      case s.Ident("a") => return Rune(strs.head.toInt).e
+      case s.Ident("c") => return Rune(strs.head.toInt).e
+      case s.Ident("b") => return Bytes(strs.head.getBytes()).e
+      case _ => return TmplApply(expr(b.lhs), strs.toList, pols.toList)
+    }
   }
 
   def importDest(dest: Option[syntax.Node], v: Item): Expr = {

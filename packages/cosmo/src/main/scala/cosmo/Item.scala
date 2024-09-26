@@ -81,6 +81,14 @@ final case class KeyedArg(key: Item, value: Item) extends Expr {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Expr {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
 }
+final case class TmplApply(
+    lhs: Item,
+    strings: List[String],
+    rhs: List[(Item, Option[String])],
+) extends Expr {
+  override def toString: String =
+    s"$lhs(${strings.mkString(", ")})(${rhs.mkString(", ")})"
+}
 final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {
   override def toString: String = s"$lhs.$rhs"
 }
@@ -423,8 +431,17 @@ case object TodoLit extends Value {}
 final case class Bool(value: Boolean) extends Value {
   val ty = BoolTy
 }
-final case class Integer(value: Int) extends Value {
+final case class Int32(value: Int) extends Value {
   val ty = IntegerTy(32, false)
+}
+final case class Int64(value: Long) extends Value {
+  val ty = IntegerTy(64, false)
+}
+final case class Float32(value: Float) extends Value {
+  val ty = FloatTy(32)
+}
+final case class Float64(value: Double) extends Value {
+  val ty = FloatTy(64)
 }
 final case class Str(value: String) extends Value {
   val ty = StrTy

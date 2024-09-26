@@ -8,7 +8,7 @@ class LibraryTest extends TestBase:
   test("std.prelude") {
     compilePath("library/std/src/prelude.cos")
   }
-  test("std.prelude.core") {
+  test("std.prelude.core".only) {
     compilePath("library/std/src/prelude/core.cos")
   }
   test("std.result") {
@@ -32,7 +32,7 @@ class LibraryTest extends TestBase:
   test("std.collections.map") {
     compilePath("library/std/src/collections/map.cos")
   }
-  test("std.json".only) {
+  test("std.json") {
     compilePath("library/std/src/json.cos")
   }
   test("std.fs") {

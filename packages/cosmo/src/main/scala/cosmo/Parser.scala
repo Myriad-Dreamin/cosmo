@@ -50,12 +50,13 @@ object Parser {
   def shortTmplStr[$: P] =
     P("\"" ~~/ (!"\"" ~~ shortTmplLitStr).repX ~~ "\"").map(_.toList)
   def longTmplStr[$: P](delim: String) =
-    P(delim ~~/ (!delim ~~ longTmplStrBody(delim)).repX ~~ delim).map(_.toList)
+    P(delim ~~/ (!delim ~~ longTmplStrBody(delim)).repX ~~ delim)
+      .map(_.toList)
   def shortTmplLitStr[$: P]: P[(String, Option[(Node, Option[String])])] = P(
-    (litCharsWhile("\\\n\"$") | escapeseq).repX.! ~~/ tmplExpr,
+    (!"$" ~~ (litCharsWhile("\\\n\"$") | escapeseq)).repX.! ~~/ tmplExpr,
   )
   def longTmplStrBody[$: P](delim: String) =
-    P(longChars("\"$", delim).repX.! ~~/ tmplExpr)
+    P((!"$" ~~ longChars("\"$", delim)).repX.! ~~/ tmplExpr)
 
   def longChars[$: P](mores: String, delim: String): P[Unit] =
     !End ~~ P(litCharsWhile(mores) | !delim ~~ "\"".repX)

@@ -217,10 +217,11 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case As(lhs, rhs)        => As(term(lhs), tyTerm(rhs))
       case KeyedArg(k, v)      => KeyedArg(term(k), term(v))
       // todo: check is compile time
-      case SelectExpr(lhs, rhs) => deref(select(term(lhs), rhs))
-      case Apply(lhs, rhs)      => $apply(term(lhs), rhs.map(term))
-      case b: MatchExpr         => checkMatch(b)
-      case ItemE(item)          => term(item)
+      case SelectExpr(lhs, rhs)          => deref(select(term(lhs), rhs))
+      case Apply(lhs, rhs)               => $apply(term(lhs), rhs.map(term))
+      case TmplApply(lhs, strings, args) => tmplApply(lhs, strings, args)
+      case b: MatchExpr                  => checkMatch(b)
+      case ItemE(item)                   => term(item)
       // declarations
       case v: VarExpr      => checkDecl(v, checkVar(v))
       case d: DefExpr      => checkDecl(d, checkDef(d))
@@ -384,6 +385,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case HKTInstance(ty, syntax) =>
         val vRes = dispatch(lhs, ty, field, casted).get
         Some(HKTInstance(vRes, Select(syntax, field)))
+      case i: (Int32 | Int64 | Float32 | Float64 | Str | Bool) =>
+        dispatch(lhs, tyOf(i).get, field, casted)
+      case i: (IntegerTy | FloatTy) =>
+        dispatch(lhs, builtinClasses(i), field, casted)
+      case i @ (StrTy | BoolTy) =>
+        dispatch(lhs, builtinClasses(i), field, casted)
       case _ => None
     }
   }
@@ -426,6 +433,45 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         }
       case _ => Apply(lhs, rhs)
     }
+  }
+
+  def tmplApply(
+      lhs: Item,
+      strings: List[String],
+      rhs: List[(Item, Option[String])],
+  )(implicit level: Int): Item = {
+    debugln(s"tmplApply $lhs $strings $rhs")
+    lhs match {
+      case Name(i, _) if i.name == "s" =>
+        debugln(s"tmplApply $lhs $strings $rhs")
+        val t = Opaque.expr("cosmo::mkString")
+        val args = ListBuffer[Item]()
+        val sIter = strings.iterator
+        val rIter = rhs.iterator
+        args.addOne(Str(sIter.next()))
+        while (sIter.hasNext) {
+          val (r, opt) = rIter.next()
+          args.addOne(fmtItem(valTerm(r), opt))
+          val s = sIter.next()
+          args.addOne(Str(s))
+        }
+        Apply(t, args.toList)
+      case _ => Opaque.expr(s"0 /* tmplApply: ${lhs}, ${strings}, ${rhs} */")
+    }
+  }
+
+  def fmtItem(v: Item, opt: Option[String])(implicit level: Int) = v match {
+    case s: Str                => s
+    case Int32(value)          => Str(value.toString)
+    case Int64(value)          => Str(value.toString)
+    case Float32(value)        => Str(value.toString)
+    case Float64(value)        => Str(value.toString)
+    case Opaque(Some(expr), _) => Str(expr)
+    case _                     => runtimeToStr(v)
+  }
+
+  def runtimeToStr(v: Item)(implicit level: Int) = {
+    $apply(deref(select(v, "toString")), List())
   }
 
   def applyF(fn: Fn, args: List[Item]): Item = {
@@ -785,7 +831,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val iface = i.map(tyTerm);
     val params = resolveParams(ps);
     val impl2 = Impl(info, params, iface.get, cls, fields);
-    selfRef = Some(impl2);
+    selfImplRef = Some(impl2);
     noteDecl(impl2);
     for (f <- fields.values.toSeq) {
       fields.addOne(f.name -> checkField(f))
@@ -849,7 +895,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case SelfTy          => "self_t"
       case TopTy           => "auto"
       case BottomTy        => "void"
-      case ty: Integer     => "int32_t"
+      case ty: Int32       => "int32_t"
+      case ty: Int64       => "int64_t"
+      case ty: Float32     => "float32_t"
+      case ty: Float64     => "float64_t"
       case ty: Str         => "::str"
       case ty: CIdent      => ty.repr
       case ty: CppInsType  => ty.repr(storeTy)

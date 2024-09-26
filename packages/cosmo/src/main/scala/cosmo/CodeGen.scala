@@ -380,14 +380,14 @@ class CodeGen(implicit val env: Env) {
     debugln(s"moveExpr: $ast")
     ast match {
       case RefItem(lhs, _) if isConst(lhs) => mutExpr(lhs);
-      case ir.As(ItemE(RefItem(lhs, _)), rhs @ ItemE(_: Impl))
-          if isConst(lhs) =>
+      case ir.As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
         val (x, y) = mutExpr(lhs);
         val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true).e, rhs))(false);
         (x + z, w)
-      case ir.As(ItemE(RefItem(_, _)), ItemE(rhs: Impl)) => ("", expr(ast));
-      case RefItem(lhs, _)                               => ("", expr(lhs));
-      case ir.As(lhs, ItemE(rhs: Impl)) => mutExpr(Opaque.expr(expr(ast)))
+      case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
+      case RefItem(lhs, _)                 => ("", expr(lhs));
+      case ir.UnOp("*", SelfVal)           => ("", expr(SelfVal));
+      case ir.As(lhs, rhs: Impl)           => mutExpr(Opaque.expr(expr(ast)))
       case ast if isConst(ast) || !defaultMove => ("", expr(ast))
       case ast => ("", s"std::move(${expr(ast)})")
     }
@@ -407,7 +407,10 @@ class CodeGen(implicit val env: Env) {
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
       case NoneKind(_)           => ""
-      case Integer(value)        => value.toString
+      case Int32(value)          => value.toString
+      case Int64(value)          => value.toString
+      case Float32(value)        => value.toString
+      case Float64(value)        => value.toString
       case Opaque(_, Some(stmt)) => stmt
       case Opaque(Some(expr), _) => expr
       case Region(stmts, semi) => {
@@ -447,15 +450,15 @@ class CodeGen(implicit val env: Env) {
       case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
       case ir.RefItem(SelfVal, _)              => s"(*this)"
       case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"
-      case ir.UnOp("*", ItemE(SelfVal)) if genInImpl => s"self()"
-      case ir.UnOp("*", ItemE(SelfVal))              => s"(*this)"
-      case ir.UnOp(op, lhs)                          => s"$op ${expr(lhs)}"
-      case ir.As(lhs, ItemE(rhs: Impl)) =>
+      case ir.UnOp("*", SelfVal) if genInImpl  => s"self()"
+      case ir.UnOp("*", SelfVal)               => s"(*this)"
+      case ir.UnOp(op, lhs)                    => s"$op ${expr(lhs)}"
+      case ir.As(lhs, rhs: Impl) =>
         val iface = storeTy(rhs.iface)
         val cls = storeTy(rhs.cls)
         val lhsIsMut = lhs match {
-          case ItemE(RefItem(lhs, isMut)) => isMut
-          case _                          => false
+          case RefItem(lhs, isMut) => isMut
+          case _                   => false
         }
         return literalCall(
           s"::cosmo::Impl<$cls, $iface, $lhsIsMut>",
@@ -706,8 +709,10 @@ def canCSwitch(lhs: ir.Item): Boolean = {
 
 def isConst(lhs: ir.Item): Boolean = {
   lhs match {
-    case Str(_) | Integer(_) | Bool(_) | Rune(_) | Bytes(_) => true
-    case _                                                  => false
+    case Str(_) | Int32(_) | Int64(_) | Float32(_) | Float64(_) | Bool(_) |
+        Rune(_) | Bytes(_) =>
+      true
+    case _ => false
   }
 }
 
