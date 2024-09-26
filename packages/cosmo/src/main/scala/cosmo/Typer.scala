@@ -336,7 +336,7 @@ trait TypeEnv { self: Env =>
                 s"\n#error \"Cannot cast to mut ref\"\n /* ref $item */",
               )
             }
-            val lty = canonicalTy(item)
+            val lty = canonicalTy(tyOf(item).getOrElse(TopTy))
             val lIsR = isSubtype(lty, rty);
             val rIsL = isSubtype(rty, lty);
             debugln(s"castTo $item to $rty ($lty) $lIsR $rIsL")
@@ -353,10 +353,10 @@ trait TypeEnv { self: Env =>
 
             rty match {
               case tr: Class if tr.id.isTrait => {
-                As(item.e, implClass(lty, tr).get.e)
+                As(item, implClass(lty, tr).get)
               }
               case _ =>
-                As(item.e, nty.e)
+                As(item, nty)
             }
           }
           case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
@@ -483,6 +483,7 @@ trait TypeEnv { self: Env =>
     rhs match {
       case Ref(_, _, Some(v))  => isSubtype(lhs, v)
       case RefItem(rhs, isMut) => isSubtype(lhs, rhs)
+      case SelfTy              => isSubtype(lhs, selfRef.getOrElse(BottomTy))
       // todo: same level
       case cls: Class         => implClass(lhs, cls).isDefined
       case TopTy | UniverseTy => true
@@ -491,6 +492,7 @@ trait TypeEnv { self: Env =>
       case v: Var if v.level == 1 =>
         lhs match {
           case Ref(_, _, Some(v))  => isSubtype(v, rhs)
+          case SelfTy              => isSubtype(selfRef.getOrElse(TopTy), rhs)
           case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
           case Var(id, _, _)       => id.id == v.id.id
           case p: Param            => isSubtype(p.of, rhs)
@@ -500,6 +502,7 @@ trait TypeEnv { self: Env =>
       case _ => {
         lhs match {
           case Ref(_, _, Some(v))  => isSubtype(v, rhs)
+          case SelfTy              => isSubtype(selfRef.getOrElse(TopTy), rhs)
           case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
           case p: Param            => isSubtype(p.of, rhs)
           case BottomTy            => true
@@ -516,7 +519,10 @@ trait TypeEnv { self: Env =>
       case Ref(_, _, Some(v)) => isBuiltin(v, rhs)
       case TopTy | UniverseTy => true
       case BottomTy           => true
-      case Integer(_)         => lhs == rhs || rhs == IntegerTy(32, false)
+      case Int32(_)           => lhs == rhs || rhs == IntegerTy(32, false)
+      case Int64(_)           => lhs == rhs || rhs == IntegerTy(64, false)
+      case Float32(_)         => lhs == rhs || rhs == FloatTy(32)
+      case Float64(_)         => lhs == rhs || rhs == FloatTy(64)
       case Bool(_)            => lhs == rhs || rhs == BoolTy
       case Str(_)             => lhs == rhs || rhs == StrTy
       case _                  => lhs == rhs
@@ -550,7 +556,10 @@ trait TypeEnv { self: Env =>
       case _ if lhs.isBuilitin => builtinClasses(lhs)
       case l @ (Bool(_))       => builtinClasses(l.ty)
       case l @ (Str(_))        => builtinClasses(l.ty)
-      case l @ (Integer(_))    => builtinClasses(l.ty)
+      case l @ (Int32(_))      => builtinClasses(l.ty)
+      case l @ (Int64(_))      => builtinClasses(l.ty)
+      case l @ (Float32(_))    => builtinClasses(l.ty)
+      case l @ (Float64(_))    => builtinClasses(l.ty)
       case Unresolved(_) | NoneKind(_) => return None
       case _ => throw new Exception(s"cannot get class $lhs")
     })
@@ -588,7 +597,10 @@ trait TypeEnv { self: Env =>
   def tyOf(lhs: Item): Option[Type] = {
     debugln(s"tyOf $lhs (level ${lhs.level})")
     lhs match {
-      case _: Integer => Some(IntegerTy(32, false))
+      case l: Int32   => Some(l.ty)
+      case l: Int64   => Some(l.ty)
+      case l: Float32 => Some(l.ty)
+      case l: Float64 => Some(l.ty)
       case _: Rune    => Some(IntegerTy(32, false))
       case _: Str     => Some(StrTy)
       case NoneItem   => Some(TopTy)

@@ -2,18 +2,19 @@
 // import std.shell.bash
 
 def main() = {
+  val a = 1.0
   // format strings
-  println(s"Hello !")
-  println(s"Hello, world ${1} !")
-  println(s"Hello, world ${1:.2f} !")
-  println(s"Hello, world ${1:.2f} ${a:.2f} !")
-  println(s"Hello, world ${1:.2f}")
+  println(s"Format Nothing")
+  println(s"Formating ${1}!")
+  println(s"Formating ${1:.2f}!")
+  println(s"Formating ${1:.2f} ${a:.2f}!")
+  println(s"Formating ${1:.2f}!")
   // long format strings
-  println("""Hello, world ${1:.2f} !""")
+  println(s"""Formating ${1:.2f}!""");
   // macros
-  println(q"def main() = { println(s\"Hello !\") }")
-  println(q"""def main() = { println(s"Hello, world ${1} !") }""")
+  // println(q"def main() = { println(s\"Hello !\") }")
+  // println(q"""def main() = { println(s"Formating ${1} !") }""")
   // customized
-  val s = "Hello, world";
-  println(bash"cd /tmp && echo ${s:q} > hello.txt")
+  // val s = "Formating";
+  // println(bash"cd /tmp && echo ${s:q} > hello.txt")
 }
