@@ -136,7 +136,6 @@ class CodeGen(implicit val env: Env) {
         val vars = cls.vars
         val variants = cls.variants
         val defs = cls.defs
-        val item = env.items(defInfo.id)
         val name = defInfo.defName(stem = true)
         val templateCode = typeParams(params).getOrElse("")
         val emptyConstructable = vars.forall(!_.item.init.isEmpty)
@@ -437,7 +436,7 @@ class CodeGen(implicit val env: Env) {
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name: Var, iter, body) =>
-        return s"for(auto ${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
+        return s"for(auto &&${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
       case ir.Continue() => return "continue"
       case ir.TodoLit    => return "unimplemented();"

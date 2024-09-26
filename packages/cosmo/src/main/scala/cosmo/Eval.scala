@@ -6,14 +6,12 @@ import scala.collection.mutable.{
   ArrayBuffer as MutArray,
   LongMap as MutLongMap,
 }
+import scala.annotation.tailrec
 
 import ir._
 import cosmo.system._
 import cosmo.FileId
 import cosmo.syntax.Ident
-import cosmo.syntax.CaseBlock
-import cosmo.syntax.FloatLit
-import scala.annotation.tailrec
 import cosmo.inst.InstModule
 
 type EParam = VarExpr;
@@ -346,12 +344,22 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         b.copy(lhs = s2)
       case b => b
     }
+
+    def dField(fields: FieldMap, field: String): Option[VField] = {
+      fields.get(field).map {
+        case e: (EDefField | EEnumField) => 
+          val f = checkField(e)
+          fields.addOne(f.name -> f); f
+        case f => f
+      }
+    }
+
     def dFields(by: Item, v: FieldMap) =
-      v.get(field).map(BoundField(lhs, by, casted, _)).map(ls)
+      dField(v, field).map(BoundField(lhs, by, casted, _)).map(ls)
 
     def dImpls(id: DefInfo): Option[Item] = {
       val impls = id.impls.flatMap { i =>
-        i.fields.get(field).map(BoundField(lhs, i, true, _)).map(ls)
+        dField(i.fields, field).map(BoundField(lhs, i, true, _)).map(ls)
       }
       if (impls.headOption.isDefined && !impls.tail.isEmpty) {
         errors = s"multiple impls for $field $impls" :: errors
@@ -419,9 +427,6 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
         applyC(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
         Apply(lhs, castArgs(f.params, rhs))
-      case BoundField(that, by, _, EDefField(fExp)) =>
-        val f = checkDecl(fExp, checkDef(fExp)) // todo: check twice?
-        Apply(f, castArgs(f.params, rhs))
       case f: Fn    => applyF(f, rhs)
       case c: Class => applyC(c, rhs)
       case HKTInstance(ty, syntax) =>
@@ -721,9 +726,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       }
   }
 
-  def placeVal(v: Item, m: Item): Item = m match {
+  def placeVal(v: Item, m: Item): Item =  m match {
     case Region(stmts, semi) => Region(v +: stmts, semi)
-    case _                   => Region(List(v, m), false)
+    case m                   => Region(List(v, m), false)
   }
 
   /// Declarations
@@ -787,6 +792,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     val annotated = ret_ty.map(tyTerm)
     val infer = annotated.getOrElse(createInfer(info, 1));
     val fn = Fn(info, params, infer, None, 0);
+    if !fn.ret_ty.isInstanceOf[InferVar] then checked += (info.id.id.toLong -> fn)
     noteDecl(fn);
     val body = rhs.map(e => normalize(valTerm(e)))
     val bodyTy = body.flatMap(tyOf)
@@ -847,10 +853,12 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
 
   def checkField(f: VField) = {
     f match {
+      // todo: unchecked var field is dangerous
       case e: VarField =>
-        VarField(checkVar(e.item.id.syntax.asInstanceOf[VarExpr]), e.index)
-      case e: EDefField  => DefField(checkDef(e.item))
-      case e: EEnumField => EnumField(checkClass(e.item))
+        val s = e.item.id.syntax.asInstanceOf[VarExpr]
+        VarField(checkDecl(s, checkVar(s)), e.index)
+      case e: EDefField  => DefField(checkDecl(e.item, checkDef(e.item)))
+      case e: EEnumField => EnumField(checkDecl(e.item, checkClass(e.item)))
       case _             => ???
     }
   }
@@ -917,6 +925,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case v: Ref if v.value.isEmpty => v.id.defName(stem = false)
       case v: Var if v.init.isEmpty  => v.id.defName(stem = false)
       case v: Fn                     => v.id.defName(stem = false)
+      // case Ref(id, _, Some(_))        => id.defName(stem = false)
       case Ref(_, _, Some(v))        => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"

@@ -304,15 +304,17 @@ trait TypeEnv { self: Env =>
             })
           } else {
             Some(value.getOrElse {
-              errors = s"Missing positional argument" :: errors
-              Opaque.expr(s"\n#error \"Missing positional argument\"\n")
+              errors = s"Missing positional argument ${param.of.name}" :: errors
+              Opaque.expr(
+                s"\n#error \"Missing positional argument ${param.of.name}\"\n",
+              )
             })
           }
         val info = param.id
         val casted = res.map(castTo(_, info.ty))
-        casted.map { v =>
-          items += (info.id -> v)
-        }
+        // casted.map { v =>
+        //   items += (info.id -> v)
+        // }
 
         casted
       },
@@ -324,7 +326,7 @@ trait TypeEnv { self: Env =>
     debugln(s"castTo $item to $nty ($ty)")
     ty match {
       case TopTy | UniverseTy => item
-      case RefItem(rty, rhsIsMut) =>
+      case RefItem(rtyNf, rhsIsMut) =>
         item match {
           case l: RefItem => {
             if (rhsIsMut) {
@@ -337,6 +339,7 @@ trait TypeEnv { self: Env =>
               )
             }
             val lty = canonicalTy(tyOf(item).getOrElse(TopTy))
+            val rty = canonicalTy(rtyNf)
             val lIsR = isSubtype(lty, rty);
             val rIsL = isSubtype(rty, lty);
             debugln(s"castTo $item to $rty ($lty) $lIsR $rIsL")
@@ -359,8 +362,8 @@ trait TypeEnv { self: Env =>
                 As(item, nty)
             }
           }
-          case l: Str if isSubtype(rty, StrTy) => RefItem(l, false)
-          case l if !rhsIsMut                  => castTo(RefItem(l, false), nty)
+          case l: Str if isSubtype(rtyNf, StrTy) => RefItem(l, false)
+          case l if !rhsIsMut => castTo(RefItem(l, false), nty)
           case _ =>
             errors = s"Must ref item $item" :: errors;
             Opaque.expr(s"\n#error \"Must ref item\"\n /* ref $item */")
@@ -391,7 +394,8 @@ trait TypeEnv { self: Env =>
       case ClassInstance(con, args) =>
         val hktCon = con.copy(resolvedAs = Some(syntax))
         ClassInstance(hktCon, args)
-      case _ => ???
+      case _ if res.level == 0 => res
+      case _                   => ???
     }
   }
 
@@ -478,12 +482,27 @@ trait TypeEnv { self: Env =>
     }
   }
 
+  @tailrec
+  final def dequalifyTy(rhs: Item): Item = {
+    debugln(s"dequalifyTy $rhs")
+    rhs match {
+      case Ref(_, _, Some(v))      => dequalifyTy(v)
+      case RefItem(lhs, isMut)     => dequalifyTy(lhs)
+      case p: Param                => dequalifyTy(p.of)
+      case HKTInstance(ty, syntax) => dequalifyTy(ty)
+      case _                       => rhs
+    }
+  }
+
   def isSubtype(lhs: Item, rhs: Item): Boolean = {
+    isSubtype_(dequalifyTy(lhs), dequalifyTy(rhs))
+  }
+
+  @tailrec
+  final def isSubtype_(lhs: Item, rhs: Item): Boolean = {
     debugln(s"isSubtype $lhs $rhs")
     rhs match {
-      case Ref(_, _, Some(v))  => isSubtype(lhs, v)
-      case RefItem(rhs, isMut) => isSubtype(lhs, rhs)
-      case SelfTy              => isSubtype(lhs, selfRef.getOrElse(BottomTy))
+      case SelfTy => isSubtype_(lhs, selfRef.getOrElse(BottomTy))
       // todo: same level
       case cls: Class         => implClass(lhs, cls).isDefined
       case TopTy | UniverseTy => true
@@ -491,23 +510,17 @@ trait TypeEnv { self: Env =>
       case IntegerTy(_, _) | StrTy | BoolTy if isBuiltin(lhs, rhs) => true
       case v: Var if v.level == 1 =>
         lhs match {
-          case Ref(_, _, Some(v))  => isSubtype(v, rhs)
-          case SelfTy              => isSubtype(selfRef.getOrElse(TopTy), rhs)
-          case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
-          case Var(id, _, _)       => id.id == v.id.id
-          case p: Param            => isSubtype(p.of, rhs)
-          case BottomTy            => true
-          case _                   => false
+          case SelfTy        => isSubtype_(selfRef.getOrElse(TopTy), rhs)
+          case Var(id, _, _) => id.id == v.id.id
+          case BottomTy      => true
+          case _             => false
         }
       case _ => {
         lhs match {
-          case Ref(_, _, Some(v))  => isSubtype(v, rhs)
-          case SelfTy              => isSubtype(selfRef.getOrElse(TopTy), rhs)
-          case RefItem(lhs, isMut) => isSubtype(lhs, rhs)
-          case p: Param            => isSubtype(p.of, rhs)
-          case BottomTy            => true
-          case StrTy | BoolTy      => isBuiltin(lhs, rhs)
-          case _                   => false
+          case SelfTy         => isSubtype_(selfRef.getOrElse(TopTy), rhs)
+          case BottomTy       => true
+          case StrTy | BoolTy => isBuiltin(lhs, rhs)
+          case _              => false
         }
       }
     }
@@ -621,12 +634,11 @@ trait TypeEnv { self: Env =>
       case Ref(id, _, Some(v))             => tyOf(v)
       case Ref(id, level, _) if level == 0 => Some(id.ty)
       case v: Var if v.level > 0           => tyOf(items(v.id.id))
-      case v: Var =>
-        Some(v.id.ty)
-      case v: Param                => tyOf(v.of)
-      case TodoLit                 => Some(BottomTy)
-      case reg: Region if reg.semi => Some(UnitTy)
-      case reg: Region             => reg.stmts.lastOption.flatMap(tyOf)
+      case v: Var                          => Some(v.id.ty)
+      case v: Param                        => tyOf(v.of)
+      case TodoLit                         => Some(BottomTy)
+      case reg: Region if reg.semi         => Some(UnitTy)
+      case reg: Region                     => reg.stmts.lastOption.flatMap(tyOf)
       case TypeMatch(_, _, cases, d) => {
         val types = (cases.map(_._2) :+ d).map(tyOf).flatten
         debugln(s"coerce enumMatch $types")

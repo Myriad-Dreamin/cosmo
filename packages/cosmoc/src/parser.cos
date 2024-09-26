@@ -9,7 +9,9 @@ class Arena[T] {
   var pointers = Vec(Ptr(T))();
 
   def alloc(&mut self, t: T) = {
-    self.pointers.push(Ptr(T).alloc(t));
+    val p = Ptr(T).alloc(t);
+    self.pointers.push(p);
+    p
   }
 }
 
@@ -23,13 +25,11 @@ class Ast {
   var root = Ptr(Node)();
 
   def resolve(&mut self, j: &json::Value): Ptr(Node) = {
-    if (j.apply("kind") == "block") {
-      var stmts = j.apply("stmts") match {
-        case json::Value::Array(arr) => arr
-        // case _ => ???
-      };
+    if (j.apply("kind").expectStr().as_str() == "block") {
+      val stmts = j.apply("stmts").expectArray();
       var children = Vec(Ptr(Node))();
-      for (stmt in stmts) {
+      for (s in stmts) {
+        val stmt: json::Value = s.pack();
         children.push(Ast.resolve(stmt));
       }
       self.arena.alloc(Node.Block(0, children))

@@ -12,6 +12,13 @@ pub class Vec(T: Type) {
   def size(self): usize = {
     self.internal.size()
   }
+
+  def begin(&self) = {
+    self.internal.begin()
+  }
+  def end(&self) = {
+    self.internal.end()
+  }
 }
 
 // template <typename T, typename Ctx, typename Cond = void> struct CppVec {

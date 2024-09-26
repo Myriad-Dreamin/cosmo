@@ -24,7 +24,15 @@ pub class ValueT(T: Type) {
       }
     }
 
-    def apply(Ty: Type, &self, index: Ty): ValueT(T) = {
+    def expectArray(self): vec.Vec(T) = {
+      self match {
+        case ValueT(T).Array(arr) => arr
+        case _ => panic("value is not an array");
+      }
+    }
+
+    // def apply(Ty: Type, &self, index: Ty): ValueT(T) = {
+    def apply(&self, index: str): ValueT(T) = {
       self match {
         case ValueT(T).Null => {panic("value is null");}
         case ValueT(T).Bool(b) => {panic("value is a boolean");}
@@ -105,7 +113,9 @@ class NlohmannJsonImpl {
         }""");
         ValueT(NlohmannJsonImpl).Object(o)
       }
-      case _ => panic("Invalid JSON type ");
+      case _ => {
+        panic("Invalid JSON type ");
+      }
     }
   }
 }
