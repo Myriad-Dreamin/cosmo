@@ -488,6 +488,10 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     type ED = EnumDestruct
     type UD = MatchM => MatchM
 
+    def addPattern(lhs: Item, pattern: Item, body: => Item): M = {
+      addOne(lhs, pattern, dropCase(body))
+    }
+
     def finalize(body: UD = id => id): Item = {
       val res = doFinalize(body)
       debugln(s"finalize $this => $res")
@@ -498,14 +502,19 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       }
     }
 
-    def dropCase(body: => Item): UD = m =>
-      m match {
-        case Init => Finalized(body)
-        case m    => err(s"cannot add body to state $m, with body $body"); m
+    def dropCase(body: => Item): UD = {
+      case Init => Finalized(body)
+      case m    => err(s"cannot add body to state $m, with body $body"); m
+    }
+
+    def coverageCheck(body: UD, ifEscaping: => Unit): Item = {
+      val orElse = body(Init)
+      orElse match {
+        case Init => ifEscaping
+        case _    =>
       }
 
-    def addPattern(lhs: Item, pattern: Item, body: => Item): M = {
-      addOne(lhs, pattern, dropCase(body))
+      orElse.finalize(_ => Finalized(Unreachable))
     }
 
     def addOne(lhs: Item, pattern: Item, body: UD): M = pattern match {
@@ -624,9 +633,13 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
           val cases = values.map { case (v, m) =>
             (v, m.finalize(body))
           }
-          Finalized(
-            ValueMatch(lhs, tyOf(lhs).get, cases, Some(Init.finalize(body))),
-          )
+
+          val orElse = coverageCheck(
+            body, {
+              err(s"must add a branch to close value match when matching $lhs")
+            },
+          );
+          Finalized(ValueMatch(lhs, tyOf(lhs).get, cases, orElse))
         case MClass(cd, inner) =>
           debugln(s"finalize classes $cd $body")
           Finalized(placeVal(cd, inner.finalize(body)))
@@ -645,17 +658,14 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
             }
           }
 
-          val orElse = body(Init)
-          orElse match {
-            case Init =>
+          val orElse = coverageCheck(
+            body, {
               for (v <- missings) {
                 err(s"missing case $v when matching $lhs on $use")
               }
-            case _ =>
-          }
-
-          val v = orElse.finalize(_ => Finalized(Unreachable));
-          Finalized(TypeMatch(lhs, use, cases.toList, v))
+            },
+          );
+          Finalized(TypeMatch(lhs, use, cases.toList, orElse))
       }
   }
 

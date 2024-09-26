@@ -2,47 +2,47 @@
   case "yes" => 1
 }] => valueMatch ("yes" by str) {
  case "yes" => 1
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching Str(yes)"
 ["yes" match {
   case "no" => 2
 }] => valueMatch ("yes" by str) {
  case "no" => 2
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching Str(yes)"
 [v1 match {
   case "yes" => 3
 }] => valueMatch (val v1@47: str = "yes" by str) {
  case "yes" => 3
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching ref(v1)"
 [v1 match {
   case "no" => 4
 }] => valueMatch (val v1@47: str = "yes" by str) {
  case "no" => 4
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching ref(v1)"
 ["yes" match {
   case "yes" => 5
   case "no" => 6
 }] => valueMatch ("yes" by str) {
  case "yes" => 5
  case "no" => 6
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching Str(yes)"
 ["no" match {
   case "yes" => 7
   case "no" => 8
 }] => valueMatch ("no" by str) {
  case "yes" => 7
  case "no" => 8
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching Str(no)"
 [v1 match {
   case "yes" => 5
   case "no" => 6
 }] => valueMatch (val v1@47: str = "yes" by str) {
  case "yes" => 5
  case "no" => 6
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching ref(v1)"
 [v1 match {
   case "yes" => 7
   case "no" => 8
 }] => valueMatch (val v1@47: str = "yes" by str) {
  case "yes" => 7
  case "no" => 8
-} else Unreachable, err: ""
+} else Unreachable, err: "must add a branch to close value match when matching ref(v1)"

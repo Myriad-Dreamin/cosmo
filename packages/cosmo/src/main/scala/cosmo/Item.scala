@@ -175,7 +175,7 @@ final case class ValueMatch(
     lhs: Item,
     by: Type,
     cases: List[(Item, Item)],
-    orElse: Option[Item],
+    orElse: Item,
 ) extends Item {}
 final case class TypeMatch(
     lhs: Item,

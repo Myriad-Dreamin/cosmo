@@ -611,7 +611,7 @@ trait TypeEnv { self: Env =>
         types.lastOption
       }
       case ValueMatch(_, _, cases, d) => {
-        val types = (cases.map(_._2).map(tyOf) :+ d.flatMap(tyOf)).flatten
+        val types = (cases.map(_._2).map(tyOf) :+ tyOf(d)).flatten
         debugln(s"coerce valueMatch $types")
         types.lastOption
       }

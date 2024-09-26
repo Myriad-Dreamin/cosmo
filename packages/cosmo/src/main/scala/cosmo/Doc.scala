@@ -185,7 +185,7 @@ object Doc {
         Array("case ".d, c._1.d, " => ".d, c._2.d).d
       }
       val body = (") {".d +: cs).d(NewLine)
-      val o = orElse.d.map { e => Array(" else ".d, e).d }.getOrElse(empty)
+      val o = Array(" else ".d, orElse.d).d
       Array(
         "valueMatch (".d,
         lhs.d,

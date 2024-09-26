@@ -604,8 +604,10 @@ class CodeGen(implicit val env: Env) {
           val name = expr(cond)
           s"case $name: ${blockizeExpr(body, recv)}; break;"
         }
-        val orElse =
-          v.orElse.map(e => s"default: ${blockizeExpr(e, recv)}").getOrElse("")
+        val orElse = v.orElse match {
+          case ir.NoneItem => ""
+          case e           => s"default: ${blockizeExpr(e, recv)}"
+        }
         return s"switch(${expr(v.lhs)}) {${cases.mkString("\n")}\n$orElse}"
       case a => {
         logln(s"unhandled expr: $a")
