@@ -1,64 +1,37 @@
 
 import vectorSys from "@lib/c++/vector"
 
-trait Iter[T] {
-  def next(&mut self): Option[T];
-}
-
-class CppIter[E, T] {
-  var curr: T;
-  var end: T;
-}
-
-impl[E, T<: cstd.Deref[E]] Iter[&E] for CppIter[E, T] {
-  def next(&mut self): Option[&E] = {
-    if (self.curr == self.end) {
-      Option[&E]::None
-    } else {
-      val result = cstd.deref(self.curr);
-      cstd.inc(self.curr);
-      Option[&E]::Some(result)
-    }
-  }
-}
-
-class CppIterMut[E, T] {
-  var curr: T;
-  var end: T;
-}
-
-impl[T, E<: cstd.DerefMut[E]] Iter[&mut E] for CppIterMut[E, T] {
-  def next(&mut self): Option[&mut E] = {
-    if (self.curr == self.end) {
-      Option[&mut E]::None
-    } else {
-      var result = cstd.deref_mut(self.curr);
-      cstd.inc(self.curr);
-      Option[&mut E]::Some(result)
-    }
-  }
-}
+import stdIter from std.iter
 
 def CppVec[T]: Type = vectorSys.std.vector(T)
 
 class Vec[T] {
   var internal: CppVec(T) = CppVec(T)();
 
-  def iter(&self) = {
-    CppIter[&T](self.internal.begin(), self.internal.end())
+  def begin(&self): any = self.internal.begin()
+  def end(&self): any = self.internal.end()
+
+  def iter(&self): any = {
+    stdIter.CppIter[&T, decltype(self.internal.begin())](self.internal.begin(), self.internal.end())
   }
 
-  def iter_mut(&mut self) = {
-    CppIterMut[&mut T](self.internal.begin(), self.internal.end())
+  def iter_mut(&mut self): any = {
+    stdIter.CppIterMut[&mut T, decltype(self.internal.begin())](self.internal.begin(), self.internal.end())
   }
 }
 
-def main() {
-  val v = Vec(i32)();
+def main() = {
+  var v = Vec(i32)();
   v.internal.push_back(42);
   v.internal.push_back(45);
   v.internal.push_back(48);
 
+  for (i in v.iter()) {
+    println(i);
+  }
+  for (i in v.iter_mut()) {
+    i += 1;
+  }
   for (i in v) {
     println(i);
   }

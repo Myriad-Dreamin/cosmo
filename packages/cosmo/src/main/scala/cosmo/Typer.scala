@@ -1,11 +1,15 @@
 package cosmo
 
 import scala.annotation.tailrec
+import scala.collection.immutable.LongMap
 
 import ir._
 import syntax as s
 
 trait TypeEnv { self: Env =>
+
+  /// Creates Infer Variable
+  def createInfer(info: DefInfo, lvl: Int) = InferVar(info, level = lvl)
 
   // : Computing Part
 
@@ -280,10 +284,9 @@ trait TypeEnv { self: Env =>
       eParams: Array[Param],
       eArgs: List[Item],
   ): List[Item] = {
-
     debugln(s"castArgs ${eParams.toList} $eArgs")
 
-    matchParams(
+    val resolved = matchParams(
       eParams,
       eArgs,
       (param, value) => {
@@ -316,13 +319,19 @@ trait TypeEnv { self: Env =>
         //   items += (info.id -> v)
         // }
 
-        casted
+        casted match {
+          case Some(Hole(id)) => Some(createInfer(id, param.level))
+          case casted => casted
+        }
       },
-    )
+    );
+
+    resolved
   }
 
   def castTo(item: Item, nty: Type): Item = {
     val ty = canonicalTy(nty)
+
     debugln(s"castTo $item to $nty ($ty)")
     ty match {
       case TopTy | UniverseTy => item
@@ -340,14 +349,19 @@ trait TypeEnv { self: Env =>
             }
             val lty = canonicalTy(tyOf(item).getOrElse(TopTy))
             val rty = canonicalTy(rtyNf)
+            val lhsIsInferVar = lty match {
+              case _: InferVar => true
+              case RefItem(_: InferVar, _) => true
+              case _                 => false
+            }
             val lIsR = isSubtype(lty, rty);
             val rIsL = isSubtype(rty, lty);
-            debugln(s"castTo $item to $rty ($lty) $lIsR $rIsL")
+            debugln(s"castTo $item to $rty ($lty) $lIsR $rIsL $lhsIsInferVar")
             if (lIsR && rIsL) {
               debugln(s"$item is exact $rty")
               return item
             }
-            if (!lIsR) {
+            if (!lIsR && !lhsIsInferVar) {
               errors = s"No way to cast $item ($lty) to $nty ($rty)" :: errors
               return Opaque.expr(
                 s"\n#error \"No way to cast\"\n /* ref $item */",
@@ -574,12 +588,17 @@ trait TypeEnv { self: Env =>
       case l @ (Float32(_))    => builtinClasses(l.ty)
       case l @ (Float64(_))    => builtinClasses(l.ty)
       case Unresolved(_) | NoneKind(_) => return None
+      // todo: handle infer var
+      case _: InferVar             => return None
       case _ => throw new Exception(s"cannot get class $lhs")
     })
   }
 
   def implClass(lhs: Item, goal: Class): Option[Item] = {
-    val cls = classRepr(lhs).get
+    val cls = classRepr(lhs) match {
+      case Some(cls) => cls
+      case None      => return None
+    }
     debugln(
       s"implClass? $goal(${goal.id.isTrait}) for $lhs ($cls) impls ${cls.id.impls} ",
     )

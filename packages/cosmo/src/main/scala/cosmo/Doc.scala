@@ -232,7 +232,7 @@ object Doc {
     //   val r = f.ret_ty.d
     //   val b = f.body.d.getOrElse("_".d)
     //   Array("def ".d, f.id.d, Doc.paren(p), ": ".d, r, " = ".d, b).d
-    case c: ir.Class => c.repr(c.id.env.storeTy).d
+    case c: ir.Class => c.repr(c.id.env.storeTy(_)(_.toString)).d
     // case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
     case f: ir.Fn   => Array("def ".d, f.id.d).d
     case i: ir.Impl => Array("impl ".d, i.id.d).d

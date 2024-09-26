@@ -72,6 +72,7 @@ trait ExprEnv { self: Env =>
       case s.StrLit(value)   => Str(value).e
       case s.Ident("self")   => SelfVal.e
       case s.Ident("Self")   => SelfTy.e
+      case Ident("_")        => Hole(ct("_"))
       case i: s.Ident        => byName(i)
       case s.ArgsLit(values) => argsLit(values)
       // control flow

@@ -69,6 +69,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
   def builtins() = {
     newBuiltin("print")
     newBuiltin("println")
+    newBuiltin("decltype")
     newBuiltin("unreachable")
     newBuiltin("unimplemented")
     newBuiltin("panic")
@@ -172,9 +173,6 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     info
   }
 
-  /// Creates Infer Variable
-  def createInfer(info: DefInfo, lvl: Int) = InferVar(info, level = lvl)
-
   /// Creates Reference
   def byRef(info: DefInfo)(implicit level: Int): Ref = {
     val v = items.get(info.id).map(deref)
@@ -227,7 +225,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case c: ClassExpr    => checkDecl(c, checkClass(c))
       case i: ImplExpr     => checkDecl(i, checkImpl(i))
       case d: DestructExpr => checkDestruct(d)
-      case Hole(id)        => err(s"hole $id in the air")
+      case h: Hole         => h
       case cr: CaseRegion  => err(s"case region $cr in the air")
       case c: CaseExpr =>
         errE(s"case clause without match")
@@ -881,19 +879,7 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     id.impls = id.impls :+ impl
   }
 
-  def defByName(info: DefInfo): String = info.defName(stem = false)
-
-  def varByRef(vv: Ref): String = {
-    val ir.Ref(id, level, v) = vv
-    v.map {
-      case v: CppInsType => Some(storeTy(v))
-      case v: CIdent     => Some(v.repr)
-      case _             => None
-    }.flatten
-      .getOrElse(defByName(id))
-  }
-
-  def storeTy(ty: Type): String = {
+  def storeTy(ty: Type)(implicit exprRec: Item => String): String = {
     debugln(s"storeTy $ty")
     ty match {
       case IntegerTy(size, isUnsigned) =>
@@ -910,6 +896,8 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case ty: Float32     => "float32_t"
       case ty: Float64     => "float64_t"
       case ty: Str         => "::str"
+      // "decltype((*this).internal.begin())"
+      case ty: Hole => throw new Exception(s"hole $ty cannot be stored")
       case ty: CIdent      => ty.repr
       case ty: CppInsType  => ty.repr(storeTy)
       case ty: HKTInstance => ty.repr(storeTy)
@@ -931,6 +919,9 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
       case Ref(_, _, Some(v)) => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
+      case Apply(Opaque(Some("decltype"), None), rhs) =>
+        assert(rhs.length == 1, s"decltype $rhs")
+        s"decltype(${exprRec(rhs.head)})"
       case Apply(lhs, rhs) => {
         val lhsTy = storeTy(lhs)
         val rhsTy = rhs.map(storeTy).mkString(", ")

@@ -1,9 +1,11 @@
 
 import vectorSys from "@lib/c++/vector"
 
-pub def CppVec(T: Type): Type = vectorSys.std.vector(T)
+import stdIter from std.iter
 
-pub class Vec(T: Type) {
+pub def CppVec[T]: Type = vectorSys.std.vector(T)
+
+pub class Vec[T] {
   var internal: CppVec(T) = CppVec(T)();
 
   def push(self, value: T) = {
@@ -13,11 +15,15 @@ pub class Vec(T: Type) {
     self.internal.size()
   }
 
-  def begin(&self) = {
-    self.internal.begin()
+  def begin(&self): any = self.internal.begin()
+  def end(&self): any = self.internal.end()
+
+  def iter(&self): any = {
+    stdIter.CppIter[&T, decltype(self.internal.begin())](self.internal.begin(), self.internal.end())
   }
-  def end(&self) = {
-    self.internal.end()
+
+  def iter_mut(&mut self): any = {
+    stdIter.CppIterMut[&mut T, decltype(self.internal.begin())](self.internal.begin(), self.internal.end())
   }
 }
 

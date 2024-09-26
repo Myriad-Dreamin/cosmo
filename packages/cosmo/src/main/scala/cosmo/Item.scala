@@ -307,6 +307,9 @@ final case class Class(
   override def toString: String = s"class(${repr()})"
   def isPhantomClass: Boolean = id.isPhantom
   def justInit: Boolean = !id.isTrait && params.isEmpty && isPhantomClass
+  def isBadInferred: Boolean = args.iterator.flatten.exists {
+    case Hole(_) => true; case _ => false
+  }
   def vars = fields.values.collect { case a: VarField => a }.toList
   def defs = fields.values.collect { case a: DefField => a }.toList
   def variants = fields.values.collect { case a: EnumField => a }.toList

@@ -15,6 +15,8 @@ class CodeGen(implicit val env: Env) {
 // NOLINTEND(readability-identifier-naming,llvm-else-after-return)
 """
   var genInImpl = false
+  
+  implicit val exprRec: Item => String = expr
 
   // Generate Cxx code from the env
   def gen(): String = {
@@ -332,9 +334,19 @@ class CodeGen(implicit val env: Env) {
 
   def returnTy(ty: Type): String = {
     ty match {
-      case SelfTy => "Self"
-      case ty     => storeTy(ty)
+      case SelfTy                      => "Self"
+      case ty                          => storeTy(ty)
     }
+  }
+
+  def varByRef(vv: Ref): String = {
+    val ir.Ref(id, level, v) = vv
+    v.map {
+      case v: CppInsType => Some(storeTy(v))
+      case v: CIdent     => Some(v.repr)
+      case _             => None
+    }.flatten
+      .getOrElse(id.defName(stem = true))
   }
 
   def storeTy(ty: Type): String = env.storeTy(ty)
@@ -378,13 +390,16 @@ class CodeGen(implicit val env: Env) {
   )(implicit defaultMove: Boolean = true): (String, String) = {
     debugln(s"moveExpr: $ast")
     ast match {
-      case RefItem(lhs, _) if isConst(lhs) => mutExpr(lhs);
+      case RefItem(lhs, isMut) if isConst(lhs) && isMut => mutExpr(lhs);
       case ir.As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
         val (x, y) = mutExpr(lhs);
         val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true).e, rhs))(false);
         (x + z, w)
       case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
       case RefItem(lhs, _)                 => ("", expr(lhs));
+      case ir.As(RefItem(lhs, lMut), RefItem(_, rMut))                 => 
+        if rMut && !lMut then env.err("cannot cast from const to mutable")
+        ("", expr(lhs))
       case ir.UnOp("*", SelfVal)           => ("", expr(SelfVal));
       case ir.As(lhs, rhs: Impl)           => mutExpr(Opaque.expr(expr(ast)))
       case ast if isConst(ast) || !defaultMove => ("", expr(ast))
@@ -431,7 +446,7 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Ref => v.id.env.varByRef(v)
+      case v: Ref => varByRef(v)
       case v: Fn  => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
@@ -515,7 +530,7 @@ class CodeGen(implicit val env: Env) {
             .mkString(", ")}}"
       case v: ir.CIdent     => storeTy(v)
       case v: ir.CppInsType => storeTy(v)
-      case v: ir.Var        => v.id.defName(stem = false)
+      case v: ir.Var        => v.id.defName(stem = true)
       case v: ClassInstance if v.con.variantOf.isDefined => {
         val args = v.args.flatMap {
           case v: KeyedArg => Some((v.key, v.value))

@@ -24,24 +24,45 @@ class Ast {
   var arena = Arena(Node)();
   var root = Ptr(Node)();
 
+  def resolve_vec(&mut self, j: &json::Value, key: &str): Vec(Ptr(Node)) = {
+    val stmts = j.apply(key).expectArray();
+    var children = Vec(Ptr(Node))();
+    for (s in stmts) {
+      val stmt: json::Value = json::NlohmannJsonImpl::pack(s);
+      children.push(Ast.resolve(stmt));
+    }
+    children
+  }
+
   def resolve(&mut self, j: &json::Value): Ptr(Node) = {
-    if (j.apply("kind").expectStr().as_str() == "block") {
-      val stmts = j.apply("stmts").expectArray();
-      var children = Vec(Ptr(Node))();
-      for (s in stmts) {
-        val stmt: json::Value = s.pack();
-        children.push(Ast.resolve(stmt));
+    val kind: String = j.apply("kind").expectStr(); // todo: type of apply result
+    kind.as_str() match {
+      case "block" => {
+        val stmts = self.resolve_vec(j, "stmts");
+        self.arena.alloc(Node.Block(0, stmts))
       }
-      self.arena.alloc(Node.Block(0, children))
-    } else {
-      ???
+      case "def" => {
+        println(j);
+        val name = j.apply("name");
+        println(name);
+        val params = j.apply("params");
+        println(params);
+        val pos = j.apply("pos");
+        println(pos);
+        val ret = j.apply("ret");
+        println(ret);
+        val rhs = j.apply("rhs");
+        println(rhs);
+        Ptr(Node)()
+      }
+      case _ => {
+        println(s"unhandled kind: ${kind}");
+        Ptr(Node)()
+      }
     }
   }
 
   def get(j: json::Value) = {
-    // println(j.apply("kind"));
-    // println(j.apply("stmts"));
-
     var ast = Ast();
     ast.root = ast.resolve(j);
 
@@ -56,6 +77,6 @@ def main() = {
   args.push("samples/HelloWorld/main.cos");
   var cmd = exec.Command("node", args);
   var content = exec.Command.run(cmd);
-  println(content);
+  // println(content);
   var j = Ast::get(json.parse(content));
 }

@@ -13,7 +13,10 @@ class SelfHostTest extends munit.FunSuite:
     )
   }
 
-  test("parser") {
+  test("playground") {
+    runTestOnFile("samples/Syntax/playground.cos")
+  }
+  test("parser".only) {
     runTestOnFile("packages/cosmoc/src/parser.cos")
   }
 end SelfHostTest
