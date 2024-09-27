@@ -72,6 +72,7 @@ trait ExprEnv { self: Env =>
       case s.StrLit(value)   => Str(value).e
       case s.Ident("self")   => SelfVal.e
       case s.Ident("Self")   => SelfTy.e
+      case Ident("_")        => Hole(ct("_"))
       case i: s.Ident        => byName(i)
       case s.ArgsLit(values) => argsLit(values)
       // control flow
@@ -316,12 +317,15 @@ trait ExprEnv { self: Env =>
 
   def impl(ast: s.Impl, info: Defo): DeclExpr = {
     val s.Impl(rhs, lhs, params, body) = ast
-    val (cls, iface) = (expr(rhs), lhs.map(expr))
     val fields = MutMap[String, VField]()
-    val (ps, cs, _) = withParams(params)(body match {
-      case body: s.Block => baseClass(body, fields, false)
-      case body          => err(s"impl body is invalid kind: $body")
-    })
+    val (ps, cs, (cls, iface)) = withParams(params) {
+      val (cls, iface) = (expr(rhs), lhs.map(expr))
+      body match {
+        case body: s.Block => baseClass(body, fields, false)
+        case body          => err(s"impl body is invalid kind: $body")
+      }
+      (cls, iface)
+    }
 
     if (iface.isDefined) {
       fields.values.foreach { d => d.item.id.isOverride = true }

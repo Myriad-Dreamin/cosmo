@@ -3,9 +3,13 @@ package cosmo
 import scala.scalajs.js
 import munit.diff.Diffs
 
+// region TestGuards
+val showResult = false
 val syntaxOnly = false
 val evalOnly = false
-val updateSnapshot = true;
+val compileCpp = false
+val updateSnapshot = false
+// endregion TestGuards
 
 class TestBase extends munit.FunSuite:
   val compiler = new Cosmo();
@@ -23,14 +27,16 @@ class TestBase extends munit.FunSuite:
   def compilePath(path: String) = {
     loadPackages;
     // read the file
-    var src = cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
-    var (content, env) = compiler.transpile(src).get
+    val (content, env) = compiler.transpileByPath(path).get
     val item = if syntaxOnly then env.moduleAst else env.module
-    if (syntaxOnly || evalOnly) {
-      println(item.toDoc.pretty(showDef = true))
-    } else {
-      println(content)
+    if (showResult) {
+      if (syntaxOnly || evalOnly) {
+        println(item.toDoc.pretty(showDef = true))
+      } else {
+        println(content)
+      }
     }
+    env.report
   }
 
   def checkSnapshot(path: String, f: String => String)(implicit

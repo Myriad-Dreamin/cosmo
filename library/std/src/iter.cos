@@ -1,0 +1,40 @@
+
+class CppIter[E, T] {
+  var curr: T;
+  var eof: T;
+
+  def begin(&self): any = self.curr
+  def end(&self): any = self.eof
+}
+
+impl[E, T<: cstd.Deref[E]] Iter[&E] for CppIter[E, T] {
+  def next(&mut self): Option[&E] = {
+    if (self.curr == self.eof) {
+      Option[&E]::None
+    } else {
+      val result = cstd.deref(self.curr);
+      cstd.inc(self.curr);
+      Option[&E]::Some(result)
+    }
+  }
+}
+
+class CppIterMut[E, T] {
+  var curr: T;
+  var eof: T;
+
+  def begin(&self): any = self.curr
+  def end(&self): any = self.eof
+}
+
+impl[T, E<: cstd.DerefMut[E]] Iter[&mut E] for CppIterMut[E, T] {
+  def next(&mut self): Option[&mut E] = {
+    if (self.curr == self.eof) {
+      Option[&mut E]::None
+    } else {
+      var result = cstd.deref_mut(self.curr);
+      cstd.inc(self.curr);
+      Option[&mut E]::Some(result)
+    }
+  }
+}

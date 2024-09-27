@@ -20,11 +20,19 @@ pub class ValueT(T: Type) {
     def expectStr(self): String = {
       self match {
         case ValueT(T).Str(s) => s
-        case _ => panic("value is not a string");
+        case _ => {panic("value is not a string");}
       }
     }
 
-    def apply(Ty: Type, &self, index: Ty): ValueT(T) = {
+    def expectArray(self): vec.Vec(T) = {
+      self match {
+        case ValueT(T).Array(arr) => arr
+        case _ => {panic("value is not an array");}
+      }
+    }
+
+    // def apply(Ty: Type, &self, index: Ty): ValueT(T) = {
+    def apply(&self, index: str): ValueT(T) = {
       self match {
         case ValueT(T).Null => {panic("value is null");}
         case ValueT(T).Bool(b) => {panic("value is a boolean");}
@@ -34,22 +42,22 @@ pub class ValueT(T: Type) {
         case ValueT(T).Str(s) => {panic("value is a string");}
         case ValueT(T).Array(arr) => {
           code("""
-          if constexpr (std::is_unsigned_v<Ty>) {
-              return T::pack(arr.internal[index]);
-          } else {
+          // if constexpr (std::is_unsigned_v<Ty>) {
+          //     return T::pack(arr.internal[index]);
+          // } else {
             panic("invalid index type for array");
             return cosmo_std::json::ValueT<T>::Null_cons();
-          }
+          // }
           """);
         }
         case ValueT(T).Object(obj) => {
           code("""
-          if constexpr (std::is_same_v<Ty, cosmo_std::str::String> || std::is_same_v<Ty, std::string>) {
+          // if constexpr (std::is_same_v<Ty, cosmo_std::str::String> || std::is_same_v<Ty, std::string>) {
             return T::pack(obj.internal[index]);
-          } else {
-            panic("invalid index type for object");
-            return cosmo_std::json::ValueT<T>::Null_cons();
-          }
+          // } else {
+          //   panic("invalid index type for object");
+          //   return cosmo_std::json::ValueT<T>::Null_cons();
+          // }
           """);
         }
       }
@@ -69,13 +77,13 @@ class NlohmannJsonImpl {
   // lazy def value: ValueT(Self) = Self.pack(internal);
 
   def parse(content: String): any = {
-    self.pack(NlohmannJsonImpl(NlohmannJsonValue.parse(content.internal)))
+    self.pack(&NlohmannJsonImpl(NlohmannJsonValue.parse(content.internal)))
   }
   
-  def getAs(Ty: Type, self): Ty = self.internal.get(Ty)()
+  def getAs(Ty: Type, &self): Ty = self.internal.get(Ty)()
 
   // todo: Self != NlohmannJsonImpl...
-  def pack(j: NlohmannJsonImpl): ValueT(NlohmannJsonImpl) = {
+  def pack(j: &NlohmannJsonImpl): ValueT(NlohmannJsonImpl) = {
     val mTag: c_enum = NlohmannJsonTag(Ref(j.internal));
     // stdSys.printf("%d\n".data(), mTag);
 
@@ -105,7 +113,9 @@ class NlohmannJsonImpl {
         }""");
         ValueT(NlohmannJsonImpl).Object(o)
       }
-      case _ => panic("Invalid JSON type ");
+      case _ => {
+        panic("Invalid JSON type ");
+      }
     }
   }
 }

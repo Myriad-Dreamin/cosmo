@@ -1,0 +1,66 @@
+
+type N = Ptr(Node);
+
+class Node {
+  @meta(kind: "block")
+  case Block(pos: i64, stmts: Vec(N))
+  @meta(kind: "def")
+  case Def(pos: i64, name: N, params: Option(Vec(N)), ret: Option(N), rhs: N)
+}
+
+class Ast {
+  def resolveAs[T](j: &json::Value): T = {
+    T match {
+      case i64 => j.expectInt()
+      case str => j.expectStr()
+      case bool => j.expectBool()
+      case N => self.resolve(j)
+      case Vec(N) => self.resolve_vec(j, "stmts")
+      case Option(S) => {
+        if (j.is_null()) {
+          None
+        } else {
+          Some(self.resolveAs[S](j))
+        }
+      }
+      case _ => panic("unhandled type")
+    }
+  }
+
+  def resolveKind(cls: Meta(Class)): Expr = {
+    var exprs = Vec(Expr)();
+    for (f in cls.fields) {
+      val name = f.name;
+      val ty = f.ty;
+      exprs.push(q"val ${name:i}: ${ty} = self.resolveAs[${ty}](j.apply(${name:s}));");
+    }
+    var names = Vec(Expr)();
+    for (f in cls.fields) {
+      val name = f.name;
+      names.push(q"${name:i}");
+    }
+    q"""{
+      ${exprs:..}
+      self.arena.alloc(${cls:f}(0, ${names:..}))
+    }"""
+  }
+
+  def resolve(&mut self, j: &json::Value): Ptr(Node) = {
+    type NodeMeta = std::reflect(Node);
+    type Kinds = NodeMeta.cases.map(c => {
+      q"case ${c.meta.kind:s} => ${self.resolveAs(c.cls)}"
+    });
+    
+    val kind: String = j.apply("kind").expectStr(); // todo: type of apply result
+    std::paste(q"""
+    kind.as_str() match {
+      ${Kinds:..}
+      case _ => {
+        println(s"unhandled kind: ${kind}");
+        Ptr(Node)()
+      }
+    }
+    """)
+  }
+}
+

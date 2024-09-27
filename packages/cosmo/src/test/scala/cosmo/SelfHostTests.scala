@@ -2,10 +2,9 @@ package cosmo
 import scala.scalajs.js
 
 class SelfHostTest extends munit.FunSuite:
-  def runTestOnFile(path: String) = {
-    // read the file
-    var src =
-      cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
+  def runTestOnFile(path: String): Unit = {
+    if (!compileCpp) then return
+
     var compiler = new Cosmo();
     compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
     compiler.preloadPackage("std");
@@ -16,7 +15,10 @@ class SelfHostTest extends munit.FunSuite:
     )
   }
 
-  test("CompileDriver/callNode") {
-    runTestOnFile("samples/CompileDriver/callNode.cos")
+  test("playground") {
+    runTestOnFile("samples/Syntax/playground.cos")
+  }
+  test("parser".only) {
+    runTestOnFile("packages/cosmoc/src/parser.cos")
   }
 end SelfHostTest

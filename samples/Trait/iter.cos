@@ -1,0 +1,38 @@
+
+import vectorSys from "@lib/c++/vector"
+
+import stdIter from std.iter
+
+def CppVec[T]: Type = vectorSys.std.vector(T)
+
+class Vec[T] {
+  var internal: CppVec(T) = CppVec(T)();
+
+  def begin(&self): any = self.internal.begin()
+  def end(&self): any = self.internal.end()
+
+  def iter(&self): any = {
+    stdIter.CppIter[&T, decltype(self.internal.begin())](self.internal.begin(), self.internal.end())
+  }
+
+  def iter_mut(&mut self): any = {
+    stdIter.CppIterMut[&mut T, decltype(self.internal.begin())](self.internal.begin(), self.internal.end())
+  }
+}
+
+def main() = {
+  var v = Vec(i32)();
+  v.internal.push_back(42);
+  v.internal.push_back(45);
+  v.internal.push_back(48);
+
+  for (i in v.iter()) {
+    println(i);
+  }
+  for (i in v.iter_mut()) {
+    i += 1;
+  }
+  for (i in v) {
+    println(i);
+  }
+}

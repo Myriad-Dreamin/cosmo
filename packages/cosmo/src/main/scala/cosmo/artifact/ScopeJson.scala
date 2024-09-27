@@ -14,7 +14,7 @@ class ScopeJson(val env: Env) {
 """,
     )
     sb.append(
-      s"""  "f": { "file": "${fid.getOrElse("-")}" }""",
+      s"""  "f": { "file": "${fid}" }""",
     )
 
     for (info <- defs.filter(!_.isHidden)) {
@@ -31,10 +31,7 @@ class ScopeJson(val env: Env) {
           .mkString(",")
       val ty = info.ty.toString();
       sb.append(
-        s"""  "i:${info.id.id}": ["${info.name}",${parent},${pos},"${info.env.fid
-            .getOrElse(
-              "-",
-            )}","$ty"]""",
+        s"""  "i:${info.id.id}": ["${info.name}",${parent},${pos},"${info.env.fid}","$ty"]""",
       )
     }
     sb.append("\n}")

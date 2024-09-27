@@ -18,8 +18,9 @@ trait PackageManager {
 }
 
 trait Transpiler extends PackageManager {
-  def transpile(src: String): Option[(String, Env)]
+  def transpile(src: String, env: Env): Option[(String, Env)]
   def transpileByFid(fid: FileId): Option[(String, Env)]
+  def transpileByPath(path: String): Option[(String, Env)]
 }
 
 @JSExportTopLevel("Cosmo")
@@ -29,7 +30,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
 
   var packages: Map[String, Map[String, Package]] = Map()
   val linker: Linker = new CmakeLinker(system)
-  val envBase = new Env(None, this).builtins()
+  val envBase = new Env(Source.empty, this).builtins()
   var modules = Map[FileId, Option[Env]]()
   var loading = Set[FileId]()
 
@@ -89,14 +90,17 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
   def evaluate(src: String, env: Env = empty): Option[Env] =
     expr(src, env).map(_.evalStage).map(_.report)
 
-  def transpile(src: String): Option[(String, Env)] =
-    evaluate(src).flatMap(cppBackend)
+  def transpile(src: String, env: Env = empty): Option[(String, Env)] =
+    evaluate(src, env).flatMap(cppBackend)
 
   def mayGetExecutable(path: String): Option[String] =
     linker.compile(path, this, releaseDir)
 
   def transpileByFid(fid: FileId): Option[(String, Env)] =
     loadModule(fid).flatMap(cppBackend)
+
+  def transpileByPath(path: String): Option[(String, Env)] =
+    fileIdOf(path).flatMap(transpileByFid)
 
   def loadModuleByDotPath(s: String): Option[Env] =
     loadModuleBySyntax(libPath(s))
@@ -140,12 +144,13 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
           system.readFile(dPath).split("\n").map(_.trim).filter(!_.isEmpty);
         lines.toList.flatMap(FileId.fromString(_, pkgFromPairString))
 
-    val env = fileEnv(Some(fid));
+    val src = fid.pkg.sources(fid.path)
+    val env = fileEnv(Some(src));
     debugln(
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
     loading += fid
-    val res = evaluate(fid.pkg.sources(fid.path).source, env)
+    val res = evaluate(src.content, env)
     modules += (fid -> res)
     loading -= fid
     res
@@ -223,8 +228,8 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
     }
   }
 
-  def fileEnv(fid: Option[FileId]): Env = {
-    val env = new Env(fid, this)
+  def fileEnv(src: Option[Source]): Env = {
+    val env = new Env(src.getOrElse(Source.empty), this)
     env.defAlloc = envBase.defAlloc
     env.scopes.scopes = envBase.scopes.scopes
     env.builtinClasses = envBase.builtinClasses

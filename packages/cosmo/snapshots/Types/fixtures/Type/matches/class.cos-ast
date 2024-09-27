@@ -1,8 +1,8 @@
 [T(x: 1, y: 2) match {
   case T(x, y) => x + y
 }] => block {
- ClassDestruct(ins (class(T))(Integer(1), Integer(2)),class(T),List((var x_56:56 = NoneKind(0)), (var y_57:57 = NoneKind(0))))
- var x@52: i32 = var x_56@56: i32 = _
- var y@53: i32 = var y_57@57: i32 = _
- "+"(var x@52: i32 = _, var y@53: i32 = _)
+ ClassDestruct(ins (class(T))(Int32(1), Int32(2)),class(T),List((var x_58:58 = NoneKind(0)), (var y_59:59 = NoneKind(0))))
+ var x@54: i32 = var x_58@58: i32 = _
+ var y@55: i32 = var y_59@59: i32 = _
+ "+"(var x@54: i32 = _, var y@55: i32 = _)
 }, err: ""

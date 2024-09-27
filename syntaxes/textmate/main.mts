@@ -80,6 +80,29 @@ const codePattern = (p: RegExp): textmate.Pattern => ({
   patterns: [{ include: "source.cpp" }],
 });
 
+const quotePattern = (p: RegExp, escape = false): textmate.Pattern => ({
+  begin: `\\b(q)\\s*(${p.source}(?=$|[^"]|${p.source}))`,
+  end: `(${p.source})`,
+  beginCaptures: {
+    "1": {
+      name: "keyword.other.cosmo",
+    },
+    "2": {
+      name: "punctuation.definition.string.begin.cosmo",
+    },
+  },
+  endCaptures: {
+    "1": {
+      name: "punctuation.definition.string.end.cosmo",
+    },
+  },
+  contentName: "meta.embedded.cosmo",
+  patterns: [
+    ...(escape ? [{ include: "#escape" }] : []),
+    { include: "source.cosmo" },
+  ],
+});
+
 const constPre = /(?<=val\s*|\:\:)/.source + IDENTIFIER.source;
 const constPost = IDENTIFIER.source + /(?=\:\:)/.source;
 const constIdentifier: textmate.PatternMatch = {
@@ -165,15 +188,21 @@ export const cosmo: textmate.Grammar = {
     lineComment,
     stringPattern: stringPattern(/"/, true),
     stringPattern3: stringPattern(/"""/),
+    stringPattern4: stringPattern(/""""/),
     stringPattern5: stringPattern(/"""""/),
-    stringPattern7: stringPattern(/"""""""/),
-    stringPattern9: stringPattern(/"""""""""/),
-    stringPattern11: stringPattern(/"""""""""""/),
+    stringPattern6: stringPattern(/"""""""/),
+    stringPattern7: stringPattern(/""""""""/),
     codePattern3: codePattern(/"""/),
+    codePattern4: codePattern(/""""/),
     codePattern5: codePattern(/"""""/),
+    codePattern6: codePattern(/""""""/),
     codePattern7: codePattern(/"""""""/),
-    codePattern9: codePattern(/"""""""""/),
-    codePattern11: codePattern(/"""""""""""/),
+    quotePattern: quotePattern(/"/, true),
+    quotePattern3: quotePattern(/"""/),
+    quotePattern4: quotePattern(/""""/),
+    quotePattern5: quotePattern(/"""""/),
+    quotePattern6: quotePattern(/""""""/),
+    quotePattern7: quotePattern(/"""""""/),
     markers,
     literal,
     contextualKeywords,
@@ -205,78 +234,36 @@ function generate() {
       scopeName: "source.cosmo",
       name: "cosmo",
       patterns: [
-        {
-          include: "#comments",
-        },
-        {
-          include: "#codePattern11",
-        },
-        {
-          include: "#codePattern9",
-        },
-        {
-          include: "#codePattern7",
-        },
-        {
-          include: "#codePattern5",
-        },
-        {
-          include: "#codePattern3",
-        },
-        {
-          include: "#stringPattern11",
-        },
-        {
-          include: "#stringPattern9",
-        },
-        {
-          include: "#stringPattern7",
-        },
-        {
-          include: "#stringPattern5",
-        },
-        {
-          include: "#stringPattern3",
-        },
-        {
-          include: "#stringPattern",
-        },
-        {
-          include: "#literal",
-        },
-        {
-          include: "#markers",
-        },
-        {
-          include: "#contextualKeywords",
-        },
-        {
-          include: "#keywords",
-        },
-        {
-          include: "#typeIdentifier",
-        },
-        {
-          include: "#functionPostIdentifier",
-        },
-        {
-          include: "#constIdentifier",
-        },
-        {
-          include: "#functionPreIdentifier",
-        },
-        {
-          include: "#identifier",
-        },
-        {
-          include: "#hexNumeric",
-        },
-        {
-          include: "#octalNumeric",
-        },
-        {
-          include: "#numeric",
-        },
+        { include: "#comments" },
+        { include: "#quotePattern7" },
+        { include: "#quotePattern6" },
+        { include: "#quotePattern5" },
+        { include: "#quotePattern4" },
+        { include: "#quotePattern3" },
+        { include: "#quotePattern" },
+        { include: "#codePattern7" },
+        { include: "#codePattern6" },
+        { include: "#codePattern5" },
+        { include: "#codePattern4" },
+        { include: "#codePattern3" },
+        { include: "#stringPattern7" },
+        { include: "#stringPattern6" },
+        { include: "#stringPattern5" },
+        { include: "#stringPattern4" },
+        { include: "#stringPattern3" },
+        { include: "#stringPattern" },
+        { include: "#literal" },
+        { include: "#markers" },
+        { include: "#contextualKeywords" },
+        { include: "#keywords" },
+        { include: "#typeIdentifier" },
+        { include: "#functionPostIdentifier" },
+        { include: "#constIdentifier" },
+        { include: "#functionPreIdentifier" },
+        { include: "#identifier" },
+        { include: "#hexNumeric" },
+        { include: "#octalNumeric" },
+        { include: "#numeric" },
       ],
       repository,
     })
