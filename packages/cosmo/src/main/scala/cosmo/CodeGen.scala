@@ -5,7 +5,7 @@ import cosmo._
 import cosmo.ir._
 
 class CodeGen(implicit val env: Env) {
-  val fns = env.fid.map(f => s"${f.ns.mkString("::")}")
+  val fns = env.fid.ns.map(_.mkString("::"))
   val nsb_ = fns.map(n => s"\nnamespace ${n} {\n").getOrElse("")
   val prelude = s"""
 // NOLINTBEGIN(readability-identifier-naming,llvm-else-after-return)
@@ -15,6 +15,8 @@ class CodeGen(implicit val env: Env) {
 // NOLINTEND(readability-identifier-naming,llvm-else-after-return)
 """
   var genInImpl = false
+
+  implicit val exprRec: Item => String = expr
 
   // Generate Cxx code from the env
   def gen(): String = {
@@ -108,7 +110,7 @@ class CodeGen(implicit val env: Env) {
         val name = info.defName(stem = true)
         // fid.path (.cos -> .h)
         // todo: unreliable path conversion
-        val fid = env.fid.get
+        val fid = env.fid
         val path = fid.path.slice(0, fid.path.length - 4) + ".h"
         s"#include <${fid.pkg.namespace}/${fid.pkg.name}/${path}>"
       case ir.CModule(id, kind, path) =>
@@ -136,7 +138,6 @@ class CodeGen(implicit val env: Env) {
         val vars = cls.vars
         val variants = cls.variants
         val defs = cls.defs
-        val item = env.items(defInfo.id)
         val name = defInfo.defName(stem = true)
         val templateCode = typeParams(params).getOrElse("")
         val emptyConstructable = vars.forall(!_.item.init.isEmpty)
@@ -338,6 +339,16 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
+  def varByRef(vv: Ref): String = {
+    val ir.Ref(id, level, v) = vv
+    v.map {
+      case v: CppInsType => Some(storeTy(v))
+      case v: CIdent     => Some(v.repr)
+      case _             => None
+    }.flatten
+      .getOrElse(id.defName(stem = true))
+  }
+
   def storeTy(ty: Type): String = env.storeTy(ty)
 
   def solveDict(items: Map[String, ir.Item]): String = {
@@ -379,15 +390,18 @@ class CodeGen(implicit val env: Env) {
   )(implicit defaultMove: Boolean = true): (String, String) = {
     debugln(s"moveExpr: $ast")
     ast match {
-      case RefItem(lhs, _) if isConst(lhs) => mutExpr(lhs);
+      case RefItem(lhs, isMut) if isConst(lhs) && isMut => mutExpr(lhs);
       case ir.As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
         val (x, y) = mutExpr(lhs);
         val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true).e, rhs))(false);
         (x + z, w)
       case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
       case RefItem(lhs, _)                 => ("", expr(lhs));
-      case ir.UnOp("*", SelfVal)           => ("", expr(SelfVal));
-      case ir.As(lhs, rhs: Impl)           => mutExpr(Opaque.expr(expr(ast)))
+      case ir.As(RefItem(lhs, lMut), RefItem(_, rMut)) =>
+        if rMut && !lMut then env.err("cannot cast from const to mutable")
+        ("", expr(lhs))
+      case ir.UnOp("*", SelfVal) => ("", expr(SelfVal));
+      case ir.As(lhs, rhs: Impl) => mutExpr(Opaque.expr(expr(ast)))
       case ast if isConst(ast) || !defaultMove => ("", expr(ast))
       case ast => ("", s"std::move(${expr(ast)})")
     }
@@ -432,12 +446,12 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Ref => v.id.env.varByRef(v)
+      case v: Ref => varByRef(v)
       case v: Fn  => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name: Var, iter, body) =>
-        return s"for(auto ${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
+        return s"for(auto &&${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
       case ir.Continue() => return "continue"
       case ir.TodoLit    => return "unimplemented();"
@@ -516,7 +530,7 @@ class CodeGen(implicit val env: Env) {
             .mkString(", ")}}"
       case v: ir.CIdent     => storeTy(v)
       case v: ir.CppInsType => storeTy(v)
-      case v: ir.Var        => v.id.defName(stem = false)
+      case v: ir.Var        => v.id.defName(stem = true)
       case v: ClassInstance if v.con.variantOf.isDefined => {
         val args = v.args.flatMap {
           case v: KeyedArg => Some((v.key, v.value))

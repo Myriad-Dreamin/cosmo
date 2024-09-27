@@ -80,6 +80,9 @@ class SampleTest extends TestBase:
   test("Trait/constraint") {
     compilePath("samples/Trait/constraint.cos")
   }
+  test("Trait/iter".only) {
+    compilePath("samples/Trait/iter.cos")
+  }
   test("ControlFlow/loop") {
     compilePath("samples/ControlFlow/loop.cos")
   }
@@ -92,7 +95,7 @@ class SampleTest extends TestBase:
   test("ControlFlow/mainIf") {
     compilePath("samples/ControlFlow/mainIf.cos")
   }
-  test("Format/templateLit".only) {
+  test("Format/templateLit") {
     compilePath("samples/Format/templateLit.cos")
   }
   test("Pattern/natAdd") {

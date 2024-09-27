@@ -8,7 +8,7 @@ class LibraryTest extends TestBase:
   test("std.prelude") {
     compilePath("library/std/src/prelude.cos")
   }
-  test("std.prelude.core".only) {
+  test("std.prelude.core") {
     compilePath("library/std/src/prelude/core.cos")
   }
   test("std.result") {

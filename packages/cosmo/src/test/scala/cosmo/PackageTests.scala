@@ -11,7 +11,7 @@ class PackageFileTest extends munit.FunSuite:
   test("loader") {
     var compiler = new Cosmo();
     compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
-    val fid = compiler.loadModuleByDotPath("std.prelude.lang").get.fid.get;
+    val fid = compiler.loadModuleByDotPath("std.prelude.lang").get.fid;
     assertEquals(fid.toString, "@cosmo/std:0.0.0/src/prelude/lang.cos")
   }
 

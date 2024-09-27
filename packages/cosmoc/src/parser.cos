@@ -1,18 +1,82 @@
 
-import std.os.exec;
 
-import std.collections.vec;
+import _ from std.collections.vec;
+import _ from std.memory;
+import std.os.exec;
 import std.json;
 
+class Arena[T] {
+  var pointers = Vec(Ptr(T))();
+
+  def alloc(&mut self, t: T) = {
+    val p = Ptr(T).alloc(t);
+    self.pointers.push(p);
+    p
+  }
+}
+
+class Node {
+  case Block(i64,Vec(Ptr(Node)))
+
+}
+
+class Ast {
+  var arena = Arena(Node)();
+  var root = Ptr(Node)();
+
+  def resolve_vec(&mut self, j: &json::Value, key: &str): Vec(Ptr(Node)) = {
+    val stmts = j.apply(key).expectArray();
+    var children = Vec(Ptr(Node))();
+    for (s in stmts) {
+      val stmt: json::Value = json::NlohmannJsonImpl::pack(s);
+      children.push(Ast.resolve(stmt));
+    }
+    children
+  }
+
+  def resolve(&mut self, j: &json::Value): Ptr(Node) = {
+    val kind: String = j.apply("kind").expectStr(); // todo: type of apply result
+    kind.as_str() match {
+      case "block" => {
+        val stmts = self.resolve_vec(j, "stmts");
+        self.arena.alloc(Node.Block(0, stmts))
+      }
+      case "def" => {
+        println(j);
+        val name = j.apply("name");
+        println(name);
+        val params = j.apply("params");
+        println(params);
+        val pos = j.apply("pos");
+        println(pos);
+        val ret = j.apply("ret");
+        println(ret);
+        val rhs = j.apply("rhs");
+        println(rhs);
+        Ptr(Node)()
+      }
+      case _ => {
+        println(s"unhandled kind: ${kind}");
+        Ptr(Node)()
+      }
+    }
+  }
+
+  def get(j: json::Value) = {
+    var ast = Ast();
+    ast.root = ast.resolve(j);
+
+    ast
+  }
+}
+
 def main() = {
-  var args = vec.Vec(String)();
+  var args = Vec(String)();
   args.push("cmd/cosmo/main.js");
   args.push("parse");
-  args.push("samples/CompileDriver/parse.cos");
+  args.push("samples/HelloWorld/main.cos");
   var cmd = exec.Command("node", args);
   var content = exec.Command.run(cmd);
-  println(content);
-  var j = json.parse(content);
-  println(j.clone().apply("kind"));
-  println(j.apply("stmts"));
+  // println(content);
+  var j = Ast::get(json.parse(content));
 }

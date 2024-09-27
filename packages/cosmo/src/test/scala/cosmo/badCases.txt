@@ -1,0 +1,4 @@
+CaseTest
+[T match T(x: 1)]
+[Nat.Succ(Nat.Zero) match Nat]
+[v2 match Nat]

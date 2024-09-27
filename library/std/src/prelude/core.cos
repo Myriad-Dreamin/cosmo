@@ -19,6 +19,10 @@ import _ from std::str
 
 import std::fmt
 
+trait Iter[T] {
+  def next(&mut self): Option[T];
+}
+
 trait Formatter {
   def write(&mut self, s: &str): fmt::Result(());
 }
@@ -83,6 +87,12 @@ impl ToString for bool {
 impl ToString for str {
   def toString(&self): String = {
     String(*self)
+  }
+}
+
+impl ToString for String {
+  def toString(&self): String = {
+    self.clone()
   }
 }
 

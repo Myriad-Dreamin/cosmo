@@ -1,0 +1,4 @@
+class T { val x = 1; }
+-----
+T().x
+T(x: T().x).x

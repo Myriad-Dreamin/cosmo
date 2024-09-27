@@ -22,6 +22,10 @@ pub class String {
   def as_str(&self): &str = {
     internal
   }
+
+  def clone(&self): String = {
+    String(internal)
+  }
 }
 
 

@@ -1,6 +1,18 @@
 Some(
   value = Block(
     stmts = List(
+      Decorate(
+        lhs = Apply(lhs = Ident(name = "noCore"), rhs = List(), ct = false),
+        rhs = Semi(semi = None)
+      ),
+      Import(
+        path = Select(
+          lhs = Select(lhs = Ident(name = "std"), rhs = Ident(name = "prelude"), ct = false),
+          rhs = Ident(name = "core_stage1"),
+          ct = false
+        ),
+        dest = Some(value = Ident(name = "_"))
+      ),
       Def(
         name = Ident(name = "main"),
         params = Some(value = List()),
