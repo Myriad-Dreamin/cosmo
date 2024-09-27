@@ -1,0 +1,2 @@
+[T().x] => instance T(Opaque(Some(kDefault),None)).x, type: i32, err: ""
+[T(x: T().x).x] => instance T(instance T(Opaque(Some(kDefault),None)).x).x, type: i32, err: ""

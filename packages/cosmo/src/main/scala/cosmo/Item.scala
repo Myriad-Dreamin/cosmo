@@ -369,7 +369,8 @@ final case class Impl(
 final case class BoundField(lhs: Item, by: Type, casted: Boolean, rhs: VField)
     extends Item {
   override def toString: String =
-    if casted then s"($lhs as $by).$rhs" else s"$lhs.$rhs"
+    if casted then s"($lhs as $by).(field ${rhs.name})"
+    else s"$lhs.(field ${rhs.name})"
 }
 final case class RefItem(lhs: Item, isMut: Boolean) extends Item {}
 final case class Select(lhs: Item, rhs: String) extends Item {

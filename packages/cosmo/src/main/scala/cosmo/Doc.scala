@@ -113,12 +113,7 @@ object Doc {
     val r = ret_ty.d.getOrElse("_".d)
     Array(kind.d, n.d, p, ": ".d, r, cs, " = ".d, body).d
   }
-  def fieldDecl(f: ir.VField): Doc = {
-    if f.item.isInstanceOf[ir.DeclItem] then
-      val item = f.item.asInstanceOf[ir.DeclItem]
-      item.d
-    else f.item.asInstanceOf[ir.DeclExpr].d
-  }
+  def fieldDecl(f: ir.VField): Doc = f.name.d
   def fieldDecls(fields: ir.FieldMap): Doc = {
     val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
