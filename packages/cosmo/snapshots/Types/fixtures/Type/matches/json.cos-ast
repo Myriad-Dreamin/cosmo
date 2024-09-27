@@ -2,23 +2,23 @@
   case ValueT(i32).Null => 1
 }] => typeMatch (instance ValueT::Null() by ValueT<int32_t>) {
  case ValueT::Null => block {
-  ClassDestruct(ins (class(ValueT::Null))(),class(ValueT::Null),List((var i32_65:65 = NoneKind(0))))
+  ClassDestruct(ins (class(ValueT::Null))(),class(ValueT::Null),List((var i32_67:67 = NoneKind(0))))
   1
  }
 } else Unreachable, err: "missing case EnumField(class(ValueT::Elem)) when matching ins (class(ValueT::Null))() on class(ValueT<ref(i32)>)"
 [v1 match {
   case ValueT(i32).Null => 1
-}] => typeMatch (val v1@54: ValueT::Null = instance ValueT::Null() by ValueT<int32_t>) {
+}] => typeMatch (val v1@56: ValueT::Null = instance ValueT::Null() by ValueT<int32_t>) {
  case ValueT::Null => block {
-  ClassDestruct(ref(v1),class(ValueT::Null),List((var i32_69:69 = NoneKind(0))))
+  ClassDestruct(ref(v1),class(ValueT::Null),List((var i32_71:71 = NoneKind(0))))
   1
  }
 } else Unreachable, err: "missing case EnumField(class(ValueT::Elem)) when matching ref(v1) on class(ValueT<ref(i32)>)"
 [v2 match {
   case ValueT(i32).Null => 1
-}] => typeMatch (val v2@57: ValueT<int32_t> = val v1@54: ValueT::Null = instance ValueT::Null() by ValueT<int32_t>) {
+}] => typeMatch (val v2@59: ValueT<int32_t> = val v1@56: ValueT::Null = instance ValueT::Null() by ValueT<int32_t>) {
  case ValueT::Null => block {
-  ClassDestruct(ref(v2),class(ValueT::Null),List((var i32_73:73 = NoneKind(0))))
+  ClassDestruct(ref(v2),class(ValueT::Null),List((var i32_75:75 = NoneKind(0))))
   1
  }
 } else Unreachable, err: "missing case EnumField(class(ValueT::Elem)) when matching ref(v2) on class(ValueT<ref(i32)>)"

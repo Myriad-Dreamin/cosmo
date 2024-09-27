@@ -87,7 +87,7 @@ trait TypeEnv { self: Env =>
         rv match {
           case Some(rv) if eqClass(lCls, rCls) => {
             val args = classArgs(rv, rCls)
-            val lhsParams = classParams(lv.get);
+            val lhsParams = classParams(lv.getOrElse(lCls));
             val params = if (lhsParams.length < args.length) {
               lhsParams ::: classParams(rCls).drop(lhsParams.length)
             } else {
@@ -321,7 +321,7 @@ trait TypeEnv { self: Env =>
 
         casted match {
           case Some(Hole(id)) => Some(createInfer(id, param.level))
-          case casted => casted
+          case casted         => casted
         }
       },
     );
@@ -350,9 +350,9 @@ trait TypeEnv { self: Env =>
             val lty = canonicalTy(tyOf(item).getOrElse(TopTy))
             val rty = canonicalTy(rtyNf)
             val lhsIsInferVar = lty match {
-              case _: InferVar => true
+              case _: InferVar             => true
               case RefItem(_: InferVar, _) => true
-              case _                 => false
+              case _                       => false
             }
             val lIsR = isSubtype(lty, rty);
             val rIsL = isSubtype(rty, lty);
@@ -589,8 +589,8 @@ trait TypeEnv { self: Env =>
       case l @ (Float64(_))    => builtinClasses(l.ty)
       case Unresolved(_) | NoneKind(_) => return None
       // todo: handle infer var
-      case _: InferVar             => return None
-      case _ => throw new Exception(s"cannot get class $lhs")
+      case _: InferVar => return None
+      case _           => throw new Exception(s"cannot get class $lhs")
     })
   }
 

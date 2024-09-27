@@ -2,20 +2,20 @@
   case 1 => 2
 }] => valueMatch (1 by i32) {
  case 1 => 2
-} else Unreachable, err: "must add a branch to close value match when matching Integer(1)"
+} else Unreachable, err: "must add a branch to close value match when matching Int32(1)"
 [1 match {
   case 0 => 2
 }] => valueMatch (1 by i32) {
  case 0 => 2
-} else Unreachable, err: "must add a branch to close value match when matching Integer(1)"
+} else Unreachable, err: "must add a branch to close value match when matching Int32(1)"
 [n1 match {
   case 1 => 3
-}] => valueMatch (val n1@47: i32 = 1 by i32) {
+}] => valueMatch (val n1@49: i32 = 1 by i32) {
  case 1 => 3
 } else Unreachable, err: "must add a branch to close value match when matching ref(n1)"
 [n1 match {
   case 0 => 4
-}] => valueMatch (val n1@47: i32 = 1 by i32) {
+}] => valueMatch (val n1@49: i32 = 1 by i32) {
  case 0 => 4
 } else Unreachable, err: "must add a branch to close value match when matching ref(n1)"
 [1 match {
@@ -24,18 +24,18 @@
 }] => valueMatch (1 by i32) {
  case 0 => 5
  case 1 => 6
-} else Unreachable, err: "must add a branch to close value match when matching Integer(1)"
+} else Unreachable, err: "must add a branch to close value match when matching Int32(1)"
 [1 match {
   case 0 => 7
   case 1 => 8
 }] => valueMatch (1 by i32) {
  case 0 => 7
  case 1 => 8
-} else Unreachable, err: "must add a branch to close value match when matching Integer(1)"
+} else Unreachable, err: "must add a branch to close value match when matching Int32(1)"
 [n1 + 1 match {
   case 0 => 3
   case 1 => 4
-}] => valueMatch ("+"(val n1@47: i32 = 1, 1) by i32) {
+}] => valueMatch ("+"(val n1@49: i32 = 1, 1) by i32) {
  case 0 => 3
  case 1 => 4
-} else Unreachable, err: "must add a branch to close value match when matching BinOp(+,ref(n1),Integer(1))"
+} else Unreachable, err: "must add a branch to close value match when matching BinOp(+,ref(n1),Int32(1))"
