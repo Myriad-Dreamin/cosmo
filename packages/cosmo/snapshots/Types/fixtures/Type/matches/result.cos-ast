@@ -6,7 +6,7 @@
   var t@73: val T@50: TopKind(2) = _ = var _0_77@77: val T@50: TopKind(2) = _ = _
   var t@73: val T@50: TopKind(2) = _ = _
  }
-} else Unreachable, err: "missing case EnumField(class(Result::Err)) when matching ref(v0) on class(Result<ref(i32), ref(i32)>)"
+} else BottomKind(0), err: "missing case EnumField(class(Result::Err)) when matching ref(v0) on class(Result<ref(i32), ref(i32)>)"
 [v1 match {
   case Result(i32, i32).Ok(t) => t
   case Result(i32, i32).Err(e) => ???
@@ -21,4 +21,4 @@
   var e@87: val E@52: TopKind(2) = _ = var _0_93@93: val E@52: TopKind(2) = _ = _
   TodoLit
  }
-} else Unreachable, err: ""
+} else BottomKind(0), err: ""

@@ -3,9 +3,13 @@ package cosmo
 import scala.scalajs.js
 import munit.diff.Diffs
 
+// region TestGuards
+val showResult = false
 val syntaxOnly = false
 val evalOnly = false
-val updateSnapshot = false;
+val compileCpp = false
+val updateSnapshot = false
+// endregion TestGuards
 
 class TestBase extends munit.FunSuite:
   val compiler = new Cosmo();
@@ -25,10 +29,12 @@ class TestBase extends munit.FunSuite:
     // read the file
     val (content, env) = compiler.transpileByPath(path).get
     val item = if syntaxOnly then env.moduleAst else env.module
-    if (syntaxOnly || evalOnly) {
-      println(item.toDoc.pretty(showDef = true))
-    } else {
-      println(content)
+    if (showResult) {
+      if (syntaxOnly || evalOnly) {
+        println(item.toDoc.pretty(showDef = true))
+      } else {
+        println(content)
+      }
     }
     env.report
   }

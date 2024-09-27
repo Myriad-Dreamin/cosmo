@@ -2,7 +2,7 @@
   case Nat.Zero => 1
 }] => typeMatch (instance Nat::Zero() by Nat) {
  case Nat::Zero => 1
-} else Unreachable, err: "missing case EnumField(class(Nat::Succ)) when matching ins (class(Nat::Zero))() on class(Nat)"
+} else BottomKind(0), err: "missing case EnumField(class(Nat::Succ)) when matching ins (class(Nat::Zero))() on class(Nat)"
 [Nat.Succ(Nat.Zero) match {
   case Nat.Succ(Nat.Zero) => 1
 }] => typeMatch (instance Nat::Succ(instance Nat::Zero()) by Nat) {
@@ -10,9 +10,9 @@
   ClassDestruct(ins (class(Nat::Succ))(ins (class(Nat::Zero))()),class(Nat::Succ),List((var _0_66:66 = NoneKind(0))))
   typeMatch (var _0_66@66: Nat = _ by Nat) {
    case Nat::Zero => 1
-  } else Unreachable
+  } else BottomKind(0)
  }
-} else Unreachable, err: "missing case EnumField(class(Nat::Succ)) when matching (var _0_66:66 = NoneKind(0)) on class(Nat)\nmissing case EnumField(class(Nat::Zero)) when matching ins (class(Nat::Succ))(ins (class(Nat::Zero))()) on class(Nat)"
+} else BottomKind(0), err: "missing case EnumField(class(Nat::Succ)) when matching (var _0_66:66 = NoneKind(0)) on class(Nat)\nmissing case EnumField(class(Nat::Zero)) when matching ins (class(Nat::Succ))(ins (class(Nat::Zero))()) on class(Nat)"
 [v2 match {
   case Nat.Zero => 0
   case Nat.Succ(x) => 1
@@ -23,7 +23,7 @@
   var x@70: Nat = var _0_71@71: Nat = _
   1
  }
-} else Unreachable, err: ""
+} else BottomKind(0), err: ""
 [v2 match {
   case Nat.Zero => 0
   case Nat.Succ(Nat.Zero) => 1
@@ -39,6 +39,6 @@
     var x@78: Nat = var _0_80@80: Nat = _
     2
    }
-  } else Unreachable
+  } else BottomKind(0)
  }
-} else Unreachable, err: ""
+} else BottomKind(0), err: ""

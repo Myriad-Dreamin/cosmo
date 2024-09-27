@@ -29,11 +29,11 @@ object FileId {
   def fromString(s: String, pkg: String => Option[Package]): Option[FileId] = {
     val parts = s.split(":", 2)
     val parts2 = parts(1).split("/", 2)
-    pkg(parts(0) + ":" + parts2(0)).map(FileId(_, "/" + canoPath(parts2(1))))
+    pkg(parts(0) + ":" + parts2(0)).map(FileId(_, canoPath(parts2(1))))
   }
 
   def fromPkg(pkg: Package, path: String): FileId = {
-    FileId(pkg, "/" + canoPath(NodePath.relative(pkg.fsPath, path)))
+    FileId(pkg, canoPath(NodePath.relative(pkg.fsPath, path)))
   }
 }
 
@@ -200,7 +200,7 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
   }
 
   private def loadSources: Map[String, Source] = {
-    debugln(s"loading sources for $namespace/$name")
+    logln(s"loading sources for $namespace/$name")
     val root = canoPath(meta.root.getOrElse("src"))
     root.headOption match {
       case Some('/') => throw new Exception("root path must be relative")
@@ -263,7 +263,7 @@ def scanDir(
       case _: Throwable => return sources
     }
   files.foreach { file =>
-    val relPath = relPaths + "/" + file
+    val relPath = (relPaths + "/" + file).stripPrefix("/")
     if (file.endsWith(".cos")) {
       val fid = FileId(pkg, relPath)
       val source = system.readFile(join(pkg.fsPath, relPath))

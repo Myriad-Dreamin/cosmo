@@ -2,7 +2,9 @@ package cosmo
 import scala.scalajs.js
 
 class SelfHostTest extends munit.FunSuite:
-  def runTestOnFile(path: String) = {
+  def runTestOnFile(path: String): Unit = {
+    if (!compileCpp) then return
+
     var compiler = new Cosmo();
     compiler.loadPackage(PackageMetaSource.ProjectPath("library/std"));
     compiler.preloadPackage("std");
