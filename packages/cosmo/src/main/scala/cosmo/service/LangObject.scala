@@ -5,7 +5,6 @@ import scala.annotation._
 class LangObject(val item: Item) {
   lazy val defInfo = item match {
     case i: Class        => Some(i.id)
-    case i: EnumVariant  => Some(i.id)
     case i: Impl         => Some(i.id)
     case i: Ref          => Some(i.id)
     case i: Fn           => Some(i.id)

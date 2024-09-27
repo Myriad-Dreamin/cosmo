@@ -35,10 +35,11 @@ class Scopes {
     scopes = scopes.updated(0, scopes.head.removed(name))
 }
 
-class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
+class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     extends ExprEnv
     with TypeEnv
     with inst.InstEnv {
+  def fid = source.fid
 
   var noCore = false
   var syntaxOnly = false
@@ -884,20 +885,20 @@ class Env(val fid: Option[FileId], val pacMgr: cosmo.PackageManager)
     ty match {
       case IntegerTy(size, isUnsigned) =>
         s"${if (isUnsigned) "u" else ""}int${size}_t"
-      case FloatTy(size)   => s"float${size}_t"
-      case UnitTy          => "void"
-      case BoolTy          => "bool"
-      case StrTy           => "::str"
-      case SelfTy          => "self_t"
-      case TopTy           => "auto"
-      case BottomTy        => "void"
-      case ty: Int32       => "int32_t"
-      case ty: Int64       => "int64_t"
-      case ty: Float32     => "float32_t"
-      case ty: Float64     => "float64_t"
-      case ty: Str         => "::str"
+      case FloatTy(size) => s"float${size}_t"
+      case UnitTy        => "void"
+      case BoolTy        => "bool"
+      case StrTy         => "::str"
+      case SelfTy        => "self_t"
+      case TopTy         => "auto"
+      case BottomTy      => "void"
+      case ty: Int32     => "int32_t"
+      case ty: Int64     => "int64_t"
+      case ty: Float32   => "float32_t"
+      case ty: Float64   => "float64_t"
+      case ty: Str       => "::str"
       // "decltype((*this).internal.begin())"
-      case ty: Hole => throw new Exception(s"hole $ty cannot be stored")
+      case ty: Hole        => throw new Exception(s"hole $ty cannot be stored")
       case ty: CIdent      => ty.repr
       case ty: CppInsType  => ty.repr(storeTy)
       case ty: HKTInstance => ty.repr(storeTy)

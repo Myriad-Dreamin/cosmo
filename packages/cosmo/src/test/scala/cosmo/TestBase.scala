@@ -5,7 +5,7 @@ import munit.diff.Diffs
 
 val syntaxOnly = false
 val evalOnly = false
-val updateSnapshot = true;
+val updateSnapshot = false;
 
 class TestBase extends munit.FunSuite:
   val compiler = new Cosmo();
@@ -23,14 +23,14 @@ class TestBase extends munit.FunSuite:
   def compilePath(path: String) = {
     loadPackages;
     // read the file
-    var src = cosmo.NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
-    var (content, env) = compiler.transpile(src).get
+    val (content, env) = compiler.transpileByPath(path).get
     val item = if syntaxOnly then env.moduleAst else env.module
     if (syntaxOnly || evalOnly) {
       println(item.toDoc.pretty(showDef = true))
     } else {
       println(content)
     }
+    env.report
   }
 
   def checkSnapshot(path: String, f: String => String)(implicit

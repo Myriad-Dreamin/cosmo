@@ -5,7 +5,7 @@ import cosmo._
 import cosmo.ir._
 
 class CodeGen(implicit val env: Env) {
-  val fns = env.fid.map(f => s"${f.ns.mkString("::")}")
+  val fns = env.fid.ns.map(_.mkString("::"))
   val nsb_ = fns.map(n => s"\nnamespace ${n} {\n").getOrElse("")
   val prelude = s"""
 // NOLINTBEGIN(readability-identifier-naming,llvm-else-after-return)
@@ -15,7 +15,7 @@ class CodeGen(implicit val env: Env) {
 // NOLINTEND(readability-identifier-naming,llvm-else-after-return)
 """
   var genInImpl = false
-  
+
   implicit val exprRec: Item => String = expr
 
   // Generate Cxx code from the env
@@ -110,7 +110,7 @@ class CodeGen(implicit val env: Env) {
         val name = info.defName(stem = true)
         // fid.path (.cos -> .h)
         // todo: unreliable path conversion
-        val fid = env.fid.get
+        val fid = env.fid
         val path = fid.path.slice(0, fid.path.length - 4) + ".h"
         s"#include <${fid.pkg.namespace}/${fid.pkg.name}/${path}>"
       case ir.CModule(id, kind, path) =>
@@ -334,8 +334,8 @@ class CodeGen(implicit val env: Env) {
 
   def returnTy(ty: Type): String = {
     ty match {
-      case SelfTy                      => "Self"
-      case ty                          => storeTy(ty)
+      case SelfTy => "Self"
+      case ty     => storeTy(ty)
     }
   }
 
@@ -397,11 +397,11 @@ class CodeGen(implicit val env: Env) {
         (x + z, w)
       case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
       case RefItem(lhs, _)                 => ("", expr(lhs));
-      case ir.As(RefItem(lhs, lMut), RefItem(_, rMut))                 => 
+      case ir.As(RefItem(lhs, lMut), RefItem(_, rMut)) =>
         if rMut && !lMut then env.err("cannot cast from const to mutable")
         ("", expr(lhs))
-      case ir.UnOp("*", SelfVal)           => ("", expr(SelfVal));
-      case ir.As(lhs, rhs: Impl)           => mutExpr(Opaque.expr(expr(ast)))
+      case ir.UnOp("*", SelfVal) => ("", expr(SelfVal));
+      case ir.As(lhs, rhs: Impl) => mutExpr(Opaque.expr(expr(ast)))
       case ast if isConst(ast) || !defaultMove => ("", expr(ast))
       case ast => ("", s"std::move(${expr(ast)})")
     }

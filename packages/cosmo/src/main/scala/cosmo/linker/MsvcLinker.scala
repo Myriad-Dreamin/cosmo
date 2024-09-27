@@ -69,8 +69,7 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       t: Transpiler,
       relReleaseDir: String,
   ): Option[String] = {
-    val src = system.readFile(path)
-    val generated = t.transpile(src).map { case (content, env) =>
+    val generated = t.transpileByPath(path).map { case (content, env) =>
       var suf = if (env.noCore) "/lang" else ""
       s"""#include <cosmo/std/src/prelude${suf}.h> // IWYU pragma: keep\n\n${content}"""
     }
