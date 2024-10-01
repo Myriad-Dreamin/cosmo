@@ -113,7 +113,12 @@ object Doc {
     val r = ret_ty.d.getOrElse("_".d)
     Array(kind.d, n.d, p, ": ".d, r, cs, " = ".d, body).d
   }
-  def fieldDecl(f: ir.VField): Doc = f.name.d
+  def fieldDecl(f: ir.VField): Doc = {
+    if f.item.isInstanceOf[ir.DeclItem] then
+      val item = f.item.asInstanceOf[ir.DeclItem]
+      item.d
+    else f.item.asInstanceOf[ir.DeclExpr].d
+  }
   def fieldDecls(fields: ir.FieldMap): Doc = {
     val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
@@ -214,22 +219,22 @@ object Doc {
     case ir.Break()    => Doc.Str("break")
     case ir.Continue() => Doc.Str("continue")
     case ir.Return(v)  => Array("return ".d, v.d).d
-    // case ir.Class(id, params, fields, _, _, _) =>
-    //   val p = params.map(_.d(", ".d)).getOrElse(empty)
-    //   val f = fieldDecls(fields)
-    //   Array("class ".d, id.d, Doc.paren(p), " = ".d, f).d
+    case ir.Class(id, params, fields, _, _, _) =>
+      val p = params.map(_.d(", ".d)).getOrElse(empty)
+      val f = fieldDecls(fields)
+      Array("class ".d, id.d, Doc.paren(p), " = ".d, f).d
     case ir.Var(id, init, _) =>
       val ty = id.ty.d
       val i = init.d.getOrElse("_".d)
       Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
-    // case f: ir.Fn =>
-    //   val p = f.rawParams.map(_.d(", ".d)).getOrElse(empty)
-    //   val r = f.ret_ty.d
-    //   val b = f.body.d.getOrElse("_".d)
-    //   Array("def ".d, f.id.d, Doc.paren(p), ": ".d, r, " = ".d, b).d
-    case c: ir.Class => c.repr(c.id.env.storeTy(_)(_.toString)).d
+    case f: ir.Fn =>
+      val p = f.rawParams.map(_.d(", ".d)).getOrElse(empty)
+      val r = f.ret_ty.d
+      val b = f.body.d.getOrElse("_".d)
+      Array("def ".d, f.id.d, Doc.paren(p), ": ".d, r, " = ".d, b).d
+    // case c: ir.Class => c.repr(c.id.env.storeTy(_)(_.toString)).d
     // case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
-    case f: ir.Fn   => Array("def ".d, f.id.d).d
+    // case f: ir.Fn   => Array("def ".d, f.id.d).d
     case i: ir.Impl => Array("impl ".d, i.id.d).d
     case ir.Param(of, _) =>
       Array(of.id.d, ": ".d, of.id.ty.d).d
