@@ -449,6 +449,8 @@ class CodeGen(implicit val env: Env) {
       case v: Fn  => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
+      case ir.While(cond, body) =>
+        return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name: Var, iter, body) =>
         return s"for(auto &&${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
@@ -460,6 +462,8 @@ class CodeGen(implicit val env: Env) {
             .getOrElse("")}"
       case ir.BinOp("..", lhs, rhs) => s"Range(${expr(lhs)}, ${expr(rhs)})"
       case ir.BinOp(op, lhs, rhs)   => s"${expr(lhs)} $op ${expr(rhs)}"
+      case ir.BinInst(BinInstOp.Int(_, op), lhs, rhs) =>
+        s"${expr(lhs)} ${op.repr} ${expr(rhs)}"
       case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
       case ir.RefItem(SelfVal, _)              => s"(*this)"
       case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"

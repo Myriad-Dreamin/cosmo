@@ -82,6 +82,26 @@ final case class BinInst(op: BinInstOp, lhs: Item, rhs: Item) extends Expr {}
 enum BinInstIntOp {
   case Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl, Shr, Sar, Eq, Ne, Lt, Le, Gt,
     Ge;
+
+  def repr: String = this match {
+    case Add => "+"
+    case Sub => "-"
+    case Mul => "*"
+    case Div => "/"
+    case Rem => "%"
+    case And => "&"
+    case Or  => "|"
+    case Xor => "^"
+    case Shl => "<<"
+    case Shr => ">>"
+    case Sar => ">>>"
+    case Eq  => "=="
+    case Ne  => "!="
+    case Lt  => "<"
+    case Le  => "<="
+    case Gt  => ">"
+    case Ge  => ">="
+  }
 }
 enum BinInstOp {
   case Int(t: IntegerTy, op: BinInstIntOp);

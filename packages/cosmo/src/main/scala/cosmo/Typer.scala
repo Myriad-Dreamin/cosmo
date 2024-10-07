@@ -618,6 +618,7 @@ trait TypeEnv { self: Env =>
       case l: Int64                                   => l.ty
       case l: Float32                                 => l.ty
       case l: Float64                                 => l.ty
+      case l: Bool                                    => l.ty
       case _: Rune                                    => IntegerTy(32, false)
       case _: Str                                     => StrTy
       case NoneItem                                   => TopTy
@@ -634,6 +635,7 @@ trait TypeEnv { self: Env =>
       case b: BinOp            => coerce(tyOf(b.lhs), tyOf(b.rhs))
       case b: BinInst          => b.op.ty
       case If(_, x, y)         => coerce(tyOf(x), y.map(tyOf).getOrElse(UnitTy))
+      case Return(value)       => tyOf(value)
       case SelfVal             => SelfTy
       case Ref(id, _, Some(v)) => tyOf(v)
       case Ref(id, level, _) if level == 0 => id.ty

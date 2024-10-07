@@ -210,8 +210,8 @@ trait ExprEnv { self: Env =>
       case _ =>
     }
     b.lhs match {
-      case s.Ident("a") => return Rune(strs.head.toInt).e
-      case s.Ident("c") => return Rune(strs.head.toInt).e
+      case s.Ident("a") => return Rune(strs.head.head.toInt).e
+      case s.Ident("c") => return Rune(strs.head.head.toInt).e
       case s.Ident("b") => return Bytes(strs.head.getBytes()).e
       case _ => return TmplApply(expr(b.lhs), strs.toList, pols.toList)
     }

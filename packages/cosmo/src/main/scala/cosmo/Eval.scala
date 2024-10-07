@@ -311,7 +311,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   def binOp(op: String, lhs: Item, rhs: Item): Item = {
     val lhsTy = tyOf(lhs)
     val rhsTy = tyOf(rhs)
-    println(s"binOp $lhsTy $op $rhsTy")
+    debugln(s"binOp $lhsTy $op $rhsTy")
 
     (lhsTy, op) match {
       case (_, "<:") => Bool(isSubtype(lhs, rhs))
@@ -963,7 +963,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     item match {
       case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
       case Ref(id, lvl, value) if level <= lvl => e(items(id.id))
-      case Var(id, init, lvl) if level <= lvl  => init.get
+      case Var(id, init, lvl) if level <= lvl  => init.getOrElse(item)
       case BinInst(BinInstOp.Int(t, op), lhs, rhs) =>
         val l = e(lhs).asInstanceOf[Int64].value
         val r = e(rhs).asInstanceOf[Int64].value

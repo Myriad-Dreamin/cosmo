@@ -1,6 +1,6 @@
 block {
  none
  class T@49() = block {
-  val x@50: i32 = 1
+  val x@50: i64 = 1
  }
 }
