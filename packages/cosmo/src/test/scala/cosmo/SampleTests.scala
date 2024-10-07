@@ -62,7 +62,7 @@ class SampleTest extends TestBase:
   test("CompileTime/arith") {
     compilePath("samples/CompileTime/arith.cos")
   }
-  test("CompileTime/addFn".only) {
+  test("CompileTime/addFn") {
     compilePath("samples/CompileTime/addFn.cos")
   }
   test("CompileTime/loop") {

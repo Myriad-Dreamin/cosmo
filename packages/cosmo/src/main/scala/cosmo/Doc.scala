@@ -74,30 +74,34 @@ object Doc {
     }
   }
 
-  implicit class ConcatArrayOps(val arr: Array[Doc]) extends AnyVal {
+  implicit class ConcatArrayOps(arr: Array[Doc]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc = Doc.Concat(arr, sep)
   }
-  implicit class ConcatSeqOps(val seq: Seq[Doc]) extends AnyVal {
+  implicit class ConcatSeqOps(seq: Seq[Doc]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc = Doc.Concat(seq.toArray, sep)
   }
-  implicit class ConcatItemOps(val seq: Seq[ir.Item]) extends AnyVal {
+  implicit class ConcatItemOps(seq: Seq[ir.Term | ir.Expr]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc =
       Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
   }
-  implicit class ConcatItem2Ops(val seq: Array[ir.Item]) extends AnyVal {
+  implicit class ConcatItem2Ops(seq: Array[ir.Term | ir.Expr]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc =
       Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
   }
-  implicit class ItemOptionOps(val o: Option[ir.Item]) extends AnyVal {
+  implicit class ConcatTerm2Ops(seq: Array[ir.Term]) extends AnyVal {
+    def d(implicit sep: Doc = Doc.empty): Doc =
+      Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
+  }
+  implicit class ItemOptionOps(o: Option[ir.Term | ir.Expr]) extends AnyVal {
     def d: Option[Doc] = o.map(Doc.buildItem)
   }
-  implicit class ItemOps(val o: ir.Item) extends AnyVal {
+  implicit class ItemOps(o: ir.Term | ir.Expr) extends AnyVal {
     def d: Doc = Doc.buildItem(o)
   }
-  implicit class StringOps(val o: String) extends AnyVal {
+  implicit class StringOps(o: String) extends AnyVal {
     def d: Doc = Doc.Str(o)
   }
-  implicit class IdOps(val i: ir.Defo) extends AnyVal {
+  implicit class IdOps(i: ir.Defo) extends AnyVal {
     def d: Doc = Doc.Str(s"${i.defName(false)}@${i.id.id}")
   }
 
@@ -125,7 +129,7 @@ object Doc {
     val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
   }
-  def buildItem(item: ir.Item): Doc = item match {
+  def buildItem(item: ir.Term | ir.Expr): Doc = item match {
     case b: typed.Region => Doc.block("block", b.stmts.d(NewLine))
     case f: typed.DefExpr =>
       paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))
@@ -148,9 +152,8 @@ object Doc {
       Array("hole ".d, i.id.d).d
     case typed.Apply(lhs: ir.Fn, rhs) =>
       Array(lhs.id.d, Doc.paren(rhs.d(", ".d))).d
-    case i: typed.Apply    => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
-    case i: typed.Name     => Doc.item(i)
-    case typed.ItemE(item) => item.d
+    case i: typed.Apply => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
+    case i: typed.Name  => Doc.item(i)
     case typed.KeyedArg(k, v) =>
       Doc.Concat(Array(k.d, v.d), ": ".d)
     case typed.TupleLit(items) => Doc.paren(items.d(", ".d))
