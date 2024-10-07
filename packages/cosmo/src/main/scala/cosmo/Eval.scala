@@ -59,6 +59,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   var rawDeps = Map[FileId, Option[Env]]()
   var checkStatus = MutLongMap[Unit]()
   var checked = MutLongMap[Item]()
+  var typeSym = DefInfo.just(0, this)
 
   val patHolder = Str("$")
   var moduleAst: Region = Region(List(), false)
@@ -117,6 +118,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   /// Entry
 
   def exprStage(ast: syntax.Block): Env = {
+    typeSym = scopes.get("Type").get
     // FIXME: better noCore handling
     ast.stmts.takeWhile {
       case syntax.Decorate(syntax.Apply(Ident("noCore"), _, _), _) =>
@@ -133,6 +135,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def evalStage: Env = {
+    typeSym = scopes.get("Type").get
     module =
       if (syntaxOnly) then Region(List(), true)
       else valTerm(moduleAst).asInstanceOf[Region]
@@ -220,6 +223,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case TmplApply(lhs, strings, args) => tmplApply(lhs, strings, args)
       case b: MatchExpr                  => checkMatch(b)
       case ItemE(item)                   => term(item)
+      // todo: typed and untyed expressions
+      case i: BinInst => i
       // declarations
       case v: VarExpr      => checkDecl(v, checkVar(v))
       case d: DefExpr      => checkDecl(d, checkDef(d))
@@ -303,9 +308,27 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def binOp(op: String, lhs: Item, rhs: Item): Item = op match {
-    case "<:" => Bool(isSubtype(lhs, rhs))
-    case _    => BinOp(op, lhs, rhs)
+  def binOp(op: String, lhs: Item, rhs: Item): Item = {
+    val lhsTy = tyOf(lhs)
+    val rhsTy = tyOf(rhs)
+    println(s"binOp $lhsTy $op $rhsTy")
+
+    (lhsTy, op) match {
+      case (_, "<:") => Bool(isSubtype(lhs, rhs))
+      case (l: IntegerTy, s @ ("+" | "-" | "*" | "/")) =>
+        if (rhsTy != l) {
+          err(s"mismatched types $lhsTy $s $rhsTy")
+          return BinOp(s, lhs, rhs)
+        }
+        val op = s match {
+          case "+" => BinInstOp2.Add
+          case "-" => BinInstOp2.Sub
+          case "*" => BinInstOp2.Mul
+          case "/" => BinInstOp2.Div
+        }
+        BinInst(BinInstOp.Int(l, op), lhs, rhs)
+      case _ => BinOp(op, lhs, rhs)
+    }
   }
 
   def select(lhs: Item, field: String)(implicit level: Int): Item = {
@@ -393,8 +416,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case HKTInstance(ty, syntax) =>
         val vRes = dispatch(lhs, ty, field, casted).get
         Some(HKTInstance(vRes, Select(syntax, field)))
-      case i: (Int32 | Int64 | Float32 | Float64 | Str | Bool) =>
-        dispatch(lhs, tyOf(i).get, field, casted)
+      case i: (Int64 | Float32 | Float64 | Str | Bool) =>
+        dispatch(lhs, tyOf(i), field, casted)
       case i: (IntegerTy | FloatTy) =>
         dispatch(lhs, builtinClasses(i), field, casted)
       case i @ (StrTy | BoolTy) =>
@@ -421,6 +444,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         } else {
           rhs.head
         }
+      case Ref(id, _, Some(v)) if id.ty.level > 1 && id.id == typeSym.id =>
+        rhs.headOption.map(lift).map(eval).getOrElse(UniverseTy)
       case Ref(id, _, Some(v))                  => $apply(v, rhs)
       case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
       case BoundField(_, by, _, EnumField(ev)) =>
@@ -467,7 +492,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
 
   def fmtItem(v: Item, opt: Option[String])(implicit level: Int) = v match {
     case s: Str                => s
-    case Int32(value)          => Str(value.toString)
     case Int64(value)          => Str(value.toString)
     case Float32(value)        => Str(value.toString)
     case Float64(value)        => Str(value.toString)
@@ -696,7 +720,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
               err(s"must add a branch to close value match when matching $lhs")
             },
           );
-          Finalized(ValueMatch(lhs, tyOf(lhs).get, cases, orElse))
+          Finalized(ValueMatch(lhs, tyOf(lhs), cases, orElse))
         case MClass(cd, inner) =>
           debugln(s"finalize classes $cd $body")
           Finalized(placeVal(cd, inner.finalize(body)))
@@ -757,7 +781,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     val initTy = oty.map(tyTerm).orElse {
       info.name match {
         case "self" => Some(RefItem(SelfTy, false))
-        case _      => initExpr.flatMap(tyOf)
+        case _      => initExpr.map(tyOf)
       }
     } match {
       case Some(t) => t
@@ -796,7 +820,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       checked += (info.id.id.toLong -> fn)
     noteDecl(fn);
     val body = rhs.map(e => normalize(valTerm(e)))
-    val bodyTy = body.flatMap(tyOf)
+    val bodyTy = body.map(tyOf)
     debugln(s"defItem $info, $bodyTy <: $annotated")
     // we have already checked annotated <: bodyTy when we are
     // making valTerm.
@@ -892,11 +916,12 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case SelfTy        => "self_t"
       case TopTy         => "auto"
       case BottomTy      => "void"
-      case ty: Int32     => "int32_t"
-      case ty: Int64     => "int64_t"
-      case ty: Float32   => "float32_t"
-      case ty: Float64   => "float64_t"
-      case ty: Str       => "::str"
+      // todo: int32_t
+      // case ty: Int32     => "int32_t"
+      case ty: Int64   => "int64_t"
+      case ty: Float32 => "float32_t"
+      case ty: Float64 => "float64_t"
+      case ty: Str     => "::str"
       // "decltype((*this).internal.begin())"
       case ty: Hole        => throw new Exception(s"hole $ty cannot be stored")
       case ty: CIdent      => ty.repr
@@ -929,6 +954,39 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         s"$lhsTy<$rhsTy>"
       }
       case ty => "auto"
+    }
+  }
+
+  def eval(item: Item)(implicit level: Int): Item = {
+    debugln(s"eval $item $level")
+    val e = eval;
+    item match {
+      case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
+      case Ref(id, lvl, value) if level <= lvl => e(items(id.id))
+      case Var(id, init, lvl) if level <= lvl  => init.get
+      case BinInst(BinInstOp.Int(t, op), lhs, rhs) =>
+        val l = e(lhs).asInstanceOf[Int64].value
+        val r = e(rhs).asInstanceOf[Int64].value
+        op match {
+          case BinInstOp2.Add => Int64(l + r)
+          case BinInstOp2.Sub => Int64(l - r)
+          case BinInstOp2.Mul => Int64(l * r)
+          case BinInstOp2.Div => Int64(l / r)
+          case BinInstOp2.Rem => Int64(l % r)
+          case BinInstOp2.And => Int64(l & r)
+          case BinInstOp2.Or  => Int64(l | r)
+          case BinInstOp2.Xor => Int64(l ^ r)
+          case BinInstOp2.Shl => Int64(l << r)
+          case BinInstOp2.Shr => Int64(l >> r)
+          case BinInstOp2.Sar => Int64(l >>> r)
+          case BinInstOp2.Eq  => Bool(l == r)
+          case BinInstOp2.Ne  => Bool(l != r)
+          case BinInstOp2.Lt  => Bool(l < r)
+          case BinInstOp2.Le  => Bool(l <= r)
+          case BinInstOp2.Gt  => Bool(l > r)
+          case BinInstOp2.Ge  => Bool(l >= r)
+        }
+      case _ => item
     }
   }
 }

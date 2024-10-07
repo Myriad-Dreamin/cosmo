@@ -59,6 +59,15 @@ class SampleTest extends TestBase:
   test("Class/staticMethod") {
     compilePath("samples/Class/staticMethod.cos")
   }
+  test("CompileTime/arith") {
+    compilePath("samples/CompileTime/arith.cos")
+  }
+  test("CompileTime/loop".only) {
+    compilePath("samples/CompileTime/loop.cos")
+  }
+  test("Reflect/name") {
+    compilePath("samples/Reflect/name.cos")
+  }
   test("Trait/empty") {
     compilePath("samples/Trait/empty.cos")
   }
@@ -80,7 +89,7 @@ class SampleTest extends TestBase:
   test("Trait/constraint") {
     compilePath("samples/Trait/constraint.cos")
   }
-  test("Trait/iter".only) {
+  test("Trait/iter") {
     compilePath("samples/Trait/iter.cos")
   }
   test("ControlFlow/loop") {

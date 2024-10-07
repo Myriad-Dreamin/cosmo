@@ -421,7 +421,6 @@ class CodeGen(implicit val env: Env) {
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
       case NoneKind(_)           => ""
-      case Int32(value)          => value.toString
       case Int64(value)          => value.toString
       case Float32(value)        => value.toString
       case Float64(value)        => value.toString
@@ -723,8 +722,8 @@ def canCSwitch(lhs: ir.Item): Boolean = {
 
 def isConst(lhs: ir.Item): Boolean = {
   lhs match {
-    case Str(_) | Int32(_) | Int64(_) | Float32(_) | Float64(_) | Bool(_) |
-        Rune(_) | Bytes(_) =>
+    case Str(_) | Int64(_) | Float32(_) | Float64(_) | Bool(_) | Rune(_) |
+        Bytes(_) =>
       true
     case _ => false
   }

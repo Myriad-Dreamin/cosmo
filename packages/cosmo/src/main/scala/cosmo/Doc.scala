@@ -152,7 +152,6 @@ object Doc {
       Doc.Concat(Array(k.d, v.d), ": ".d)
     case ir.SelfVal    => Doc.Str("self")
     case ir.SelfTy     => Doc.Str("Self")
-    case ir.Int32(v)   => Doc.item(v)
     case ir.Int64(v)   => Doc.item(v)
     case ir.Float32(v) => Doc.item(v)
     case ir.Float64(v) => Doc.item(v)
