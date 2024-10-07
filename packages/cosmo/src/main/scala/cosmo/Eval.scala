@@ -53,7 +53,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   var scopes = new Scopes()
   var errors: List[String] = List()
   var ns: List[String] = List()
-  var builtinClasses = Map[Item, Class]()
+  var builtinClasses = Map[Term | Expr, Class]()
   var selfRef: Option[Term] = None
   var selfImplRef: Option[Term] = None
   var rawDeps = Map[FileId, Option[Env]]()
@@ -183,9 +183,9 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
 
   def valTermO(node: Option[Expr])(implicit level: Int = 0): Term =
     node.map(valTerm).getOrElse(NoneItem)
-  def valTerm(node: Item)(implicit level: Int = 0): Term = term(node)
-  def tyTerm(node: Item)(implicit level: Int = 1): Type = term(node)
-  def term(item: Item)(implicit level: Int): ir.Term = {
+  def valTerm(node: Term | Expr)(implicit level: Int = 0): Term = term(node)
+  def tyTerm(node: Term | Expr)(implicit level: Int = 1): Type = term(node)
+  def term(item: Term | Expr)(implicit level: Int): ir.Term = {
     item match {
       case item: Term => item
       // control flow, todo: duplicate patterns

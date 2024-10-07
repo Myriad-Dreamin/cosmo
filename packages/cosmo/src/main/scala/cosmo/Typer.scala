@@ -18,9 +18,9 @@ trait TypeEnv { self: Env =>
     /// An undefined reference
     case Hole(id: Defo);
     /// Items that can be destruct/construct
-    case Cons(v: Option[Item], ty: Class, isAdt: Boolean);
+    case Cons(v: Option[Term | Expr], ty: Class, isAdt: Boolean);
     /// Not interested by tele
-    case Atom(v: Item, ty: Type);
+    case Atom(v: Term | Expr, ty: Type);
 
     def getTy: Type = this match {
       case Cons(_, ty, _) => ty
@@ -162,7 +162,7 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def matchSeq(lhs: List[Term], rhs: List[Item]): List[Term] = {
+  def matchSeq(lhs: List[Term], rhs: List[Term | Expr]): List[Term] = {
     debugln(s"matchSeq $lhs by $rhs")
     if (lhs.length != rhs.length) {
       err(s"matchSeq length mismatch $lhs by $rhs")
@@ -170,7 +170,7 @@ trait TypeEnv { self: Env =>
     lhs.zip(rhs).map { case (l, r) => matchOne(l, r) }
   }
 
-  def matchOne(lhs: Term, rhs: Item): Term = {
+  def matchOne(lhs: Term, rhs: Term | Expr): Term = {
     debugln(s"matchOne $lhs by $rhs [${rhs.isInstanceOf[Expr]}]")
     val lhsView = curryTermView(lhs)
     val rhsView = rhs match
@@ -181,8 +181,8 @@ trait TypeEnv { self: Env =>
 
   def matchParams[T](
       eParams: Array[Param],
-      eArgs: List[Item],
-      f: (Param, Option[Item]) => Option[T],
+      eArgs: List[Term | Expr],
+      f: (Param, Option[Term | Expr]) => Option[T],
   ): List[T] = {
 
     val named = eArgs.flatMap {
@@ -259,7 +259,7 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def classArgs(v: Item, cls: Class): List[Item] = {
+  def classArgs(v: Term | Expr, cls: Class): List[Term | Expr] = {
     debugln(s"classArgs $v by $cls")
     v match {
       case v: ClassInstance =>

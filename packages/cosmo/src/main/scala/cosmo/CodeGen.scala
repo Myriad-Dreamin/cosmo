@@ -17,7 +17,7 @@ class CodeGen(implicit val env: Env) {
 """
   var genInImpl = false
 
-  implicit val exprRec: Item => String = expr
+  implicit val exprRec: Term => String = expr
 
   // Generate Cxx code from the env
   def gen(): String = {
@@ -34,11 +34,11 @@ class CodeGen(implicit val env: Env) {
     genDef(ast.item.asInstanceOf[DeclItem])
   }
 
-  def genDef(ast: ir.Item): String = {
+  def genDef(ast: ir.Term): String = {
     mayGenDef(ast).getOrElse(expr(ast))
   }
 
-  def mayGenDef(ast: ir.Item): Option[String] = {
+  def mayGenDef(ast: ir.Term): Option[String] = {
     val info = ast match {
       case ir.Var(info, _, _)      => Some(info)
       case ir.Fn(info, _, _, _, _) => Some(info)
@@ -299,7 +299,8 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarStore(node: ir.Var): String = {
-    val ir.Var(info, init, _) = node
+    val ir.Var(info, i, _) = node
+    val init = i.asInstanceOf[Option[ir.Term]]
     if (info.isTypeVar) {
       return init match {
         case Some(m: (CModule | NativeModule)) => genDef(m)
@@ -378,7 +379,7 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
-  def blockizeExpr(ast: ir.Item, recv: ValRecv): String = {
+  def blockizeExpr(ast: ir.Term, recv: ValRecv): String = {
     ast match {
       case s: Region => exprWith(s, recv)
       case a         => s"{${exprWith(a, recv)};}"
@@ -387,7 +388,7 @@ class CodeGen(implicit val env: Env) {
 
   var tmpRegister = 0
   def moveExpr(
-      ast: ir.Item,
+      ast: ir.Term,
   )(implicit defaultMove: Boolean = true): (String, String) = {
     debugln(s"moveExpr: $ast")
     ast match {
@@ -408,18 +409,18 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
-  def mutExpr(rhs: ir.Item): (String, String) = {
+  def mutExpr(rhs: ir.Term): (String, String) = {
     val name = s"tmp${tmpRegister}"
     tmpRegister += 1
     val (defCode, moveCode) = moveExpr(rhs)(false);
     (s"${defCode}auto $name = ${moveCode};", name)
   }
 
-  def expr(ast: ir.Item): String = {
+  def expr(ast: ir.Term): String = {
     exprWith(ast, ValRecv.None)
   }
 
-  def exprWith(ast: ir.Item, recv: ValRecv): String = {
+  def exprWith(ast: ir.Term, recv: ValRecv): String = {
     val res = ast match {
       case NoneKind(_)           => ""
       case Int64(value)          => value.toString
@@ -704,12 +705,12 @@ class CodeGen(implicit val env: Env) {
   }
 }
 
-def isStaticMethod(f: ir.Item): Boolean = f match {
+def isStaticMethod(f: ir.Term): Boolean = f match {
   case f: ir.Fn => f.selfParam.isEmpty
   case _        => false
 }
 
-def lhsIsType(lhs: ir.Item): Boolean = {
+def lhsIsType(lhs: ir.Term): Boolean = {
   lhs match {
     case ir.Ref(_, _, _) if lhs.level >= 1 => true
     case ir.Select(lhs, _)                 => lhsIsType(lhs)
@@ -717,7 +718,7 @@ def lhsIsType(lhs: ir.Item): Boolean = {
   }
 }
 
-def canCSwitch(lhs: ir.Item): Boolean = {
+def canCSwitch(lhs: ir.Term): Boolean = {
   lhs match {
     case _: (IntegerTy | FloatTy) => true
     case CEnumTy                  => true
@@ -725,7 +726,7 @@ def canCSwitch(lhs: ir.Item): Boolean = {
   }
 }
 
-def isConst(lhs: ir.Item): Boolean = {
+def isConst(lhs: ir.Term): Boolean = {
   lhs match {
     case Str(_) | Int64(_) | Float32(_) | Float64(_) | Bool(_) | Rune(_) |
         Bytes(_) =>

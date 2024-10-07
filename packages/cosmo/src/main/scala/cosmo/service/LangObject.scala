@@ -2,7 +2,7 @@ package cosmo.service
 import cosmo.ir._
 import scala.annotation._
 
-class LangObject(val item: Item) {
+class LangObject(val item: Term | Expr) {
   lazy val defInfo = item match {
     case i: Class        => Some(i.id)
     case i: Impl         => Some(i.id)
@@ -18,9 +18,9 @@ class LangObject(val item: Item) {
   def name = defInfo.map(_.name).getOrElse("")
   def range = defInfo.flatMap(_.pos)
   lazy val pretty: String = {
-    implicit def rec(item: Item): String = LangObject(item).pretty;
+    implicit def rec(item: Term | Expr): String = LangObject(item).pretty;
     @tailrec
-    def go(i: Item): String =
+    def go(i: Term | Expr): String =
       i match {
         case Ref(_, _, Some(v)) => go(v)
         case i: Var             => i.pretty

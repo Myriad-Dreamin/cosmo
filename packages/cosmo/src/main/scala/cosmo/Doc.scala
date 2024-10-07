@@ -80,11 +80,11 @@ object Doc {
   implicit class ConcatSeqOps(seq: Seq[Doc]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc = Doc.Concat(seq.toArray, sep)
   }
-  implicit class ConcatItemOps(seq: Seq[ir.Item]) extends AnyVal {
+  implicit class ConcatItemOps(seq: Seq[ir.Term | ir.Expr]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc =
       Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
   }
-  implicit class ConcatItem2Ops(seq: Array[ir.Item]) extends AnyVal {
+  implicit class ConcatItem2Ops(seq: Array[ir.Term | ir.Expr]) extends AnyVal {
     def d(implicit sep: Doc = Doc.empty): Doc =
       Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
   }
@@ -92,10 +92,10 @@ object Doc {
     def d(implicit sep: Doc = Doc.empty): Doc =
       Doc.Concat(seq.map(Doc.buildItem).toArray, sep)
   }
-  implicit class ItemOptionOps(o: Option[ir.Item]) extends AnyVal {
+  implicit class ItemOptionOps(o: Option[ir.Term | ir.Expr]) extends AnyVal {
     def d: Option[Doc] = o.map(Doc.buildItem)
   }
-  implicit class ItemOps(o: ir.Item) extends AnyVal {
+  implicit class ItemOps(o: ir.Term | ir.Expr) extends AnyVal {
     def d: Doc = Doc.buildItem(o)
   }
   implicit class StringOps(o: String) extends AnyVal {
@@ -129,7 +129,7 @@ object Doc {
     val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
   }
-  def buildItem(item: ir.Item): Doc = item match {
+  def buildItem(item: ir.Term | ir.Expr): Doc = item match {
     case b: typed.Region => Doc.block("block", b.stmts.d(NewLine))
     case f: typed.DefExpr =>
       paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))

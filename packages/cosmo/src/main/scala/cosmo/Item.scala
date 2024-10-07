@@ -14,7 +14,7 @@ val CLASS_EMPTY = 0
 val CODE_FUNC = 1
 
 private[cosmo] type Defo = DefInfo;
-private[cosmo] type Ni = Option[Item];
+private[cosmo] type Ni = Option[Term | Expr];
 private[cosmo] type FieldMap = MutMap[String, VField];
 
 /// Relationship
@@ -36,23 +36,24 @@ sealed abstract trait CallableTerm(raw: Option[List[Param]]) {
   lazy val callByName: Boolean = raw.isEmpty;
 }
 
-sealed abstract class Item {
+/// Expressions & Terms
+
+sealed abstract class Expr extends ItemExt {
+  val info: ExprInfo = ExprInfo.empty;
+  def toDoc: Doc = Doc.buildItem(this)
+}
+sealed abstract class Term extends ItemExt {
   val level: Int = 0;
 
   val isBuilitin: Boolean = false
 
+  def e: Expr = untyp.ItemE(this)
   def langObj: LangObject = LangObject(this)
   def toDoc: Doc = Doc.buildItem(this)
 }
 
-/// Expressions
-
-// todo: don't inherit item?
-sealed abstract class Expr extends Item {
-  val info: ExprInfo = ExprInfo.empty;
-}
-sealed abstract class Term extends Item {
-  def e: Expr = untyp.ItemE(this)
+trait ItemExt {
+  def toDoc: Doc
 }
 
 enum BinInstIntOp {
@@ -390,21 +391,21 @@ final case class Param(of: Var, named: Boolean) extends DeclItem {
   override val id: DefInfo = of.id
   override val level: Int = of.level
 
-  def pretty(implicit rec: Item => String = _.toString): String =
+  def pretty(implicit rec: Term | Expr => String = _.toString): String =
     s"${id.defName(false)}: ${rec(id.ty)}"
 
   override def toString: String = s"param(${id.defName(false)})"
 }
 final case class Var(
     id: DefInfo,
-    init: Option[Item],
+    init: Option[Term | Expr],
     override val level: Int,
 ) extends DeclItem {
   override def toString: String =
     val mod = if !id.isMut then "val" else "var"
     s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
 
-  def pretty(implicit rec: Item => String = _.toString): String =
+  def pretty(implicit rec: Term | Expr => String = _.toString): String =
     val mod = if !id.isMut then "val" else "var"
     val initStr = init.map(rec).getOrElse("None")
     s"$mod ${id.defName(false)}"
@@ -424,7 +425,7 @@ final case class Fn(
   }
   override def toString: String = s"fn(${id.defName(false)})"
 
-  def pretty(implicit rec: Item => String = _.toString): String = ???
+  def pretty(implicit rec: Term | Expr => String = _.toString): String = ???
 }
 
 final case class Ref(
@@ -436,14 +437,14 @@ final case class Ref(
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclItem {
-  def pretty(implicit rec: Item => String = _.toString): String =
+  def pretty(implicit rec: Term | Expr => String = _.toString): String =
     s"module ${id.defName(false)} including \"$path\""
 }
 enum CModuleKind {
   case Builtin, Error, Source
 }
 final case class NativeModule(id: DefInfo, env: Env) extends DeclItem {
-  def pretty(implicit rec: Item => String = _.toString): String =
+  def pretty(implicit rec: Term | Expr => String = _.toString): String =
     s"module ${id.defName(false)} in ${env.fid}"
 }
 
@@ -476,7 +477,7 @@ final case class Class(
     val argList = args.map(_.map(rec).mkString("<", ", ", ">")).getOrElse("")
     id.defName(false) + argList
 
-  def pretty(implicit rec: Item => String = _.toString): String = ???
+  def pretty(implicit rec: Term | Expr => String = _.toString): String = ???
 }
 object Class {
   def empty(env: Env, isAbstract: Boolean) =
@@ -501,7 +502,7 @@ final case class Impl(
       .filter(_.isInstanceOf[EnumField])
       .asInstanceOf[List[EnumField]]
 
-  def pretty(implicit rec: Item => String = _.toString): String = ???
+  def pretty(implicit rec: Term | Expr => String = _.toString): String = ???
 }
 
 /// Operations
@@ -585,7 +586,7 @@ sealed abstract class VField {
   val item: DeclLike
   def name = item.name
 
-  def pretty(implicit rec: Item => String = _.toString): String = ???
+  def pretty(implicit rec: Term | Expr => String = _.toString): String = ???
 }
 final case class EDefField(item: untyp.DefExpr) extends VField
 final case class EEnumField(item: untyp.ClassExpr, index: Int) extends VField

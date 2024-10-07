@@ -340,7 +340,7 @@ trait ExprEnv { self: Env =>
 
   /// Syntax Related Service API
 
-  def findItem(offset: Int): Option[Item] =
+  def findItem(offset: Int): Option[Term] =
     logln(s"findItem in $fid with offset $offset")
     val node = nodeCovering(offset)
     logln(s"findItem: $offset $node")
