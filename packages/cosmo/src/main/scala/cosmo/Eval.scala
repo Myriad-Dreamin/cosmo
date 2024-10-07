@@ -9,12 +9,12 @@ import scala.collection.mutable.{
 import scala.annotation.tailrec
 
 import ir._
+import ir.typed._
 import cosmo.system._
 import cosmo.FileId
 import cosmo.syntax.Ident
-import cosmo.inst.InstModule
 
-type EParam = VarExpr;
+type EParam = untyp.VarExpr;
 type EParams = List[EParam];
 
 class Scopes {
@@ -37,8 +37,8 @@ class Scopes {
 
 class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     extends ExprEnv
-    with TypeEnv
-    with inst.InstEnv {
+    with TypeEnv {
+
   def fid = source.fid
 
   var noCore = false
@@ -62,9 +62,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   var typeSym = DefInfo.just(0, this)
 
   val patHolder = Str("$")
-  var moduleAst: Region = Region(List(), false)
-  var moduleInst = InstModule()
-  var module: ir.Region = Region(List(), false)
+  var moduleAst: untyp.Region = untyp.Region(List(), false)
+  var module: typed.Region = typed.Region(List(), false)
 
   /// Builtin Items
 
@@ -130,7 +129,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     if (!syntaxOnly && !noCore) then
       expr(syntax.Import(libPath("std.prelude"), Some(Ident("_"))))
 
-    moduleAst = Region(ast.stmts.map(expr), true)
+    moduleAst = untyp.Region(ast.stmts.map(expr), true)
     this
   }
 
@@ -139,11 +138,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     module =
       if (syntaxOnly) then Region(List(), true)
       else valTerm(moduleAst).asInstanceOf[Region]
-    this
-  }
-
-  def emitTask: Env = {
-    moduleInst = emitModule(module)
     this
   }
 
@@ -187,53 +181,57 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def valTermO(node: Option[Item])(implicit level: Int = 0): Item =
+  def valTermO(node: Option[Expr])(implicit level: Int = 0): Item =
     node.map(valTerm).getOrElse(NoneItem)
-  def valTerm(node: Item)(implicit level: Int = 0): Item = term(node)
-  def tyTerm(node: Item)(implicit level: Int = 1): Type = term(node)
-  def term(item: Item)(implicit level: Int): ir.Item = {
-    if !item.isInstanceOf[Expr] then return item
-    item.asInstanceOf[Expr] match {
+  def valTerm(node: Expr)(implicit level: Int = 0): Item = term(node)
+  def tyTerm(node: Expr)(implicit level: Int = 1): Type = term(node)
+  def term(item: Expr)(implicit level: Int): ir.Item = {
+    item match {
       // control flow, todo: duplicate patterns
-      case item: (Break | Continue | Opaque) => item
-      case Return(v)                         => Return(term(v))
-      case If(cond, x, y)        => If(term(cond), term(x), y.map(term))
-      case Loop(body)            => Loop(term(body))
-      case While(cond, body)     => While(term(cond), term(body))
-      case For(name, iter, body) => For(term(name), term(iter), term(body))
-      case Region(stmts, semi)   => Region(stmts.map(term), semi)
+      case item: untyp.Break       => Break()
+      case item: untyp.Continue    => Continue()
+      case untyp.Opaque(x, y)      => Opaque(x, y)
+      case untyp.Return(v)         => Return(term(v))
+      case untyp.If(cond, x, y)    => If(term(cond), term(x), y.map(term))
+      case untyp.Loop(body)        => Loop(term(body))
+      case untyp.While(cond, body) => While(term(cond), term(body))
+      case untyp.For(name, iter, body) =>
+        For(term(name), term(iter), term(body))
+      case untyp.Region(stmts, semi) => Region(stmts.map(term), semi)
       // operations
-      case Name(id, None) =>
+      case untyp.Name(id, None) =>
         val t = byRef(id);
         if t.value.isEmpty then err(s"undefined reference $id")
         t
-      case Name(id, Some(of))          => term(of)
-      case UnOp("&", UnOp("mut", lhs)) => RefItem(term(lhs), true)
-      case UnOp("&", lhs)              => RefItem(term(lhs), false)
-      case UnOp("mut", lhs) =>
+      case untyp.Name(id, Some(of))                => term(of)
+      case untyp.UnOp("&", untyp.UnOp("mut", lhs)) => RefItem(term(lhs), true)
+      case untyp.UnOp("&", lhs)                    => RefItem(term(lhs), false)
+      case untyp.UnOp("mut", lhs) =>
         errors = s"mut must be used after &" :: errors; term(lhs)
-      case UnOp("*", lhs)      => derefPtr(lhs)
-      case UnOp(op, lhs)       => UnOp(op, term(lhs))
-      case BinOp(op, lhs, rhs) => binOp(op, term(lhs), term(rhs))
-      case As(lhs, rhs)        => As(term(lhs), tyTerm(rhs))
-      case KeyedArg(k, v)      => KeyedArg(term(k), term(v))
+      case untyp.UnOp("*", lhs)      => derefPtr(lhs)
+      case untyp.UnOp(op, lhs)       => UnOp(op, term(lhs))
+      case untyp.BinOp(op, lhs, rhs) => binOp(op, term(lhs), term(rhs))
+      case untyp.As(lhs, rhs)        => As(term(lhs), tyTerm(rhs))
+      case untyp.KeyedArg(k, v)      => KeyedArg(term(k), term(v))
       // todo: check is compile time
-      case SelectExpr(lhs, rhs)          => deref(select(term(lhs), rhs))
-      case Apply(lhs, rhs)               => $apply(term(lhs), rhs.map(term))
-      case TmplApply(lhs, strings, args) => tmplApply(lhs, strings, args)
-      case b: MatchExpr                  => checkMatch(b)
-      case ItemE(item)                   => term(item)
+      case untyp.SelectExpr(lhs, rhs) => deref(select(term(lhs), rhs))
+      case untyp.Apply(lhs, rhs)      => $apply(term(lhs), rhs.map(term))
+      case untyp.TmplApply(lhs, strings, args) =>
+        tmplApply(term(lhs), strings, args.map { case (a, b) => (term(a), b) })
+      case b: untyp.MatchExpr => checkMatch(b)
+      case untyp.ItemE(item)  => item
       // todo: typed and untyed expressions
-      case i: BinInst => i
+      case i: untyp.BinInst => BinInst(i.op, term(i.lhs), term(i.rhs))
       // declarations
-      case v: VarExpr      => checkDecl(v, checkVar(v))
-      case d: DefExpr      => checkDecl(d, checkDef(d))
-      case c: ClassExpr    => checkDecl(c, checkClass(c))
-      case i: ImplExpr     => checkDecl(i, checkImpl(i))
-      case d: DestructExpr => checkDestruct(d)
-      case h: Hole         => h
-      case cr: CaseRegion  => err(s"case region $cr in the air")
-      case c: CaseExpr =>
+      case v: untyp.VarExpr      => checkDecl(v, checkVar(v))
+      case d: untyp.DefExpr      => checkDecl(d, checkDef(d))
+      case c: untyp.ClassExpr    => checkDecl(c, checkClass(c))
+      case i: untyp.ImplExpr     => checkDecl(i, checkImpl(i))
+      case d: untyp.DestructExpr => checkDestruct(d)
+      case h: untyp.Hole         => Hole(h.id)
+      case t: untyp.TupleLit     => TupleLit(t.elems.map(term))
+      case cr: untyp.CaseRegion  => err(s"case region $cr in the air")
+      case c: untyp.CaseExpr =>
         errE(s"case clause without match")
         Opaque.expr(s"0/* error: case clause without match $c */")
     }
@@ -290,10 +288,10 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
 
   /// Expressions
 
-  def derefPtr(lhs: Item)(implicit level: Int): Item = {
+  def derefPtr(lhs: Expr)(implicit level: Int): Item = {
     lhs match {
-      case SelfVal => SelfVal
-      case lhs     => UnOp("*", term(lhs))
+      case untyp.ItemE(SelfVal) => SelfVal
+      case lhs                  => UnOp("*", term(lhs))
     }
   }
 
@@ -481,7 +479,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         args.addOne(Str(sIter.next()))
         while (sIter.hasNext) {
           val (r, opt) = rIter.next()
-          args.addOne(fmtItem(valTerm(r), opt))
+          args.addOne(fmtItem(r, opt))
           val s = sIter.next()
           args.addOne(Str(s))
         }
@@ -540,14 +538,14 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     ClassInstance(clsFinal, castedArgs.drop(tpSize))
   }
 
-  def checkMatch(b: MatchExpr)(implicit level: Int): Item = {
+  def checkMatch(b: untyp.MatchExpr)(implicit level: Int): Item = {
     import MatchM._
     val lhs = term(b.lhs)
     val lhsShape = curryTermView(lhs);
 
     debugln(s"checkMatch $lhs ($lhsShape) on ${b.body}")
     val state = b.body.cases.foldLeft(Init) {
-      case (m, CaseExpr(destructor, bodyExpr)) =>
+      case (m, untyp.CaseExpr(destructor, bodyExpr)) =>
         val pattern = matchPat(lhsShape, curryExpr(destructor))
         m.addPattern(lhs, pattern, valTermO(bodyExpr))
     }
@@ -607,11 +605,11 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         val cont = if constantly then body else dropCase(Unreachable)
         this.doFinalize(cont)
       }
-      case v: Var                 => this.addVar(lhs, v, body)
-      case ir.BinOp("==", _, rhs) => this.addValue(lhs, rhs, body)
-      case b: ir.BinOp            => debugln(s"binop $b"); ???
-      case ed: EnumDestruct       => this.addEnum(lhs, ed, body)
-      case cd: ClassDestruct      => this.addClass(lhs, cd, body)
+      case v: Var                    => this.addVar(lhs, v, body)
+      case typed.BinOp("==", _, rhs) => this.addValue(lhs, rhs, body)
+      case b: typed.BinOp            => debugln(s"binop $b"); ???
+      case ed: EnumDestruct          => this.addEnum(lhs, ed, body)
+      case cd: ClassDestruct         => this.addClass(lhs, cd, body)
       case _ => throw new Exception(s"cannot add invalid pattern $this")
     }
 
@@ -758,7 +756,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   /// Declarations
 
   def noteDecl(id: DeclItem) = items += (id.id.id -> id)
-  def checkDecl[T <: Item](id: DeclExpr, f: => T): T =
+  def checkDecl[T <: Item](id: untyp.DeclExpr, f: => T): T =
     val intId = id.id.id.id
     if checked.contains(intId) then return checked(intId).asInstanceOf[T]
     if checkStatus.contains(intId) then throw new Exception("recursive")
@@ -774,8 +772,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     Var(nv, init, level)
   }
 
-  def checkVar(v: VarExpr): ir.Var = {
-    val VarExpr(info, oty, initExprE) = v
+  def checkVar(v: untyp.VarExpr): ir.Var = {
+    val untyp.VarExpr(info, oty, initExprE) = v
     info.isVar = true;
     val initExpr = initExprE.map(valTerm).map(normalize)
     val initTy = oty.map(tyTerm).orElse {
@@ -800,7 +798,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     res
   }
 
-  def checkDestruct(d: DestructExpr): Item = {
+  def checkDestruct(d: untyp.DestructExpr): Item = {
     ???
   }
 
@@ -808,9 +806,9 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     params.map(p => Param(checkDecl(p, checkVar(p)), false))
   }
 
-  def checkDef(e: DefExpr) = {
+  def checkDef(e: untyp.DefExpr) = {
     debugln(s"defItem ${e.id.name}")
-    val DefExpr(info, ps, constraints, ret_ty, rhs) = e
+    val untyp.DefExpr(info, ps, constraints, ret_ty, rhs) = e
 
     val params = resolveParams(ps);
     val annotated = ret_ty.map(tyTerm)
@@ -835,9 +833,9 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     fn2
   }
 
-  def checkClass(e: ClassExpr): Class = {
-    val ClassExpr(info, ps, constraints, fields) = e
-    val ss = selfRef; selfRef = Some(e);
+  def checkClass(e: untyp.ClassExpr): Class = {
+    val untyp.ClassExpr(info, ps, constraints, fields) = e
+    val ss = selfRef; selfRef = Some(SelfTy);
 
     val params = resolveParams(ps);
     val cls2 = Class(info, params, fields); selfRef = Some(cls2);
@@ -853,12 +851,12 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     cls
   }
 
-  def checkImpl(e: ImplExpr) = {
-    val ImplExpr(info, ps, constraints, i, c, fields) = e
+  def checkImpl(e: untyp.ImplExpr) = {
+    val untyp.ImplExpr(info, ps, constraints, i, c, fields) = e
     val params = resolveParams(ps);
     val cls = tyTerm(c);
     val ss2 = selfRef; selfRef = Some(cls);
-    val ss = selfImplRef; selfImplRef = Some(e);
+    val ss = selfImplRef; selfImplRef = Some(SelfTy);
 
     val iface = i.map(tyTerm);
     val impl2 = Impl(info, params, iface.get, cls, fields);
@@ -880,7 +878,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     f match {
       // todo: unchecked var field is dangerous
       case e: VarField =>
-        val s = e.item.id.syntax.asInstanceOf[VarExpr]
+        val s = e.item.id.syntax.asInstanceOf[untyp.VarExpr]
         VarField(checkDecl(s, checkVar(s)), e.index)
       case e: EDefField  => DefField(checkDecl(e.item, checkDef(e.item)))
       case e: EEnumField => EnumField(checkDecl(e.item, checkClass(e.item)))
@@ -958,7 +956,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def eval(item: Item)(implicit level: Int): Item = {
-    debugln(s"eval $item $level")
+    logln(s"eval $item $level")
     val e = eval;
     item match {
       case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
