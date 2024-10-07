@@ -2,14 +2,14 @@ package cosmo.ir
 
 object Exprs {
   import cosmo.DefInfo
+  class Term {}
   class Expr {}
-  type T = Item;
+  type T = Term;
   type E = Expr;
   // region: Exprs
   sealed abstract class DeclExpr extends E with DeclLike {
     val id: DefInfo
   }
-  final case class ItemE(item: Item) extends E {}
   final case class Opaque(expr: Option[String], stmt: Option[String])
       extends E {}
   object Opaque {

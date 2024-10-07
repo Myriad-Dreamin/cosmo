@@ -220,7 +220,7 @@ trait ExprEnv { self: Env =>
     }
   }
 
-  def importDest(dest: Option[syntax.Node], v: Item): Expr = {
+  def importDest(dest: Option[syntax.Node], v: Term): Expr = {
     val pat = dest match {
       case Some(syntax.Ident("_")) =>
         if (v.isInstanceOf[NativeModule]) {
@@ -340,7 +340,7 @@ trait ExprEnv { self: Env =>
 
   /// Syntax Related Service API
 
-  def findItem(offset: Int): Option[Item] =
+  def findItem(offset: Int): Option[Term] =
     logln(s"findItem in $fid with offset $offset")
     val node = nodeCovering(offset)
     logln(s"findItem: $offset $node")
