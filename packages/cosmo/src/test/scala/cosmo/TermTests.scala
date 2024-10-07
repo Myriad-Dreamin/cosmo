@@ -12,7 +12,7 @@ class SelectTest extends TestBase:
       env.errors = List();
       val lhs = env.scopes.withScope(env.valTerm(expr(line)));
       val result = lhs.toDoc.pretty;
-      val ty = env.tyOf(lhs).map(_.toDoc.pretty).getOrElse("?");
+      val ty = env.tyOf(lhs).toDoc.pretty;
       val errors = env.errors.mkString("\n");
       snapshot =
         snapshot :+ s"[${line}] => $result, type: $ty, err: \"${escapeStr(errors)}\"";

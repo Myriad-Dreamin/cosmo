@@ -421,7 +421,6 @@ class CodeGen(implicit val env: Env) {
   def exprWith(ast: ir.Item, recv: ValRecv): String = {
     val res = ast match {
       case NoneKind(_)           => ""
-      case Int32(value)          => value.toString
       case Int64(value)          => value.toString
       case Float32(value)        => value.toString
       case Float64(value)        => value.toString
@@ -450,6 +449,8 @@ class CodeGen(implicit val env: Env) {
       case v: Fn  => v.id.defName()
       case ir.Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
+      case ir.While(cond, body) =>
+        return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.For(name: Var, iter, body) =>
         return s"for(auto &&${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
       case ir.Break()    => return "break"
@@ -461,6 +462,8 @@ class CodeGen(implicit val env: Env) {
             .getOrElse("")}"
       case ir.BinOp("..", lhs, rhs) => s"Range(${expr(lhs)}, ${expr(rhs)})"
       case ir.BinOp(op, lhs, rhs)   => s"${expr(lhs)} $op ${expr(rhs)}"
+      case ir.BinInst(BinInstOp.Int(_, op), lhs, rhs) =>
+        s"${expr(lhs)} ${op.repr} ${expr(rhs)}"
       case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
       case ir.RefItem(SelfVal, _)              => s"(*this)"
       case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"
@@ -723,8 +726,8 @@ def canCSwitch(lhs: ir.Item): Boolean = {
 
 def isConst(lhs: ir.Item): Boolean = {
   lhs match {
-    case Str(_) | Int32(_) | Int64(_) | Float32(_) | Float64(_) | Bool(_) |
-        Rune(_) | Bytes(_) =>
+    case Str(_) | Int64(_) | Float32(_) | Float64(_) | Bool(_) | Rune(_) |
+        Bytes(_) =>
       true
     case _ => false
   }

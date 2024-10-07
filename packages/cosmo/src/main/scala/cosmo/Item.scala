@@ -78,6 +78,38 @@ final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
 final case class As(lhs: Item, rhs: Item) extends Expr {}
 final case class UnOp(op: String, lhs: Item) extends Expr {}
 final case class BinOp(op: String, lhs: Item, rhs: Item) extends Expr {}
+final case class BinInst(op: BinInstOp, lhs: Item, rhs: Item) extends Expr {}
+enum BinInstIntOp {
+  case Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl, Shr, Sar, Eq, Ne, Lt, Le, Gt,
+    Ge;
+
+  def repr: String = this match {
+    case Add => "+"
+    case Sub => "-"
+    case Mul => "*"
+    case Div => "/"
+    case Rem => "%"
+    case And => "&"
+    case Or  => "|"
+    case Xor => "^"
+    case Shl => "<<"
+    case Shr => ">>"
+    case Sar => ">>>"
+    case Eq  => "=="
+    case Ne  => "!="
+    case Lt  => "<"
+    case Le  => "<="
+    case Gt  => ">"
+    case Ge  => ">="
+  }
+}
+enum BinInstOp {
+  case Int(t: IntegerTy, op: BinInstIntOp);
+
+  def ty: Type = this match {
+    case Int(t, op) => t
+  }
+}
 final case class KeyedArg(key: Item, value: Item) extends Expr {}
 final case class Apply(lhs: Item, rhs: List[Item]) extends Expr {
   override def toString: String = s"$lhs(${rhs.mkString(", ")})"
@@ -424,9 +456,6 @@ sealed abstract class Value extends Item
 case object TodoLit extends Value {}
 final case class Bool(value: Boolean) extends Value {
   val ty = BoolTy
-}
-final case class Int32(value: Int) extends Value {
-  val ty = IntegerTy(32, false)
 }
 final case class Int64(value: Long) extends Value {
   val ty = IntegerTy(64, false)
