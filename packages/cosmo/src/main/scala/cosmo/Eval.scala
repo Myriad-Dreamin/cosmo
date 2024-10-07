@@ -321,10 +321,10 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
           return BinOp(s, lhs, rhs)
         }
         val op = s match {
-          case "+" => BinInstOp2.Add
-          case "-" => BinInstOp2.Sub
-          case "*" => BinInstOp2.Mul
-          case "/" => BinInstOp2.Div
+          case "+" => BinInstIntOp.Add
+          case "-" => BinInstIntOp.Sub
+          case "*" => BinInstIntOp.Mul
+          case "/" => BinInstIntOp.Div
         }
         BinInst(BinInstOp.Int(l, op), lhs, rhs)
       case _ => BinOp(op, lhs, rhs)
@@ -968,23 +968,23 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         val l = e(lhs).asInstanceOf[Int64].value
         val r = e(rhs).asInstanceOf[Int64].value
         op match {
-          case BinInstOp2.Add => Int64(l + r)
-          case BinInstOp2.Sub => Int64(l - r)
-          case BinInstOp2.Mul => Int64(l * r)
-          case BinInstOp2.Div => Int64(l / r)
-          case BinInstOp2.Rem => Int64(l % r)
-          case BinInstOp2.And => Int64(l & r)
-          case BinInstOp2.Or  => Int64(l | r)
-          case BinInstOp2.Xor => Int64(l ^ r)
-          case BinInstOp2.Shl => Int64(l << r)
-          case BinInstOp2.Shr => Int64(l >> r)
-          case BinInstOp2.Sar => Int64(l >>> r)
-          case BinInstOp2.Eq  => Bool(l == r)
-          case BinInstOp2.Ne  => Bool(l != r)
-          case BinInstOp2.Lt  => Bool(l < r)
-          case BinInstOp2.Le  => Bool(l <= r)
-          case BinInstOp2.Gt  => Bool(l > r)
-          case BinInstOp2.Ge  => Bool(l >= r)
+          case BinInstIntOp.Add => Int64(l + r)
+          case BinInstIntOp.Sub => Int64(l - r)
+          case BinInstIntOp.Mul => Int64(l * r)
+          case BinInstIntOp.Div => Int64(l / r)
+          case BinInstIntOp.Rem => Int64(l % r)
+          case BinInstIntOp.And => Int64(l & r)
+          case BinInstIntOp.Or  => Int64(l | r)
+          case BinInstIntOp.Xor => Int64(l ^ r)
+          case BinInstIntOp.Shl => Int64(l << r)
+          case BinInstIntOp.Shr => Int64(l >> r)
+          case BinInstIntOp.Sar => Int64(l >>> r)
+          case BinInstIntOp.Eq  => Bool(l == r)
+          case BinInstIntOp.Ne  => Bool(l != r)
+          case BinInstIntOp.Lt  => Bool(l < r)
+          case BinInstIntOp.Le  => Bool(l <= r)
+          case BinInstIntOp.Gt  => Bool(l > r)
+          case BinInstIntOp.Ge  => Bool(l >= r)
         }
       case _ => item
     }

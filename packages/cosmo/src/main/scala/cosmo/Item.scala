@@ -79,12 +79,12 @@ final case class As(lhs: Item, rhs: Item) extends Expr {}
 final case class UnOp(op: String, lhs: Item) extends Expr {}
 final case class BinOp(op: String, lhs: Item, rhs: Item) extends Expr {}
 final case class BinInst(op: BinInstOp, lhs: Item, rhs: Item) extends Expr {}
-enum BinInstOp2 {
+enum BinInstIntOp {
   case Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl, Shr, Sar, Eq, Ne, Lt, Le, Gt,
     Ge;
 }
 enum BinInstOp {
-  case Int(t: IntegerTy, op: BinInstOp2);
+  case Int(t: IntegerTy, op: BinInstIntOp);
 
   def ty: Type = this match {
     case Int(t, op) => t
