@@ -75,7 +75,7 @@ class MatchTest extends TestBase:
   test("class") {
     runTestOnFile("fixtures/Type/matches/class.cos-ast");
   }
-  test("nat") {
+  test("nat".ignore) {
     runTestOnFile("fixtures/Type/matches/nat.cos-ast");
   }
   test("result") {

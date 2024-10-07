@@ -1,0 +1,11 @@
+
+@noCore();
+
+def main() = {
+  println(Type(1 + 2))
+  println(Type(1 + 7 - 4))
+  type a = 0xfefefefefe
+  println(Type(a + a))
+  // todo: overflow checking
+  println(Type(a * a))
+}

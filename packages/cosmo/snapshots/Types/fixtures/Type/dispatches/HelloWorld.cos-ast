@@ -1,2 +1,8 @@
-[T().x] => instance T(Opaque(Some(kDefault),None)).x, type: i32, err: ""
-[T(x: T().x).x] => instance T(instance T(Opaque(Some(kDefault),None)).x).x, type: i32, err: ""
+[T().x] => instance class T@49() = block {
+ val x@50: i64 = 1
+}(Opaque(Some(kDefault),None)).val x@50: i64 = 1, type: i64, err: ""
+[T(x: T().x).x] => instance class T@49() = block {
+ val x@50: i64 = 1
+}(instance class T@49() = block {
+ val x@50: i64 = 1
+}(Opaque(Some(kDefault),None)).val x@50: i64 = 1).val x@50: i64 = 1, type: i64, err: ""

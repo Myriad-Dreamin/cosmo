@@ -200,7 +200,7 @@ class Package(metaSource: PackageMetaSource, system: CosmoSystem) {
   }
 
   private def loadSources: Map[String, Source] = {
-    logln(s"loading sources for $namespace/$name")
+    debugln(s"loading sources for $namespace/$name")
     val root = canoPath(meta.root.getOrElse("src"))
     root.headOption match {
       case Some('/') => throw new Exception("root path must be relative")

@@ -108,9 +108,7 @@ trait TypeEnv { self: Env =>
 
   def curryTerm(exp: Expr): PatShape = curryTermView(valTerm(exp))
   def curryTermView(lhs: Item): PatShape = {
-    val lhsTy = tyOf(lhs) match
-      case None     => throw Exception("cannot match a untyped value");
-      case Some(ty) => ty;
+    val lhsTy = tyOf(lhs);
     debugln(s"curryTermView $lhs % $lhsTy")
     curryView(lhs, lhsTy)
   }
@@ -178,7 +176,7 @@ trait TypeEnv { self: Env =>
     val lhsView = curryTermView(lhs)
     val rhsView = rhs match
       case v: Expr if rhs.isInstanceOf[Expr] => curryExpr(v)
-      case _                                 => curryView(rhs, tyOf(rhs).get)
+      case _                                 => curryView(rhs, tyOf(rhs))
     matchPat(lhsView, rhsView)
   }
 
@@ -347,7 +345,7 @@ trait TypeEnv { self: Env =>
                 s"\n#error \"Cannot cast to mut ref\"\n /* ref $item */",
               )
             }
-            val lty = canonicalTy(tyOf(item).getOrElse(TopTy))
+            val lty = canonicalTy(tyOf(item))
             val rty = canonicalTy(rtyNf)
             val lhsIsInferVar = lty match {
               case _: InferVar             => true
@@ -414,16 +412,6 @@ trait TypeEnv { self: Env =>
   }
 
   // : Normalization Part
-
-  def eval(item: Item)(implicit level: Int): Item = {
-    debugln(s"eval $item $level")
-    val e = eval;
-    item match {
-      case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
-      case Ref(id, lvl, value) if level <= lvl => items(id.id)
-      case _                                   => item
-    }
-  }
 
   def normalize(body: Item): Item = {
     debugln(s"normalize $body")
@@ -546,7 +534,6 @@ trait TypeEnv { self: Env =>
       case Ref(_, _, Some(v)) => isBuiltin(v, rhs)
       case TopTy | UniverseTy => true
       case BottomTy           => true
-      case Int32(_)           => lhs == rhs || rhs == IntegerTy(32, false)
       case Int64(_)           => lhs == rhs || rhs == IntegerTy(64, false)
       case Float32(_)         => lhs == rhs || rhs == FloatTy(32)
       case Float64(_)         => lhs == rhs || rhs == FloatTy(64)
@@ -583,7 +570,6 @@ trait TypeEnv { self: Env =>
       case _ if lhs.isBuilitin => builtinClasses(lhs)
       case l @ (Bool(_))       => builtinClasses(l.ty)
       case l @ (Str(_))        => builtinClasses(l.ty)
-      case l @ (Int32(_))      => builtinClasses(l.ty)
       case l @ (Int64(_))      => builtinClasses(l.ty)
       case l @ (Float32(_))    => builtinClasses(l.ty)
       case l @ (Float64(_))    => builtinClasses(l.ty)
@@ -626,47 +612,48 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def tyOf(lhs: Item): Option[Type] = {
+  def tyOf(lhs: Item): Type = {
     debugln(s"tyOf $lhs (level ${lhs.level})")
     lhs match {
-      case l: Int32   => Some(l.ty)
-      case l: Int64   => Some(l.ty)
-      case l: Float32 => Some(l.ty)
-      case l: Float64 => Some(l.ty)
-      case _: Rune    => Some(IntegerTy(32, false))
-      case _: Str     => Some(StrTy)
-      case NoneItem   => Some(TopTy)
-      case _: (Apply | Opaque | Select | Unresolved)  => Some(TopTy)
-      case _: (While | Loop | For | Break | Continue) => Some(UnitTy)
-      case Unreachable                                => Some(BottomTy)
-      case _: (CIdent | TopKind | NoneKind | Class | CppInsType) =>
-        Some(UniverseTy)
-      case v if v.level == 1                 => Some(UniverseTy)
-      case _: (CModule | NativeModule)       => Some(UniverseTy)
-      case BoundField(_, _, _, EnumField(v)) => Some(UniverseTy)
-      case RefItem(lhs, isMut)               => tyOf(lhs).map(RefItem(_, isMut))
-      case v: ClassInstance                  => Some(v.con)
-      case BoundField(_, _, _, VarField(v, _)) => Some(v.id.ty)
-      case b: BinOp                        => coerce(tyOf(b.lhs), tyOf(b.rhs))
-      case If(_, x, y)                     => coerce(tyOf(x), y.flatMap(tyOf))
-      case SelfVal                         => Some(SelfTy)
-      case Ref(id, _, Some(v))             => tyOf(v)
-      case Ref(id, level, _) if level == 0 => Some(id.ty)
+      case l: Int64                                   => l.ty
+      case l: Float32                                 => l.ty
+      case l: Float64                                 => l.ty
+      case l: Bool                                    => l.ty
+      case _: Rune                                    => IntegerTy(32, false)
+      case _: Str                                     => StrTy
+      case NoneItem                                   => TopTy
+      case _: (Apply | Opaque | Select | Unresolved)  => TopTy
+      case _: (While | Loop | For | Break | Continue) => UnitTy
+      case Unreachable                                => BottomTy
+      case _: (CIdent | TopKind | NoneKind | Class | CppInsType) => UniverseTy
+      case v if v.level == 1                                     => UniverseTy
+      case _: (CModule | NativeModule)                           => UniverseTy
+      case BoundField(_, _, _, EnumField(v))                     => UniverseTy
+      case RefItem(lhs, isMut)                 => RefItem(tyOf(lhs), isMut)
+      case v: ClassInstance                    => v.con
+      case BoundField(_, _, _, VarField(v, _)) => v.id.ty
+      case b: BinOp            => coerce(tyOf(b.lhs), tyOf(b.rhs))
+      case b: BinInst          => b.op.ty
+      case If(_, x, y)         => coerce(tyOf(x), y.map(tyOf).getOrElse(UnitTy))
+      case Return(value)       => tyOf(value)
+      case SelfVal             => SelfTy
+      case Ref(id, _, Some(v)) => tyOf(v)
+      case Ref(id, level, _) if level == 0 => id.ty
       case v: Var if v.level > 0           => tyOf(items(v.id.id))
-      case v: Var                          => Some(v.id.ty)
+      case v: Var                          => v.id.ty
       case v: Param                        => tyOf(v.of)
-      case TodoLit                         => Some(BottomTy)
-      case reg: Region if reg.semi         => Some(UnitTy)
-      case reg: Region                     => reg.stmts.lastOption.flatMap(tyOf)
+      case TodoLit                         => BottomTy
+      case reg: Region if reg.semi         => UnitTy
+      case reg: Region => reg.stmts.lastOption.map(tyOf).getOrElse(UnitTy)
       case TypeMatch(_, _, cases, d) => {
-        val types = (cases.map(_._2) :+ d).map(tyOf).flatten
+        val types = (cases.map(_._2) :+ d).map(tyOf)
         debugln(s"coerce enumMatch $types")
-        types.lastOption
+        types.lastOption.getOrElse(UnitTy)
       }
       case ValueMatch(_, _, cases, d) => {
-        val types = (cases.map(_._2).map(tyOf) :+ tyOf(d)).flatten
+        val types = (cases.map(_._2).map(tyOf) :+ tyOf(d))
         debugln(s"coerce valueMatch $types")
-        types.lastOption
+        types.lastOption.getOrElse(UnitTy)
       }
       case _ =>
         throw new Exception(
@@ -689,8 +676,9 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def coerce(lhs: Option[Type], rhs: Option[Type]): Option[Type] = {
+  def coerce(lhs: Type, rhs: Type): Type = {
     // todo: corece correctly
-    lhs.orElse(rhs)
+    // lhs.orElse(rhs)
+    lhs
   }
 }

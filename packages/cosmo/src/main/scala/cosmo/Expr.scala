@@ -62,8 +62,7 @@ trait ExprEnv { self: Env =>
       case s.TodoLit        => TodoLit.e
       case s.BoolLit(value) => Bool(value).e
       case s.IntLit(value) =>
-        if (value.isValidInt) Int32(value.toInt).e
-        else if (value.isValidLong) Int64(value.toLong).e
+        if (value.isValidLong) Int64(value.toLong).e
         else Opaque.expr(value.toString)
       case s.FloatLit(value) =>
         if (value.isBinaryFloat) Float32(value.toFloat).e
@@ -211,8 +210,8 @@ trait ExprEnv { self: Env =>
       case _ =>
     }
     b.lhs match {
-      case s.Ident("a") => return Rune(strs.head.toInt).e
-      case s.Ident("c") => return Rune(strs.head.toInt).e
+      case s.Ident("a") => return Rune(strs.head.head.toInt).e
+      case s.Ident("c") => return Rune(strs.head.head.toInt).e
       case s.Ident("b") => return Bytes(strs.head.getBytes()).e
       case _ => return TmplApply(expr(b.lhs), strs.toList, pols.toList)
     }
