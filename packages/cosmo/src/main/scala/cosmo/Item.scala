@@ -27,7 +27,7 @@ private[cosmo] type FieldMap = MutMap[String, VField];
 ///
 /// Source Code -> Expr -> Instrs with Types -> Output
 
-sealed abstract trait DeclLike {
+abstract trait DeclLike {
   val id: DefInfo
   def name = id.name
 }
@@ -42,7 +42,7 @@ sealed abstract class Item {
   val isBuilitin: Boolean = false
 
   def langObj: LangObject = LangObject(this)
-  def e: Expr = ItemE(this)
+  def e: Expr = untyp.ItemE(this)
   def toDoc: Doc = Doc.buildItem(this)
 }
 
@@ -52,35 +52,10 @@ sealed abstract class Item {
 sealed abstract class Expr extends Item {
   val info: ExprInfo = ExprInfo.empty;
 }
-sealed abstract class DeclExpr extends Expr with DeclLike {
-  val id: DefInfo
-}
 
-final case class ItemE(item: Item) extends Expr {}
-final case class Opaque(expr: Option[String], stmt: Option[String])
-    extends Expr {}
-object Opaque {
-  val empty = Opaque(None, None)
-  def expr(expr: String) = Opaque(Some(expr), None)
-  def stmt(stmt: String) = Opaque(None, Some(stmt))
-}
-final case class Region(stmts: List[Item], semi: Boolean) extends Expr {
-  override def toString: String = stmts.mkString("Region{ ", "; ", " }")
-}
-final case class Loop(body: Item) extends Expr {}
-final case class While(cond: Item, body: Item) extends Expr {}
-final case class For(name: Item, iter: Item, body: Item) extends Expr {}
-final case class Break() extends Expr {}
-final case class Continue() extends Expr {}
-final case class Return(value: Item) extends Expr {}
-final case class If(cond: Item, cont_bb: Item, else_bb: Option[Item])
-    extends Expr {}
-final case class As(lhs: Item, rhs: Item) extends Expr {}
-final case class UnOp(op: String, lhs: Item) extends Expr {}
-final case class BinOp(op: String, lhs: Item, rhs: Item) extends Expr {}
-final case class BinInst(op: BinInstOp, lhs: Item, rhs: Item) extends Expr {}
 enum BinInstIntOp {
-  case Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl, Shr, Sar, Eq, Ne, Lt, Le, Gt,
+  case Add, Sub, Mul, Div, Rem, And, Or, Xor, Shl, Shr, Sar, Eq, Ne, Lt, Le,
+    Gt,
     Ge;
 
   def repr: String = this match {
@@ -110,66 +85,199 @@ enum BinInstOp {
     case Int(t, op) => t
   }
 }
-final case class KeyedArg(key: Item, value: Item) extends Expr {}
-final case class Apply(lhs: Item, rhs: List[Item]) extends Expr {
-  override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+
+// region: Exprs
+object untyp {
+  type T = Expr;
+  type E = Expr;
+
+  sealed abstract class DeclExpr extends E with DeclLike {
+    val id: DefInfo
+  }
+  final case class ItemE(item: Item) extends E {}
+  final case class Opaque(expr: Option[String], stmt: Option[String])
+      extends E {}
+  object Opaque {
+    val empty = Opaque(None, None)
+    def expr(expr: String) = Opaque(Some(expr), None)
+    def stmt(stmt: String) = Opaque(None, Some(stmt))
+  }
+  final case class Region(stmts: List[T], semi: Boolean) extends E {
+    override def toString: String = stmts.mkString("Region{ ", "; ", " }")
+  }
+  final case class Loop(body: T) extends E {}
+  final case class While(cond: T, body: T) extends E {}
+  final case class For(name: T, iter: T, body: T) extends E {}
+  final case class Break() extends E {}
+  final case class Continue() extends E {}
+  final case class Return(value: T) extends E {}
+  final case class If(cond: T, cont_bb: T, else_bb: Option[T]) extends E {}
+  final case class As(lhs: T, rhs: T) extends E {}
+  final case class UnOp(op: String, lhs: T) extends E {}
+  final case class BinOp(op: String, lhs: T, rhs: T) extends E {}
+  final case class BinInst(op: BinInstOp, lhs: T, rhs: T) extends E {}
+  final case class KeyedArg(key: T, value: T) extends E {}
+  final case class Apply(lhs: T, rhs: List[T]) extends E {
+    override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+  }
+  final case class TmplApply(
+      lhs: T,
+      strings: List[String],
+      rhs: List[(T, Option[String])],
+  ) extends E {
+    override def toString: String =
+      s"$lhs(${strings.mkString(", ")})(${rhs.mkString(", ")})"
+  }
+  final case class SelectExpr(lhs: T, rhs: String) extends E {
+    override def toString: String = s"$lhs.$rhs"
+  }
+  final case class Name(val id: DefInfo, val of: Option[T] = None)
+      extends DeclExpr {
+    override def toString: String = s"${id.defName(false)}@${id.id.id}"
+  }
+  final case class Hole(id: DefInfo) extends DeclExpr {
+    override def toString: String = s"hole(${id.defName(false)})"
+  }
+  final case class VarExpr(id: DefInfo, ty: Option[T], init: Option[T])
+      extends DeclExpr {
+    override def toString: String = s"var(${id.defName(false)})"
+  }
+  final case class DestructExpr(dst: T, src: T) extends E {
+    override def toString: String = s"$dst = $src"
+  }
+  sealed abstract class ParamExpr extends DeclExpr {
+    val id: DefInfo
+    val params: Option[List[VarExpr]]
+    val constraints: List[T]
+  }
+  final case class DefExpr(
+      id: DefInfo,
+      params: Option[List[VarExpr]],
+      constraints: List[T],
+      ret_ty: Option[T],
+      body: Option[T],
+  ) extends ParamExpr {
+    override def toString: String = s"fn(${id.defName(false)})"
+  }
+  final case class ClassExpr(
+      id: DefInfo,
+      params: Option[List[VarExpr]],
+      constraints: List[T],
+      fields: FieldMap,
+  ) extends ParamExpr {}
+  final case class ImplExpr(
+      id: DefInfo,
+      params: Option[List[VarExpr]],
+      constraints: List[T],
+      iface: Option[T],
+      cls: T,
+      fields: FieldMap,
+  ) extends ParamExpr {}
+  final case class CaseExpr(cond: T, body: Option[T]) extends E {}
+  final case class CaseRegion(cases: List[CaseExpr]) extends E {}
+  final case class MatchExpr(lhs: T, body: CaseRegion) extends E {}
+  final case class TupleLit(elems: Array[T]) extends E {
+    override def toString: String = elems.mkString("tup(", ", ", ")")
+  }
+
 }
-final case class TmplApply(
-    lhs: Item,
-    strings: List[String],
-    rhs: List[(Item, Option[String])],
-) extends Expr {
-  override def toString: String =
-    s"$lhs(${strings.mkString(", ")})(${rhs.mkString(", ")})"
+object typed {
+  type T = Term;
+  type E = Term;
+
+  sealed abstract class DeclExpr extends E with DeclLike {
+    val id: DefInfo
+  }
+  final case class ItemE(item: Item) extends E {}
+  final case class Opaque(expr: Option[String], stmt: Option[String])
+      extends E {}
+  object Opaque {
+    val empty = Opaque(None, None)
+    def expr(expr: String) = Opaque(Some(expr), None)
+    def stmt(stmt: String) = Opaque(None, Some(stmt))
+  }
+  final case class Region(stmts: List[T], semi: Boolean) extends E {
+    override def toString: String = stmts.mkString("Region{ ", "; ", " }")
+  }
+  final case class Loop(body: T) extends E {}
+  final case class While(cond: T, body: T) extends E {}
+  final case class For(name: T, iter: T, body: T) extends E {}
+  final case class Break() extends E {}
+  final case class Continue() extends E {}
+  final case class Return(value: T) extends E {}
+  final case class If(cond: T, cont_bb: T, else_bb: Option[T]) extends E {}
+  final case class As(lhs: T, rhs: T) extends E {}
+  final case class UnOp(op: String, lhs: T) extends E {}
+  final case class BinOp(op: String, lhs: T, rhs: T) extends E {}
+  final case class BinInst(op: BinInstOp, lhs: T, rhs: T) extends E {}
+  final case class KeyedArg(key: T, value: T) extends E {}
+  final case class Apply(lhs: T, rhs: List[T]) extends E {
+    override def toString: String = s"$lhs(${rhs.mkString(", ")})"
+  }
+  final case class TmplApply(
+      lhs: T,
+      strings: List[String],
+      rhs: List[(T, Option[String])],
+  ) extends E {
+    override def toString: String =
+      s"$lhs(${strings.mkString(", ")})(${rhs.mkString(", ")})"
+  }
+  final case class SelectExpr(lhs: T, rhs: String) extends E {
+    override def toString: String = s"$lhs.$rhs"
+  }
+  final case class Name(val id: DefInfo, val of: Option[T] = None)
+      extends DeclExpr {
+    override def toString: String = s"${id.defName(false)}@${id.id.id}"
+  }
+  final case class Hole(id: DefInfo) extends DeclExpr {
+    override def toString: String = s"hole(${id.defName(false)})"
+  }
+  final case class VarExpr(id: DefInfo, ty: Option[T], init: Option[T])
+      extends DeclExpr {
+    override def toString: String = s"var(${id.defName(false)})"
+  }
+  final case class DestructExpr(dst: T, src: T) extends E {
+    override def toString: String = s"$dst = $src"
+  }
+  sealed abstract class ParamExpr extends DeclExpr {
+    val id: DefInfo
+    val params: Option[List[VarExpr]]
+    val constraints: List[T]
+  }
+  final case class DefExpr(
+      id: DefInfo,
+      params: Option[List[VarExpr]],
+      constraints: List[T],
+      ret_ty: Option[T],
+      body: Option[T],
+  ) extends ParamExpr {
+    override def toString: String = s"fn(${id.defName(false)})"
+  }
+  final case class ClassExpr(
+      id: DefInfo,
+      params: Option[List[VarExpr]],
+      constraints: List[T],
+      fields: FieldMap,
+  ) extends ParamExpr {}
+  final case class ImplExpr(
+      id: DefInfo,
+      params: Option[List[VarExpr]],
+      constraints: List[T],
+      iface: Option[T],
+      cls: T,
+      fields: FieldMap,
+  ) extends ParamExpr {}
+  final case class CaseExpr(cond: T, body: Option[T]) extends E {}
+  final case class CaseRegion(cases: List[CaseExpr]) extends E {}
+  final case class MatchExpr(lhs: T, body: CaseRegion) extends E {}
+  final case class TupleLit(elems: Array[T]) extends E {
+    override def toString: String = elems.mkString("tup(", ", ", ")")
+  }
+
 }
-final case class SelectExpr(lhs: Expr, rhs: String) extends Expr {
-  override def toString: String = s"$lhs.$rhs"
-}
-final case class Name(val id: DefInfo, val of: Option[Expr] = None)
-    extends DeclExpr {
-  override def toString: String = s"${id.defName(false)}@${id.id.id}"
-}
-final case class Hole(id: DefInfo) extends DeclExpr {
-  override def toString: String = s"hole(${id.defName(false)})"
-}
-final case class VarExpr(id: DefInfo, ty: Option[Type], init: Option[Expr])
-    extends DeclExpr {
-  override def toString: String = s"var(${id.defName(false)})"
-}
-final case class DestructExpr(dst: Expr, src: Expr) extends Expr {
-  override def toString: String = s"$dst = $src"
-}
-sealed abstract class ParamExpr extends DeclExpr {
-  val id: DefInfo
-  val params: Option[List[VarExpr]]
-  val constraints: List[Expr]
-}
-final case class DefExpr(
-    id: DefInfo,
-    params: Option[List[VarExpr]],
-    constraints: List[Expr],
-    ret_ty: Option[Type],
-    body: Option[Item],
-) extends ParamExpr {
-  override def toString: String = s"fn(${id.defName(false)})"
-}
-final case class ClassExpr(
-    id: DefInfo,
-    params: Option[List[VarExpr]],
-    constraints: List[Expr],
-    fields: FieldMap,
-) extends ParamExpr {}
-final case class ImplExpr(
-    id: DefInfo,
-    params: Option[List[VarExpr]],
-    constraints: List[Expr],
-    iface: Option[Type],
-    cls: Type,
-    fields: FieldMap,
-) extends ParamExpr {}
-final case class CaseExpr(cond: Expr, body: Option[Expr]) extends Expr {}
-final case class CaseRegion(cases: List[CaseExpr]) extends Expr {}
-final case class MatchExpr(lhs: Expr, body: CaseRegion) extends Expr {}
+// endregion: Exprs
+
+import typed.*;
 
 /// Types
 
@@ -324,7 +432,7 @@ final case class Ref(
     override val level: Int,
     val value: Option[Item] = None,
 ) extends DeclItem {
-  override def toString: String = s"ref(${id.defName(false)})"
+  override def toString: String = s"${id.defName(false)}@${id.id.id}"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclItem {
@@ -472,9 +580,6 @@ final case class Str(value: String) extends Value {
 final case class Bytes(value: Array[Byte]) extends Value {}
 final case class Rune(value: Int) extends Value {}
 final case class DictLit(value: Map[String, Item]) extends Value {}
-final case class TupleLit(elems: Array[Item]) extends Value {
-  override def toString: String = elems.mkString("tup(", ", ", ")")
-}
 
 sealed abstract class VField {
   val item: DeclLike
@@ -482,8 +587,8 @@ sealed abstract class VField {
 
   def pretty(implicit rec: Item => String = _.toString): String = ???
 }
-final case class EDefField(item: DefExpr) extends VField
-final case class EEnumField(item: ClassExpr, index: Int) extends VField
+final case class EDefField(item: untyp.DefExpr) extends VField
+final case class EEnumField(item: untyp.ClassExpr, index: Int) extends VField
 final case class VarField(item: Var, index: Int) extends VField
 final case class DefField(item: Fn) extends VField
 final case class EnumField(item: Class) extends VField

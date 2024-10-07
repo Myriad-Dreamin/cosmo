@@ -10,14 +10,14 @@
 } else BottomKind(0), err: "must add a branch to close value match when matching Str(yes)"
 [v1 match {
   case "yes" => 3
-}] => valueMatch (val v1@49: str = "yes" by str) {
+}] => valueMatch (v1@49 by str) {
  case "yes" => 3
-} else BottomKind(0), err: "must add a branch to close value match when matching ref(v1)"
+} else BottomKind(0), err: "must add a branch to close value match when matching v1@49"
 [v1 match {
   case "no" => 4
-}] => valueMatch (val v1@49: str = "yes" by str) {
+}] => valueMatch (v1@49 by str) {
  case "no" => 4
-} else BottomKind(0), err: "must add a branch to close value match when matching ref(v1)"
+} else BottomKind(0), err: "must add a branch to close value match when matching v1@49"
 ["yes" match {
   case "yes" => 5
   case "no" => 6
@@ -35,14 +35,14 @@
 [v1 match {
   case "yes" => 5
   case "no" => 6
-}] => valueMatch (val v1@49: str = "yes" by str) {
+}] => valueMatch (v1@49 by str) {
  case "yes" => 5
  case "no" => 6
-} else BottomKind(0), err: "must add a branch to close value match when matching ref(v1)"
+} else BottomKind(0), err: "must add a branch to close value match when matching v1@49"
 [v1 match {
   case "yes" => 7
   case "no" => 8
-}] => valueMatch (val v1@49: str = "yes" by str) {
+}] => valueMatch (v1@49 by str) {
  case "yes" => 7
  case "no" => 8
-} else BottomKind(0), err: "must add a branch to close value match when matching ref(v1)"
+} else BottomKind(0), err: "must add a branch to close value match when matching v1@49"

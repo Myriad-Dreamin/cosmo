@@ -4,5 +4,5 @@
  ClassDestruct(ins (class(T))(Int64(1), Int64(2)),class(T),List((var x_58:58 = NoneKind(0)), (var y_59:59 = NoneKind(0))))
  var x@54: i64 = var x_58@58: i64 = _
  var y@55: i64 = var y_59@59: i64 = _
- BinInst(Int(i64,Add),ref(x),ref(y))
+ BinInst(Int(i64,Add),x@54,y@55)
 }, err: ""

@@ -1,68 +1,53 @@
 [ValueT(i32).Null match {
   case ValueT(i32).Null => 1
-}] => typeMatch (instance class Null@52() = block {
+}] => typeMatch (instance class ValueT::Null@52() = block {
  
-}() by class ValueT@49(T@50: TopKind(2)) = block {
- class Null@52() = block {
+}() by class ValueT@49(T@50: Type@24) = block {
+ class ValueT::Null@52() = block {
   
  }
- class Elem@53() = block {
-  var _0@54: val T@50: TopKind(2) = _ = _
+ class ValueT::Elem@53() = block {
+  var _0@54: T@50 = _
  }
 }) {
- case class Null@52() = block {
+ case class ValueT::Null@52() = block {
   
  } => block {
   ClassDestruct(ins (class(ValueT::Null))(),class(ValueT::Null),List((var i32_67:67 = NoneKind(0))))
   1
  }
-} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching ins (class(ValueT::Null))() on class(ValueT<ref(i32)>)"
+} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching ins (class(ValueT::Null))() on class(ValueT<i32@41>)"
 [v1 match {
   case ValueT(i32).Null => 1
-}] => typeMatch (val v1@56: class Null@52() = block {
- 
-} = instance class Null@52() = block {
- 
-}() by class ValueT@49(T@50: TopKind(2)) = block {
- class Null@52() = block {
+}] => typeMatch (v1@56 by class ValueT@49(T@50: Type@24) = block {
+ class ValueT::Null@52() = block {
   
  }
- class Elem@53() = block {
-  var _0@54: val T@50: TopKind(2) = _ = _
+ class ValueT::Elem@53() = block {
+  var _0@54: T@50 = _
  }
 }) {
- case class Null@52() = block {
+ case class ValueT::Null@52() = block {
   
  } => block {
-  ClassDestruct(ref(v1),class(ValueT::Null),List((var i32_71:71 = NoneKind(0))))
+  ClassDestruct(v1@56,class(ValueT::Null),List((var i32_71:71 = NoneKind(0))))
   1
  }
-} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching ref(v1) on class(ValueT<ref(i32)>)"
+} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching v1@56 on class(ValueT<i32@41>)"
 [v2 match {
   case ValueT(i32).Null => 1
-}] => typeMatch (val v2@59: class ValueT@49(T@50: TopKind(2)) = block {
- class Null@52() = block {
+}] => typeMatch (v2@59 by class ValueT@49(T@50: Type@24) = block {
+ class ValueT::Null@52() = block {
   
  }
- class Elem@53() = block {
-  var _0@54: val T@50: TopKind(2) = _ = _
- }
-} = val v1@56: class Null@52() = block {
- 
-} = instance class Null@52() = block {
- 
-}() by class ValueT@49(T@50: TopKind(2)) = block {
- class Null@52() = block {
-  
- }
- class Elem@53() = block {
-  var _0@54: val T@50: TopKind(2) = _ = _
+ class ValueT::Elem@53() = block {
+  var _0@54: T@50 = _
  }
 }) {
- case class Null@52() = block {
+ case class ValueT::Null@52() = block {
   
  } => block {
-  ClassDestruct(ref(v2),class(ValueT::Null),List((var i32_75:75 = NoneKind(0))))
+  ClassDestruct(v2@59,class(ValueT::Null),List((var i32_75:75 = NoneKind(0))))
   1
  }
-} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching ref(v2) on class(ValueT<ref(i32)>)"
+} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching v2@59 on class(ValueT<i32@41>)"

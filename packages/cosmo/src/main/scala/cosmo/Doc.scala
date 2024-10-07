@@ -4,6 +4,8 @@ import scala.annotation.tailrec
 import java.lang.String
 import cosmo.ir.NoneKind
 
+import ir.{untyp, typed}
+
 enum Doc {
   case NewLine
   case Str(v: String)
@@ -46,7 +48,7 @@ object Doc {
           sb.append(smallIndents(indent))
         case Doc.Str(v) =>
           sb.append(v)
-        case Doc.Item(v: ir.Name) if showDef =>
+        case Doc.Item(v: untyp.Name) if showDef =>
           v.of match {
             case Some(v) => sb.append(s"$v")
             case None    => sb.append(s"$v!")
@@ -96,12 +98,12 @@ object Doc {
     def d: Doc = Doc.Str(o)
   }
   implicit class IdOps(val i: ir.Defo) extends AnyVal {
-    def d: Doc = Doc.Str(s"${i.name}@${i.id.id}")
+    def d: Doc = Doc.Str(s"${i.defName(false)}@${i.id.id}")
   }
 
   def paramDecl(
       kind: String,
-      pe: ir.ParamExpr,
+      pe: typed.ParamExpr,
       ret_ty: Option[ir.Type],
       body: => Doc,
   ): Doc = {
@@ -117,66 +119,68 @@ object Doc {
     if f.item.isInstanceOf[ir.DeclItem] then
       val item = f.item.asInstanceOf[ir.DeclItem]
       item.d
-    else f.item.asInstanceOf[ir.DeclExpr].d
+    else f.item.asInstanceOf[typed.DeclExpr].d
   }
   def fieldDecls(fields: ir.FieldMap): Doc = {
     val fs = fields.values.map(fieldDecl)
     Doc.block("block", fs.toSeq.d(NewLine))
   }
   def buildItem(item: ir.Item): Doc = item match {
-    case b: ir.Region => Doc.block("block", b.stmts.d(NewLine))
-    case f: ir.DefExpr =>
+    case b: typed.Region => Doc.block("block", b.stmts.d(NewLine))
+    case f: typed.DefExpr =>
       paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))
-    case c: ir.ClassExpr if !c.id.isTrait =>
+    case c: typed.ClassExpr if !c.id.isTrait =>
       paramDecl("class ", c, None, fieldDecls(c.fields))
-    case c: ir.ClassExpr =>
+    case c: typed.ClassExpr =>
       paramDecl("trait ", c, None, fieldDecls(c.fields))
-    case impl: ir.ImplExpr =>
+    case impl: typed.ImplExpr =>
       // iface, " for ".d
       val iface = impl.iface.d.map(i => Array(i, " for ".d).d).getOrElse(empty)
       val cls = impl.cls.d
       val p = impl.params.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(impl.fields)
       Array("impl".d, Doc.paren(p), " ".d, iface, cls, " = ".d, f).d
-    case i: ir.VarExpr =>
+    case i: typed.VarExpr =>
       val r = i.ty.d.getOrElse("_".d)
       val b = i.init.d.getOrElse("_".d)
       Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
-    case i: ir.Hole =>
+    case i: typed.Hole =>
       Array("hole ".d, i.id.d).d
-    case i: ir.Apply        => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
-    case i: ir.Name         => Doc.item(i)
-    case ir.ItemE(item)     => item.d
-    case ir.TupleLit(items) => Doc.paren(items.d(", ".d))
-    case ir.KeyedArg(k, v) =>
+    case typed.Apply(lhs: ir.Fn, rhs) =>
+      Array(lhs.id.d, Doc.paren(rhs.d(", ".d))).d
+    case i: typed.Apply    => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
+    case i: typed.Name     => Doc.item(i)
+    case typed.ItemE(item) => item.d
+    case typed.KeyedArg(k, v) =>
       Doc.Concat(Array(k.d, v.d), ": ".d)
-    case ir.SelfVal    => Doc.Str("self")
-    case ir.SelfTy     => Doc.Str("Self")
-    case ir.Int64(v)   => Doc.item(v)
-    case ir.Float32(v) => Doc.item(v)
-    case ir.Float64(v) => Doc.item(v)
-    case ir.Bool(v)    => Doc.item(v)
-    case ir.Str(v)     => Doc.item(s"\"${escapeStr(v)}\"")
-    case ir.Rune(v)    => Doc.item(v)
-    case v: ir.Opaque  => Doc.item(v)
-    case ir.Bytes(v)   => Doc.item(bytesRepr(v))
-    case ir.UnOp(op, lhs) =>
+    case typed.TupleLit(items) => Doc.paren(items.d(", ".d))
+    case ir.SelfVal            => Doc.Str("self")
+    case ir.SelfTy             => Doc.Str("Self")
+    case ir.Int64(v)           => Doc.item(v)
+    case ir.Float32(v)         => Doc.item(v)
+    case ir.Float64(v)         => Doc.item(v)
+    case ir.Bool(v)            => Doc.item(v)
+    case ir.Str(v)             => Doc.item(s"\"${escapeStr(v)}\"")
+    case ir.Rune(v)            => Doc.item(v)
+    case ir.Bytes(v)           => Doc.item(bytesRepr(v))
+    case v: typed.Opaque       => Doc.item(v)
+    case typed.UnOp(op, lhs) =>
       Array("\"".d, op.d, "\"".d, Doc.paren(lhs.d)).d
-    case ir.BinOp(op, lhs, rhs) =>
+    case typed.BinOp(op, lhs, rhs) =>
       val args = Doc.paren(Seq(lhs, rhs).d(", ".d))
       Array("\"".d, op.d, "\"".d, args).d
-    case ir.SelectExpr(lhs, rhs) =>
+    case typed.SelectExpr(lhs, rhs) =>
       Array(lhs.d, ".".d, rhs.d).d
-    case ir.For(name, iter, body) =>
+    case typed.For(name, iter, body) =>
       Array("for (".d, name.d, " in ".d, iter.d, ") ".d, body.d).d
-    case ir.While(cond, body) =>
+    case typed.While(cond, body) =>
       Array("while (".d, cond.d, ") ".d, body.d).d
-    case ir.Loop(body) =>
+    case typed.Loop(body) =>
       Array("loop ".d, body.d).d
-    case ir.If(cond, thenp, elsep) =>
+    case typed.If(cond, thenp, elsep) =>
       val el = elsep.d.map { e => Array(" else ".d, e).d }.getOrElse(empty)
       Array("if (".d, cond.d, ") ".d, thenp.d, el).d
-    case ir.MatchExpr(cond, cb) =>
+    case typed.MatchExpr(cond, cb) =>
       val cs = cb.cases.map { c =>
         Array("case (".d, c._1.d, ") => ".d, c._2.d.getOrElse("_".d)).d
       }
@@ -214,10 +218,10 @@ object Doc {
         "}".d,
         o,
       ).d
-    case ir.As(v, ty)  => Array(v.d, " as ".d, ty.d).d
-    case ir.Break()    => Doc.Str("break")
-    case ir.Continue() => Doc.Str("continue")
-    case ir.Return(v)  => Array("return ".d, v.d).d
+    case typed.As(v, ty)  => Array(v.d, " as ".d, ty.d).d
+    case typed.Break()    => Doc.Str("break")
+    case typed.Continue() => Doc.Str("continue")
+    case typed.Return(v)  => Array("return ".d, v.d).d
     case ir.Class(id, params, fields, _, _, _) =>
       val p = params.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(fields)
@@ -237,8 +241,7 @@ object Doc {
     case i: ir.Impl => Array("impl ".d, i.id.d).d
     case ir.Param(of, _) =>
       Array(of.id.d, ": ".d, of.id.ty.d).d
-    case ir.Ref(_, _, Some(v)) => buildItem(v)
-    case ir.Ref(_, _, None)    => Doc.item(item)
+    case i: ir.Ref => Doc.item(i)
     case i: ir.ClassInstance =>
       Array("instance ".d, i.con.d, Doc.paren(i.args.d(", ".d))).d
     case ir.NoneKind(_)                               => Doc.Str("none")
