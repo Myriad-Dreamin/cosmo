@@ -352,7 +352,7 @@ class CodeGen(implicit val env: Env) {
 
   def storeTy(ty: Type): String = env.storeTy(ty)
 
-  def solveDict(items: Map[String, ir.Item]): String = {
+  def solveDict(items: Map[String, ir.Term]): String = {
 
     val (keyTy, valueTy) = items.headOption match {
       case Some((k, v)) => ("::std::string", storeTy(v))
@@ -394,7 +394,7 @@ class CodeGen(implicit val env: Env) {
       case RefItem(lhs, isMut) if isConst(lhs) && isMut => mutExpr(lhs);
       case As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
         val (x, y) = mutExpr(lhs);
-        val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true).e, rhs))(false);
+        val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true), rhs))(false);
         (x + z, w)
       case As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
       case RefItem(lhs, _)              => ("", expr(lhs));
@@ -548,7 +548,7 @@ class CodeGen(implicit val env: Env) {
         val vars = v.con.vars.map { v =>
           {
             val name = v.item.id.name;
-            val value = args.get(Str(name).e).orElse(positions.nextOption)
+            val value = args.get(Str(name)).orElse(positions.nextOption)
             mayClone(
               v,
               value
@@ -658,7 +658,7 @@ class CodeGen(implicit val env: Env) {
     }
   }
 
-  def literalCall(lhs: String, rhs: List[Item], recv: ValRecv): String = {
+  def literalCall(lhs: String, rhs: List[Term], recv: ValRecv): String = {
     val rhsAnyTy = rhs.exists(_.level > 0)
     if (rhsAnyTy) {
       s"$lhs<${rhs.map(storeTy).mkString(", ")}>"
@@ -676,7 +676,7 @@ class CodeGen(implicit val env: Env) {
   }
 
   def dispatchOp(
-      lhs: ir.Item,
+      lhs: ir.Term,
       field: VField,
       inImpl: Boolean = false,
   ): String = {

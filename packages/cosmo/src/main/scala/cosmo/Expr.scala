@@ -220,7 +220,7 @@ trait ExprEnv { self: Env =>
     }
   }
 
-  def importDest(dest: Option[syntax.Node], v: Item): Expr = {
+  def importDest(dest: Option[syntax.Node], v: Term): Expr = {
     val pat = dest match {
       case Some(syntax.Ident("_")) =>
         if (v.isInstanceOf[NativeModule]) {

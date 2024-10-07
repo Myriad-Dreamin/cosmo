@@ -6,7 +6,6 @@ const exprs = readFileSync(
 );
 
 const template = /\/\/ region: Exprs([\s\S]+?)\/\/ endregion: Exprs/g.exec(exprs);
-console.log(template[1]);
 
 const inp = readFileSync(
   "packages/cosmo/src/main/scala/cosmo/Item.scala",
@@ -19,6 +18,7 @@ const out = inp.replace(
 object untyp {
   type T = Expr;
   type E = Expr;
+  final case class ItemE(item: Term) extends Expr {}
   ${template[1]}
 }
 object typed {
