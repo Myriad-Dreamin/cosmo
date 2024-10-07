@@ -14,7 +14,7 @@ class CaseTest extends TestBase:
     for (case Array(x, y) <- cases.split("\n").map(_.split("match"))) {
       val (lhs, rhsCase) =
         env.scopes.withScope((env.valTerm(expr(x)), expr("case " + y)));
-      val rhs = rhsCase.asInstanceOf[ir.CaseExpr].cond;
+      val rhs = rhsCase.asInstanceOf[ir.untyp.CaseExpr].cond;
       env.errors = List();
       val result = env.matchOne(lhs, rhs).toDoc.pretty;
       val errors = env.errors.mkString("\n");

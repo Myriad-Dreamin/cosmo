@@ -3,6 +3,7 @@ package cosmo.artifact
 import scala.compiletime.ops.boolean
 import cosmo._
 import cosmo.ir._
+import cosmo.ir.typed._
 
 class CodeGen(implicit val env: Env) {
   val fns = env.fid.ns.map(_.mkString("::"))
@@ -379,8 +380,8 @@ class CodeGen(implicit val env: Env) {
 
   def blockizeExpr(ast: ir.Item, recv: ValRecv): String = {
     ast match {
-      case s: ir.Region => exprWith(s, recv)
-      case a            => s"{${exprWith(a, recv)};}"
+      case s: Region => exprWith(s, recv)
+      case a         => s"{${exprWith(a, recv)};}"
     }
   }
 
@@ -391,17 +392,17 @@ class CodeGen(implicit val env: Env) {
     debugln(s"moveExpr: $ast")
     ast match {
       case RefItem(lhs, isMut) if isConst(lhs) && isMut => mutExpr(lhs);
-      case ir.As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
+      case As(RefItem(lhs, _), rhs: Impl) if isConst(lhs) =>
         val (x, y) = mutExpr(lhs);
         val (z, w) = moveExpr(As(RefItem(Opaque.expr(y), true).e, rhs))(false);
         (x + z, w)
-      case ir.As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
-      case RefItem(lhs, _)                 => ("", expr(lhs));
-      case ir.As(RefItem(lhs, lMut), RefItem(_, rMut)) =>
+      case As(RefItem(_, _), rhs: Impl) => ("", expr(ast));
+      case RefItem(lhs, _)              => ("", expr(lhs));
+      case As(RefItem(lhs, lMut), RefItem(_, rMut)) =>
         if rMut && !lMut then env.err("cannot cast from const to mutable")
         ("", expr(lhs))
-      case ir.UnOp("*", SelfVal) => ("", expr(SelfVal));
-      case ir.As(lhs, rhs: Impl) => mutExpr(Opaque.expr(expr(ast)))
+      case UnOp("*", SelfVal) => ("", expr(SelfVal));
+      case As(lhs, rhs: Impl) => mutExpr(Opaque.expr(expr(ast)))
       case ast if isConst(ast) || !defaultMove => ("", expr(ast))
       case ast => ("", s"std::move(${expr(ast)})")
     }
@@ -439,7 +440,7 @@ class CodeGen(implicit val env: Env) {
         ))
           .mkString("{", ";\n", ";}")
       }
-      case ir.Return(value) => {
+      case Return(value) => {
         recv match {
           case ValRecv.Return => exprWith(value, ValRecv.Return)
           case recv           => s"return ${exprWith(value, recv)}"
@@ -447,30 +448,30 @@ class CodeGen(implicit val env: Env) {
       }
       case v: Ref => varByRef(v)
       case v: Fn  => v.id.defName()
-      case ir.Loop(body) =>
+      case Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.While(cond, body) =>
+      case While(cond, body) =>
         return s"while(${expr(cond)}) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.For(name: Var, iter, body) =>
+      case For(name: Var, iter, body) =>
         return s"for(auto &&${name.name} : ${expr(iter)}) ${blockizeExpr(body, ValRecv.None)}"
-      case ir.Break()    => return "break"
-      case ir.Continue() => return "continue"
-      case ir.TodoLit    => return "unimplemented();"
-      case ir.If(cond, cont_bb, else_bb) =>
+      case Break()    => return "break"
+      case Continue() => return "continue"
+      case TodoLit    => return "unimplemented();"
+      case If(cond, cont_bb, else_bb) =>
         return s"if(${expr(cond)}) ${blockizeExpr(cont_bb, recv)}${else_bb
             .map(e => s" else ${blockizeExpr(e, recv)}")
             .getOrElse("")}"
-      case ir.BinOp("..", lhs, rhs) => s"Range(${expr(lhs)}, ${expr(rhs)})"
-      case ir.BinOp(op, lhs, rhs)   => s"${expr(lhs)} $op ${expr(rhs)}"
-      case ir.BinInst(BinInstOp.Int(_, op), lhs, rhs) =>
+      case BinOp("..", lhs, rhs) => s"Range(${expr(lhs)}, ${expr(rhs)})"
+      case BinOp(op, lhs, rhs)   => s"${expr(lhs)} $op ${expr(rhs)}"
+      case BinInst(BinInstOp.Int(_, op), lhs, rhs) =>
         s"${expr(lhs)} ${op.repr} ${expr(rhs)}"
       case ir.RefItem(SelfVal, _) if genInImpl => s"self()"
       case ir.RefItem(SelfVal, _)              => s"(*this)"
       case ir.RefItem(lhs, _)                  => s"::cosmo::ref(${expr(lhs)})"
-      case ir.UnOp("*", SelfVal) if genInImpl  => s"self()"
-      case ir.UnOp("*", SelfVal)               => s"(*this)"
-      case ir.UnOp(op, lhs)                    => s"$op ${expr(lhs)}"
-      case ir.As(lhs, rhs: Impl) =>
+      case UnOp("*", SelfVal) if genInImpl     => s"self()"
+      case UnOp("*", SelfVal)                  => s"(*this)"
+      case UnOp(op, lhs)                       => s"$op ${expr(lhs)}"
+      case As(lhs, rhs: Impl) =>
         val iface = storeTy(rhs.iface)
         val cls = storeTy(rhs.cls)
         val lhsIsMut = lhs match {
@@ -482,7 +483,7 @@ class CodeGen(implicit val env: Env) {
           List(lhs),
           recv,
         )
-      case ir.Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
+      case Apply(BoundField(lhs, impl: Impl, true, field), rhs) =>
         val iface = storeTy(impl.iface)
         val cls = storeTy(impl.cls)
         val lhsIsMut = lhs match {
@@ -493,19 +494,19 @@ class CodeGen(implicit val env: Env) {
         val castedOp =
           if lhsIsType(lhs) then s"$casted::" else s"$casted(${expr(lhs)})."
         return literalCall(s"$castedOp${field.item.id.name}", rhs, recv)
-      case ir.Apply(BoundField(lhs, _: Class, true, field), rhs) =>
+      case Apply(BoundField(lhs, _: Class, true, field), rhs) =>
         return literalCall(
           s"${dispatchOp(lhs, field, true)}${field.item.id.name}",
           rhs,
           recv,
         )
-      case ir.Apply(BoundField(lhs, by, false, field), rhs) =>
+      case Apply(BoundField(lhs, by, false, field), rhs) =>
         return literalCall(
           s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}",
           rhs,
           recv,
         )
-      case ir.Apply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
+      case Apply(lhs, rhs) => return literalCall(expr(lhs), rhs, recv)
       case BoundField(lhs, by, false, field) =>
         s"${dispatchOp(lhs, field, genInImpl)}${field.item.id.name}"
       case ir.Select(SelfVal, rhs) => rhs
@@ -525,7 +526,7 @@ class CodeGen(implicit val env: Env) {
       case Rune(s) if s < 0x80 && !s.toChar.isControl =>
         s"Rune('${s.toChar}')"
       case Rune(s) => s"Rune($s)"
-      case ir.TupleLit(items) =>
+      case typed.TupleLit(items) =>
         s"std::tuple{${items.map(expr).mkString(", ")}}"
       case ir.DictLit(items) =>
         s"${solveDict(items)}{${items

@@ -4,9 +4,12 @@ import scala.collection.mutable.{ListBuffer, LinkedHashMap as MutMap};
 import scala.annotation.tailrec
 
 import ir._
+import ir.untyp.*
 import syntax as s
 import syntax.{Ident, No}
 import scala.collection.mutable.ArrayBuffer
+
+private type Ni = Option[Expr];
 
 type SParam = s.Param;
 type SParams = List[SParam];
@@ -39,7 +42,7 @@ trait ExprEnv { self: Env =>
         case s.Param(Ident("-"), Some(ty @ s.BinOp(op, x: Ident, y)), _, _) =>
           op match {
             case "<:" | ":" | ">:" if !vars.contains(x.name) =>
-              vars.addOne($var(ct(x), Some(UniverseTy), None, false, true))
+              vars.addOne($var(ct(x), Some(UniverseTy.e), None, false, true))
             case _ =>
           }
           constraints.addOne(expr(ty))
@@ -133,7 +136,7 @@ trait ExprEnv { self: Env =>
     for (v <- values) {
       arr = arr :+ expr(v)
     }
-    return TupleLit(arr.toArray).e
+    return TupleLit(arr.toArray)
   }
 
   def keyExpr(n: s.Node): Expr = n match {

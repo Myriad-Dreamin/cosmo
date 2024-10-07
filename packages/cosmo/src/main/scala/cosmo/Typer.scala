@@ -4,6 +4,7 @@ import scala.annotation.tailrec
 import scala.collection.immutable.LongMap
 
 import ir._
+import ir.typed.*
 import syntax as s
 
 trait TypeEnv { self: Env =>
@@ -116,11 +117,8 @@ trait TypeEnv { self: Env =>
   def curryExpr(v: Expr): PatShape = {
     debugln(s"curryExpr $v")
     v match {
-      case Apply(lhs, rhs) =>
-        val lhsTy = lhs match {
-          case e: Expr => canonicalTy(valTerm(e))
-          case e       => canonicalTy(e)
-        }
+      case untyp.Apply(lhs, rhs) =>
+        val lhsTy = canonicalTy(valTerm(lhs))
 
         debugln(s"curryApplyE $lhs by $rhs")
 
@@ -134,8 +132,8 @@ trait TypeEnv { self: Env =>
           case _ =>
             curryTermView(valTerm(v))
         }
-      case Hole(id) => PatShape.Hole(id)
-      case v        => curryTermView(valTerm(v))
+      case untyp.Hole(id) => PatShape.Hole(id)
+      case v              => curryTermView(valTerm(v))
     }
   }
 
@@ -187,13 +185,17 @@ trait TypeEnv { self: Env =>
   ): List[T] = {
 
     val named = eArgs.flatMap {
+      // todo: a bit dirty
+      case untyp.KeyedArg(untyp.ItemE(Str(s)), value) =>
+        Some((s, valTerm(value)))
       case KeyedArg(ItemE(Str(s)), value) => Some((s, value))
       case KeyedArg(Str(s), value)        => Some((s, value))
       case v                              => None
     }.toMap
     var positions = eArgs.flatMap {
-      case v: KeyedArg => None
-      case v           => Some(v)
+      case v: KeyedArg       => None
+      case v: untyp.KeyedArg => None
+      case v                 => Some(v)
     }.iterator
     val allowNamedAsPositional = named.isEmpty
 
