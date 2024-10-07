@@ -96,7 +96,7 @@ object Doc {
     def d: Doc = Doc.Str(o)
   }
   implicit class IdOps(val i: ir.Defo) extends AnyVal {
-    def d: Doc = Doc.Str(s"${i.name}@${i.id.id}")
+    def d: Doc = Doc.Str(s"${i.defName(false)}@${i.id.id}")
   }
 
   def paramDecl(
@@ -144,6 +144,8 @@ object Doc {
       Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
     case i: ir.Hole =>
       Array("hole ".d, i.id.d).d
+    case ir.Apply(lhs: ir.Fn, rhs) =>
+      Array(lhs.id.d, Doc.paren(rhs.d(", ".d))).d
     case i: ir.Apply        => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
     case i: ir.Name         => Doc.item(i)
     case ir.ItemE(item)     => item.d
@@ -237,8 +239,7 @@ object Doc {
     case i: ir.Impl => Array("impl ".d, i.id.d).d
     case ir.Param(of, _) =>
       Array(of.id.d, ": ".d, of.id.ty.d).d
-    case ir.Ref(_, _, Some(v)) => buildItem(v)
-    case ir.Ref(_, _, None)    => Doc.item(item)
+    case i: ir.Ref => Doc.item(i)
     case i: ir.ClassInstance =>
       Array("instance ".d, i.con.d, Doc.paren(i.args.d(", ".d))).d
     case ir.NoneKind(_)                               => Doc.Str("none")

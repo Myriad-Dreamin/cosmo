@@ -1,69 +1,44 @@
 [v0 match {
   case Result(i32, i32).Ok(t) => t
-}] => typeMatch (val v0@60: class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
- class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
+}] => typeMatch (v0@60 by class Result@49(T@50: Type@24, E@52: Type@24) = block {
+ class Result::Ok@54() = block {
+  var _0@55: T@50 = _
  }
- class Err@57() = block {
-  var _0@58: val E@52: TopKind(2) = _ = _
- }
-} = instance class Ok@54() = block {
- var _0@55: val T@50: TopKind(2) = _ = _
-}(1) by class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
- class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
- }
- class Err@57() = block {
-  var _0@58: val E@52: TopKind(2) = _ = _
+ class Result::Err@57() = block {
+  var _0@58: E@52 = _
  }
 }) {
- case class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
+ case class Result::Ok@54() = block {
+  var _0@55: T@50 = _
  } => block {
-  ClassDestruct(ref(v0),class(Result::Ok),List((var i32_75:75 = NoneKind(0)), (var i32_76:76 = NoneKind(0)), (var _0_77:77 = NoneKind(0))))
-  var t@73: val T@50: TopKind(2) = _ = var _0_77@77: val T@50: TopKind(2) = _ = _
-  var t@73: val T@50: TopKind(2) = _ = _
+  ClassDestruct(v0@60,class(Result::Ok),List((var i32_75:75 = NoneKind(0)), (var i32_76:76 = NoneKind(0)), (var _0_77:77 = NoneKind(0))))
+  var t@73: T@50 = var _0_77@77: T@50 = _
+  t@73
  }
-} else BottomKind(0), err: "missing case EnumField(class(Result::Err)) when matching ref(v0) on class(Result<ref(i32), ref(i32)>)"
+} else BottomKind(0), err: "missing case EnumField(class(Result::Err)) when matching v0@60 on class(Result<i32@41, i32@41>)"
 [v1 match {
   case Result(i32, i32).Ok(t) => t
   case Result(i32, i32).Err(e) => ???
-}] => typeMatch (val v1@67: class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
- class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
+}] => typeMatch (v1@67 by class Result@49(T@50: Type@24, E@52: Type@24) = block {
+ class Result::Ok@54() = block {
+  var _0@55: T@50 = _
  }
- class Err@57() = block {
-  var _0@58: val E@52: TopKind(2) = _ = _
- }
-} = val v0@60: class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
- class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
- }
- class Err@57() = block {
-  var _0@58: val E@52: TopKind(2) = _ = _
- }
-} = instance class Ok@54() = block {
- var _0@55: val T@50: TopKind(2) = _ = _
-}(1) by class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
- class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
- }
- class Err@57() = block {
-  var _0@58: val E@52: TopKind(2) = _ = _
+ class Result::Err@57() = block {
+  var _0@58: E@52 = _
  }
 }) {
- case class Ok@54() = block {
-  var _0@55: val T@50: TopKind(2) = _ = _
+ case class Result::Ok@54() = block {
+  var _0@55: T@50 = _
  } => block {
-  ClassDestruct(ref(v1),class(Result::Ok),List((var i32_88:88 = NoneKind(0)), (var i32_89:89 = NoneKind(0)), (var _0_90:90 = NoneKind(0))))
-  var t@82: val T@50: TopKind(2) = _ = var _0_90@90: val T@50: TopKind(2) = _ = _
-  var t@82: val T@50: TopKind(2) = _ = _
+  ClassDestruct(v1@67,class(Result::Ok),List((var i32_88:88 = NoneKind(0)), (var i32_89:89 = NoneKind(0)), (var _0_90:90 = NoneKind(0))))
+  var t@82: T@50 = var _0_90@90: T@50 = _
+  t@82
  }
- case class Err@57() = block {
-  var _0@58: val E@52: TopKind(2) = _ = _
+ case class Result::Err@57() = block {
+  var _0@58: E@52 = _
  } => block {
-  ClassDestruct(ref(v1),class(Result::Err),List((var i32_91:91 = NoneKind(0)), (var i32_92:92 = NoneKind(0)), (var _0_93:93 = NoneKind(0))))
-  var e@87: val E@52: TopKind(2) = _ = var _0_93@93: val E@52: TopKind(2) = _ = _
+  ClassDestruct(v1@67,class(Result::Err),List((var i32_91:91 = NoneKind(0)), (var i32_92:92 = NoneKind(0)), (var _0_93:93 = NoneKind(0))))
+  var e@87: E@52 = var _0_93@93: E@52 = _
   TodoLit
  }
 } else BottomKind(0), err: ""

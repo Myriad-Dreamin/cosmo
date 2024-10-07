@@ -324,7 +324,7 @@ final case class Ref(
     override val level: Int,
     val value: Option[Item] = None,
 ) extends DeclItem {
-  override def toString: String = s"ref(${id.defName(false)})"
+  override def toString: String = s"${id.defName(false)}@${id.id.id}"
 }
 final case class CModule(id: DefInfo, kind: CModuleKind, path: String)
     extends DeclItem {
