@@ -225,7 +225,7 @@ trait ExprEnv { self: Env =>
           val env = v.asInstanceOf[NativeModule].env
           val exts = env.scopes.scopes.head
           for ((name, info) <- exts.filter(!_._2.isBuiltin)) {
-            items += (ct(name).id -> env.byRef(info))
+            items += (ct(name).id -> env.byRef(info)(TopTy))
           }
         }
 
@@ -344,7 +344,7 @@ trait ExprEnv { self: Env =>
     logln(s"findItem: $offset $node")
     val id = node.flatMap(n => defs.find(_.pos.contains((n.offset, n.end))))
     logln(s"findItem ID: $offset $id")
-    id.map(byRef)
+    id.map(it => byRef(it)(TopTy))
 
   lazy val deps: List[(FileId, Option[Env])] = {
     rawDeps.iterator.toList.sortBy(_._1.toString)

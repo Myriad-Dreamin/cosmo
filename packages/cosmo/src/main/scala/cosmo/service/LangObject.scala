@@ -7,7 +7,6 @@ class LangObject(val item: Term | Expr) {
     case i: Class        => Some(i.id)
     case i: Impl         => Some(i.id)
     case i: Ref          => Some(i.id)
-    case i: Fn           => Some(i.id)
     case i: CModule      => Some(i.id)
     case i: NativeModule => Some(i.id)
     case i: Param        => Some(i.id)

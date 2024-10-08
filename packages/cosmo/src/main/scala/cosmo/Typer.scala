@@ -390,15 +390,16 @@ trait TypeEnv { self: Env =>
     }
   }
   def hktRef(
-      f: Option[Fn],
+      f: Option[DefExpr],
       args: List[Term],
       value: Term,
-  ): Term = {
+  )(implicit anno: Term): Term = {
     if f.isEmpty then return value
     def ins(ty: Type) = HKTInstance(ty, Apply(f.get, args))
     value match {
       case _: (CIdent | CppInsType | ClassInstance) => value
       case i: Class                                 => ins(i)
+      case v if anno == UniverseTy                  => v
       case _ =>
         throw new Exception(
           s"cannot ref dependent type $value ${value.getClass().getName()}",
@@ -667,7 +668,7 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def lift(item: Term): Type = {
+  def lift(item: Term)(implicit anno: Term): Type = {
     debugln(s"lift $item")
     item match {
       case item: CIdent => CIdent(item.name, item.ns, UniverseTy)

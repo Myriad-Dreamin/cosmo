@@ -11,6 +11,7 @@ import system.CosmoSystem
 import scala.collection.mutable.ArrayBuffer
 
 final class DefId(val id: Int) extends AnyVal {}
+final class ExprId(val id: Int) extends AnyVal {}
 
 case class FileId(val pkg: Package, val path: String) {
   lazy val ns = calcNs
@@ -171,9 +172,12 @@ object DefInfo {
   def just(id: Int, env: Env) = new DefInfo("", List(), DefId(id), env)
 }
 
-class ExprInfo(var id: DefId) {}
+class ExprInfo(var id: ExprId) {
+  var sol: Term = ExprTy
+  var jit: (v: Env) => Term = uninitialized
+}
 object ExprInfo {
-  def empty = new ExprInfo(DefId(0))
+  def empty = new ExprInfo(ExprId(0))
 }
 
 class Package(metaSource: PackageMetaSource, system: CosmoSystem) {

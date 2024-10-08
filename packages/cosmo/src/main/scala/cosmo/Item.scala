@@ -10,6 +10,8 @@ import cosmo.ir.Value
 import cosmo.{DefId, DefInfo, Doc, Env}
 import cosmo.syntax.Ident
 import cosmo.service.LangObject
+import cosmo.{debugln, logln}
+import cosmo.ir.typed.Region
 
 val DEF_ALLOC_START = 16
 val CLASS_EMPTY = 0
@@ -50,9 +52,15 @@ sealed trait FuncLike(
     val synParams: Option[List[VarExpr]],
     val constraints: List[Expr],
 ) extends DeclTerm {
-  var rawParams: Option[List[Param]] = None
+  var rawParams: Option[List[Param]] = uninitialized
   lazy val params: Array[Param] = rawParams.map(_.toArray).getOrElse(Array())
   lazy val callByName: Boolean = rawParams.isEmpty;
+  def selfParam: Option[Param] = params.find(_.id.name == "self")
+  def selfIsMut: Option[Boolean] = selfParam.map(_.id.ty).map {
+    case RefItem(lhs, isMut) => isMut
+    case _                   => false
+  }
+  def doCheckParams(p: Option[List[Param]]) = rawParams = p
 }
 
 sealed abstract trait CallableTerm(raw: Option[List[Param]]) {}
@@ -68,13 +76,19 @@ sealed abstract class Expr extends ItemExt {
   def toDoc: Doc = Doc.buildItem(this)
 }
 sealed abstract class Term extends ItemExt {
+  def sol: Term = this
   def ty: Type
   @tailrec
-  final def isTypeLevel: Boolean = ty match {
-    case UniverseTy => true
-    case f: Fn      => f.ret_ty.isTypeLevel
-    case _          => false
-  }
+  final def isTypeLevel: Boolean =
+    debugln(s"isTypeLevel $this")
+    this match {
+      case ExprTy     => false
+      case UniverseTy => true
+      // todo: process is type var
+      case v: VarExpr => v.id.isTypeVar || v.ty.isTypeLevel
+      case f: DefExpr => f.retTy == UniverseTy
+      case _          => ty == UniverseTy
+    }
   def isValLevel: Boolean = !isTypeLevel
 
   val isBuilitin: Boolean = false
@@ -82,9 +96,18 @@ sealed abstract class Term extends ItemExt {
   def e: Expr = untyp.ItemE(this)
   def langObj: LangObject = LangObject(this)
   def toDoc: Doc = Doc.buildItem(this)
+  def eval(env: Env): Term = this
 }
 sealed abstract class ExprTerm extends Term {
-  override def ty: Type = ???
+  var info: ExprInfo = uninitialized
+  override lazy val ty: Type = info.sol match {
+    case Region(stmts, true)                   => UnitTy
+    case Region(stmts, false) if stmts.isEmpty => UnitTy
+    case Region(stmts, false)                  => stmts.last.ty
+    case v: ExprTerm                           => TopTy
+    case v                                     => v
+  }
+  override def eval(env: Env): Term = env.compile(info)(env)
 }
 
 sealed case class DeclExpr(term: DeclTerm) extends Expr {}
@@ -110,7 +133,7 @@ final case class Hole(id: DefInfo) extends DeclTerm {
   override def toString: String = s"hole(${id.defName(false)})"
   override def checkDecl: ThisTerm = id.env.valTerm(this).asInstanceOf[ThisTerm]
 }
-final case class VarExpr(id: DefInfo, annoTy: Option[Expr], init: Option[Expr])
+final case class VarExpr(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
     extends DeclTerm {
   type ThisTerm <: VarExpr
   // override def toString: String =
@@ -119,10 +142,15 @@ final case class VarExpr(id: DefInfo, annoTy: Option[Expr], init: Option[Expr])
   override def toString: String = s"var(${id.defName(false)})"
   override def checkDecl: ThisTerm =
     id.env.checkVar(this).asInstanceOf[ThisTerm]
-  def doCheck(ty: Type, init: Option[Term]) =
+  var init: Option[Term] = uninitialized
+  def doCheck(ty: Type, i: Option[Term]) =
     id.ty = ty
-    if isTypeLevel then id.env.items += id.id -> init.getOrElse(this)
-    else id.env.items += id.id -> this
+    init = i
+    i.foreach { i =>
+      if isTypeLevel then id.env.items += id.id -> i
+    }
+    // if isTypeLevel then id.env.items += id.id -> i.getOrElse(this)
+    // else id.env.items += id.id -> this
     checkCache = this.asInstanceOf[ThisTerm]
 }
 object VarExpr {
@@ -134,16 +162,24 @@ object VarExpr {
 
 final case class DefExpr(
     id: DefInfo,
-    ret_ty: Option[Expr],
-    body: Option[Expr],
+    retTyExp: Option[Expr],
+    bodyExp: Option[Expr],
 )(
     params: Option[List[VarExpr]],
     constraints: List[Expr],
 ) extends FuncLike(params, constraints) {
-  type ThisTerm <: Fn
+  type ThisTerm <: DefExpr
+  var retTy: Type = uninitialized
+  var body: Option[Term] = uninitialized
 
   override def toString: String = s"fn(${id.defName(false)})"
   def checkDecl = id.env.checkDef(this).asInstanceOf[ThisTerm]
+  def doCheckRetTy(ty: Type) =
+    retTy = ty
+  def doCheckBody(ty: Type, b: Option[Term]) =
+    retTy = ty
+    body = b
+    checkCache = this.asInstanceOf[ThisTerm]
 }
 final case class ClassExpr(
     id: DefInfo,
@@ -320,26 +356,28 @@ import typed.*;
 
 type Type = Term
 
+sealed abstract class SimpleType extends Type {}
+
 val Unreachable = BottomKind(0)
 val NoneItem = NoneKind(0)
 
-case class TopKind(val level: Int) extends Term {
+case class TopKind(val level: Int) extends SimpleType {
   override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
-case class BottomKind(val level: Int) extends Term {
+case class BottomKind(val level: Int) extends SimpleType {
   override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
-case class SelfKind(val level: Int) extends Term {
+case class SelfKind(val level: Int) extends SimpleType {
   override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
-case class NoneKind(val level: Int) extends Term {
+case class NoneKind(val level: Int) extends SimpleType {
   override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
-final case class Unresolved(id: DefInfo) extends Term {
+final case class Unresolved(id: DefInfo) extends SimpleType {
   override def ty = id.ty
 }
 
@@ -350,28 +388,34 @@ val SelfTy = SelfKind(1)
 val SelfVal = SelfKind(0)
 val UniverseTy = TopKind(2)
 val NoneTy = TopKind(1)
-case object CEnumTy extends Type {
+/// Expr type is not a type
+case object ExprTy extends SimpleType {
+  override def ty = ???
+  override val isBuilitin: Boolean = true;
+}
+case object CEnumTy extends SimpleType {
   override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
 }
-case object BoolTy extends Type {
+case object BoolTy extends SimpleType {
   override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
 }
-case object StrTy extends Type {
+case object StrTy extends SimpleType {
   override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
   override def toString: String = "str"
 }
-case object UnitTy extends Type {
+case object UnitTy extends SimpleType {
   override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
 }
-final case class RefTy(val isRef: Boolean, val isMut: Boolean) extends Type {
+final case class RefTy(val isRef: Boolean, val isMut: Boolean)
+    extends SimpleType {
   override def ty = UniverseTy
 }
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)
-    extends Type {
+    extends SimpleType {
   override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
   override def toString: String = s"${if (isUnsigned) "u" else "i"}$width"
@@ -383,7 +427,7 @@ object IntegerTy {
     Some(new IntegerTy(width, unsigned))
   }
 }
-final case class FloatTy(val width: Int) extends Type {
+final case class FloatTy(val width: Int) extends SimpleType {
   override def ty = UniverseTy
   override def toString: String = s"f$width"
   override val isBuilitin: Boolean = true
@@ -439,24 +483,6 @@ final case class Param(of: VarExpr, named: Boolean) extends DeclItem {
     s"${id.defName(false)}: ${rec(id.ty)}"
 
   override def toString: String = s"param(${id.defName(false)})"
-}
-final case class Fn(
-    id: DefInfo,
-    rawParams: Option[List[Param]],
-    ret_ty: Type,
-    body: Option[Term],
-) extends DeclItem
-    with CallableTerm(rawParams) {
-  lazy val params: Array[Param] = rawParams.map(_.toArray).getOrElse(Array())
-  lazy val callByName: Boolean = rawParams.isEmpty;
-  def selfParam: Option[Param] = params.find(_.id.name == "self")
-  def selfIsMut: Option[Boolean] = selfParam.map(_.id.ty).map {
-    case RefItem(lhs, isMut) => isMut
-    case _                   => false
-  }
-  override def toString: String = s"fn(${id.defName(false)})"
-
-  def pretty(implicit rec: Term | Expr => String = _.toString): String = ???
 }
 
 final case class Ref(
@@ -553,7 +579,7 @@ final case class HKTInstance(ty: Type, syntax: Term) extends Term {
   // override def ty = UniverseTy
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
   def repr(rec: Type => String): String = syntax match {
-    case t: (Ref | Fn) => rec(t)
+    case t: (Ref | DefExpr) => rec(t)
     case Apply(lhs, rhs) =>
       s"${rec(HKTInstance(ty, lhs))}<${rhs.map(rec).mkString(", ")}>::type"
     case Select(lhs, rhs) => s"${rec(HKTInstance(ty, lhs))}::$rhs"
@@ -623,5 +649,5 @@ sealed abstract class VField {
 final case class EDefField(item: DefExpr) extends VField
 final case class EEnumField(item: ClassExpr, index: Int) extends VField
 final case class VarField(item: VarExpr, index: Int) extends VField
-final case class DefField(item: Fn) extends VField
+final case class DefField(item: DefExpr) extends VField
 final case class EnumField(item: Class) extends VField

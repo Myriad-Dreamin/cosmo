@@ -44,7 +44,7 @@ class CodeGen(implicit val env: Env) {
   def mayGenDef(ast: ir.Term): Option[String] = {
     val info = ast match {
       case ir.VarExpr(info, _, _) => Some(info)
-      case ir.Fn(info, _, _, _)   => Some(info)
+      case ir.DefExpr(info, _, _) => Some(info)
       case ir.Class(info, _, _, _, _, _) =>
         Some(info)
       case ir.Impl(info, _, _) => Some(info)
@@ -55,18 +55,22 @@ class CodeGen(implicit val env: Env) {
     val nse = if inClass then "" else nse_
     val res: String = ast match {
       case ir.NoneItem => ""
-      case f @ Fn(info, params, retTy, body)
-          if f.isTypeLevel && !info.isDependent =>
+      case f @ DefExpr(info, _, _) if f.isTypeLevel && !info.isDependent =>
+        import f.{rawParams as params, retTy, body}
         s"/** optimized cosmo type function ${info.defName()} */"
-      case f @ Fn(defInfo, params, retTy, body) if f.isTypeLevel =>
+      case f @ DefExpr(defInfo, _, _) if f.isTypeLevel =>
+        import f.{rawParams as params, retTy, body}
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
         val bodyCode = s" using type =${storeTy(body.get)};"
         s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
-      case Fn(defInfo, None, ret_ty, body) =>
+      case f @ DefExpr(defInfo, _, _) if f.rawParams.isEmpty =>
+        import f.{params, retTy, body}
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(defInfo, Some(params), ret_ty, body) =>
+      case f @ DefExpr(defInfo, _, _) if f.rawParams.isDefined =>
+        import f.{rawParams, retTy, body}
+        val params = rawParams.get
         val name = defInfo.defName(stem = true)
         val hasSelf = params.exists(_.id.name == "self")
         val selfIsConst = defInfo.inClass && hasSelf && {
@@ -97,10 +101,10 @@ class CodeGen(implicit val env: Env) {
         if (name == "main") s"int main(int argc, char **argv) $bodyCode"
         else
           // val needDynAssertMut = !selfIsConst && defInfo.isOverride
-          val rt = returnTy(ret_ty)
+          val rt = returnTy(retTy)
           // val ret =
           //   if needDynAssertMut then s"std::enable_if_t<isMut, $rt>" else rt
-          debugln(s"$ret_ty => $rt")
+          debugln(s"$retTy => $rt")
           val isStatic = defInfo.inClass && !hasSelf
           val staticModifier = if (isStatic) " static" else ""
           val constModifier = if selfIsConst then " const" else ""
@@ -108,8 +112,8 @@ class CodeGen(implicit val env: Env) {
           val overrideModifier = if defInfo.isOverride then " override" else ""
           val inlineModifier = if !defInfo.inClass then " inline" else ""
           s"$nsb${templateCode}$inlineModifier$staticModifier$virtualModifier $rt $name($paramCode)$constModifier$overrideModifier $bodyCode$nse"
-      // case ir.TypeAlias(ret_ty) =>
-      //   s"using $name = ${returnTy(ret_ty)};"
+      // case ir.TypeAlias(retTy) =>
+      //   s"using $name = ${returnTy(retTy)};"
       case ir.NativeModule(info, env) =>
         val name = info.defName(stem = true)
         // fid.path (.cos -> .h)
@@ -144,7 +148,7 @@ class CodeGen(implicit val env: Env) {
         val defs = cls.defs
         val name = defInfo.defName(stem = true)
         val templateCode = typeParams(params).getOrElse("")
-        val emptyConstructable = vars.forall(!_.item.init.isEmpty)
+        val emptyConstructable = vars.forall(!_.item.initE.isEmpty)
         val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
         val defsCode =
           defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
@@ -303,7 +307,7 @@ class CodeGen(implicit val env: Env) {
 
   def genVarStore(node: ir.VarExpr): String = {
     val ir.VarExpr(info, i, _) = node // todo: init
-    val init = i.asInstanceOf[Option[ir.Term]]
+    val init = node.init
     if (info.isTypeVar) {
       return init match {
         case Some(m: (CModule | NativeModule)) => genDef(m)
@@ -450,8 +454,8 @@ class CodeGen(implicit val env: Env) {
           case recv           => s"return ${exprWith(value, recv)}"
         }
       }
-      case v: Ref => varByRef(v)
-      case v: Fn  => v.id.defName()
+      case v: Ref     => varByRef(v)
+      case v: DefExpr => v.id.defName()
       case Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case While(cond, body) =>
@@ -694,7 +698,7 @@ class CodeGen(implicit val env: Env) {
       case SelfVal if inImpl => "self()"
       case SelfVal           => "(*this)"
       case v if isStatic =>
-        env.lift(v) match {
+        env.lift(v)(UniverseTy) match {
           case RefItem(lhs, isMut) => returnTy(lhs)
           case ty                  => returnTy(ty)
         }
@@ -709,8 +713,8 @@ class CodeGen(implicit val env: Env) {
 }
 
 def isStaticMethod(f: ir.Term): Boolean = f match {
-  case f: ir.Fn => f.selfParam.isEmpty
-  case _        => false
+  case f: ir.DefExpr => f.selfParam.isEmpty
+  case _             => false
 }
 
 def lhsIsType(lhs: ir.Term): Boolean = {

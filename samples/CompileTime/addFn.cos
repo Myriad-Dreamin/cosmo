@@ -4,5 +4,5 @@
 def add(a: u32, b: u32): u32 = a + b
 
 def main() = {
-  println(Type(add(1, 4)))
+  println(Type(add(1, 4)));
 }
