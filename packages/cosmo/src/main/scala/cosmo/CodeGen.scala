@@ -55,10 +55,10 @@ class CodeGen(implicit val env: Env) {
     val nse = if inClass then "" else nse_
     val res: String = ast match {
       case ir.NoneItem => ""
-      case f @ Def(info, _, _) if f.isTypeLevel && !info.isDependent =>
+      case f @ Def(info, _, _) if env.isTypeLevel(f) && !info.isDependent =>
         import f.{rawParams as params, retTy, body}
         s"/** optimized cosmo type function ${info.defName()} */"
-      case f @ Def(defInfo, _, _) if f.isTypeLevel =>
+      case f @ Def(defInfo, _, _) if env.isTypeLevel(f) =>
         import f.{rawParams as params, retTy, body}
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
@@ -82,14 +82,14 @@ class CodeGen(implicit val env: Env) {
         }
         val typeParams = params
           .filter(_.id.name != "self")
-          .filter(param => param.isTypeLevel)
+          .filter(env.isTypeLevel(_))
           .map(param => s"typename ${param.id.name}")
           .mkString(", ")
         val templateCode =
           if typeParams.isEmpty then "" else s"template <$typeParams> "
         val paramCode = params
           .filter(_.id.name != "self")
-          .filter(param => param.isValLevel)
+          .filter(env.isValLevel(_))
           .map(param => s"${paramTy(param.id.ty)} ${param.id.name}")
           .mkString(", ")
 
@@ -589,7 +589,7 @@ class CodeGen(implicit val env: Env) {
       case v: ir.ClassDestruct if v.bindings.isEmpty => s""
       case v: ir.ClassDestruct => {
         val base = storeTy(v.cls.variantOf.get);
-        val bindingNames = v.bindings.filter(_.isValLevel).map {
+        val bindingNames = v.bindings.filter(env.isValLevel(_)).map {
           case d: DeclItem => d.id.nameStem(d.id.id.id)
           case _           => "_"
         }
@@ -667,7 +667,7 @@ class CodeGen(implicit val env: Env) {
   }
 
   def literalCall(lhs: String, rhs: List[Term], recv: ValRecv): String = {
-    val rhsAnyTy = rhs.exists(_.isTypeLevel)
+    val rhsAnyTy = rhs.exists(env.isTypeLevel(_))
     if (rhsAnyTy) {
       s"$lhs<${rhs.map(storeTy).mkString(", ")}>"
     } else {
@@ -710,19 +710,16 @@ class CodeGen(implicit val env: Env) {
       lhsV + "."
     }
   }
+
+  // todo: broken two tests
+  def lhsIsType(lhs: ir.Term): Boolean = {
+    env.tyOf(lhs) == UniverseTy
+  }
 }
 
 def isStaticMethod(f: ir.Term): Boolean = f match {
   case f: ir.Def => f.selfParam.isEmpty
   case _         => false
-}
-
-def lhsIsType(lhs: ir.Term): Boolean = {
-  lhs match {
-    case r: ir.Ref if r.isTypeLevel => true
-    case ir.Select(lhs, _)          => lhsIsType(lhs)
-    case _                          => false
-  }
 }
 
 def canCSwitch(lhs: ir.Term): Boolean = {

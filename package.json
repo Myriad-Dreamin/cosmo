@@ -9,6 +9,7 @@
   "scripts": {
     "console": "sbt run",
     "compile": "sbt fullLinkJS",
+    "test": "sbt test",
     "watch": "sbt ~fullLinkJS",
     "watch:test": "sbt ~test",
     "compile:dev": "sbt fastLinkJS",

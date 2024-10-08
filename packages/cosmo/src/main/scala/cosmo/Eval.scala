@@ -190,16 +190,68 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def term(lhs: Term)(implicit rhs: Term): ir.Term = lhs match {
-    case v: Value      => v
-    case d: Def        => d
-    case t: SimpleType => t
-    case o: Opaque     => o
+    // todo: lift
+    case Region(stmts, semi) => Region(stmts.map(term), semi)
+    case Break()             => Break()
+    case Continue()          => Continue()
+    case Return(value)       => Return(term(value))
+    case If(cond, x, y)      => If(term(cond), term(x), y.map(term))
+    case Loop(body)          => Loop(term(body))
+    case While(cond, body)   => While(term(cond), term(body))
+    case For(name, iter, body) =>
+      For(term(name), term(iter), term(body))
+    case UnOp(op, lhs)         => UnOp(op, term(lhs))
+    case BinOp(op, lhs, rhs)   => binOp(op, term(lhs), term(rhs))
+    case BinInst(op, lhs, rhs) => binInst(op, term(lhs), term(rhs))
+    case Apply(lhs, rhs)       => $apply(term(lhs), rhs.map(term))
+    case Select(lhs, rhs)      => select(term(lhs), rhs)
+    case As(lhs, rhs)          => As(term(lhs), term(rhs))
+    case KeyedArg(k, v)        => KeyedArg(term(k), term(v))
+    case i: InferVar           => i
+    case t: TmplApply =>
+      tmplApply(t.lhs, t.strings, t.rhs.map { case (a, b) => (term(a), b) })
+    case t: SelectExpr => select(t.lhs, t.rhs)
+    case t: Name       => byRef(t.id)
+    case t: Hole       => Hole(t.id)
+    // todo: fold these expressions
+    case t: DestructExpr => t
+    case t: MatchExpr    => t
+    case t: CaseRegion   => t
+    case t: CaseExpr     => t
+    case v: BoundField   => v
+    case item: CIdent if rhs == UniverseTy =>
+      CIdent(item.name, item.ns, UniverseTy)
+    case item: CppInsType if rhs == UniverseTy =>
+      CppInsType(
+        lift(item.target).asInstanceOf[CIdent],
+        item.arguments.map(lift),
+      )
+    case SelfVal if rhs == UniverseTy => SelfTy
+    // todo: fold these instances
+    case c: CIdent        => c
+    case c: CppInsType    => c
+    case v: Value         => v
+    case d: Def           => d
+    case t: SimpleType    => t
+    case o: Opaque        => o
+    case t: ValueMatch    => t
+    case t: TypeMatch     => t
+    case t: ClassExpr     => t
+    case t: Impl          => t
+    case t: Var           => t
+    case t: Param         => t
+    case t: CModule       => t
+    case t: NativeModule  => t
+    case t: Class         => t
+    case t: ClassInstance => t
+    case t: ClassDestruct => t
+    case t: EnumDestruct  => t
+    case t: HKTInstance   => t
     case r @ Ref(id, v) if rhs == UniverseTy =>
       items.get(id.id).getOrElse(r)
-    case r: Ref                => r
-    case BinOp(op, lhs, rhs)   => binOp(op, term(lhs), term(rhs))
-    case Apply(lhs, rhs)       => $apply(term(lhs), rhs.map(term))
-    case BinInst(op, lhs, rhs) => binInst(op, term(lhs), term(rhs))
+    case r: Ref              => r
+    case RefItem(lhs, isMut) => RefItem(term(lhs), isMut)
+    case TupleLit(elems)     => TupleLit(elems.map(term))
   }
 
   def tyckValO(node: Option[Expr]): Term =
@@ -521,8 +573,9 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       // todo: call universe type
       case UniverseTy =>
         rhs.headOption.map(lift).map(eval).getOrElse(UniverseTy)
-      case Ref(id, Some(v))                            => $apply(v, rhs)
-      case v: CIdent if rhs.exists(_.ty == UniverseTy) => CppInsType(v, rhs)
+      case Ref(id, Some(v)) => $apply(v, rhs)
+      case v: CIdent if rhs.exists(isTypeLevel) || isTypeLevel(anno) =>
+        CppInsType(v, rhs)
       case BoundField(_, by, _, EnumField(ev)) =>
         applyC(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
@@ -531,7 +584,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case c: Class => applyC(c, rhs)
       case HKTInstance(ty, syntax) =>
         val res = hktTranspose(syntax, $apply(ty, rhs))
-        if (res.isValLevel) {
+        if (isValLevel(res)) {
           res
         } else {
           HKTInstance(res, Apply(syntax, rhs))
@@ -579,7 +632,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def applyF(fn: Def, args: List[Term])(implicit anno: Term): Term = {
-    if (fn.isValLevel && anno != UniverseTy) then
+    if (isValLevel(fn) && anno != UniverseTy) then
       return Apply(fn, castArgs(fn.params, args))
     val f = fn.checked
     return scopes.withScope {
@@ -782,7 +835,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         case MVar(_, rename, inner) if rename.id.name == "_" =>
           Finalized(inner.finalize(body))
         case MVar(t, v, inner) =>
-          v.doCheck(t.ty, Some(t))
+          v.doCheck(tyOf(t), Some(t))
           Finalized(placeVal(v, inner.finalize(body)))
         case MValue(lhs, values) =>
           debugln(s"finalize values $values $body")
@@ -888,7 +941,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     val infer = annotated.getOrElse(createInfer(info));
     e.doCheckRetTy(infer)
     checked += (info.id.id.toLong -> e)
-    noteDecl(e);
     val body = rhs.map(e => normalize(tyckVal(e)))
     val bodyTy = body.map(tyOf)
     debugln(s"defItem $info, $bodyTy <: $annotated")
@@ -898,7 +950,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     e.doCheckBody(sigRetTy, body)
 
     info.isDependent =
-      if e.isTypeLevel then body.map(isDependent).getOrElse(false) else false
+      if isTypeLevel(e) then body.map(isDependent).getOrElse(false) else false
 
     e
   }
@@ -908,16 +960,14 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     val ss = selfRef; selfRef = Some(e);
 
     val params = resolveParams(e);
-    val cls2 = Class(info, params, fields); selfRef = Some(cls2);
-    noteDecl(cls2);
+    val cls = Class(info, params, fields); selfRef = Some(cls);
+    info.ty = cls
+    noteDecl(cls);
     for (f <- fields.values.toSeq) {
       fields.addOne(f.name -> checkField(f))
     }
-    val cls = Class(info, params, fields)
-    info.ty = cls
 
     selfRef = ss
-    noteDecl(cls);
     cls
   }
 
@@ -928,7 +978,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     e.cls = cls;
     val ss2 = selfRef; selfRef = Some(cls);
     val ss = selfImplRef; selfImplRef = Some(e);
-    noteDeclTerm(e);
 
     e.iface = i.map(tyckTy).get;
     for (f <- fields.values.toSeq) {
@@ -956,11 +1005,12 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def associateImpl(impl: Impl, cls: Type): Unit = {
-    if (canonicalTy(cls).isBuilitin) {
-      return associateImpl(impl, classRepr(cls).get)
+    debugln(s"associateImpl $impl to $cls")
+    val canoCls = canonicalTy(cls)
+    if (canoCls.isBuilitin) {
+      return associateImpl(impl, classRepr(canoCls).get)
     }
 
-    debugln(s"associateImpl $impl to $cls")
     val id = cls match {
       case cls: Class => cls.id
       case v: Ref     => v.id
@@ -1023,19 +1073,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case ty => "auto"
     }
   }
-
-  // sol match {
-  //   case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
-  //   case r @ Ref(id, value) if r.isTypeLevel    => e(items(id.id))
-  //   case r @ Var(id, _, _) if r.isTypeLevel => e(items(id.id))
-  //   // init.map(tyckVal).getOrElse(item)
-  //   case BinInst(BinInstOp.Int(t, op), lhs, rhs) =>
-  //     val l = e(lhs).asInstanceOf[Int64].value
-  //     val r = e(rhs).asInstanceOf[Int64].value
-  //     op match {
-  //     }
-  //   case Apply(lhs, rhs) => $apply(lhs, rhs)(UniverseTy)
-  // }
 
   def run(sol: Term): Term = {
     debugln(s"run $sol")

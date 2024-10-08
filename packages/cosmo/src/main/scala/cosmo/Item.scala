@@ -77,19 +77,6 @@ sealed abstract class Expr extends ItemExt {
 }
 sealed abstract class Term extends ItemExt {
   def sol: Term = this
-  def ty: Type
-  @tailrec
-  final def isTypeLevel: Boolean =
-    debugln(s"isTypeLevel $this")
-    this match {
-      case ExprTy     => false
-      case UniverseTy => true
-      // todo: process is type var
-      case v: Var => v.id.isTypeVar || v.ty.isTypeLevel
-      case f: Def => f.retTy == UniverseTy
-      case _      => ty == UniverseTy
-    }
-  def isValLevel: Boolean = !isTypeLevel
 
   val isBuilitin: Boolean = false
 
@@ -100,13 +87,13 @@ sealed abstract class Term extends ItemExt {
 }
 sealed abstract class ExprTerm extends Term {
   var info: ExprInfo = uninitialized
-  override lazy val ty: Type = info.sol match {
-    case Region(stmts, true)                   => UnitTy
-    case Region(stmts, false) if stmts.isEmpty => UnitTy
-    case Region(stmts, false)                  => stmts.last.ty
-    case v: ExprTerm                           => TopTy
-    case v                                     => v
-  }
+  // override lazy val ty: Type = info.sol match {
+  //   case Region(stmts, true)                   => UnitTy
+  //   case Region(stmts, false) if stmts.isEmpty => UnitTy
+  //   case Region(stmts, false)                  => stmts.last.ty
+  //   case v: ExprTerm                           => TopTy
+  //   case v                                     => v
+  // }
   override def eval(env: Env): Term = env.compile(info)(env)
 }
 
@@ -146,9 +133,10 @@ final case class Var(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
   var init: Option[Term] = uninitialized
   def doCheck(ty: Type, i: Option[Term]) =
     id.ty = ty
+    if ty == UniverseTy then id.isTypeVar = true
     init = i
     i.foreach { i =>
-      if isTypeLevel then id.env.items += id.id -> i
+      if id.isTypeVar then id.env.items += id.id -> i
     }
     // if isTypeLevel then id.env.items += id.id -> i.getOrElse(this)
     // else id.env.items += id.id -> this
@@ -363,24 +351,18 @@ val Unreachable = BottomKind(0)
 val NoneItem = NoneKind(0)
 
 case class TopKind(val level: Int) extends SimpleType {
-  override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
 case class BottomKind(val level: Int) extends SimpleType {
-  override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
 case class SelfKind(val level: Int) extends SimpleType {
-  override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
 case class NoneKind(val level: Int) extends SimpleType {
-  override def ty = if level == 1 then UniverseTy else this.copy(level + 1)
   override val isBuilitin: Boolean = true
 }
-final case class Unresolved(id: DefInfo) extends SimpleType {
-  override def ty = id.ty
-}
+final case class Unresolved(id: DefInfo) extends SimpleType {}
 
 // TopTy
 val TopTy = TopKind(1)
@@ -391,33 +373,29 @@ val UniverseTy = TopKind(2)
 val NoneTy = TopKind(1)
 /// Expr type is not a type
 case object ExprTy extends SimpleType {
-  override def ty = ???
   override val isBuilitin: Boolean = true;
 }
 case object CEnumTy extends SimpleType {
-  override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
 }
 case object BoolTy extends SimpleType {
-  override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
 }
 case object StrTy extends SimpleType {
-  override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
   override def toString: String = "str"
 }
+case object BytesTy extends SimpleType {
+  override val isBuilitin: Boolean = true;
+  override def toString: String = "bytes"
+}
 case object UnitTy extends SimpleType {
-  override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
 }
 final case class RefTy(val isRef: Boolean, val isMut: Boolean)
-    extends SimpleType {
-  override def ty = UniverseTy
-}
+    extends SimpleType {}
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)
     extends SimpleType {
-  override def ty = UniverseTy
   override val isBuilitin: Boolean = true;
   override def toString: String = s"${if (isUnsigned) "u" else "i"}$width"
 }
@@ -429,7 +407,6 @@ object IntegerTy {
   }
 }
 final case class FloatTy(val width: Int) extends SimpleType {
-  override def ty = UniverseTy
   override def toString: String = s"f$width"
   override val isBuilitin: Boolean = true
 }
@@ -444,26 +421,19 @@ final case class InferVar(
     var lowerBounds: List[Type] = List(),
     val t: Term = UniverseTy,
 ) extends Type {
-  override def ty = t
   override def toString: String = s"infer(${info.name}:${info.id.id})"
-}
-final case class ValueTy(val value: Value) extends Type {
-  override def ty = UniverseTy
-  override def toString: String = value.toString
 }
 final case class CIdent(
     val name: String,
     val ns: List[String],
     val t: Term = UniverseTy,
 ) extends Term {
-  override def ty = t
   override def toString: String = s"cpp($repr)"
   def repr: String = (ns :+ name).mkString("::")
 }
 final case class CppInsType(val target: CIdent, val arguments: List[Type])
     extends Type {
   // todo: this is not correct
-  override def ty = target.ty
   override def toString: String = s"cpp(${repr(_.toString)})"
   def repr(rec: Type => String): String =
     target.repr + "<" + arguments
@@ -545,16 +515,12 @@ object Class {
 
 final case class BoundField(lhs: Term, by: Type, casted: Boolean, rhs: VField)
     extends Term {
-  override def ty = ???
   override def toString: String =
     if casted then s"($lhs as $by).(field ${rhs.name})"
     else s"$lhs.(field ${rhs.name})"
 }
-final case class RefItem(lhs: Term, isMut: Boolean) extends Term {
-  override def ty = ???
-}
+final case class RefItem(lhs: Term, isMut: Boolean) extends Term {}
 final case class Select(lhs: Term, rhs: String) extends Term {
-  override def ty = ???
   override def toString: String = s"$lhs.$rhs"
 }
 final case class ValueMatch(
@@ -562,20 +528,14 @@ final case class ValueMatch(
     by: Type,
     cases: List[(Term, Term)],
     orElse: Term,
-) extends Term {
-  override def ty = ???
-}
+) extends Term {}
 final case class TypeMatch(
     lhs: Term,
     by: Type,
     cases: List[(Class, Term)],
     orElse: Term,
-) extends Term {
-  override def ty = ???
-}
-sealed abstract class DeclItem extends Term with DeclLike {
-  override def ty = id.ty
-}
+) extends Term {}
+sealed abstract class DeclItem extends Term with DeclLike {}
 final case class HKTInstance(ty: Type, syntax: Term) extends Term {
   // override def ty = UniverseTy
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
@@ -591,7 +551,6 @@ final case class ClassInstance(
     con: Class,
     args: List[Term],
 ) extends Term {
-  override def ty = con
   override def toString: String =
     val conAs =
       if con.resolvedAs.isDefined then s"${con.resolvedAs.get} as " else ""
@@ -601,21 +560,15 @@ final case class ClassDestruct(
     item: Term,
     cls: Class,
     bindings: List[Term],
-) extends Term {
-  override def ty = ???
-}
+) extends Term {}
 final case class EnumDestruct(
     item: Term,
     variant: Class,
     bindings: List[Term],
-) extends Term {
-  override def ty = ???
-}
+) extends Term {}
 
 sealed abstract class Value extends Term
-case object TodoLit extends Value {
-  override def ty = BottomTy
-}
+case object TodoLit extends Value {}
 final case class Bool(value: Boolean) extends Value {
   val ty = BoolTy
 }
@@ -631,15 +584,9 @@ final case class Float64(value: Double) extends Value {
 final case class Str(value: String) extends Value {
   val ty = StrTy
 }
-final case class Bytes(value: Array[Byte]) extends Value {
-  override def ty = ???
-}
-final case class Rune(value: Int) extends Value {
-  override def ty = ???
-}
-final case class DictLit(value: Map[String, Term]) extends Value {
-  override def ty = ???
-}
+final case class Bytes(value: Array[Byte]) extends Value {}
+final case class Rune(value: Int) extends Value {}
+final case class DictLit(value: Map[String, Term]) extends Value {}
 
 sealed abstract class VField {
   val item: DeclLike

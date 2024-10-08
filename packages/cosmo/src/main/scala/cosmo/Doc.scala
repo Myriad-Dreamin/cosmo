@@ -146,8 +146,10 @@ object Doc {
       val f = fieldDecls(impl.fields)
       Array("impl".d, Doc.paren(p), " ".d, iface, cls, " = ".d, f).d
     case i: ir.Var =>
-      val r = i.annoTy.d.getOrElse("_".d)
-      val b = i.initE.d.getOrElse("_".d)
+      // todo: expr stage
+      val r = i.id.ty.d
+      val bb = if i.init == null then i.initE.d else i.init.d
+      val b = bb.getOrElse("_".d)
       Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
     case i: ir.Hole =>
       Array("hole ".d, i.id.d).d
@@ -230,10 +232,6 @@ object Doc {
       val p = params.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(fields)
       Array("class ".d, id.d, Doc.paren(p), " = ".d, f).d
-    // case ir.Var(id, init, _) =>
-    //   val ty = id.ty.d
-    //   val i = init.d.getOrElse("_".d)
-    //   Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
     // case f: ir.Def =>
     //   val p = f.rawParams.map(_.d(", ".d)).getOrElse(empty)
     //   val r = f.retTyExp.d.getOrElse("_".d)
