@@ -122,6 +122,9 @@ class SampleTest extends TestBase:
   test("Pattern/byStr") {
     compilePath("samples/Pattern/byStr.cos")
   }
+  test("Reflect/name".ignore) {
+    compilePath("samples/Reflect/name.cos")
+  }
   test("Io/readFile") {
     compilePath("samples/Io/readFile.cos")
   }
