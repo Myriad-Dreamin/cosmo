@@ -48,7 +48,7 @@ object Doc {
           sb.append(smallIndents(indent))
         case Doc.Str(v) =>
           sb.append(v)
-        case Doc.Item(v: untyp.Name) if showDef =>
+        case Doc.Item(v: ir.Name) if showDef =>
           v.of match {
             case Some(v) => sb.append(s"$v")
             case None    => sb.append(s"$v!")
@@ -107,12 +107,12 @@ object Doc {
 
   def paramDecl(
       kind: String,
-      pe: typed.ParamExpr,
-      ret_ty: Option[ir.Type],
+      pe: ir.FuncLike,
+      ret_ty: Option[ir.Expr | ir.Term],
       body: => Doc,
   ): Doc = {
     val n = s"${pe.id.name}@${pe.id.id.id}"
-    val p = pe.params.map(ps => Doc.paren(ps.d(", ".d))).getOrElse(empty)
+    val p = pe.rawParams.map(ps => Doc.paren(ps.d(", ".d))).getOrElse(empty)
     val cs =
       if pe.constraints.isEmpty then empty
       else Array(" where [".d, pe.constraints.d(", ".d), "]".d).d
@@ -123,7 +123,7 @@ object Doc {
     if f.item.isInstanceOf[ir.DeclItem] then
       val item = f.item.asInstanceOf[ir.DeclItem]
       item.d
-    else f.item.asInstanceOf[typed.DeclExpr].d
+    else f.item.asInstanceOf[ir.DeclExpr].d
   }
   def fieldDecls(fields: ir.FieldMap): Doc = {
     val fs = fields.values.map(fieldDecl)
@@ -131,29 +131,30 @@ object Doc {
   }
   def buildItem(item: ir.Term | ir.Expr): Doc = item match {
     case b: typed.Region => Doc.block("block", b.stmts.d(NewLine))
-    case f: typed.DefExpr =>
+    case f: ir.DefExpr =>
       paramDecl("def ", f, f.ret_ty, f.body.d.getOrElse(empty))
-    case c: typed.ClassExpr if !c.id.isTrait =>
+    case c: ir.ClassExpr if !c.id.isTrait =>
       paramDecl("class ", c, None, fieldDecls(c.fields))
-    case c: typed.ClassExpr =>
+    case c: ir.ClassExpr =>
       paramDecl("trait ", c, None, fieldDecls(c.fields))
-    case impl: typed.ImplExpr =>
+    case impl: ir.Impl =>
       // iface, " for ".d
-      val iface = impl.iface.d.map(i => Array(i, " for ".d).d).getOrElse(empty)
-      val cls = impl.cls.d
-      val p = impl.params.map(_.d(", ".d)).getOrElse(empty)
+      val iface =
+        impl.ifaceExpr.d.map(i => Array(i, " for ".d).d).getOrElse(empty)
+      val cls = impl.clsExpr.d
+      val p = impl.synParams.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(impl.fields)
       Array("impl".d, Doc.paren(p), " ".d, iface, cls, " = ".d, f).d
-    case i: typed.VarExpr =>
-      val r = i.ty.d.getOrElse("_".d)
+    case i: ir.VarExpr =>
+      val r = i.annoTy.d.getOrElse("_".d)
       val b = i.init.d.getOrElse("_".d)
       Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
-    case i: typed.Hole =>
+    case i: ir.Hole =>
       Array("hole ".d, i.id.d).d
     case typed.Apply(lhs: ir.Fn, rhs) =>
       Array(lhs.id.d, Doc.paren(rhs.d(", ".d))).d
     case i: typed.Apply => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
-    case i: typed.Name  => Doc.item(i)
+    case i: ir.Name     => Doc.item(i)
     case typed.KeyedArg(k, v) =>
       Doc.Concat(Array(k.d, v.d), ": ".d)
     case typed.TupleLit(items) => Doc.paren(items.d(", ".d))
@@ -229,10 +230,10 @@ object Doc {
       val p = params.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(fields)
       Array("class ".d, id.d, Doc.paren(p), " = ".d, f).d
-    case ir.Var(id, init, _) =>
-      val ty = id.ty.d
-      val i = init.d.getOrElse("_".d)
-      Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
+    // case ir.Var(id, init, _) =>
+    //   val ty = id.ty.d
+    //   val i = init.d.getOrElse("_".d)
+    //   Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
     case f: ir.Fn =>
       val p = f.rawParams.map(_.d(", ".d)).getOrElse(empty)
       val r = f.ret_ty.d
@@ -241,7 +242,7 @@ object Doc {
     // case c: ir.Class => c.repr(c.id.env.storeTy(_)(_.toString)).d
     // case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
     // case f: ir.Fn   => Array("def ".d, f.id.d).d
-    case i: ir.Impl => Array("impl ".d, i.id.d).d
+    // case i: ir.Impl => Array("impl ".d, i.id.d).d
     case ir.Param(of, _) =>
       Array(of.id.d, ": ".d, of.id.ty.d).d
     case i: ir.Ref => Doc.item(i)

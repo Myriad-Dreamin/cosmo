@@ -14,7 +14,9 @@ import cosmo.system._
 import cosmo.FileId
 import cosmo.syntax.Ident
 
-type EParam = untyp.VarExpr;
+type De = DeclExpr
+
+type EParam = VarExpr;
 type EParams = List[EParam];
 
 class Scopes {
@@ -83,7 +85,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     newType("Nothing", BottomTy)
     newType("str", StrTy)
     newType("any", TopTy)
-    newType("cstd", CIdent("std", List(), 1))
+    newType("cstd", CIdent("std", List(), UniverseTy))
     newType("Ref", RefTy(true, false))
     newType("Mut", RefTy(false, true))
     newType("RefMut", RefTy(true, true))
@@ -172,12 +174,12 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   /// Creates Reference
-  def byRef(info: DefInfo)(implicit level: Int): Ref = {
+  def byRef(info: DefInfo): Ref = {
     val v = items.get(info.id).map(deref)
-    debugln(s"byRef $info ${v.map(_.level)}")
+    debugln(s"byRef $info")
     v match {
       case Some(v: Ref) => v
-      case _            => Ref(info, v.map(_.level).getOrElse(level), value = v)
+      case _            => Ref(info, value = v)
     }
   }
 
@@ -200,11 +202,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         For(term(name), term(iter), term(body))
       case untyp.Region(stmts, semi) => Region(stmts.map(term), semi)
       // operations
-      case untyp.Name(id, None) =>
-        val t = byRef(id);
-        if t.value.isEmpty then err(s"undefined reference $id")
-        t
-      case untyp.Name(id, Some(of))                => term(of)
       case untyp.UnOp("&", untyp.UnOp("mut", lhs)) => RefItem(term(lhs), true)
       case untyp.UnOp("&", lhs)                    => RefItem(term(lhs), false)
       case untyp.UnOp("mut", lhs) =>
@@ -224,12 +221,20 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       // todo: typed and untyed expressions
       case i: untyp.BinInst => BinInst(i.op, term(i.lhs), term(i.rhs))
       // declarations
-      case v: untyp.VarExpr      => checkDecl(v, checkVar(v))
-      case d: untyp.DefExpr      => checkDecl(d, checkDef(d))
-      case c: untyp.ClassExpr    => checkDecl(c, checkClass(c))
-      case i: untyp.ImplExpr     => checkDecl(i, checkImpl(i))
+      case De(v: VarExpr)   => v.checked
+      case De(d: DefExpr)   => d.checked
+      case De(c: ClassExpr) => c.checked
+      case De(i: Impl)      => i.checked
+      case De(Name(id, None)) =>
+        val t = byRef(id);
+        if t.value.isEmpty then err(s"undefined reference $id")
+        t
+      case De(Name(id, Some(of))) =>
+        val t = byRef(of);
+        if t.value.isEmpty then err(s"undefined reference $id")
+        t
+      case De(h: Hole)           => Hole(h.id)
       case d: untyp.DestructExpr => checkDestruct(d)
-      case h: untyp.Hole         => Hole(h.id)
       case t: untyp.TupleLit     => TupleLit(t.elems.map(term))
       case cr: untyp.CaseRegion  => err(s"case region $cr in the air")
       case c: untyp.CaseExpr =>
@@ -294,7 +299,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def deref(lhs: Term)(implicit level: Int): Term = {
+  def deref(lhs: Term): Term = {
     lhs match {
       case f: Fn if f.params.isEmpty => $apply(f, List())
       case BoundField(_, by, _, EnumField(ev: Class)) if ev.justInit =>
@@ -394,18 +399,20 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
           case None =>
             errors = s"no self target in this scope" :: errors; None
         }
-      case RefItem(r, isMut)  => dispatch(lhs, r, field, casted)
-      case Ref(_, _, Some(v)) => dispatch(lhs, v, field, casted)
-      case Ref(id, _, None)   => dispatch(lhs, id.ty, field, casted)
+      case RefItem(r, isMut) => dispatch(lhs, r, field, casted)
+      case Ref(_, Some(v))   => dispatch(lhs, v, field, casted)
+      case Ref(id, None)     => dispatch(lhs, id.ty, field, casted)
       case NativeModule(info, env) =>
         return Some(env.scopes.get(field).map(env.byRef).getOrElse {
           errors = s"Undefined item $field in ${info.name}" :: errors
           Unresolved(ct(field))
         })
-      case CModule(id, kind, path) => return Some(CIdent(field, List(), level))
-      case CIdent(ns0, ns, lvl)    => return Some(CIdent(field, ns :+ ns0, lvl))
-      case i: Var                  => dispatch(lhs, i.id.ty, field, casted)
-      case i: Impl  => dFields(i, i.fields).orElse(contDispatch(i.cls, true))
+      case CModule(id, kind, path) =>
+        ??? // return Some(CIdent(field, List(), level))
+      case CIdent(ns0, ns, lvl) => return Some(CIdent(field, ns :+ ns0, lvl))
+      case i: VarExpr           => dispatch(lhs, i.id.ty, field, casted)
+      case i: Impl =>
+        dFields(i, i.fields).orElse(contDispatch(i.cls, true))
       case c: Class => dFields(c, c.fields).orElse(dImpls(c.id))
       case ClassInstance(con, _) =>
         dispatch(lhs, con, field, casted)
@@ -423,16 +430,16 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def $apply(lhs: Term, rhs: List[Term])(implicit level: Int): Term = {
+  def $apply(lhs: Term, rhs: List[Term]): Term = {
     debugln(s"apply $lhs |||| ${rhs}")
     lhs match {
-      case Ref(id, _, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
+      case Ref(id, Some(Unresolved(id2))) if id2.id.id == CODE_FUNC =>
         return rhs.head match {
           case Str(content) => Opaque.stmt(content)
           case e: Opaque    => e
           case _            => Opaque.expr("0 /* code */")
         }
-      case Ref(id, _, Some(RefTy(isRef, isMut))) =>
+      case Ref(id, Some(RefTy(isRef, isMut))) =>
         assert(rhs.length == 1)
         return if (isRef) {
           val r = rhs.head;
@@ -441,10 +448,10 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         } else {
           rhs.head
         }
-      case Ref(id, _, Some(v)) if id.ty.level > 1 && id.id == typeSym.id =>
+      case Ref(id, Some(v)) if id.ty == UniverseTy && id.id == typeSym.id =>
         rhs.headOption.map(lift).map(eval).getOrElse(UniverseTy)
-      case Ref(id, _, Some(v))                  => $apply(v, rhs)
-      case v: CIdent if rhs.exists(_.level > 0) => CppInsType(v, rhs)
+      case Ref(id, Some(v))                            => $apply(v, rhs)
+      case v: CIdent if rhs.exists(_.ty == UniverseTy) => CppInsType(v, rhs)
       case BoundField(_, by, _, EnumField(ev)) =>
         applyC(ev.copy(variantOf = Some(by)), rhs)
       case BoundField(that, by, _, DefField(f)) =>
@@ -453,7 +460,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case c: Class => applyC(c, rhs)
       case HKTInstance(ty, syntax) =>
         val res = hktTranspose(syntax, $apply(ty, rhs))
-        if (res.level == 0) {
+        if (res.isValLevel) {
           res
         } else {
           HKTInstance(res, Apply(syntax, rhs))
@@ -501,7 +508,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def applyF(fn: Fn, args: List[Term]): Term = {
-    if (fn.ret_ty.level <= 1) then return Apply(fn, castArgs(fn.params, args))
+    if (fn.isValLevel) then return Apply(fn, castArgs(fn.params, args))
     implicit val level = 1;
     return scopes.withScope {
       val castedArgs = fn.params.zip(args).map { case (p, a) =>
@@ -556,7 +563,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   enum MatchM {
 
     case Init; case Finalized(body: Term);
-    case MVar(lhs: Term, rhs: Var, inner: MatchM)
+    case MVar(lhs: Term, rhs: VarExpr, inner: MatchM)
     case MValue(lhs: Term, values: List[(Term, MatchM)])
     case MEnum(lhs: Term, use: Class, cases: MutMap[DefId, MatchM])
     case MClass(cd: ClassDestruct, inner: MatchM)
@@ -604,7 +611,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         val cont = if constantly then body else dropCase(Unreachable)
         this.doFinalize(cont)
       }
-      case v: Var                    => this.addVar(lhs, v, body)
+      case v: VarExpr                => this.addVar(lhs, v, body)
       case typed.BinOp("==", _, rhs) => this.addValue(lhs, rhs, body)
       case b: typed.BinOp            => debugln(s"binop $b"); ???
       case ed: EnumDestruct          => this.addEnum(lhs, ed, body)
@@ -612,7 +619,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case _ => throw new Exception(s"cannot add invalid pattern $this")
     }
 
-    final def addVar(lhs: Term, rhs: Var, body: UD): M = this match {
+    final def addVar(lhs: Term, rhs: VarExpr, body: UD): M = this match {
       case Init => MVar(lhs, rhs, body(Init))
       case MVar(u, v, inner) =>
         err(
@@ -636,8 +643,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case Init =>
         debugln(s"addClass init $c $body")
         val params = classBinds(c.cls).map {
-          case d: DeclItem => genVar(d.id, None, d.level)
-          case v           => genVar(ct("b"), Some(v), v.level)
+          case d: DeclItem => genVar(d.id, None)
+          case v           => genVar(ct("b"), Some(v))
         }
         if params.isEmpty then return doFinalize(body)
         val cd = ClassDestruct(lhs, c.cls, params)
@@ -702,9 +709,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         case b: Finalized => b
         case MVar(_, rename, inner) if rename.id.name == "_" =>
           Finalized(inner.finalize(body))
-        case MVar(t, rename, inner) =>
-          val v = rename.copy(init = Some(t))
-          items += (rename.id.id -> v)
+        case MVar(t, v, inner) =>
+          v.doCheck(t.ty, Some(t))
           Finalized(placeVal(v, inner.finalize(body)))
         case MValue(lhs, values) =>
           debugln(s"finalize values $values $body")
@@ -755,7 +761,8 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   /// Declarations
 
   def noteDecl(id: DeclItem) = items += (id.id.id -> id)
-  def checkDecl[T <: Term](id: untyp.DeclExpr, f: => T): T =
+  def noteDeclTerm(id: DeclTerm) = items += (id.id.id -> id)
+  def checkDecl[T <: Term](id: DeclTerm, f: => T): T =
     val intId = id.id.id.id
     if checked.contains(intId) then return checked(intId).asInstanceOf[T]
     if checkStatus.contains(intId) then throw new Exception("recursive")
@@ -765,14 +772,13 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     checked += (intId.toLong -> res)
     res
 
-  def genVar(id: DefInfo, init: Option[Term], level: Int): Var = {
+  def genVar(id: DefInfo, init: Option[Term]): VarExpr = {
     val nv = ct(id.name + s"_${defAlloc + 1}")
-    nv.ty = id.ty
-    Var(nv, init, level)
+    VarExpr.generate(nv, id.ty, init)
   }
 
-  def checkVar(v: untyp.VarExpr): ir.Var = {
-    val untyp.VarExpr(info, oty, initExprE) = v
+  def checkVar(v: VarExpr): ir.VarExpr = {
+    val VarExpr(info, oty, initExprE) = v
     info.isVar = true;
     val initExpr = initExprE.map(valTerm).map(normalize)
     val initTy = oty.map(tyTerm).orElse {
@@ -782,37 +788,31 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       }
     } match {
       case Some(t) => t
-      case None    => createInfer(info, 1)
+      case None =>
+        info.ty = UniverseTy
+        createInfer(info)
     }
 
-    val valLvl = (initTy.level - 1).max(0)
-    val res = ir.Var(info, initExpr, valLvl)
-    info.ty = initTy
-    val itemState = if (valLvl == 0) {
-      res
-    } else {
-      initExpr.getOrElse(res)
-    }
-    items += (info.id -> itemState)
-    res
+    v.doCheck(initTy, initExpr)
+    v
   }
 
   def checkDestruct(d: untyp.DestructExpr): Term = {
     ???
   }
 
-  def resolveParams(params: Option[EParams]) = params.map { params =>
-    params.map(p => Param(checkDecl(p, checkVar(p)), false))
+  def resolveParams(e: FuncLike) = e.synParams.map { params =>
+    params.map(p => { p.checked; Param(p, false) })
   }
 
-  def checkDef(e: untyp.DefExpr) = {
+  def checkDef(e: DefExpr) = {
     debugln(s"defItem ${e.id.name}")
-    val untyp.DefExpr(info, ps, constraints, ret_ty, rhs) = e
+    val DefExpr(info, ret_ty, rhs) = e
 
-    val params = resolveParams(ps);
+    val params = resolveParams(e);
     val annotated = ret_ty.map(tyTerm)
-    val infer = annotated.getOrElse(createInfer(info, 1));
-    val fn = Fn(info, params, infer, None, 0);
+    val infer = annotated.getOrElse(createInfer(info));
+    val fn = Fn(info, params, infer, None);
     if !fn.ret_ty.isInstanceOf[InferVar] then
       checked += (info.id.id.toLong -> fn)
     noteDecl(fn);
@@ -822,21 +822,20 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     // we have already checked annotated <: bodyTy when we are
     // making valTerm.
     val sigRetTy = annotated.orElse(bodyTy).getOrElse(infer)
-    val level = (sigRetTy.level - 1).max(0);
-    val fn2 = fn.copy(ret_ty = sigRetTy, body = body, level)
+    val fn2 = fn.copy(ret_ty = sigRetTy, body = body)
 
     info.isDependent =
-      if level > 0 then body.map(isDependent).getOrElse(false) else false
+      if fn2.isTypeLevel then body.map(isDependent).getOrElse(false) else false
 
     noteDecl(fn2);
     fn2
   }
 
-  def checkClass(e: untyp.ClassExpr): Class = {
-    val untyp.ClassExpr(info, ps, constraints, fields) = e
-    val ss = selfRef; selfRef = Some(SelfTy);
+  def checkClass(e: ClassExpr): Class = {
+    val (ClassExpr(info), fields) = (e, e.fields)
+    val ss = selfRef; selfRef = Some(e);
 
-    val params = resolveParams(ps);
+    val params = resolveParams(e);
     val cls2 = Class(info, params, fields); selfRef = Some(cls2);
     noteDecl(cls2);
     for (f <- fields.values.toSeq) {
@@ -850,35 +849,32 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     cls
   }
 
-  def checkImpl(e: untyp.ImplExpr) = {
-    val untyp.ImplExpr(info, ps, constraints, i, c, fields) = e
-    val params = resolveParams(ps);
+  def checkImpl(e: Impl) = {
+    val (Impl(info, i, c), fields) = (e, e.fields)
+    e.rawParams = resolveParams(e);
     val cls = tyTerm(c);
+    e.cls = cls;
     val ss2 = selfRef; selfRef = Some(cls);
-    val ss = selfImplRef; selfImplRef = Some(SelfTy);
+    val ss = selfImplRef; selfImplRef = Some(e);
+    noteDeclTerm(e);
 
-    val iface = i.map(tyTerm);
-    val impl2 = Impl(info, params, iface.get, cls, fields);
-    selfImplRef = Some(impl2);
-    noteDecl(impl2);
+    e.iface = i.map(tyTerm).get;
     for (f <- fields.values.toSeq) {
       fields.addOne(f.name -> checkField(f))
     }
-    val impl = Impl(info, params, iface.get, cls, fields)
-    info.ty = impl;
-    associateImpl(impl, impl.cls)
+    info.ty = e;
+    associateImpl(e, cls)
 
     selfRef = ss2; selfImplRef = ss
-    noteDecl(impl);
-    impl
+    e
   }
 
   def checkField(f: VField) = {
     f match {
       // todo: unchecked var field is dangerous
       case e: VarField =>
-        val s = e.item.id.syntax.asInstanceOf[untyp.VarExpr]
-        VarField(checkDecl(s, checkVar(s)), e.index)
+        e.item.checked
+        e
       case e: EDefField  => DefField(checkDecl(e.item, checkDef(e.item)))
       case e: EEnumField => EnumField(checkDecl(e.item, checkClass(e.item)))
       case _             => ???
@@ -934,12 +930,12 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case cls: Class if cls.variantOf.isDefined => storeTy(cls.variantOf.get)
       case cls: Class                            => cls.repr(storeTy)
       // todo: this is not good
-      case ins: ClassInstance        => storeTy(ins.con)
-      case v: Ref if v.value.isEmpty => v.id.defName(stem = false)
-      case v: Var if v.init.isEmpty  => v.id.defName(stem = false)
-      case v: Fn                     => v.id.defName(stem = false)
-      // case Ref(id, _, Some(_))        => id.defName(stem = false)
-      case Ref(_, _, Some(v)) => storeTy(v)
+      case ins: ClassInstance           => storeTy(ins.con)
+      case v: Ref if v.value.isEmpty    => v.id.defName(stem = false)
+      case v: VarExpr if v.init.isEmpty => v.id.defName(stem = false)
+      case v: Fn                        => v.id.defName(stem = false)
+      // case Ref(id, Some(_))        => id.defName(stem = false)
+      case Ref(_, Some(v)) => storeTy(v)
       case RefItem(lhs, isMut) =>
         s"${if (isMut) "" else "const "}${storeTy(lhs)}&"
       case Apply(Opaque(Some("decltype"), None), rhs) =>
@@ -954,14 +950,14 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
   }
 
-  def eval(item: Term)(implicit level: Int): Term = {
-    logln(s"eval $item $level")
+  def eval(item: Term): Term = {
+    logln(s"eval $item")
     val e = eval;
     item match {
       case CppInsType(target, arguments) => CppInsType(target, arguments.map(e))
-      case Ref(id, lvl, value) if level <= lvl => e(items(id.id))
-      case Var(id, init, lvl) if level <= lvl =>
-        init.map(valTerm).getOrElse(item)
+      case r @ Ref(id, value) if r.isTypeLevel    => e(items(id.id))
+      case r @ VarExpr(id, _, _) if r.isTypeLevel => e(items(id.id))
+      // init.map(valTerm).getOrElse(item)
       case BinInst(BinInstOp.Int(t, op), lhs, rhs) =>
         val l = e(lhs).asInstanceOf[Int64].value
         val r = e(rhs).asInstanceOf[Int64].value

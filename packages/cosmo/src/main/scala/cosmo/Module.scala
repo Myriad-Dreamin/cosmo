@@ -122,7 +122,6 @@ class DefInfo(
     val namespaces: List[String],
     var id: DefId,
     var env: Env,
-    var syntax: Expr = untyp.Opaque.empty,
     var ty: Type = TopTy,
     var impls: List[Impl] = List(),
     var pos: Option[(Int, Int)] = None,

@@ -150,7 +150,15 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
     loading += fid
-    val res = evaluate(src.content, env)
+    val res =
+      try {
+        evaluate(src.content, env)
+      } catch {
+        case e =>
+          logln(s"error loading module $fid: ${e.getMessage}")
+          e.printStackTrace()
+          None
+      }
     modules += (fid -> res)
     loading -= fid
     res
