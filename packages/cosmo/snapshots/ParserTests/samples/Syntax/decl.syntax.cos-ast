@@ -163,6 +163,7 @@ Some(
         ),
         ab = true
       ),
+      Class(name = Ident(name = "B"), ps = None, body = Block(stmts = List()), ab = false),
       Impl(
         rhs = Ident(name = "B"),
         lhs = Some(value = Ident(name = "A")),

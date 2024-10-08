@@ -31,7 +31,10 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genField(ast: ir.VField): String = {
-    genDef(ast.item.asInstanceOf[DeclItem])
+    genDef(ast.item match {
+      case s: ir.Var => s.checked
+      case s         => s.asInstanceOf[ir.DeclItem]
+    })
   }
 
   def genDef(ast: ir.Term): String = {
@@ -40,30 +43,34 @@ class CodeGen(implicit val env: Env) {
 
   def mayGenDef(ast: ir.Term): Option[String] = {
     val info = ast match {
-      case ir.Var(info, _, _)      => Some(info)
-      case ir.Fn(info, _, _, _, _) => Some(info)
+      case ir.Var(info, _, _) => Some(info)
+      case ir.Def(info, _, _) => Some(info)
       case ir.Class(info, _, _, _, _, _) =>
         Some(info)
-      case ir.Impl(info, _, _, _, _) => Some(info)
-      case _                         => None
+      case ir.Impl(info, _, _) => Some(info)
+      case _                   => None
     }
     val inClass = info.exists(_.inClass)
     val nsb = if inClass then "" else nsb_
     val nse = if inClass then "" else nse_
     val res: String = ast match {
       case ir.NoneItem => ""
-      case Fn(info, params, retTy, body, level)
-          if level > 0 && !info.isDependent =>
+      case f @ Def(info, _, _) if env.isTypeLevel(f) && !info.isDependent =>
+        import f.{rawParams as params, retTy, body}
         s"/** optimized cosmo type function ${info.defName()} */"
-      case Fn(defInfo, params, retTy, body, level) if level > 0 =>
+      case f @ Def(defInfo, _, _) if env.isTypeLevel(f) =>
+        import f.{rawParams as params, retTy, body}
         val name = defInfo.defName(stem = true)
         val templateCode = dependentParams(params);
         val bodyCode = s" using type =${storeTy(body.get)};"
         s"$nsb${templateCode} struct $name {using Self = $name; $bodyCode $name() = delete;};$nse"
-      case Fn(defInfo, None, ret_ty, body, _) =>
+      case f @ Def(defInfo, _, _) if f.rawParams.isEmpty =>
+        import f.{params, retTy, body}
         val name = defInfo.defName(stem = true)
         s"/* cosmo function $name */"
-      case Fn(defInfo, Some(params), ret_ty, body, _) =>
+      case f @ Def(defInfo, _, _) if f.rawParams.isDefined =>
+        import f.{rawParams, retTy, body}
+        val params = rawParams.get
         val name = defInfo.defName(stem = true)
         val hasSelf = params.exists(_.id.name == "self")
         val selfIsConst = defInfo.inClass && hasSelf && {
@@ -75,14 +82,14 @@ class CodeGen(implicit val env: Env) {
         }
         val typeParams = params
           .filter(_.id.name != "self")
-          .filter(param => param.level > 0)
+          .filter(env.isTypeLevel(_))
           .map(param => s"typename ${param.id.name}")
           .mkString(", ")
         val templateCode =
           if typeParams.isEmpty then "" else s"template <$typeParams> "
         val paramCode = params
           .filter(_.id.name != "self")
-          .filter(param => param.level <= 0)
+          .filter(env.isValLevel(_))
           .map(param => s"${paramTy(param.id.ty)} ${param.id.name}")
           .mkString(", ")
 
@@ -94,10 +101,10 @@ class CodeGen(implicit val env: Env) {
         if (name == "main") s"int main(int argc, char **argv) $bodyCode"
         else
           // val needDynAssertMut = !selfIsConst && defInfo.isOverride
-          val rt = returnTy(ret_ty)
+          val rt = returnTy(retTy)
           // val ret =
           //   if needDynAssertMut then s"std::enable_if_t<isMut, $rt>" else rt
-          debugln(s"$ret_ty => $rt")
+          debugln(s"$retTy => $rt")
           val isStatic = defInfo.inClass && !hasSelf
           val staticModifier = if (isStatic) " static" else ""
           val constModifier = if selfIsConst then " const" else ""
@@ -105,8 +112,8 @@ class CodeGen(implicit val env: Env) {
           val overrideModifier = if defInfo.isOverride then " override" else ""
           val inlineModifier = if !defInfo.inClass then " inline" else ""
           s"$nsb${templateCode}$inlineModifier$staticModifier$virtualModifier $rt $name($paramCode)$constModifier$overrideModifier $bodyCode$nse"
-      // case ir.TypeAlias(ret_ty) =>
-      //   s"using $name = ${returnTy(ret_ty)};"
+      // case ir.TypeAlias(retTy) =>
+      //   s"using $name = ${returnTy(retTy)};"
       case ir.NativeModule(info, env) =>
         val name = info.defName(stem = true)
         // fid.path (.cos -> .h)
@@ -141,7 +148,7 @@ class CodeGen(implicit val env: Env) {
         val defs = cls.defs
         val name = defInfo.defName(stem = true)
         val templateCode = typeParams(params).getOrElse("")
-        val emptyConstructable = vars.forall(!_.item.init.isEmpty)
+        val emptyConstructable = vars.forall(!_.item.initE.isEmpty)
         val varsCode = vars.map(p => genDef(p.item)).mkString("", ";\n", ";")
         val defsCode =
           defs.map(p => genDef(p.item.asInstanceOf[DeclItem])).mkString("\n")
@@ -242,14 +249,14 @@ class CodeGen(implicit val env: Env) {
   $defsCode
 };$nse"""
         }
-      case impl @ ir.Impl(defInfo, params, iface, cls, defs) =>
-        val defs = impl.defs
+      case impl @ ir.Impl(defInfo, _, _) =>
+        import impl.{rawParams, defs, iface, cls}
         val gii = genInImpl
         genInImpl = true
         val (ifaceTy, that) = (storeTy(iface), storeTy(cls))
         val name = s"::cosmo::Impl<$that, $ifaceTy, isMut>"
         val templateCode =
-          typeParams(params)
+          typeParams(rawParams)
             .map(p => p.stripSuffix(">") + ", bool isMut>")
             .getOrElse("template<bool isMut>");
         val defsCode = defs.map(genField).mkString("\n")
@@ -299,8 +306,8 @@ class CodeGen(implicit val env: Env) {
   }
 
   def genVarStore(node: ir.Var): String = {
-    val ir.Var(info, i, _) = node
-    val init = i.asInstanceOf[Option[ir.Term]]
+    val ir.Var(info, i, _) = node // todo: init
+    val init = node.init
     if (info.isTypeVar) {
       return init match {
         case Some(m: (CModule | NativeModule)) => genDef(m)
@@ -342,7 +349,7 @@ class CodeGen(implicit val env: Env) {
   }
 
   def varByRef(vv: Ref): String = {
-    val ir.Ref(id, level, v) = vv
+    val ir.Ref(id, v) = vv
     v.map {
       case v: CppInsType => Some(storeTy(v))
       case v: CIdent     => Some(v.repr)
@@ -448,7 +455,7 @@ class CodeGen(implicit val env: Env) {
         }
       }
       case v: Ref => varByRef(v)
-      case v: Fn  => v.id.defName()
+      case v: Def => v.id.defName()
       case Loop(body) =>
         return s"for(;;) ${blockizeExpr(body, ValRecv.None)}"
       case While(cond, body) =>
@@ -582,7 +589,7 @@ class CodeGen(implicit val env: Env) {
       case v: ir.ClassDestruct if v.bindings.isEmpty => s""
       case v: ir.ClassDestruct => {
         val base = storeTy(v.cls.variantOf.get);
-        val bindingNames = v.bindings.filter(_.level == 0).map {
+        val bindingNames = v.bindings.filter(env.isValLevel(_)).map {
           case d: DeclItem => d.id.nameStem(d.id.id.id)
           case _           => "_"
         }
@@ -660,7 +667,7 @@ class CodeGen(implicit val env: Env) {
   }
 
   def literalCall(lhs: String, rhs: List[Term], recv: ValRecv): String = {
-    val rhsAnyTy = rhs.exists(_.level > 0)
+    val rhsAnyTy = rhs.exists(env.isTypeLevel(_))
     if (rhsAnyTy) {
       s"$lhs<${rhs.map(storeTy).mkString(", ")}>"
     } else {
@@ -691,7 +698,7 @@ class CodeGen(implicit val env: Env) {
       case SelfVal if inImpl => "self()"
       case SelfVal           => "(*this)"
       case v if isStatic =>
-        env.lift(v) match {
+        env.lift(v)(UniverseTy) match {
           case RefItem(lhs, isMut) => returnTy(lhs)
           case ty                  => returnTy(ty)
         }
@@ -703,19 +710,16 @@ class CodeGen(implicit val env: Env) {
       lhsV + "."
     }
   }
+
+  // todo: broken two tests
+  def lhsIsType(lhs: ir.Term): Boolean = {
+    env.tyOf(lhs) == UniverseTy
+  }
 }
 
 def isStaticMethod(f: ir.Term): Boolean = f match {
-  case f: ir.Fn => f.selfParam.isEmpty
-  case _        => false
-}
-
-def lhsIsType(lhs: ir.Term): Boolean = {
-  lhs match {
-    case ir.Ref(_, _, _) if lhs.level >= 1 => true
-    case ir.Select(lhs, _)                 => lhsIsType(lhs)
-    case _                                 => false
-  }
+  case f: ir.Def => f.selfParam.isEmpty
+  case _         => false
 }
 
 def canCSwitch(lhs: ir.Term): Boolean = {
