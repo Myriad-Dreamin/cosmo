@@ -1,0 +1,17 @@
+
+@noCore();
+
+def fib(n: u32): u32 = if (n <= 1) { n } else {
+  fib(n - 1) + fib(n - 2)
+}
+
+def main() = {
+  println(Type(fib(1)));
+  println(Type(fib(2)));
+  println(Type(fib(3)));
+  println(Type(fib(4)));
+  println(Type(fib(5)));
+  println(Type(fib(6)));
+  println(Type(fib(10)));
+  println(Type(fib(22)));
+}

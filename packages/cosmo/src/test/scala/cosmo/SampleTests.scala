@@ -65,8 +65,8 @@ class SampleTest extends TestBase:
   test("CompileTime/addFn") {
     compilePath("samples/CompileTime/addFn.cos")
   }
-  test("CompileTime/loop".ignore) {
-    compilePath("samples/CompileTime/loop.cos")
+  test("CompileTime/recursive") {
+    compilePath("samples/CompileTime/recursive.cos")
   }
   test("Reflect/name") {
     compilePath("samples/Reflect/name.cos")
