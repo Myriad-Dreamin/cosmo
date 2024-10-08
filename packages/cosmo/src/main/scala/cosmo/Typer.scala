@@ -32,6 +32,23 @@ trait TypeEnv { self: Env =>
   type ExtractedPat =
     NoneKind | Var | Bool | BinOp | EnumDestruct | ClassDestruct
 
+  def matchPatSeq(lhs: List[Term], rhs: List[Term | Expr]): List[Term] = {
+    debugln(s"matchSeq $lhs by $rhs")
+    if (lhs.length != rhs.length) {
+      err(s"matchSeq length mismatch $lhs by $rhs")
+    }
+    lhs.zip(rhs).map { case (l, r) => matchPatOne(l, r) }
+  }
+
+  def matchPatOne(lhs: Term, rhs: Term | Expr): Term = {
+    debugln(s"matchOne $lhs by $rhs [${rhs.isInstanceOf[Expr]}]")
+    val lhsView = curryTerm(lhs)
+    val rhsView = rhs match
+      case v: Expr => curryExpr(v)
+      case v: Term => curryView(v, tyOf(v))
+    matchPat(lhsView, rhsView)
+  }
+
   final def matchPat(lhs: PatShape, rhs: PatShape): ExtractedPat = {
     import PatShape._;
     debugln(s"matchPat $lhs by $rhs")
@@ -79,7 +96,7 @@ trait TypeEnv { self: Env =>
           lhsParams
         }
 
-        val matched = matchSeq(params, args);
+        val matched = matchPatSeq(params, args);
         EnumDestruct(patHolder, rCls, matched)
       case (Cons(lv, lCls, lAdt), Cons(rv, rCls, false)) =>
         if (rCls.id.isTrait) then return err("trait cannot be destructed")
@@ -96,7 +113,7 @@ trait TypeEnv { self: Env =>
               lhsParams
             }
 
-            val matched = matchSeq(params, args);
+            val matched = matchPatSeq(params, args);
             ClassDestruct(patHolder, rCls, matched)
           }
           case None =>
@@ -106,13 +123,6 @@ trait TypeEnv { self: Env =>
           case Some(rv) => BinOp("==", patHolder, tyckVal(rv))
         }
     }
-  }
-
-  def curryTerm(exp: Expr): PatShape = curryTermView(tyckVal(exp))
-  def curryTermView(lhs: Term): PatShape = {
-    val lhsTy = tyOf(lhs);
-    debugln(s"curryTermView $lhs % $lhsTy")
-    curryView(lhs, lhsTy)
   }
 
   def curryExpr(v: Expr): PatShape = {
@@ -131,13 +141,14 @@ trait TypeEnv { self: Env =>
             val args = untyp.TupleLit(rhs.toArray)
             PatShape.Cons(Some(args), cls, isAdt)
           case _ =>
-            curryTermView(tyckVal(v))
+            curryTerm(tyckVal(v))
         }
       case De(Hole(id)) => PatShape.Hole(id)
-      case v            => curryTermView(tyckVal(v))
+      case v            => curryTerm(tyckVal(v))
     }
   }
 
+  def curryTerm(lhs: Term): PatShape = curryView(lhs, tyOf(lhs))
   def curryView(v: Term, ty: Type): PatShape = {
     debugln(s"curryView $v $ty")
 
@@ -160,23 +171,6 @@ trait TypeEnv { self: Env =>
         PatShape.Cons(Some(v), cls, isAdt)
       case Left(_) => PatShape.Atom(v, ty)
     }
-  }
-
-  def matchSeq(lhs: List[Term], rhs: List[Term | Expr]): List[Term] = {
-    debugln(s"matchSeq $lhs by $rhs")
-    if (lhs.length != rhs.length) {
-      err(s"matchSeq length mismatch $lhs by $rhs")
-    }
-    lhs.zip(rhs).map { case (l, r) => matchOne(l, r) }
-  }
-
-  def matchOne(lhs: Term, rhs: Term | Expr): Term = {
-    debugln(s"matchOne $lhs by $rhs [${rhs.isInstanceOf[Expr]}]")
-    val lhsView = curryTermView(lhs)
-    val rhsView = rhs match
-      case v: Expr => curryExpr(v)
-      case v: Term => curryView(v, tyOf(v))
-    matchPat(lhsView, rhsView)
   }
 
   def matchParams[T](
@@ -238,11 +232,7 @@ trait TypeEnv { self: Env =>
   }
 
   @tailrec
-  final def classParams(
-      v: Term,
-      // cls: Class,
-      // variant: Option[Class],
-  ): List[Term] = {
+  final def classParams(v: Term): List[Term] = {
     debugln(s"classParams $v")
     v match {
       case Ref(_, Some(v))              => classParams(v)
@@ -284,10 +274,7 @@ trait TypeEnv { self: Env =>
     }
   }
 
-  def castArgs(
-      eParams: Array[Param],
-      eArgs: List[Term],
-  ): List[Term] = {
+  def castArgs(eParams: Array[Param], eArgs: List[Term]): List[Term] = {
     debugln(s"castArgs ${eParams.toList} $eArgs")
 
     val resolved = matchParams(
@@ -389,6 +376,7 @@ trait TypeEnv { self: Env =>
       case _ => return item
     }
   }
+
   def hktRef(
       f: Option[Def],
       args: List[Term],
@@ -415,15 +403,6 @@ trait TypeEnv { self: Env =>
         ClassInstance(hktCon, args)
       case _ if isValLevel(res) => res
       case _                    => ???
-    }
-  }
-
-  // : Normalization Part
-
-  def normalize(body: Term): Term = {
-    debugln(s"normalize $body")
-    body match {
-      case _ => body
     }
   }
 

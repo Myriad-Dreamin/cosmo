@@ -16,7 +16,7 @@ class CaseTest extends TestBase:
         env.scopes.withScope((env.tyckVal(expr(x)), expr("case " + y)));
       val rhs = rhsCase.asInstanceOf[ir.untyp.CaseExpr].cond;
       env.errors = List();
-      val result = env.matchOne(lhs, rhs).toDoc.pretty;
+      val result = env.matchPatOne(lhs, rhs).toDoc.pretty;
       val errors = env.errors.mkString("\n");
       snapshot =
         snapshot :+ s"[${x.trim} match ${y.trim}] => $result, err: \"${escapeStr(errors)}\"";
