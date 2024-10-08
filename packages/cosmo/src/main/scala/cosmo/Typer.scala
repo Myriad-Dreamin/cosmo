@@ -30,7 +30,7 @@ trait TypeEnv { self: Env =>
   }
 
   type ExtractedPat =
-    NoneKind | VarExpr | Bool | BinOp | EnumDestruct | ClassDestruct
+    NoneKind | Var | Bool | BinOp | EnumDestruct | ClassDestruct
 
   final def matchPat(lhs: PatShape, rhs: PatShape): ExtractedPat = {
     import PatShape._;
@@ -38,21 +38,21 @@ trait TypeEnv { self: Env =>
     (lhs, rhs) match {
       case (lhs, Hole(id)) =>
         id.ty = lhs.getTy; // todo: id.ty assignment has side effect
-        val t = VarExpr(id, None, None)
+        val t = Var(id, None, None)
         items += (id.id -> t)
         t
       case (Hole(_), _) => err("cannot destruct hole")
       case (Atom(lhsTy, UniverseTy), Atom(rhsTy, UniverseTy)) =>
         val v =
-          isSubtype(canonicalTy(tyTerm(lhsTy)), canonicalTy(tyTerm(rhsTy)));
+          isSubtype(canonicalTy(tyckTy(lhsTy)), canonicalTy(tyckTy(rhsTy)));
         if !v then err(s"cannot match type $lhsTy by $rhsTy")
         return Bool(v)
       case (Cons(_, lCls, _), Atom(rhsTy, UniverseTy)) =>
-        val v = isSubtype(lCls, canonicalTy(tyTerm(rhsTy)));
+        val v = isSubtype(lCls, canonicalTy(tyckTy(rhsTy)));
         if !v then err(s"cannot match class $lCls by $rhsTy")
         return Bool(v)
       case (_, Atom(rv, rhsTy)) =>
-        return BinOp("==", patHolder, valTerm(rv))
+        return BinOp("==", patHolder, tyckVal(rv))
       case (lhs: Atom, rhs: Cons) => // todo: can cons primitives
         err(s"cannot destruct type ($lhs) by class ($rhs)")
       case (Cons(lv, lCls, lAdt), Cons(rv, rCls, true)) =>
@@ -72,7 +72,7 @@ trait TypeEnv { self: Env =>
           case None     => classBinds(rCls)
           case Some(rv) => classArgs(rv, rCls)
         }
-        val lhsParams = classParams(valTerm(lv.get));
+        val lhsParams = classParams(tyckVal(lv.get));
         val params = if (lhsParams.length < args.length) {
           lhsParams ::: classParams(rCls).drop(lhsParams.length)
         } else {
@@ -89,7 +89,7 @@ trait TypeEnv { self: Env =>
         rv match {
           case Some(rv) if eqClass(lCls, rCls) => {
             val args = classArgs(rv, rCls)
-            val lhsParams = classParams(lv.map(valTerm).getOrElse(lCls));
+            val lhsParams = classParams(lv.map(tyckVal).getOrElse(lCls));
             val params = if (lhsParams.length < args.length) {
               lhsParams ::: classParams(rCls).drop(lhsParams.length)
             } else {
@@ -103,12 +103,12 @@ trait TypeEnv { self: Env =>
             val v = isSubtype(lCls, rCls);
             if !v then err(s"cannot match class $lCls by $rCls")
             return Bool(v)
-          case Some(rv) => BinOp("==", patHolder, valTerm(rv))
+          case Some(rv) => BinOp("==", patHolder, tyckVal(rv))
         }
     }
   }
 
-  def curryTerm(exp: Expr): PatShape = curryTermView(valTerm(exp))
+  def curryTerm(exp: Expr): PatShape = curryTermView(tyckVal(exp))
   def curryTermView(lhs: Term): PatShape = {
     val lhsTy = tyOf(lhs);
     debugln(s"curryTermView $lhs % $lhsTy")
@@ -119,7 +119,7 @@ trait TypeEnv { self: Env =>
     debugln(s"curryExpr $v")
     v match {
       case untyp.Apply(lhs, rhs) =>
-        val lhsTy = canonicalTy(valTerm(lhs))
+        val lhsTy = canonicalTy(tyckVal(lhs))
 
         debugln(s"curryApplyE $lhs by $rhs")
 
@@ -131,10 +131,10 @@ trait TypeEnv { self: Env =>
             val args = untyp.TupleLit(rhs.toArray)
             PatShape.Cons(Some(args), cls, isAdt)
           case _ =>
-            curryTermView(valTerm(v))
+            curryTermView(tyckVal(v))
         }
       case De(Hole(id)) => PatShape.Hole(id)
-      case v            => curryTermView(valTerm(v))
+      case v            => curryTermView(tyckVal(v))
     }
   }
 
@@ -188,7 +188,7 @@ trait TypeEnv { self: Env =>
     val named = eArgs.flatMap {
       // todo: a bit dirty
       case untyp.KeyedArg(untyp.ItemE(Str(s)), value) =>
-        Some((s, valTerm(value)))
+        Some((s, tyckVal(value)))
       case KeyedArg(Str(s), value) => Some((s, value))
       case v                       => None
     }.toMap
@@ -246,7 +246,7 @@ trait TypeEnv { self: Env =>
     debugln(s"classParams $v")
     v match {
       case Ref(_, Some(v))              => classParams(v)
-      case VarExpr(id, _, _)            => classParams(id.ty)
+      case Var(id, _, _)                => classParams(id.ty)
       case Param(of, _)                 => classParams(of)
       case SelfVal if selfRef.isDefined => classParams(selfRef.get)
       case v: ClassInstance =>
@@ -318,7 +318,7 @@ trait TypeEnv { self: Env =>
             })
           }
         val info = param.id
-        val casted = res.map(i => castTo(valTerm(i), info.ty))
+        val casted = res.map(i => castTo(tyckVal(i), info.ty))
         // casted.map { v =>
         //   items += (info.id -> v)
         // }
@@ -390,7 +390,7 @@ trait TypeEnv { self: Env =>
     }
   }
   def hktRef(
-      f: Option[DefExpr],
+      f: Option[Def],
       args: List[Term],
       value: Term,
   )(implicit anno: Term): Term = {
@@ -435,7 +435,7 @@ trait TypeEnv { self: Env =>
       case RefItem(lhs, rhsIsMut) => return checkedMut(lhs, rhsIsMut)
       case SelfTy                 => return
       case v: Ref                 => v.id.isMut
-      case v: VarExpr             => v.id.isMut
+      case v: Var                 => v.id.isMut
       case _                      => return
     }
     if (!lhsIsMut && isMut) {
@@ -516,12 +516,12 @@ trait TypeEnv { self: Env =>
       case TopTy | UniverseTy => true
       case BottomTy           => false
       case IntegerTy(_, _) | StrTy | BoolTy if isBuiltin(lhs, rhs) => true
-      case v: VarExpr if v.isTypeLevel =>
+      case v: Var if v.isTypeLevel =>
         lhs match {
-          case SelfTy            => isSubtype_(selfRef.getOrElse(TopTy), rhs)
-          case VarExpr(id, _, _) => id.id == v.id.id
-          case BottomTy          => true
-          case _                 => false
+          case SelfTy        => isSubtype_(selfRef.getOrElse(TopTy), rhs)
+          case Var(id, _, _) => id.id == v.id.id
+          case BottomTy      => true
+          case _             => false
         }
       case _ => {
         lhs match {
@@ -570,7 +570,7 @@ trait TypeEnv { self: Env =>
       case Ref(_, Some(v))          => return classRepr(v)
       case Ref(_, None)             => return None
       case RefItem(lhs, isMut)      => return classRepr(lhs)
-      case VarExpr(id, _, _)        => return classRepr(id.ty)
+      case Var(id, _, _)            => return classRepr(id.ty)
       case Param(of, _)             => return classRepr(of)
       case SelfTy              => return classRepr(selfRef.getOrElse(NoneItem))
       case _ if lhs.isBuilitin => builtinClasses(lhs)
@@ -645,8 +645,8 @@ trait TypeEnv { self: Env =>
       case SelfVal          => SelfTy
       case Ref(id, Some(v)) => tyOf(v)
       case r @ Ref(id, _) if !r.isValLevel => id.ty
-      case v: VarExpr if v.isTypeLevel     => tyOf(items(v.id.id))
-      case v: VarExpr                      => v.id.ty
+      case v: Var if v.isTypeLevel         => tyOf(items(v.id.id))
+      case v: Var                          => v.id.ty
       case v: Param                        => tyOf(v.of)
       case TodoLit                         => BottomTy
       case reg: Region if reg.semi         => UnitTy

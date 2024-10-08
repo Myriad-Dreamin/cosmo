@@ -13,7 +13,7 @@ class CaseTest extends TestBase:
     var snapshot = List[String]();
     for (case Array(x, y) <- cases.split("\n").map(_.split("match"))) {
       val (lhs, rhsCase) =
-        env.scopes.withScope((env.valTerm(expr(x)), expr("case " + y)));
+        env.scopes.withScope((env.tyckVal(expr(x)), expr("case " + y)));
       val rhs = rhsCase.asInstanceOf[ir.untyp.CaseExpr].cond;
       env.errors = List();
       val result = env.matchOne(lhs, rhs).toDoc.pretty;
@@ -53,7 +53,7 @@ class MatchTest extends TestBase:
     for (matchExpr <- cases.split("-----")) {
       env.errors = List();
       val t =
-        env.scopes.withScope((env.valTerm(expr(matchExpr))));
+        env.scopes.withScope((env.tyckVal(expr(matchExpr))));
       val result = t.toDoc.pretty;
       val errors = env.errors.mkString("\n");
       snapshot =

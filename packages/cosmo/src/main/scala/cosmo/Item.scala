@@ -49,7 +49,7 @@ sealed trait ObjectLike(
       .asInstanceOf[List[EnumField]]
 }
 sealed trait FuncLike(
-    val synParams: Option[List[VarExpr]],
+    val synParams: Option[List[Var]],
     val constraints: List[Expr],
 ) extends DeclTerm {
   var rawParams: Option[List[Param]] = uninitialized
@@ -85,9 +85,9 @@ sealed abstract class Term extends ItemExt {
       case ExprTy     => false
       case UniverseTy => true
       // todo: process is type var
-      case v: VarExpr => v.id.isTypeVar || v.ty.isTypeLevel
-      case f: DefExpr => f.retTy == UniverseTy
-      case _          => ty == UniverseTy
+      case v: Var => v.id.isTypeVar || v.ty.isTypeLevel
+      case f: Def => f.retTy == UniverseTy
+      case _      => ty == UniverseTy
     }
   def isValLevel: Boolean = !isTypeLevel
 
@@ -116,8 +116,9 @@ sealed abstract class DeclTerm extends DeclItem with DeclLike {
 
   def checkDecl: ThisTerm;
   protected var checkCache: ThisTerm = uninitialized
+  def isUnchecked = checkCache eq null
   def checked: ThisTerm =
-    if checkCache eq null then checkCache = id.env.checkDecl(this, checkDecl)
+    if isUnchecked then checkCache = id.env.checkDecl(this, checkDecl)
     checkCache
 }
 final case class Name(val id: DefInfo, val of: Option[DefInfo] = None)
@@ -125,17 +126,17 @@ final case class Name(val id: DefInfo, val of: Option[DefInfo] = None)
   type ThisTerm <: Term
 
   override def toString: String = s"${id.defName(false)}@${id.id.id}"
-  override def checkDecl: ThisTerm = id.env.valTerm(this).asInstanceOf[ThisTerm]
+  override def checkDecl: ThisTerm = id.env.tyckVal(this).asInstanceOf[ThisTerm]
 }
 final case class Hole(id: DefInfo) extends DeclTerm {
   type ThisTerm <: Term
 
   override def toString: String = s"hole(${id.defName(false)})"
-  override def checkDecl: ThisTerm = id.env.valTerm(this).asInstanceOf[ThisTerm]
+  override def checkDecl: ThisTerm = id.env.tyckVal(this).asInstanceOf[ThisTerm]
 }
-final case class VarExpr(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
+final case class Var(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
     extends DeclTerm {
-  type ThisTerm <: VarExpr
+  type ThisTerm <: Var
   // override def toString: String =
   //   val mod = if !id.isMut then "val" else "var"
   //   s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
@@ -153,22 +154,22 @@ final case class VarExpr(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
     // else id.env.items += id.id -> this
     checkCache = this.asInstanceOf[ThisTerm]
 }
-object VarExpr {
+object Var {
   def generate(id: DefInfo, ty: Type, init: Option[Term]) =
-    val res = VarExpr(id, None, None)
+    val res = Var(id, None, None)
     res.doCheck(ty, init)
     res
 }
 
-final case class DefExpr(
+final case class Def(
     id: DefInfo,
     retTyExp: Option[Expr],
     bodyExp: Option[Expr],
 )(
-    params: Option[List[VarExpr]],
+    params: Option[List[Var]],
     constraints: List[Expr],
 ) extends FuncLike(params, constraints) {
-  type ThisTerm <: DefExpr
+  type ThisTerm <: Def
   var retTy: Type = uninitialized
   var body: Option[Term] = uninitialized
 
@@ -184,7 +185,7 @@ final case class DefExpr(
 final case class ClassExpr(
     id: DefInfo,
 )(
-    params: Option[List[VarExpr]],
+    params: Option[List[Var]],
     constraints: List[Expr],
 )(fields: FieldMap)
     extends FuncLike(params, constraints)
@@ -198,7 +199,7 @@ final case class Impl(
     ifaceExpr: Option[Expr],
     clsExpr: Expr,
 )(
-    params: Option[List[VarExpr]],
+    params: Option[List[Var]],
     constraints: List[Expr],
 )(fields: FieldMap)
     extends FuncLike(params, constraints)
@@ -476,7 +477,7 @@ final case class CppInsType(val target: CIdent, val arguments: List[Type])
 
 /// Decls
 
-final case class Param(of: VarExpr, named: Boolean) extends DeclItem {
+final case class Param(of: Var, named: Boolean) extends DeclItem {
   override val id: DefInfo = of.id
 
   def pretty(implicit rec: Term | Expr => String = _.toString): String =
@@ -579,7 +580,7 @@ final case class HKTInstance(ty: Type, syntax: Term) extends Term {
   // override def ty = UniverseTy
   override def toString(): String = s"(hkt($syntax)::type as $ty)"
   def repr(rec: Type => String): String = syntax match {
-    case t: (Ref | DefExpr) => rec(t)
+    case t: (Ref | Def) => rec(t)
     case Apply(lhs, rhs) =>
       s"${rec(HKTInstance(ty, lhs))}<${rhs.map(rec).mkString(", ")}>::type"
     case Select(lhs, rhs) => s"${rec(HKTInstance(ty, lhs))}::$rhs"
@@ -646,8 +647,7 @@ sealed abstract class VField {
 
   def pretty(implicit rec: Term | Expr => String = _.toString): String = ???
 }
-final case class EDefField(item: DefExpr) extends VField
 final case class EEnumField(item: ClassExpr, index: Int) extends VField
-final case class VarField(item: VarExpr, index: Int) extends VField
-final case class DefField(item: DefExpr) extends VField
+final case class VarField(item: Var, index: Int) extends VField
+final case class DefField(item: Def) extends VField
 final case class EnumField(item: Class) extends VField

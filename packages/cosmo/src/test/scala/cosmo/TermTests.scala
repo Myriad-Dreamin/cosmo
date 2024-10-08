@@ -10,7 +10,7 @@ class SelectTest extends TestBase:
     var snapshot = List[String]();
     for (line <- cases.split("\n").map(_.trim).filter(_.nonEmpty)) {
       env.errors = List();
-      val lhs = env.scopes.withScope(env.valTerm(expr(line)));
+      val lhs = env.scopes.withScope(env.tyckVal(expr(line)));
       val result = lhs.toDoc.pretty;
       val ty = env.tyOf(lhs).toDoc.pretty;
       val errors = env.errors.mkString("\n");

@@ -37,7 +37,7 @@ trait ExprEnv { self: Env =>
   def withParams[T](params: Option[SParams])(f: => T) = {
     debugln(s"withParams $params")
     scopes.withScope {
-      var vars = ListBuffer[VarExpr]()
+      var vars = ListBuffer[Var]()
       var constraints = ListBuffer[Expr]()
 
       for (p <- params.getOrElse(List())) p match {
@@ -233,22 +233,22 @@ trait ExprEnv { self: Env =>
       case None => return v.e
       case Some(i: s.Ident) =>
         val info = ct(i); info.isTypeVar = true; info.isVar = true;
-        return De(VarExpr(info, None, Some(v.e)))
+        return De(Var(info, None, Some(v.e)))
       case Some(pat) => pat
     }
     DestructExpr(destruct(pat), v.e)
   }
 
-  def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): VarExpr = {
+  def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): Var = {
     info.isMut = mut; info.isTypeVar = ct; info.isVar = true;
-    VarExpr(info, ty, init.map(expr))
+    Var(info, ty, init.map(expr))
   }
 
-  def $def(ast: s.Def, info: Defo): DefExpr = {
+  def $def(ast: s.Def, info: Defo): Def = {
     val s.Def(_, params, ret_ty, rhs) = ast
     val (ps, cs, (ty, body)) =
       withParams(params)((ret_ty.map(expr), rhs.map(expr)))
-    DefExpr(info, ty, body)(ps, cs)
+    Def(info, ty, body)(ps, cs)
   }
 
   def $class(ast: s.Class, info: Defo): ClassExpr = {
@@ -260,18 +260,18 @@ trait ExprEnv { self: Env =>
       case body              => err(s"trait/class body is invalid kind: $body")
     }))
     info.isVirtual = isAbstract;
-    info.isPhantom = fields.values.forall(_.isInstanceOf[EDefField])
+    info.isPhantom = fields.values.forall(_.isInstanceOf[DefField])
     ClassExpr(info)(ps, cs)(fields)
   }
 
   def baseClass(body: s.Block, fields: FieldMap, isAbstract: Boolean) = {
     var index = 0;
     for (stmt <- body.stmts.iterator.map(expr)) stmt match {
-      case De(v: VarExpr) =>
+      case De(v: Var) =>
         if (isAbstract) then err(s"abstract class cannot have fields")
         addField(VarField(v, index), fields); index += 1;
-      case De(d: DefExpr) =>
-        addField(EDefField(d), fields); d.id.isVirtual = isAbstract;
+      case De(d: Def) =>
+        addField(DefField(d), fields); d.id.isVirtual = isAbstract;
       case node => err(s"Invalid class field $node")
     }
   }
@@ -330,7 +330,7 @@ trait ExprEnv { self: Env =>
     if (iface.isDefined) {
       fields.values.foreach { d => d.item.id.isOverride = true }
     }
-    info.isPhantom = fields.values.forall(_.isInstanceOf[EDefField])
+    info.isPhantom = fields.values.forall(_.isInstanceOf[DefField])
     if (!info.isPhantom) then err("impl cannot have vars")
 
     Impl(info, iface, cls)(ps, cs)(fields)

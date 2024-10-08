@@ -131,7 +131,7 @@ object Doc {
   }
   def buildItem(item: ir.Term | ir.Expr): Doc = item match {
     case b: typed.Region => Doc.block("block", b.stmts.d(NewLine))
-    case f: ir.DefExpr =>
+    case f: ir.Def =>
       paramDecl("def ", f, f.retTyExp, f.body.d.getOrElse(empty))
     case c: ir.ClassExpr if !c.id.isTrait =>
       paramDecl("class ", c, None, fieldDecls(c.fields))
@@ -145,13 +145,13 @@ object Doc {
       val p = impl.synParams.map(_.d(", ".d)).getOrElse(empty)
       val f = fieldDecls(impl.fields)
       Array("impl".d, Doc.paren(p), " ".d, iface, cls, " = ".d, f).d
-    case i: ir.VarExpr =>
+    case i: ir.Var =>
       val r = i.annoTy.d.getOrElse("_".d)
       val b = i.initE.d.getOrElse("_".d)
       Array(i.id.mod.d, i.id.d, ": ".d, r, " = ".d, b).d
     case i: ir.Hole =>
       Array("hole ".d, i.id.d).d
-    case typed.Apply(lhs: ir.DefExpr, rhs) =>
+    case typed.Apply(lhs: ir.Def, rhs) =>
       Array(lhs.id.d, Doc.paren(rhs.d(", ".d))).d
     case i: typed.Apply => Array(i.lhs.d, Doc.paren(i.rhs.d(", ".d))).d
     case i: ir.Name     => Doc.item(i)
@@ -234,14 +234,14 @@ object Doc {
     //   val ty = id.ty.d
     //   val i = init.d.getOrElse("_".d)
     //   Array(id.mod.d, id.d, ": ".d, ty, " = ".d, i).d
-    // case f: ir.DefExpr =>
+    // case f: ir.Def =>
     //   val p = f.rawParams.map(_.d(", ".d)).getOrElse(empty)
     //   val r = f.retTyExp.d.getOrElse("_".d)
     //   val b = f.body.d.getOrElse("_".d)
     // Array("def ".d, f.id.d, Doc.paren(p), ": ".d, r, " = ".d, b).d
     // case c: ir.Class => c.repr(c.id.env.storeTy(_)(_.toString)).d
     // case v: ir.Var   => Array(v.id.mod.d, v.id.d).d
-    // case f: ir.Fn   => Array("def ".d, f.id.d).d
+    // case f: ir.Def   => Array("def ".d, f.id.d).d
     // case i: ir.Impl => Array("impl ".d, i.id.d).d
     case ir.Param(of, _) =>
       Array(of.id.d, ": ".d, of.id.ty.d).d
