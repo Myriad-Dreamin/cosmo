@@ -23,7 +23,7 @@ object untyp {
 }
 object typed {
   type T = Term;
-  type E = Term;
+  type E = ExprTerm;
   ${template[1]}
 }
 // endregion: Exprs

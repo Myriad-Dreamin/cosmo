@@ -1,6 +1,6 @@
 [v0 match {
   case Result(i32, i32).Ok(t) => t
-}] => typeMatch (v0@60 by class Result@49(T@50: Type@24, E@52: Type@24) = block {
+}] => typeMatch (v0@60 by class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
  class Result::Ok@54() = block {
   var _0@55: T@50 = _
  }
@@ -11,15 +11,15 @@
  case class Result::Ok@54() = block {
   var _0@55: T@50 = _
  } => block {
-  ClassDestruct(v0@60,class(Result::Ok),List((var i32_75:75 = NoneKind(0)), (var i32_76:76 = NoneKind(0)), (var _0_77:77 = NoneKind(0))))
-  var t@73: T@50 = var _0_77@77: T@50 = _
-  t@73
+  ClassDestruct(v0@60,class(Result::Ok),List(var(b_76), var(b_78), var(_0_79)))
+  var t@73: T@50 = var _0_79@79: T@50 = _
+  var t@73: T@50 = var _0_79@79: T@50 = _
  }
-} else BottomKind(0), err: "missing case EnumField(class(Result::Err)) when matching v0@60 on class(Result<i32@41, i32@41>)"
+} else BottomKind(0), err: "missing case EnumField(class(Result::Err)) when matching v0@60 on class(Result<i32, i32>)"
 [v1 match {
   case Result(i32, i32).Ok(t) => t
   case Result(i32, i32).Err(e) => ???
-}] => typeMatch (v1@67 by class Result@49(T@50: Type@24, E@52: Type@24) = block {
+}] => typeMatch (v1@67 by class Result@49(T@50: TopKind(2), E@52: TopKind(2)) = block {
  class Result::Ok@54() = block {
   var _0@55: T@50 = _
  }
@@ -30,15 +30,15 @@
  case class Result::Ok@54() = block {
   var _0@55: T@50 = _
  } => block {
-  ClassDestruct(v1@67,class(Result::Ok),List((var i32_88:88 = NoneKind(0)), (var i32_89:89 = NoneKind(0)), (var _0_90:90 = NoneKind(0))))
-  var t@82: T@50 = var _0_90@90: T@50 = _
-  t@82
+  ClassDestruct(v1@67,class(Result::Ok),List(var(b_91), var(b_93), var(_0_94)))
+  var t@84: T@50 = var _0_94@94: T@50 = _
+  var t@84: T@50 = var _0_94@94: T@50 = _
  }
  case class Result::Err@57() = block {
   var _0@58: E@52 = _
  } => block {
-  ClassDestruct(v1@67,class(Result::Err),List((var i32_91:91 = NoneKind(0)), (var i32_92:92 = NoneKind(0)), (var _0_93:93 = NoneKind(0))))
-  var e@87: E@52 = var _0_93@93: E@52 = _
+  ClassDestruct(v1@67,class(Result::Err),List(var(b_96), var(b_98), var(_0_99)))
+  var e@89: E@52 = var _0_99@99: E@52 = _
   TodoLit
  }
 } else BottomKind(0), err: ""

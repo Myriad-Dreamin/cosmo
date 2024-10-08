@@ -19,6 +19,7 @@ trait A {
   val x = 1;
 }
 
+class B {}
 impl A for B {}
 
 trait A[B] {}

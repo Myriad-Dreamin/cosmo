@@ -10,6 +10,8 @@ import syntax.{Ident, No}
 import scala.collection.mutable.ArrayBuffer
 
 private type Ni = Option[Expr];
+@inline
+def De = DeclExpr
 
 type SParam = s.Param;
 type SParams = List[SParam];
@@ -19,9 +21,9 @@ trait ExprEnv { self: Env =>
   def errE(e: String) = err(e).e
 
   def resolve(name: String) = scopes.get(name).map(Name(_, None))
-  def nameOrProduce(name: Ident, strict: Boolean) =
+  def nameOrProduce(name: Ident, strict: Boolean): DeclTerm =
     scopes.get(name.name) match {
-      case Some(x)        => Name(ct(name, true), Some(Name(x, None)))
+      case Some(x)        => Name(ct(name, true), Some(x))
       case None if strict => Name(ct(name, true), None)
       case None           => hole(ct(name))
     }
@@ -35,7 +37,7 @@ trait ExprEnv { self: Env =>
   def withParams[T](params: Option[SParams])(f: => T) = {
     debugln(s"withParams $params")
     scopes.withScope {
-      var vars = ListBuffer[VarExpr]()
+      var vars = ListBuffer[Var]()
       var constraints = ListBuffer[Expr]()
 
       for (p <- params.getOrElse(List())) p match {
@@ -53,7 +55,6 @@ trait ExprEnv { self: Env =>
           vars.addOne($var(info, ty.map(expr), init, false, false))
       }
 
-      vars.foreach { v => decl(v) }
       (params.map(_ => vars.toList), constraints.toList, f)
     }
   }
@@ -74,8 +75,8 @@ trait ExprEnv { self: Env =>
       case s.StrLit(value)   => Str(value).e
       case s.Ident("self")   => SelfVal.e
       case s.Ident("Self")   => SelfTy.e
-      case Ident("_")        => Hole(ct("_"))
-      case i: s.Ident        => byName(i)
+      case Ident("_")        => De(Hole(ct("_")))
+      case i: s.Ident        => De(byName(i))
       case s.ArgsLit(values) => argsLit(values)
       // control flow
       case b: s.Block     => block(b)
@@ -83,7 +84,7 @@ trait ExprEnv { self: Env =>
       case l: s.Loop      => Loop(expr(l.body))
       case w: s.While     => While(expr(w.cond), expr(w.body))
       case f: s.For =>
-        val lb = $var(ct(f.name), None, None, false, false);
+        val lb = De($var(ct(f.name), None, None, false, false));
         For(lb, expr(f.iter), expr(f.body))
       case s.Break()        => Break()
       case s.Continue()     => Continue()
@@ -113,12 +114,12 @@ trait ExprEnv { self: Env =>
       case s.Decorate(lhs, rhs) => expr(rhs)
       // declarations
       case s.Import(p, dest) => importDest(dest, $import(p, dest))
-      case s.Val(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, false, false))
-      case s.Typ(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, false, true))
-      case s.Var(x, ty, y)   => decl($var(ct(x), ty.map(expr), y, true, false))
-      case d: s.Def          => decl($def(d, ct(d.name)))
-      case c: s.Class        => decl($class(c, ct(c.name)))
-      case i: s.Impl         => decl(impl(i, ct("$impl", hidden = true)))
+      case s.Val(x, ty, y)   => De($var(ct(x), ty.map(expr), y, false, false))
+      case s.Typ(x, ty, y)   => De($var(ct(x), ty.map(expr), y, false, true))
+      case s.Var(x, ty, y)   => De($var(ct(x), ty.map(expr), y, true, false))
+      case d: s.Def          => De($def(d, ct(d.name)))
+      case c: s.Class        => De($class(c, ct(c.name)))
+      case i: s.Impl         => De(impl(i, ct("$impl", hidden = true)))
       // syntax errors
       case SParam(name, _, _, _) => Opaque.expr(s"panic(\"param: $name\")")
       case b: s.ParamsLit =>
@@ -144,7 +145,7 @@ trait ExprEnv { self: Env =>
     case _        => expr(n)
   }
 
-  def hole(di: Defo): Expr = {
+  def hole(di: Defo): DeclTerm = {
     di.isVar = true;
     Hole(di)
   }
@@ -162,15 +163,12 @@ trait ExprEnv { self: Env =>
   }
 
   def destruct(ast: s.Node): Expr = ast match {
-    case i: Ident => nameOrProduce(i, false)
+    case i: Ident => De(nameOrProduce(i, false))
     // todo: check is compile time
     case s.Apply(l, r, ct) => Apply(expr(l), r.map(destruct))
     case s.KeyedArg(l, r)  => KeyedArg(keyExpr(l), destruct(r))
     case _                 => expr(ast)
   }
-
-  def decl(d: DeclExpr) =
-    d.id.syntax = d; d
 
   def $match(b: s.Match): Expr = {
     var lhs = expr(b.lhs)
@@ -227,7 +225,7 @@ trait ExprEnv { self: Env =>
           val env = v.asInstanceOf[NativeModule].env
           val exts = env.scopes.scopes.head
           for ((name, info) <- exts.filter(!_._2.isBuiltin)) {
-            items += (ct(name).id -> env.byRef(info)(0))
+            items += (ct(name).id -> env.byRef(info)(TopTy))
           }
         }
 
@@ -235,22 +233,22 @@ trait ExprEnv { self: Env =>
       case None => return v.e
       case Some(i: s.Ident) =>
         val info = ct(i); info.isTypeVar = true; info.isVar = true;
-        return VarExpr(info, None, Some(v.e))
+        return De(Var(info, None, Some(v.e)))
       case Some(pat) => pat
     }
     DestructExpr(destruct(pat), v.e)
   }
 
-  def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): VarExpr = {
+  def $var(info: Defo, ty: Ni, init: No, mut: Boolean, ct: Boolean): Var = {
     info.isMut = mut; info.isTypeVar = ct; info.isVar = true;
-    VarExpr(info, ty, init.map(expr))
+    Var(info, ty, init.map(expr))
   }
 
-  def $def(ast: s.Def, info: Defo): DeclExpr = {
+  def $def(ast: s.Def, info: Defo): Def = {
     val s.Def(_, params, ret_ty, rhs) = ast
     val (ps, cs, (ty, body)) =
       withParams(params)((ret_ty.map(expr), rhs.map(expr)))
-    DefExpr(info, ps, cs, ty, body)
+    Def(info, ty, body)(ps, cs)
   }
 
   def $class(ast: s.Class, info: Defo): ClassExpr = {
@@ -262,18 +260,18 @@ trait ExprEnv { self: Env =>
       case body              => err(s"trait/class body is invalid kind: $body")
     }))
     info.isVirtual = isAbstract;
-    info.isPhantom = fields.values.forall(_.isInstanceOf[EDefField])
-    ClassExpr(info, ps, cs, fields)
+    info.isPhantom = fields.values.forall(_.isInstanceOf[DefField])
+    ClassExpr(info)(ps, cs)(fields)
   }
 
   def baseClass(body: s.Block, fields: FieldMap, isAbstract: Boolean) = {
     var index = 0;
     for (stmt <- body.stmts.iterator.map(expr)) stmt match {
-      case v: VarExpr =>
+      case De(v: Var) =>
         if (isAbstract) then err(s"abstract class cannot have fields")
-        addField(VarField(ir.Var(v.id, v.init, -1), index), fields); index += 1;
-      case d: DefExpr =>
-        addField(EDefField(d), fields); d.id.isVirtual = isAbstract;
+        addField(VarField(v, index), fields); index += 1;
+      case De(d: Def) =>
+        addField(DefField(d), fields); d.id.isVirtual = isAbstract;
       case node => err(s"Invalid class field $node")
     }
   }
@@ -317,7 +315,7 @@ trait ExprEnv { self: Env =>
     fields.addOne(f.name -> f)
   }
 
-  def impl(ast: s.Impl, info: Defo): DeclExpr = {
+  def impl(ast: s.Impl, info: Defo): Impl = {
     val s.Impl(rhs, lhs, params, body) = ast
     val fields = MutMap[String, VField]()
     val (ps, cs, (cls, iface)) = withParams(params) {
@@ -332,10 +330,10 @@ trait ExprEnv { self: Env =>
     if (iface.isDefined) {
       fields.values.foreach { d => d.item.id.isOverride = true }
     }
-    info.isPhantom = fields.values.forall(_.isInstanceOf[EDefField])
+    info.isPhantom = fields.values.forall(_.isInstanceOf[DefField])
     if (!info.isPhantom) then err("impl cannot have vars")
 
-    ImplExpr(info, ps, cs, iface, cls, fields)
+    Impl(info, iface, cls)(ps, cs)(fields)
   }
 
   /// Syntax Related Service API
@@ -346,7 +344,7 @@ trait ExprEnv { self: Env =>
     logln(s"findItem: $offset $node")
     val id = node.flatMap(n => defs.find(_.pos.contains((n.offset, n.end))))
     logln(s"findItem ID: $offset $id")
-    id.map(id => byRef(id)((id.ty.level - 1).max(0)))
+    id.map(it => byRef(it)(TopTy))
 
   lazy val deps: List[(FileId, Option[Env])] = {
     rawDeps.iterator.toList.sortBy(_._1.toString)

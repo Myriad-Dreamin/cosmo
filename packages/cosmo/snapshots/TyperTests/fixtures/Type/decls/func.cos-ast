@@ -1,6 +1,6 @@
 block {
  none
- def fib@49(n@50: u32@42): u32@42 = if ("<="(n@50, 1)) block {
+ def fib@49(n@50: u32): DeclExpr(u32@52) = if ("<="(n@50, 1)) block {
   n@50
  } else block {
   "+"(fib@49("-"(n@50, 1)), fib@49("-"(n@50, 2)))

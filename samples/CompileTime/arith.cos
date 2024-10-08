@@ -7,5 +7,5 @@ def main() = {
   type a = 0xfefefefefe
   println(Type(a + a))
   // todo: overflow checking
-  println(Type(a * a))
+  println(Type(a * a));
 }

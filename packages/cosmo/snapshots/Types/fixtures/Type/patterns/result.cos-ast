@@ -1,5 +1,5 @@
 [Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), BinOp(==,Str($),Int64(1)))), err: ""
-[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), (var t:81 = NoneKind(0)))), err: ""
+[Result(i32, i32).Ok(1) match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), var(t))), err: ""
 [Result(i32, i32).Ok(1) match Result(i32, i32).Ok(1)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), BinOp(==,Str($),Int64(1)))), err: ""
-[v0 match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), (var t:92 = NoneKind(0)))), err: ""
-[v1 match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), (var t:97 = NoneKind(0)))), err: ""
+[v0 match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), var(t))), err: ""
+[v1 match Result(i32, i32).Ok(t)] => EnumDestruct(Str($),class(Result::Ok),List(Bool(true), Bool(true), var(t))), err: ""

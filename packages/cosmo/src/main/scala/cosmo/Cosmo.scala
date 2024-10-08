@@ -68,7 +68,7 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
   @JSExport
   def repl(src: String, env: Env = empty): ReplResult =
     env.errors = List()
-    val ts = parse(src).get.stmts.map(env.expr).map(env.valTerm);
+    val ts = parse(src).get.stmts.map(env.expr).map(env.tyckVal);
     val result = ts.map(_.toDoc.pretty).mkString("\n")
     val errors = js.Array(env.errors.map(_.toString): _*)
     ReplResult(result, errors)
@@ -150,7 +150,15 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
       s"Loading module $fid with predeps ${dependencies.mkString("\n  ", "\n  ", "")}".trim,
     )
     loading += fid
-    val res = evaluate(src.content, env)
+    val res =
+      try {
+        evaluate(src.content, env)
+      } catch {
+        case e =>
+          logln(s"error loading module $fid: ${e.getMessage}")
+          e.printStackTrace()
+          None
+      }
     modules += (fid -> res)
     loading -= fid
     res

@@ -73,7 +73,7 @@ class IRCache(val env: Env) {
           s"""Var(id: ${d(i.id)}, init: ${itemRepr(
               i.init,
             )}, isConstant: ${i.isConstant}, level: ${i.level})"""
-        case i: ir.Fn =>
+        case i: ir.Def =>
           // s"""fn(id: ${d(i.id)}, sig: ${itemRepr(i.sig)}, level: ${i.level})"""
           s"""FnRef(id: ${d(i.id)}, level: ${i.level})"""
         case i: ir.CModule =>

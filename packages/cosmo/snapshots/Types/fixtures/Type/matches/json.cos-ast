@@ -2,7 +2,7 @@
   case ValueT(i32).Null => 1
 }] => typeMatch (instance class ValueT::Null@52() = block {
  
-}() by class ValueT@49(T@50: Type@24) = block {
+}() by class ValueT@49(T@50: TopKind(2)) = block {
  class ValueT::Null@52() = block {
   
  }
@@ -13,13 +13,13 @@
  case class ValueT::Null@52() = block {
   
  } => block {
-  ClassDestruct(ins (class(ValueT::Null))(),class(ValueT::Null),List((var i32_67:67 = NoneKind(0))))
+  ClassDestruct(ins (class(ValueT::Null))(),class(ValueT::Null),List(var(b_68)))
   1
  }
-} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching ins (class(ValueT::Null))() on class(ValueT<i32@41>)"
+} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching ins (class(ValueT::Null))() on class(ValueT<i32>)"
 [v1 match {
   case ValueT(i32).Null => 1
-}] => typeMatch (v1@56 by class ValueT@49(T@50: Type@24) = block {
+}] => typeMatch (v1@56 by class ValueT@49(T@50: TopKind(2)) = block {
  class ValueT::Null@52() = block {
   
  }
@@ -30,13 +30,13 @@
  case class ValueT::Null@52() = block {
   
  } => block {
-  ClassDestruct(v1@56,class(ValueT::Null),List((var i32_71:71 = NoneKind(0))))
+  ClassDestruct(v1@56,class(ValueT::Null),List(var(b_73)))
   1
  }
-} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching v1@56 on class(ValueT<i32@41>)"
+} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching v1@56 on class(ValueT<i32>)"
 [v2 match {
   case ValueT(i32).Null => 1
-}] => typeMatch (v2@59 by class ValueT@49(T@50: Type@24) = block {
+}] => typeMatch (v2@59 by class ValueT@49(T@50: TopKind(2)) = block {
  class ValueT::Null@52() = block {
   
  }
@@ -47,7 +47,7 @@
  case class ValueT::Null@52() = block {
   
  } => block {
-  ClassDestruct(v2@59,class(ValueT::Null),List((var i32_75:75 = NoneKind(0))))
+  ClassDestruct(v2@59,class(ValueT::Null),List(var(b_78)))
   1
  }
-} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching v2@59 on class(ValueT<i32@41>)"
+} else BottomKind(0), err: "missing case EnumField(class(ValueT::Elem)) when matching v2@59 on class(ValueT<i32>)"
