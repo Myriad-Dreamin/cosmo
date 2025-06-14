@@ -14,8 +14,6 @@ import cosmo.system._
 import cosmo.FileId
 import cosmo.syntax.Ident
 
-type De = DeclExpr
-
 type EParam = Var;
 type EParams = List[EParam];
 
@@ -40,34 +38,53 @@ class Scopes {
 class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     extends ExprEnv
     with TypeEnv {
-
+  /// The source file id
   def fid = source.fid
 
+  /// Whether to skip core imports
   var noCore = false
+  /// Whether to evaluate content
   var syntaxOnly = false
 
+  /// The current allocated def id
   var defAlloc = DEF_ALLOC_START
+  /// The current created definitions
   var defs = List[DefInfo]()
+  /// The current definition
   var currentDef: Option[DefId] = None
+  /// The current region range
   var currentRegion = (-1, -1)
+  /// The parent definition and range and of definitions
   var defParents = Map[DefId, (Option[DefId], (Int, Int))]()
+
+  /// The scope chain
   var scopes = new Scopes()
-  var errors: List[String] = List()
-  var ns: List[String] = List()
-  var builtinClasses = Map[Term | Expr, Class]()
-  var selfRef: Option[Term] = None
-  var selfImplRef: Option[Term] = None
-  var rawDeps = Map[FileId, Option[Env]]()
-  var checkStatus = MutLongMap[Unit]()
-
-  var checked = MutLongMap[Term]()
+  /// Local bindings of definitions
   var items: Map[DefId, Term] = Map()
+  /// The namespace of current scope
+  var ns: List[String] = List()
+  /// The current `self` reference
+  var selfRef: Option[Term] = None
+  /// The current `impl` reference
+  var selfImplRef: Option[Term] = None
+  /// Status of whether is checking some definitions
+  var checkStatus = MutLongMap[Unit]()
+  /// Checked definitions
+  var checked = MutLongMap[Term]()
 
-  var typeSym = DefInfo.just(0, this)
-
-  val patHolder = Str("$")
+  /// Errors
+  var errors: List[String] = List()
+  /// Dependencies used in the current file
+  var rawDeps = Map[FileId, Option[Env]]()
+  /// The untyped module of current env
   var moduleAst: untyp.Region = untyp.Region(List(), false)
+  /// The typed module of current env
   var module: typed.Region = typed.Region(List(), false)
+  /// Built-in classes
+  var builtinClasses = Map[Term | Expr, Class]()
+
+  /// The placeholder used in pattern matching
+  val patHolder = Str("$")
 
   /// Builtin Items
 
@@ -78,6 +95,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     newBuiltin("unreachable")
     newBuiltin("unimplemented")
     newBuiltin("panic")
+    newBuiltin("reflectMeta")
 
     newType("c_enum", CEnumTy)
     newType("Type", UniverseTy)
@@ -121,7 +139,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   /// Entry
 
   def exprStage(ast: syntax.Block): Env = {
-    typeSym = scopes.get("Type").get
     // FIXME: better noCore handling
     ast.stmts.takeWhile {
       case syntax.Decorate(syntax.Apply(Ident("noCore"), _, _), _) =>
@@ -138,7 +155,6 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   }
 
   def evalStage: Env = {
-    typeSym = scopes.get("Type").get
     module =
       if (syntaxOnly) then Region(List(), true)
       else tyckVal(moduleAst).asInstanceOf[Region]
@@ -154,6 +170,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
 
   /// Item Creation
 
+  /// Creates Error
   def err(msg: String): NoneKind =
     errors = errors :+ msg; return NoneItem
 
@@ -189,6 +206,85 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
   }
 
+  def byRefInAir(info: DefInfo)(implicit anno: Term): Term = byRef(info) match {
+    case t @ Ref(_, None) => err(s"undefined reference $info"); t
+    case t                => t
+  }
+
+  def resolveParams(e: FuncLike) = e.synParams.map { params =>
+    params.map(p => { p.checked; Param(p, false) })
+  }
+
+  /// Expr -> Term
+
+  def tyckValO(node: Option[Expr]): Term =
+    node.map(tyckVal).getOrElse(NoneItem)
+  def tyckVal(node: Term | Expr): Term = tyck(node)(TopTy)
+  def tyckTy(node: Term | Expr): Type = tyck(node)(UniverseTy)
+  def tyck(l: Term | Expr)(implicit rhs: Term): ir.Term = {
+    val lhs = l match {
+      case l: Term => return term(l)(rhs)
+      case l: Expr => l
+    }
+    debugln(s"tyck $lhs: $rhs")
+    // solution without folding
+    val rawSol = lhs match {
+      // control flow, todo: duplicate patterns
+      case item: untyp.Break       => Break()
+      case item: untyp.Continue    => Continue()
+      case untyp.Opaque(x, y)      => Opaque(x, y)
+      case untyp.Return(v)         => Return(tyck(v))
+      case untyp.If(cond, x, y)    => If(tyck(cond), tyck(x), y.map(tyck))
+      case untyp.Loop(body)        => Loop(tyck(body))
+      case untyp.While(cond, body) => While(tyck(cond), tyck(body))
+      case untyp.For(name, iter, body) =>
+        For(tyck(name), tyck(iter), tyck(body))
+      case untyp.Region(stmts, semi) => Region(stmts.map(tyck), semi)
+      // operations
+      case untyp.UnOp("&", untyp.UnOp("mut", lhs)) => RefItem(tyck(lhs), true)
+      case untyp.UnOp("&", lhs)                    => RefItem(tyck(lhs), false)
+      case untyp.UnOp("mut", lhs) =>
+        errors = s"mut must be used after &" :: errors; tyck(lhs)
+      case untyp.UnOp("*", lhs)      => derefPtr(lhs)
+      case untyp.UnOp(op, lhs)       => UnOp(op, tyck(lhs))
+      case untyp.BinOp(op, lhs, rhs) => BinOp(op, tyck(lhs), tyck(rhs))
+      case untyp.As(lhs, rhs)        => As(tyck(lhs), tyckTy(rhs))
+      case untyp.KeyedArg(k, v)      => KeyedArg(tyck(k), tyck(v))
+      // todo: check is compile time
+      case untyp.SelectExpr(lhs, rhs) => Select(tyck(lhs), rhs)
+      case untyp.Apply(lhs, rhs)      => Apply(tyck(lhs), rhs.map(tyck))
+      case untyp.TmplApply(lhs, strings, args) =>
+        tmplApply(tyck(lhs), strings, args.map { case (a, b) => (tyck(a), b) })
+      case b: untyp.MatchExpr => checkMatch(b)
+      case untyp.ItemE(item)  => item
+      // todo: typed and untyed expressions
+      case i: untyp.BinInst => binInst(i.op, tyck(i.lhs), tyck(i.rhs))
+      // declarations
+      case DeclExpr(Name(id, None))     => byRefInAir(id)
+      case DeclExpr(Name(id, Some(of))) => byRefInAir(of)
+      case DeclExpr(h: Hole)            => Hole(h.id)
+      case DeclExpr(d)                  => d.checked
+      case d: untyp.DestructExpr        => checkDestruct(d)
+      case t: untyp.TupleLit            => TupleLit(t.elems.map(tyck))
+      case cr: untyp.CaseRegion         => err(s"case region $cr in the air")
+      case c: untyp.CaseExpr =>
+        errE(s"case clause without match")
+        Opaque.expr(s"0/* error: case clause without match $c */")
+    }
+    val sol = term(rawSol)
+    debugln(s"tyck $lhs: $rhs => $sol")
+    sol match {
+      case t: ExprTerm => {
+        lhs.info.sol = sol
+        t.info = lhs.info
+      }
+      case _ =>
+    }
+    sol
+  }
+
+  /// Term -> Term (Normal Form)
+
   def term(lhs: Term)(implicit rhs: Term): ir.Term =
     debugln(s"term $lhs: $rhs")
     lhs match {
@@ -214,7 +310,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case BinOp(op, lhs, rhs)   => binOp(op, term(lhs), term(rhs))
       case BinInst(op, lhs, rhs) => binInst(op, term(lhs), term(rhs))
       case Apply(lhs, rhs)       => $apply(term(lhs), rhs.map(term))
-      case Select(lhs, rhs)      => select(term(lhs), rhs)
+      case Select(lhs, rhs)      => deref(select(term(lhs), rhs))
       case As(lhs, rhs)          => As(term(lhs), term(rhs))
       case KeyedArg(k, v)        => KeyedArg(term(k), term(v))
       case i: InferVar           => i
@@ -237,25 +333,13 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
           item.arguments.map(lift),
         )
       case SelfVal if rhs == UniverseTy => SelfTy
+      case t: (CIdent | CppInsType | Value | Def | SimpleType | Opaque |
+            ClassExpr | Impl | CModule | NativeModule | Class | ClassDestruct |
+            EnumDestruct) =>
+        t
       // todo: fold these instances
-      case c: CIdent        => c
-      case c: CppInsType    => c
-      case v: Value         => v
-      case d: Def           => d
-      case t: SimpleType    => t
-      case o: Opaque        => o
-      case t: ValueMatch    => t
-      case t: TypeMatch     => t
-      case t: ClassExpr     => t
-      case t: Impl          => t
-      case t: Param         => t
-      case t: CModule       => t
-      case t: NativeModule  => t
-      case t: Class         => t
-      case t: ClassInstance => t
-      case t: ClassDestruct => t
-      case t: EnumDestruct  => t
-      case t: HKTInstance   => t
+      case t: (ValueMatch | TypeMatch | Param | ClassInstance | HKTInstance) =>
+        t
       case t @ Var(id, _, _) if rhs == UniverseTy =>
         items.get(id.id).getOrElse(t)
       case t: Var => t
@@ -266,87 +350,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case TupleLit(elems)     => TupleLit(elems.map(term))
     }
 
-  def tyckValO(node: Option[Expr]): Term =
-    node.map(tyckVal).getOrElse(NoneItem)
-  def tyckVal(node: Term | Expr): Term = tyck(node)(TopTy)
-  def tyckTy(node: Term | Expr): Type = tyck(node)(UniverseTy)
-  def tyck(l: Term | Expr)(implicit rhs: Term): ir.Term = {
-    val lhs = l match {
-      case l: Term => return term(l)(rhs)
-      case l: Expr => l
-    }
-    debugln(s"tyck $lhs: $rhs")
-    // solution
-    val sol = lhs match {
-      // control flow, todo: duplicate patterns
-      case item: untyp.Break       => Break()
-      case item: untyp.Continue    => Continue()
-      case untyp.Opaque(x, y)      => Opaque(x, y)
-      case untyp.Return(v)         => Return(tyck(v))
-      case untyp.If(cond, x, y)    => If(tyck(cond), tyck(x), y.map(tyck))
-      case untyp.Loop(body)        => Loop(tyck(body))
-      case untyp.While(cond, body) => While(tyck(cond), tyck(body))
-      case untyp.For(name, iter, body) =>
-        For(tyck(name), tyck(iter), tyck(body))
-      case untyp.Region(stmts, semi) => Region(stmts.map(tyck), semi)
-      // operations
-      case untyp.UnOp("&", untyp.UnOp("mut", lhs)) => RefItem(tyck(lhs), true)
-      case untyp.UnOp("&", lhs)                    => RefItem(tyck(lhs), false)
-      case untyp.UnOp("mut", lhs) =>
-        errors = s"mut must be used after &" :: errors; tyck(lhs)
-      case untyp.UnOp("*", lhs)      => derefPtr(lhs)
-      case untyp.UnOp(op, lhs)       => UnOp(op, tyck(lhs))
-      case untyp.BinOp(op, lhs, rhs) => binOp(op, tyck(lhs), tyck(rhs))
-      case untyp.As(lhs, rhs)        => As(tyck(lhs), tyckTy(rhs))
-      case untyp.KeyedArg(k, v)      => KeyedArg(tyck(k), tyck(v))
-      // todo: check is compile time
-      case untyp.SelectExpr(lhs, rhs) => deref(select(tyck(lhs), rhs))
-      case untyp.Apply(lhs, rhs)      => $apply(tyck(lhs), rhs.map(tyck))
-      case untyp.TmplApply(lhs, strings, args) =>
-        tmplApply(tyck(lhs), strings, args.map { case (a, b) => (tyck(a), b) })
-      case b: untyp.MatchExpr => checkMatch(b)
-      case untyp.ItemE(item)  => item
-      // todo: typed and untyed expressions
-      case i: untyp.BinInst => BinInst(i.op, tyck(i.lhs), tyck(i.rhs))
-      // declarations
-      case De(v: Var)       => v.checked
-      case De(d: Def)       => d.checked
-      case De(c: ClassExpr) => c.checked
-      case De(i: Impl)      => i.checked
-      case De(Name(id, None)) =>
-        val t = byRef(id);
-        t match {
-          case Ref(_, None) => err(s"undefined reference $id")
-          case _            =>
-        }
-        t
-      case De(Name(id, Some(of))) =>
-        val t = byRef(of);
-        t match {
-          case Ref(_, None) => err(s"undefined reference $id")
-          case _            =>
-        }
-        t
-      case De(h: Hole)           => Hole(h.id)
-      case d: untyp.DestructExpr => checkDestruct(d)
-      case t: untyp.TupleLit     => TupleLit(t.elems.map(tyck))
-      case cr: untyp.CaseRegion  => err(s"case region $cr in the air")
-      case c: untyp.CaseExpr =>
-        errE(s"case clause without match")
-        Opaque.expr(s"0/* error: case clause without match $c */")
-    }
-    debugln(s"tyck $lhs: $rhs => $sol")
-    sol match {
-      case t: ExprTerm => {
-        lhs.info.sol = sol
-        t.info = lhs.info
-      }
-      case _ =>
-    }
-    sol
-  }
-
-  /// imports
+  /// Imports
 
   def $import(p: syntax.Node, dest: Option[syntax.Node]): Term = {
     val path = p match {
@@ -667,20 +671,13 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       return Apply(fn, castArgs(fn.params, args))
     val f = fn.checked
     val itemsStack = items
-    val res = scopes.withScope {
-      val castedArgs = f.params.zip(args).map { case (p, a) =>
-        val info = p.id
-        scopes.set(info.name, info)
-        val casted = castTo(term(a), info.ty)
-        // todo: constrain types
-        casted
-      }
-      f.params.zip(castedArgs).foreach { case (p, a) =>
-        items += (p.id.id -> a)
-      }
-      val value = f.body.map(lift).map(eval).getOrElse(NoneItem)
-      hktRef(Some(f), castedArgs.toList, value)
+    val castedArgs =
+      f.params.zip(args).map { case (p, a) => castTo(term(a), p.id.ty) }
+    f.params.zip(castedArgs).foreach { case (p, a) =>
+      items += (p.id.id -> a)
     }
+    val value = f.body.map(lift).map(eval).getOrElse(NoneItem)
+    val res = hktRef(Some(f), castedArgs.toList, value)
     items = itemsStack
     res
   }
@@ -708,7 +705,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
   def checkMatch(b: untyp.MatchExpr)(implicit anno: Term): Term = {
     import MatchM._
     val lhs = tyck(b.lhs)
-    val lhsShape = curryTermView(lhs);
+    val lhsShape = curryTerm(lhs);
 
     debugln(s"checkMatch $lhs ($lhsShape) on ${b.body}")
     val state = b.body.cases.foldLeft(Init) {
@@ -784,7 +781,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case Init => MVar(lhs, rhs, body(Init))
       case MVar(u, v, inner) =>
         err(
-          s"exhaused case, already bind lhs before, lhs is $lhs, bound $v, expected rebind $rhs",
+          s"exhausted case, already bind lhs before, lhs is $lhs, bound $v, expected rebind $rhs",
         );
         this
       case v: (MValue | MEnum | MClass) =>
@@ -863,55 +860,53 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case state => throw new Exception(s"cannot add enum at state $state")
     }
 
-    // rename: Option[Ref],
-    def doFinalize(body: UD): M =
-      this match {
-        case Init         => body(Init)
-        case b: Finalized => b
-        case MVar(_, rename, inner) if rename.id.name == "_" =>
-          Finalized(inner.finalize(body))
-        case MVar(t, v, inner) =>
-          v.doCheck(tyOf(t), Some(t))
-          Finalized(placeVal(v, inner.finalize(body)))
-        case MValue(lhs, values) =>
-          debugln(s"finalize values $values $body")
-          val cases = values.map { case (v, m) =>
-            (v, m.finalize(body))
-          }
+    def doFinalize(body: UD): M = this match {
+      case Init         => body(Init)
+      case b: Finalized => b
+      case MVar(_, rename, inner) if rename.id.name == "_" =>
+        Finalized(inner.finalize(body))
+      case MVar(t, v, inner) =>
+        v.doCheck(tyOf(t), Some(t))
+        Finalized(placeVal(v, inner.finalize(body)))
+      case MValue(lhs, values) =>
+        debugln(s"finalize values $values $body")
+        val cases = values.map { case (v, m) =>
+          (v, m.finalize(body))
+        }
 
-          val orElse = coverageCheck(
-            body, {
-              err(s"must add a branch to close value match when matching $lhs")
-            },
-          );
-          Finalized(ValueMatch(lhs, tyOf(lhs), cases, orElse))
-        case MClass(cd, inner) =>
-          debugln(s"finalize classes $cd $body")
-          Finalized(placeVal(cd, inner.finalize(body)))
-        case MEnum(lhs, use, caseMs) =>
-          debugln(s"finalize enums $use $caseMs $body")
-          val useVariants = use.variants
-          val numOfVariants = useVariants.length
-          var cases = ListBuffer[(Class, Term)]()
-          val missings = ListBuffer[EnumField]()
-          for (v <- useVariants) {
-            caseMs.get(v.item.id.id) match {
-              case None =>
-                missings.addOne(v)
-              case Some(state) =>
-                cases.addOne((v.item, state.finalize(body)))
+        val orElse = coverageCheck(
+          body, {
+            err(s"must add a branch to close value match when matching $lhs")
+          },
+        );
+        Finalized(ValueMatch(lhs, tyOf(lhs), cases, orElse))
+      case MClass(cd, inner) =>
+        debugln(s"finalize classes $cd $body")
+        Finalized(placeVal(cd, inner.finalize(body)))
+      case MEnum(lhs, use, caseMs) =>
+        debugln(s"finalize enums $use $caseMs $body")
+        val useVariants = use.variants
+        val numOfVariants = useVariants.length
+        var cases = ListBuffer[(Class, Term)]()
+        val missing = ListBuffer[EnumField]()
+        for (v <- useVariants) {
+          caseMs.get(v.item.id.id) match {
+            case None =>
+              missing.addOne(v)
+            case Some(state) =>
+              cases.addOne((v.item, state.finalize(body)))
+          }
+        }
+
+        val orElse = coverageCheck(
+          body, {
+            for (v <- missing) {
+              err(s"missing case $v when matching $lhs on $use")
             }
-          }
-
-          val orElse = coverageCheck(
-            body, {
-              for (v <- missings) {
-                err(s"missing case $v when matching $lhs on $use")
-              }
-            },
-          );
-          Finalized(TypeMatch(lhs, use, cases.toList, orElse))
-      }
+          },
+        );
+        Finalized(TypeMatch(lhs, use, cases.toList, orElse))
+    }
   }
 
   def placeVal(v: Term, m: Term): Term = m match {
@@ -942,7 +937,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     debugln(s"checkVar $v")
     val Var(info, oty, initExprE) = v
     info.isVar = true;
-    val initExpr = initExprE.map(tyckVal).map(normalize)
+    val initExpr = initExprE.map(tyckVal)
     val initTy = oty.map(tyckTy).orElse {
       info.name match {
         case "self" => Some(RefItem(SelfTy, false))
@@ -963,21 +958,16 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     ???
   }
 
-  def resolveParams(e: FuncLike) = e.synParams.map { params =>
-    params.map(p => { p.checked; Param(p, false) })
-  }
-
   def checkDef(e: Def) = {
     debugln(s"defItem ${e.id.name}")
     val Def(info, retTyE, rhs) = e
 
-    val params = resolveParams(e);
-    e.doCheckParams(params)
+    e.doCheckParams(resolveParams(e))
     val annotated = retTyE.map(tyckTy)
     val infer = annotated.getOrElse(createInfer(info));
     e.doCheckRetTy(infer)
     checked += (info.id.id.toLong -> e)
-    val body = rhs.map(e => normalize(tyckVal(e)))
+    val body = rhs.map(tyckVal)
     val bodyTy = body.map(tyOf)
     debugln(s"defItem $info, $bodyTy <: $annotated")
     // we have already checked annotated <: bodyTy when we are
@@ -985,17 +975,16 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     val sigRetTy = annotated.orElse(bodyTy).getOrElse(infer)
     e.doCheckBody(sigRetTy, body)
 
-    info.isDependent =
-      if isTypeLevel(e) then body.map(isDependent).getOrElse(false) else false
-
+    info.isDependent = isTypeLevel(e) && body.map(isDependent).getOrElse(false)
     e
   }
 
   def checkClass(e: ClassExpr): Class = {
     val (ClassExpr(info), fields) = (e, e.fields)
-    val ss = selfRef; selfRef = Some(e);
+    val ss = selfRef; selfRef = None;
 
     val params = resolveParams(e);
+    e.doCheckParams(params)
     val cls = Class(info, params, fields); selfRef = Some(cls);
     info.ty = cls
     noteDecl(cls);
@@ -1009,7 +998,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
 
   def checkImpl(e: Impl) = {
     val (Impl(info, i, c), fields) = (e, e.fields)
-    e.rawParams = resolveParams(e);
+    e.doCheckParams(resolveParams(e))
     val cls = tyckTy(c);
     e.cls = cls;
     val ss2 = selfRef; selfRef = Some(cls);
@@ -1056,6 +1045,28 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
     }
     id.impls = id.impls :+ impl
   }
+
+  /// Evaluation
+
+  def run(sol: Term): Term = {
+    debugln(s"run $sol")
+    tyck(sol)(UniverseTy)
+  }
+
+  def compile(info: ExprInfo): (v: Env) => Term = {
+    if info.jit != null then return info.jit
+    info.jit = info.sol match {
+      case _ => _.run(info.sol)
+    }
+    info.jit
+  }
+
+  def eval(item: Term): Term = {
+    debugln(s"eval $item")
+    item.eval(this)
+  }
+
+  /// Queries
 
   def storeTy(ty: Type)(implicit exprRec: Term => String): String = {
     debugln(s"storeTy $ty")
@@ -1108,23 +1119,5 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       }
       case ty => "auto"
     }
-  }
-
-  def run(sol: Term): Term = {
-    debugln(s"run $sol")
-    tyck(sol)(UniverseTy)
-  }
-
-  def compile(info: ExprInfo): (v: Env) => Term = {
-    if info.jit != null then return info.jit
-    info.jit = info.sol match {
-      case _ => _.run(info.sol)
-    }
-    info.jit
-  }
-
-  def eval(item: Term): Term = {
-    debugln(s"eval $item")
-    item.eval(this)
   }
 }

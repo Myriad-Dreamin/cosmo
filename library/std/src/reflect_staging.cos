@@ -1,0 +1,105 @@
+@noCore();
+
+import _ from std::prelude::lang;
+
+class TypeMeta {
+  case Class(name: str, params: Array(ParamMeta), fields: Array(FieldMeta)) => {
+    def vars(&self): Array(TypeMeta) = {
+      val mut variants = Array(TypeMeta)();
+      for f in self.fields {
+        f match {
+          case FieldMeta.Var(g) => {
+            variants.push(g);
+          }
+          case _ => {}
+        }
+      }
+    }
+    def methods(&self): Array(TypeMeta) = {
+      val mut variants = Array(TypeMeta)();
+      for f in self.fields {
+        f match {
+          case FieldMeta.Def(g) => {
+            variants.push(g);
+          }
+          case _ => {}
+        }
+      }
+    }
+    def variants(&self): Array(TypeMeta) = {
+      val mut variants = Array(TypeMeta)();
+      for f in self.fields {
+        f match {
+          case FieldMeta.Variant(g) => {
+            variants.push(g);
+          }
+          case _ => {}
+        }
+      }
+    }
+  }
+  case Def(name: str, params: Array(ParamMeta), retTy: Box(TypeMeta));
+  case Var(name: str, ty: Box(TypeMeta));
+  case Variant(name: str, cls: Box(TypeMeta));
+  // case Module(name: str, path: str);
+
+  case _ => {
+    def name(&self): &str = {
+      self match {
+        case TypeMeta.Class(name, _, _) => name;
+        case TypeMeta.Def(name, _, _) => name;
+        case TypeMeta.Var(name, _) => name;
+        case TypeMeta.Variant(name, _) => name;
+        // case TypeMeta.Module(name, _) => name;
+      }
+    }
+  }
+}
+
+class FieldMeta {
+  case Var(ty: TypeMeta);
+  case Def(ty: TypeMeta);
+  case Variant(ty: TypeMeta);
+
+  case _ => {
+    def ty(&self): TypeMeta = {
+      self match {
+        case FieldMeta.Var(ty) => ty;
+        case FieldMeta.Def(ty) => ty;
+        case FieldMeta.Variant(ty) => ty;
+      }
+    }
+
+    def name(&self): &str = {
+      self.ty().name()
+    }
+  }
+}
+
+class ParamMeta {
+  case Pos(name: str, ty: TypeMeta);
+  case Named(name: str, ty: TypeMeta);
+
+  case _ => {
+    def name(&self): &str = {
+      self match {
+        case ParamMeta.Pos(name, _) => name;
+        case ParamMeta.Named(name, _) => name;
+      }
+    }
+
+    def ty(&self): TypeMeta = {
+      self match {
+        case ParamMeta.Pos(_, ty) => ty;
+        case ParamMeta.Named(_, ty) => ty;
+      }
+    }
+
+    def isSelf(&self): bool = {
+      self.name() == "self"
+    }
+  }
+}
+
+@builtin()
+def meta[T]: TypeMeta;
