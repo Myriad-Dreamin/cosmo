@@ -781,7 +781,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
       case Init => MVar(lhs, rhs, body(Init))
       case MVar(u, v, inner) =>
         err(
-          s"exhaused case, already bind lhs before, lhs is $lhs, bound $v, expected rebind $rhs",
+          s"exhausted case, already bind lhs before, lhs is $lhs, bound $v, expected rebind $rhs",
         );
         this
       case v: (MValue | MEnum | MClass) =>
@@ -888,11 +888,11 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
         val useVariants = use.variants
         val numOfVariants = useVariants.length
         var cases = ListBuffer[(Class, Term)]()
-        val missings = ListBuffer[EnumField]()
+        val missing = ListBuffer[EnumField]()
         for (v <- useVariants) {
           caseMs.get(v.item.id.id) match {
             case None =>
-              missings.addOne(v)
+              missing.addOne(v)
             case Some(state) =>
               cases.addOne((v.item, state.finalize(body)))
           }
@@ -900,7 +900,7 @@ class Env(val source: Source, val pacMgr: cosmo.PackageManager)
 
         val orElse = coverageCheck(
           body, {
-            for (v <- missings) {
+            for (v <- missing) {
               err(s"missing case $v when matching $lhs on $use")
             }
           },
