@@ -1,0 +1,49 @@
+{
+  "schema": "cosmo.acceptance-corpus.v1",
+  "name": "cosmo1-core-acceptance-corpus",
+  "status": "acceptance-target",
+  "description": "Representative cosmo1-shaped source forms for future cosmo0 parse, elaboration, typing, LIR, backend, and package validation.",
+  "files": [
+    {
+      "path": "fixtures/cosmo0/cosmo1/core-acceptance/cosmo1_core_acceptance.cos",
+      "role": "core-source",
+      "currentValidation": [
+        "discoverable",
+        "shared-parser"
+      ],
+      "futurePhases": [
+        "cosmo0-subset-elaboration",
+        "cosmo0-typing",
+        "cosmo0-lir-lowering",
+        "cosmo0-backend",
+        "cosmo0-package-validation"
+      ]
+    }
+  ],
+  "conventions": {
+    "standardGenericTypeApplication": "Name[Arg]",
+    "referenceTypes": [
+      "&T",
+      "&mut T",
+      "&self",
+      "&mut self"
+    ],
+    "descriptorBackedStandardTypes": [
+      "Vec[T]",
+      "Option[T]",
+      "Result[T, E]",
+      "Arena[T]",
+      "Id[T]",
+      "Map[K, V]",
+      "Set[T]"
+    ],
+    "excludedSourceFeatures": [
+      "user-defined generic declarations",
+      "traits",
+      "reflection",
+      "staging",
+      "closures",
+      "full compiler implementation logic"
+    ]
+  }
+}
