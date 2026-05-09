@@ -1,4 +1,4 @@
-package cosmo
+package cosmo0
 
 import scala.util.chaining._
 import scala.util.TupledFunction
@@ -12,6 +12,23 @@ implicit class SoftErr[$: P](p: => P[Unit]) {
 }
 
 object Parser {
+  private val unescapeStrPattern = "(\\\\[\\\\tfrn\\\"])".r
+
+  private def unescapeStr(s: String): String =
+    unescapeStrPattern.replaceAllIn(
+      s,
+      m =>
+        m.group(1) match {
+          case "\\\"" => "\""
+          case "\\\\" => "\\"
+          case "\\n"  => "\n"
+          case "\\t"  => "\t"
+          case "\\r"  => "\r"
+          case "\\f"  => "\f"
+          case other  => other
+        },
+    )
+
   // Entry point
   def root[$: P]: P[Block] =
     P(("" ~ term).rep.map(_.toList) ~ End).map(Block.apply).m
