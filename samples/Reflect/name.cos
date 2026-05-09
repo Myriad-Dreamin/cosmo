@@ -1,7 +1,12 @@
 
 @noCore();
 
+// import std::reflect;
+
+class Node {}
+
 def main() = {
-  println("Hello, world!")
+  type NodeMeta = reflectMeta(Node);
+  println(NodeMeta.toString());
 }
 

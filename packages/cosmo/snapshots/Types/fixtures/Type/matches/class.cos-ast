@@ -1,8 +1,8 @@
 [T(x: 1, y: 2) match {
   case T(x, y) => x + y
 }] => block {
- ClassDestruct(ins (class(T))(Int64(1), Int64(2)),class(T),List(var(x_58), var(y_59)))
- var x@54: i64 = var x_58@58: i64 = _
- var y@55: i64 = var y_59@59: i64 = _
+ ClassDestruct(ins (class(T))(Int64(1), Int64(2)),class(T),List(var(x_59), var(y_60)))
+ var x@55: i64 = var x_59@59: i64 = _
+ var y@56: i64 = var y_60@60: i64 = _
  BinInst(Int(i64,Add),var(x),var(y))
 }, err: ""
