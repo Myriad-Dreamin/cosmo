@@ -7,7 +7,7 @@
 ## 2. Build Integration
 
 - [x] 2.1 Add `packages/cosmo0` to the sbt build as an independent Scala.js project.
-- [x] 2.2 Wire any required dependency on the existing parser package without changing the full compiler entry points.
+- [x] 2.2 Move the shared parser boundary into `packages/cosmo0` and make `packages/cosmo` depend on it without changing full compiler behavior.
 - [x] 2.3 Ensure the existing `packages/cosmo` project and tests remain addressable through their current build targets.
 
 ## 3. Public API Skeleton
@@ -22,4 +22,7 @@
 - [x] 4.2 Add tests proving the facade can accept source text and return structured results.
 - [x] 4.3 Run the new package test target and the existing full compiler test target.
 
-  `sbt cosmo0/test` passes. `sbt cosmo/test` remains addressable but currently fails in existing `cosmo.SampleTest` cases: `CompileTime/addFn`, `CompileTime/recursive`, and `Trait/display`.
+  `sbt cosmo0/test` passes. `sbt "cosmo/testOnly cosmo.ParserTest"` passes.
+  `sbt cosmo/test` remains addressable but currently fails in existing
+  `cosmo.SampleTest` cases: `CompileTime/addFn`, `CompileTime/recursive`, and
+  `Trait/display`.

@@ -14,7 +14,8 @@ it must not change full compiler behavior.
 **Goals:**
 
 - Add an independent Scala.js `cosmo0` sbt project under `packages/cosmo0`.
-- Reuse the shared parser for the initial parse entry point.
+- Move the shared parser boundary into `cosmo0` for the initial parse entry
+  point and for the existing full compiler path.
 - Define public result, diagnostic, source file, source span, and phase status
   types that later phases can share.
 - Return structured pending or unsupported results for unimplemented check and
@@ -31,22 +32,26 @@ it must not change full compiler behavior.
 
 ### Add `cosmo0` as a separate Scala.js project
 
-The new sbt project lives at `packages/cosmo0` and uses the `cosmo0` Scala
-package namespace. This keeps bootstrap-specific APIs out of the current full
-compiler namespace and gives later phases an independent test target.
+The new sbt project lives at `packages/cosmo0`. Public cosmo0 compiler APIs use
+the `cosmo0` Scala package namespace. The parser AST remains under
+`cosmo.syntax` as a compatibility boundary so the existing full compiler can
+continue to consume the same syntax node types while the source files are owned
+by the `cosmo0` project.
 
 Alternative considered: add cosmo0 files inside `packages/cosmo`. That would be
 faster initially, but it would make later bootstrap work harder to keep isolated
 from full compiler behavior.
 
-### Depend on the existing `cosmo` project for parsing
+### Make `cosmo` depend on `cosmo0` for parsing
 
-The facade calls the shared `cosmo.Parser.root` parser directly. This avoids
-creating a second grammar and makes the parser dependency explicit through the
-sbt project relationship.
+The parser now lives at `cosmo0.Parser`, and the existing full compiler imports
+that parser. This avoids creating a second grammar and makes cosmo0 the owner of
+the first parse boundary used by later bootstrap phases.
 
-Alternative considered: copy or wrap parser code in the new package. That would
-create immediate syntax drift risk without adding useful behavior.
+Alternative considered: keep `Parser` in `packages/cosmo` and let cosmo0 depend
+on the full compiler project. That would invert the intended layering and force
+the bootstrap path to depend on typer, evaluator, codegen, and runtime pieces it
+does not need.
 
 ### Use structured phase results from the first API
 
@@ -61,9 +66,9 @@ would need exception handling for expected phase availability.
 
 ## Risks / Trade-offs
 
-- The parser dependency currently brings in the full `cosmo` project rather than
-  a parser-only module. This is acceptable for the initial package boundary, and
-  a future parser split can keep the `cosmo0` facade API unchanged.
+- The parser AST package name remains `cosmo.syntax` for compatibility even
+  though the sources are now compiled by `cosmo0`. A later cleanup can rename the
+  syntax namespace once the full compiler is ready for broader import churn.
 - Pending and unsupported statuses are intentionally conservative. Later changes
   must replace those results with real checked and compiled values as phases are
   implemented.
@@ -71,9 +76,11 @@ would need exception handling for expected phase availability.
 ## Migration Plan
 
 1. Add the `cosmo0` project and package namespace.
-2. Add the facade and shared structured result types.
-3. Add smoke tests for instantiation, parsing, pending check, and unsupported
+2. Move `Parser` and parser-owned syntax nodes into the `cosmo0` project.
+3. Make `cosmo` depend on `cosmo0` and import `cosmo0.Parser`.
+4. Add the facade and shared structured result types.
+5. Add smoke tests for instantiation, parsing, pending check, and unsupported
    compile behavior.
-4. Replace pending check behavior with a real subset checker in a later change.
-5. Replace unsupported compile behavior after typed expressions, LIR, and backend
+6. Replace pending check behavior with a real subset checker in a later change.
+7. Replace unsupported compile behavior after typed expressions, LIR, and backend
    phases exist.

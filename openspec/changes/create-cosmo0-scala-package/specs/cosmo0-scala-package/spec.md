@@ -7,9 +7,17 @@ compiler path under `packages/cosmo0`.
 
 #### Scenario: cosmo0 package namespace is separate
 
-- **WHEN** cosmo0 source files are compiled
+- **WHEN** cosmo0 public compiler API source files are compiled
 - **THEN** they use the `cosmo0` Scala package namespace
-- **AND** they do not add cosmo0 API types to the existing `cosmo` namespace
+- **AND** they do not add cosmo0 compiler facade or result API types to the
+  existing `cosmo` namespace
+
+#### Scenario: Parser syntax remains compatible
+
+- **WHEN** parser-owned syntax node source files are compiled by the `cosmo0`
+  project
+- **THEN** the syntax node package remains available as `cosmo.syntax`
+- **AND** existing full compiler code can continue to reference those node types
 
 #### Scenario: cosmo0 has its own sbt project
 
@@ -17,11 +25,19 @@ compiler path under `packages/cosmo0`.
 - **THEN** `cosmo0` is available as a project rooted at `packages/cosmo0`
 - **AND** the existing `cosmo` project remains available through its current sbt
   target name
+- **AND** the existing `cosmo` project depends on `cosmo0` for the shared parser
+  boundary
 
 ### Requirement: Shared Parser Integration
 
-cosmo0 SHALL expose an initial parse entry point that reuses the shared Cosmo
-parser.
+cosmo0 SHALL expose and own the shared Cosmo parser used by both cosmo0 and the
+existing full compiler path.
+
+#### Scenario: Full compiler imports cosmo0 parser
+
+- **WHEN** the existing full compiler parses source
+- **THEN** it invokes the parser through `cosmo0.Parser`
+- **AND** it receives the compatible `cosmo.syntax` AST
 
 #### Scenario: Source text parses successfully
 
