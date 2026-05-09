@@ -1,0 +1,24 @@
+## 1. Backend Structure
+
+- [ ] 1.1 Add a C++ backend entry point that accepts verified LIR modules.
+- [ ] 1.2 Add backend context for deterministic namespaces, symbol names, local names, includes, and support-code requirements.
+- [ ] 1.3 Reject unverified or structurally invalid LIR at the backend boundary.
+
+## 2. C++ Type And Declaration Emission
+
+- [ ] 2.1 Emit C++ type names for scalar types, references, user declarations, variants, and registered standard generic descriptors.
+- [ ] 2.2 Emit class and field declarations from LIR layout information.
+- [ ] 2.3 Emit variant representation and helper operations required by lowered variant and match LIR.
+- [ ] 2.4 Emit function and method signatures from LIR callable declarations.
+
+## 3. Function Body Emission
+
+- [ ] 3.1 Emit C++ locals, assignments, field get/set, direct calls, descriptor calls, returns, and unreachable exits.
+- [ ] 3.2 Emit C++ control flow for LIR branches, conditional branches, loops, and lowered match dispatch.
+- [ ] 3.3 Emit descriptor runtime includes or support code for lowered standard generic and runtime operations.
+
+## 4. Determinism And Tests
+
+- [ ] 4.1 Add golden or snapshot tests for representative verified LIR inputs.
+- [ ] 4.2 Add tests proving repeated emission of the same verified LIR is byte-for-byte stable.
+- [ ] 4.3 Add tests proving backend output does not depend on full Cosmo compiler codegen.

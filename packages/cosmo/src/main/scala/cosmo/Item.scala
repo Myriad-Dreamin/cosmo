@@ -23,31 +23,32 @@ private[cosmo] type FieldMap = MutMap[String, VField];
 
 /// Relationship
 ///
-/// Expr, Term, Type, Value are Item
-/// Item is used for Semantic Analysis
-/// Value and (Concrete) Expr has Type
-/// Term is Type with operations
-/// Op is not Item, Op is (optionally) converted from Expr, thus has type
+/// Expr + Term = Item
+///   Item is used for Semantic Analysis
+/// Type + Value + Op = Term
+///   Term is Item that has Type
+///   Value and Op (Typed Expr) has Type
+///   Op is mainly converted from Expr during typing phase, thus has Type
 ///
-/// Source Code -> Expr -> Instrs with Types -> Output
+/// Source Code -> Expr -> Term -> Output
 
 abstract trait DeclLike {
   val id: DefInfo
   def name = id.name
 }
+
 sealed trait ObjectLike(
     val fields: FieldMap,
 ) extends DeclTerm {
   @inline
   def vars =
-    fields.values.filter(_.isInstanceOf[VarField]).asInstanceOf[List[VarField]]
+    fields.values.flatMap { case v: VarField => Some(v); case _ => None }
   def defs =
-    fields.values.filter(_.isInstanceOf[DefField]).asInstanceOf[List[DefField]]
+    fields.values.flatMap { case v: DefField => Some(v); case _ => None }
   def variants =
-    fields.values
-      .filter(_.isInstanceOf[EnumField])
-      .asInstanceOf[List[EnumField]]
+    fields.values.flatMap { case v: EnumField => Some(v); case _ => None }
 }
+
 sealed trait FuncLike(
     val synParams: Option[List[Var]],
     val constraints: List[Expr],
@@ -63,8 +64,6 @@ sealed trait FuncLike(
   def doCheckParams(p: Option[List[Param]]) = rawParams = p
 }
 
-sealed abstract trait CallableTerm(raw: Option[List[Param]]) {}
-
 /// Expressions & Terms
 
 trait ItemExt {
@@ -75,6 +74,7 @@ sealed abstract class Expr extends ItemExt {
   val info: ExprInfo = ExprInfo.empty;
   def toDoc: Doc = Doc.buildItem(this)
 }
+
 sealed abstract class Term extends ItemExt {
   def sol: Term = this
 
@@ -85,15 +85,9 @@ sealed abstract class Term extends ItemExt {
   def toDoc: Doc = Doc.buildItem(this)
   def eval(env: Env): Term = this
 }
+
 sealed abstract class ExprTerm extends Term {
   var info: ExprInfo = uninitialized
-  // override lazy val ty: Type = info.sol match {
-  //   case Region(stmts, true)                   => UnitTy
-  //   case Region(stmts, false) if stmts.isEmpty => UnitTy
-  //   case Region(stmts, false)                  => stmts.last.ty
-  //   case v: ExprTerm                           => TopTy
-  //   case v                                     => v
-  // }
   override def eval(env: Env): Term = env.compile(info)(env)
 }
 
@@ -108,6 +102,7 @@ sealed abstract class DeclTerm extends DeclItem with DeclLike {
     if isUnchecked then checkCache = id.env.checkDecl(this, checkDecl)
     checkCache
 }
+
 final case class Name(val id: DefInfo, val of: Option[DefInfo] = None)
     extends DeclTerm {
   type ThisTerm <: Term
@@ -115,18 +110,17 @@ final case class Name(val id: DefInfo, val of: Option[DefInfo] = None)
   override def toString: String = s"${id.defName(false)}@${id.id.id}"
   override def checkDecl: ThisTerm = id.env.tyckVal(this).asInstanceOf[ThisTerm]
 }
+
 final case class Hole(id: DefInfo) extends DeclTerm {
   type ThisTerm <: Term
 
   override def toString: String = s"hole(${id.defName(false)})"
   override def checkDecl: ThisTerm = id.env.tyckVal(this).asInstanceOf[ThisTerm]
 }
+
 final case class Var(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
     extends DeclTerm {
   type ThisTerm <: Var
-  // override def toString: String =
-  //   val mod = if !id.isMut then "val" else "var"
-  //   s"($mod ${id.defName(false)}:${id.id.id} = ${init.getOrElse(NoneItem)})"
   override def toString: String = s"var(${id.defName(false)})"
   override def checkDecl: ThisTerm =
     id.env.checkVar(this).asInstanceOf[ThisTerm]
@@ -138,10 +132,9 @@ final case class Var(id: DefInfo, annoTy: Option[Expr], initE: Option[Expr])
     i.foreach { i =>
       if id.isTypeVar then id.env.items += id.id -> i
     }
-    // if isTypeLevel then id.env.items += id.id -> i.getOrElse(this)
-    // else id.env.items += id.id -> this
     checkCache = this.asInstanceOf[ThisTerm]
 }
+
 object Var {
   def generate(id: DefInfo, ty: Type, init: Option[Term]) =
     val res = Var(id, None, None)
@@ -170,6 +163,7 @@ final case class Def(
     body = b
     checkCache = this.asInstanceOf[ThisTerm]
 }
+
 final case class ClassExpr(
     id: DefInfo,
 )(
@@ -182,6 +176,7 @@ final case class ClassExpr(
 
   def checkDecl = id.env.checkClass(this).asInstanceOf[ThisTerm]
 }
+
 final case class Impl(
     id: DefInfo,
     ifaceExpr: Option[Expr],
@@ -345,24 +340,18 @@ import typed.*;
 
 type Type = Term
 
-sealed abstract class SimpleType extends Type {}
+sealed abstract class SimpleType extends Type {
+  override val isBuilitin: Boolean = true
+}
 
 val Unreachable = BottomKind(0)
 val NoneItem = NoneKind(0)
 
-case class TopKind(val level: Int) extends SimpleType {
-  override val isBuilitin: Boolean = true
-}
-case class BottomKind(val level: Int) extends SimpleType {
-  override val isBuilitin: Boolean = true
-}
-case class SelfKind(val level: Int) extends SimpleType {
-  override val isBuilitin: Boolean = true
-}
-case class NoneKind(val level: Int) extends SimpleType {
-  override val isBuilitin: Boolean = true
-}
-final case class Unresolved(id: DefInfo) extends SimpleType {}
+case class TopKind(val level: Int) extends SimpleType
+case class BottomKind(val level: Int) extends SimpleType
+case class SelfKind(val level: Int) extends SimpleType
+case class NoneKind(val level: Int) extends SimpleType
+final case class Unresolved(id: DefInfo) extends SimpleType
 
 // TopTy
 val TopTy = TopKind(1)
@@ -372,28 +361,18 @@ val SelfVal = SelfKind(0)
 val UniverseTy = TopKind(2)
 val NoneTy = TopKind(1)
 /// Expr type is not a type
-case object ExprTy extends SimpleType {
-  override val isBuilitin: Boolean = true;
-}
-case object CEnumTy extends SimpleType {
-  override val isBuilitin: Boolean = true;
-}
-case object BoolTy extends SimpleType {
-  override val isBuilitin: Boolean = true;
-}
+case object ExprTy extends SimpleType
+case object CEnumTy extends SimpleType
+case object BoolTy extends SimpleType
 case object StrTy extends SimpleType {
-  override val isBuilitin: Boolean = true;
   override def toString: String = "str"
 }
 case object BytesTy extends SimpleType {
-  override val isBuilitin: Boolean = true;
   override def toString: String = "bytes"
 }
-case object UnitTy extends SimpleType {
-  override val isBuilitin: Boolean = true;
-}
+case object UnitTy extends SimpleType
 final case class RefTy(val isRef: Boolean, val isMut: Boolean)
-    extends SimpleType {}
+    extends SimpleType
 final case class IntegerTy(val width: Int, val isUnsigned: Boolean)
     extends SimpleType {
   override val isBuilitin: Boolean = true;
@@ -408,7 +387,6 @@ object IntegerTy {
 }
 final case class FloatTy(val width: Int) extends SimpleType {
   override def toString: String = s"f$width"
-  override val isBuilitin: Boolean = true
 }
 object FloatTy {
   def parse(s: String): Option[FloatTy] = {

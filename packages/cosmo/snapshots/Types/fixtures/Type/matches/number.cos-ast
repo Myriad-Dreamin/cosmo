@@ -10,14 +10,14 @@
 } else BottomKind(0), err: "must add a branch to close value match when matching Int64(1)"
 [n1 match {
   case 1 => 3
-}] => valueMatch (n1@49 by i64) {
+}] => valueMatch (n1@50 by i64) {
  case 1 => 3
-} else BottomKind(0), err: "must add a branch to close value match when matching n1@49"
+} else BottomKind(0), err: "must add a branch to close value match when matching n1@50"
 [n1 match {
   case 0 => 4
-}] => valueMatch (n1@49 by i64) {
+}] => valueMatch (n1@50 by i64) {
  case 0 => 4
-} else BottomKind(0), err: "must add a branch to close value match when matching n1@49"
+} else BottomKind(0), err: "must add a branch to close value match when matching n1@50"
 [1 match {
   case 0 => 5
   case 1 => 6
@@ -35,7 +35,7 @@
 [n1 + 1 match {
   case 0 => 3
   case 1 => 4
-}] => valueMatch (BinInst(Int(i64,Add),n1@49,Int64(1)) by i64) {
+}] => valueMatch (BinInst(Int(i64,Add),n1@50,Int64(1)) by i64) {
  case 0 => 3
  case 1 => 4
-} else BottomKind(0), err: "must add a branch to close value match when matching BinInst(Int(i64,Add),n1@49,Int64(1))"
+} else BottomKind(0), err: "must add a branch to close value match when matching BinInst(Int(i64,Add),n1@50,Int64(1))"
