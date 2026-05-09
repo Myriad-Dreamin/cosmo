@@ -1,0 +1,323 @@
+// cosmo1 core acceptance corpus.
+// This is representative compiler-shaped source for future cosmo0 phases.
+// It is not a complete compiler implementation.
+
+class SourceFile {
+  val path: String
+  val text: String
+}
+
+type SourceId = Id[SourceFile]
+
+class Span {
+  val source: SourceId
+  val start: usize
+  val end: usize
+
+  def is_empty(&self): Bool = {
+    self.start == self.end
+  }
+
+  def contains(&self, offset: usize): Bool = {
+    self.start <= offset and offset < self.end
+  }
+}
+
+class Severity {
+  case Note
+  case Warning
+  case Error
+}
+
+class LabelStyle {
+  case Primary
+  case Secondary
+}
+
+class DiagnosticLabel {
+  val style: LabelStyle
+  val span: Span
+  val message: String
+}
+
+class FixIt {
+  val span: Span
+  val replacement: String
+}
+
+class Diagnostic {
+  val severity: Severity
+  val message: String
+  val labels: Vec[DiagnosticLabel]
+  val fix: Option[FixIt]
+
+  def primary_span(&self): Option[Span] = {
+    if (self.labels.size() == 0) {
+      Option[Span]::None
+    } else {
+      Option[Span]::Some(self.labels.get(0).span)
+    }
+  }
+}
+
+class DiagnosticSink {
+  var items: Vec[Diagnostic]
+
+  def push(&mut self, diagnostic: Diagnostic): Unit = {
+    self.items.push(diagnostic)
+  }
+
+  def append_from(&mut self, other: &DiagnosticSink): Unit = {
+    var index: usize = 0;
+    while (index < other.items.size()) {
+      self.items.push(other.items.get(index));
+      index = index + 1;
+    }
+  }
+}
+
+class Symbol {
+  val text: String
+}
+
+type SymbolId = Id[Symbol]
+
+class TokenKind {
+  case Identifier
+  case Number
+  case StringLiteral
+  case KeywordClass
+  case KeywordDef
+  case LeftParen
+  case RightParen
+  case Comma
+  case Equal
+  case EndOfFile
+}
+
+class Token {
+  val kind: TokenKind
+  val span: Span
+  val text: String
+}
+
+type TokenId = Id[Token]
+
+class Pattern {
+  case Wildcard(Span)
+  case Binding(Symbol, Span)
+  case Token(TokenKind, Span)
+}
+
+class MatchArm {
+  val pattern: Pattern
+  val body: Id[Expr]
+  val span: Span
+}
+
+class Expr {
+  case Missing(Span)
+  case Name(Symbol, Span)
+  case Literal(TokenId, Span)
+  case Call(Id[Expr], Vec[Id[Expr]], Span)
+  case Select(Id[Expr], Symbol, Span)
+  case Assign(Id[Expr], Id[Expr], Span)
+  case Match(Id[Expr], Vec[MatchArm], Span)
+  case Block(Vec[Id[Expr]], Span)
+}
+
+type ExprId = Id[Expr]
+
+class Ty {
+  case Error
+  case Unit
+  case Bool
+  case Int
+  case String
+  case Named(Symbol)
+  case Applied(Symbol, Vec[TyId])
+}
+
+type TyId = Id[Ty]
+
+class DefKind {
+  case Function
+  case Class
+  case Variant
+  case Field
+  case Local
+}
+
+class DefInfo {
+  val name: Symbol
+  val kind: DefKind
+  val span: Span
+}
+
+type DefId = Id[DefInfo]
+
+class Scope {
+  val parent: Option[ScopeId]
+  var values: Map[Symbol, DefId]
+
+  def define(&mut self, symbol: Symbol, def_id: DefId): Option[DefId] = {
+    val previous = self.values.get(symbol);
+    self.values.insert(symbol, def_id);
+    previous
+  }
+
+  def resolve(&self, symbol: Symbol): Option[DefId] = {
+    self.values.get(symbol)
+  }
+}
+
+type ScopeId = Id[Scope]
+
+class ModuleGraph {
+  var visited: Set[Symbol]
+  var imports: Map[Symbol, Vec[Symbol]]
+
+  def mark_seen(&mut self, module_name: Symbol): Bool = {
+    if (self.visited.contains(module_name)) {
+      false
+    } else {
+      self.visited.insert(module_name);
+      true
+    }
+  }
+
+  def add_import(&mut self, module_name: Symbol, dependency: Symbol): Unit = {
+    val current = self.imports.get(module_name);
+    current match {
+      case Option[Vec[Symbol]]::Some(list) => {
+        list.push(dependency)
+      }
+      case Option[Vec[Symbol]]::None => {
+        val list = Vec[Symbol]();
+        list.push(dependency);
+        self.imports.insert(module_name, list);
+      }
+    }
+  }
+}
+
+class ModuleArenas {
+  var sources: Arena[SourceFile]
+  var tokens: Arena[Token]
+  var expressions: Arena[Expr]
+  var types: Arena[Ty]
+  var definitions: Arena[DefInfo]
+  var scopes: Arena[Scope]
+
+  def add_expr(&mut self, expr: Expr): ExprId = {
+    self.expressions.alloc(expr)
+  }
+
+  def get_expr(&self, id: ExprId): &Expr = {
+    self.expressions.get(id)
+  }
+}
+
+class ParserState {
+  var tokens: Vec[Token]
+  var cursor: usize
+  var diagnostics: DiagnosticSink
+  var exprs: Arena[Expr]
+  val eof_span: Span
+
+  def at_end(&self): Bool = {
+    self.cursor >= self.tokens.size()
+  }
+
+  def current(&self): Option[Token] = {
+    if (self.at_end()) {
+      Option[Token]::None
+    } else {
+      Option[Token]::Some(self.tokens.get(self.cursor))
+    }
+  }
+
+  def advance(&mut self): Option[Token] = {
+    val token = self.current();
+    if (!self.at_end()) {
+      self.cursor = self.cursor + 1;
+    }
+    token
+  }
+
+  def recover_until(&mut self, stop: TokenKind): Unit = {
+    while (!self.at_end()) {
+      val current = self.current();
+      current match {
+        case Option[Token]::Some(token) => {
+          if (token.kind == stop) {
+            break
+          } else {
+            self.cursor = self.cursor + 1
+          }
+        }
+        case Option[Token]::None => {
+          break
+        }
+      }
+    }
+  }
+
+  def parse_name(&mut self): Result[ExprId, Diagnostic] = {
+    val current = self.advance();
+    current match {
+      case Option[Token]::Some(token) => {
+        token.kind match {
+          case TokenKind.Identifier => {
+            val symbol = Symbol(token.text);
+            val expr = Expr.Name(symbol, token.span);
+            val id = self.exprs.alloc(expr);
+            Result[ExprId, Diagnostic]::Ok(id)
+          }
+          case _ => {
+            val labels = Vec[DiagnosticLabel]();
+            labels.push(DiagnosticLabel(LabelStyle.Primary, token.span, "expected identifier"));
+            val diagnostic = Diagnostic(
+              Severity.Error,
+              "parser expected a name",
+              labels,
+              Option[FixIt]::None
+            );
+            self.diagnostics.push(diagnostic);
+            Result[ExprId, Diagnostic]::Err(diagnostic)
+          }
+        }
+      }
+      case Option[Token]::None => {
+        val labels = Vec[DiagnosticLabel]();
+        labels.push(DiagnosticLabel(LabelStyle.Primary, self.eof_span, "reached end of file"));
+        val diagnostic = Diagnostic(
+          Severity.Error,
+          "parser expected a name",
+          labels,
+          Option[FixIt]::None
+        );
+        self.diagnostics.push(diagnostic);
+        Result[ExprId, Diagnostic]::Err(diagnostic)
+      }
+    }
+  }
+
+  def scan_until_name(&mut self): Unit = {
+    loop {
+      val current = self.current();
+      current match {
+        case Option[Token]::Some(token) => {
+          if (token.kind == TokenKind.Identifier) {
+            break
+          } else {
+            self.cursor = self.cursor + 1
+          }
+        }
+        case Option[Token]::None => {
+          break
+        }
+      }
+    }
+  }
+}
