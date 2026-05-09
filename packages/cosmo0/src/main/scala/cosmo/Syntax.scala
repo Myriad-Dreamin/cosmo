@@ -1,8 +1,7 @@
 package cosmo.syntax
 
-import cosmo.DefId
 import fastparse._
-import cosmo.Parser.paramsLit
+import cosmo0.Parser.paramsLit
 
 private type N = Ident
 private type Str = String

@@ -8,6 +8,7 @@ import fastparse.Parsed
 import cosmo.system._
 import cosmo.linker._
 import cosmo.formatter.formatCode
+import cosmo0.Parser
 
 @main
 def CosmoMain() = {}
