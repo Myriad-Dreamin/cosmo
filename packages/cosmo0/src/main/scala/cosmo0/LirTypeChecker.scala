@@ -171,13 +171,28 @@ final class LirTypeChecker(
       }
 
     private def checkSourceSignature(function: LirFunction, source: CallableSignature): Unit =
+      val callableParams =
+        source.receiver match
+          case Some(receiver) =>
+            function.params.headOption match
+              case Some(param) if param.name == "self" =>
+                checkReceiverParam(function, param, receiver)
+                function.params.tail
+              case _ =>
+                error(
+                  "cosmo0.lir.invalid-signature",
+                  s"${function.id} source signature has a receiver but the LIR function has no self parameter",
+                )
+                function.params
+          case None =>
+            function.params
       val sourceParams = source.params.map(param => LirTypeRef(param.valueType))
-      if sourceParams.length != function.params.length then
+      if sourceParams.length != callableParams.length then
         error(
           "cosmo0.lir.invalid-signature",
-          s"${function.id} has ${function.params.length} LIR parameter(s), source signature has ${sourceParams.length}",
+          s"${function.id} has ${callableParams.length} callable LIR parameter(s), source signature has ${sourceParams.length}",
         )
-      sourceParams.zip(function.params).zipWithIndex.foreach { case ((expected, actual), index) =>
+      sourceParams.zip(callableParams).zipWithIndex.foreach { case ((expected, actual), index) =>
         if !sameType(expected, actual.valueType) then
           error(
             "cosmo0.lir.invalid-signature",
@@ -190,6 +205,25 @@ final class LirTypeChecker(
           "cosmo0.lir.invalid-signature",
           s"${function.id} returns ${function.returnType.display}, source signature returns ${expectedReturn.display}",
         )
+
+    private def checkReceiverParam(
+        function: LirFunction,
+        param: LirParam,
+        receiver: CallableReceiver,
+    ): Unit =
+      SourceType.dealias(param.valueType.source) match
+        case SourceType.Ref(target, mutable) =>
+          if !sameSourceType(target, receiver.valueType) || (receiver.mutable && !mutable) then
+            error(
+              "cosmo0.lir.invalid-signature",
+              s"${function.id} receiver parameter has type ${param.valueType.display}, expected receiver ${receiver.valueType.display}",
+            )
+        case other =>
+          if !sameSourceType(other, receiver.valueType) then
+            error(
+              "cosmo0.lir.invalid-signature",
+              s"${function.id} receiver parameter has type ${param.valueType.display}, expected receiver ${receiver.valueType.display}",
+            )
 
     private def buildLocalEnv(function: LirFunction): Map[LirLocalId, LocalInfo] =
       val params = function.params.map { param =>
@@ -515,10 +549,23 @@ final class LirTypeChecker(
           env.declarations.typesByName.get(name).flatMap { ty =>
             env.declarations.functions.values
               .find(function => function.owner.contains(ty.id) && function.name == method)
-              .map(function => ExpectedCallable(function.signature, receiverMutable = false))
+              .map(function => ExpectedCallable(methodCallSignature(function), methodReceiverMutable(function)))
           }
         case _ =>
           None
+
+    private def methodCallSignature(function: LirFunction): LirCallableSignature =
+      val dropReceiver =
+        function.sourceSignature.exists(_.receiver.nonEmpty) &&
+          function.params.headOption.exists(_.name == "self")
+      LirCallableSignature(
+        function.params.drop(if dropReceiver then 1 else 0).map(_.valueType),
+        function.returnType,
+        function.sourceSignature,
+      )
+
+    private def methodReceiverMutable(function: LirFunction): Boolean =
+      function.sourceSignature.flatMap(_.receiver).exists(_.mutable)
 
     private def expectedDescriptorOperation(
         descriptor: LirDescriptorRef,
