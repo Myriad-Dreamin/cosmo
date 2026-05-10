@@ -2,28 +2,28 @@ package cosmo0
 
 import cosmo.syntax
 
-enum Cosmo0Phase:
+enum Phase:
   case Parse, Check, Compile
 
-enum Cosmo0PhaseStatus:
+enum PhaseStatus:
   case Succeeded, Pending, Unsupported, Failed
 
-enum Cosmo0DiagnosticSeverity:
+enum DiagnosticSeverity:
   case Info, Warning, Error
 
-final case class Cosmo0SourcePosition(
+final case class SourcePosition(
     offset: Int,
     line: Int,
     column: Int,
 )
 
-final case class Cosmo0SourceSpan(
+final case class SourceSpan(
     fileName: String,
-    start: Cosmo0SourcePosition,
-    end: Cosmo0SourcePosition,
+    start: SourcePosition,
+    end: SourcePosition,
 )
 
-final case class Cosmo0SourceFile(
+final case class SourceFile(
     name: String,
     text: String,
 ):
@@ -35,17 +35,17 @@ final case class Cosmo0SourceFile(
       i += 1
     starts.toArray
 
-  def positionAt(offset: Int): Cosmo0SourcePosition =
+  def positionAt(offset: Int): SourcePosition =
     val boundedOffset = offset.max(0).min(text.length)
     val lineIndex = bestLineStartIndex(boundedOffset)
-    Cosmo0SourcePosition(
+    SourcePosition(
       boundedOffset,
       lineIndex + 1,
       boundedOffset - lineStarts(lineIndex) + 1,
     )
 
-  def span(startOffset: Int, endOffset: Int): Cosmo0SourceSpan =
-    Cosmo0SourceSpan(
+  def span(startOffset: Int, endOffset: Int): SourceSpan =
+    SourceSpan(
       name,
       positionAt(startOffset),
       positionAt(endOffset.max(startOffset)),
@@ -63,59 +63,59 @@ final case class Cosmo0SourceFile(
       else high = mid - 1
     best
 
-final case class Cosmo0Diagnostic(
-    phase: Cosmo0Phase,
-    severity: Cosmo0DiagnosticSeverity,
+final case class Diagnostic(
+    phase: Phase,
+    severity: DiagnosticSeverity,
     code: String,
     message: String,
-    span: Option[Cosmo0SourceSpan] = None,
+    span: Option[SourceSpan] = None,
 )
 
-final case class Cosmo0Result[+A](
-    phase: Cosmo0Phase,
-    status: Cosmo0PhaseStatus,
+final case class Result[+A](
+    phase: Phase,
+    status: PhaseStatus,
     value: Option[A],
-    diagnostics: List[Cosmo0Diagnostic] = Nil,
+    diagnostics: List[Diagnostic] = Nil,
 ):
-  def isSuccess: Boolean = status == Cosmo0PhaseStatus.Succeeded
-  def isPending: Boolean = status == Cosmo0PhaseStatus.Pending
-  def isUnsupported: Boolean = status == Cosmo0PhaseStatus.Unsupported
-  def isFailure: Boolean = status == Cosmo0PhaseStatus.Failed
+  def isSuccess: Boolean = status == PhaseStatus.Succeeded
+  def isPending: Boolean = status == PhaseStatus.Pending
+  def isUnsupported: Boolean = status == PhaseStatus.Unsupported
+  def isFailure: Boolean = status == PhaseStatus.Failed
 
-object Cosmo0Result:
-  def success[A](phase: Cosmo0Phase, value: A): Cosmo0Result[A] =
-    Cosmo0Result(phase, Cosmo0PhaseStatus.Succeeded, Some(value))
+object Result:
+  def success[A](phase: Phase, value: A): Result[A] =
+    Result(phase, PhaseStatus.Succeeded, Some(value))
 
   def pending[A](
-      phase: Cosmo0Phase,
-      diagnostic: Cosmo0Diagnostic,
+      phase: Phase,
+      diagnostic: Diagnostic,
       value: Option[A] = None,
-  ): Cosmo0Result[A] =
-    Cosmo0Result(phase, Cosmo0PhaseStatus.Pending, value, List(diagnostic))
+  ): Result[A] =
+    Result(phase, PhaseStatus.Pending, value, List(diagnostic))
 
   def unsupported[A](
-      phase: Cosmo0Phase,
-      diagnostic: Cosmo0Diagnostic,
+      phase: Phase,
+      diagnostic: Diagnostic,
       value: Option[A] = None,
-  ): Cosmo0Result[A] =
-    Cosmo0Result(phase, Cosmo0PhaseStatus.Unsupported, value, List(diagnostic))
+  ): Result[A] =
+    Result(phase, PhaseStatus.Unsupported, value, List(diagnostic))
 
   def failure[A](
-      phase: Cosmo0Phase,
-      diagnostics: List[Cosmo0Diagnostic],
-  ): Cosmo0Result[A] =
-    Cosmo0Result(phase, Cosmo0PhaseStatus.Failed, None, diagnostics)
+      phase: Phase,
+      diagnostics: List[Diagnostic],
+  ): Result[A] =
+    Result(phase, PhaseStatus.Failed, None, diagnostics)
 
-final case class Cosmo0ParsedModule(
-    source: Cosmo0SourceFile,
+final case class ParsedModule(
+    source: SourceFile,
     ast: syntax.Block,
 )
 
-final case class Cosmo0CheckedModule(
-    parsed: Cosmo0ParsedModule,
+final case class CheckedModule(
+    parsed: ParsedModule,
 )
 
-final case class Cosmo0CompiledModule(
-    checked: Cosmo0CheckedModule,
+final case class CompiledModule(
+    checked: CheckedModule,
     output: String,
 )
