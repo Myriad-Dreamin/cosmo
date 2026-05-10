@@ -23,13 +23,17 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.diagnostics.head.code, "cosmo0.parse.failed")
     assert(result.diagnostics.head.span.nonEmpty)
 
-  test("check returns a structured pending result"):
+  test("check returns a typed module for accepted source"):
     val result = Cosmo0().check("val answer = 42")
 
     assertEquals(result.phase, Phase.Check)
-    assertEquals(result.status, PhaseStatus.Pending)
-    assert(result.value.isEmpty)
-    assertEquals(result.diagnostics.head.code, "cosmo0.check.pending")
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.value.nonEmpty)
+    assert(result.diagnostics.isEmpty)
+
+    val value = result.value.get.typed.declarations.head.asInstanceOf[TypedValueDecl]
+    assertEquals(value.name, "answer")
+    assertEquals(value.valueType, SourceType.I32)
 
   test("elaborate builds untyped representation for accepted core declarations"):
     val result = Cosmo0().elaborate(
@@ -139,6 +143,114 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Unsupported)
     assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.trait")
+
+  test("check resolves aliases, constructors, descriptor methods, and match bindings"):
+    val result = Cosmo0().check(
+      """class Token {
+        |  val text: String
+        |}
+        |
+        |type TokenId = Id[Token]
+        |
+        |class Severity {
+        |  case Note
+        |  case Error(String)
+        |}
+        |
+        |class Diagnostic {
+        |  val severity: Severity
+        |  val labels: Vec[String]
+        |}
+        |
+        |def describe(token: Option[Token]): String = {
+        |  token match {
+        |    case Option[Token]::Some(value) => {
+        |      value.text
+        |    }
+        |    case Option[Token]::None => {
+        |      "none"
+        |    }
+        |  }
+        |}
+        |
+        |def build(): Diagnostic = {
+        |  val labels = Vec[String]();
+        |  labels.push("primary");
+        |  Diagnostic(Severity.Error("bad"), labels)
+        |}
+        |
+        |def collect(): Unit = {
+        |  val labels = Vec[String]();
+        |  labels.push("primary");
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val module = result.value.get.typed
+    val alias = module.declarations.collectFirst { case value: TypedTypeAlias => value }.get
+    assertEquals(alias.name, "TokenId")
+    assert(SourceType.same(alias.target, SourceType.Standard("Id", List(SourceType.User("Token")))))
+
+    val build = module.declarations.collectFirst {
+      case fn: TypedFunction if fn.name == "build" => fn
+    }.get
+    assertEquals(build.returnType, SourceType.User("Diagnostic"))
+    assert(build.body.exists(_.valueType == SourceType.User("Diagnostic")))
+
+    val collect = module.declarations.collectFirst {
+      case fn: TypedFunction if fn.name == "collect" => fn
+    }.get
+    assertEquals(collect.body.map(_.valueType), Some(SourceType.Unit))
+
+  test("check emits typed diagnostics for representative source errors"):
+    val cases = List(
+      "def f(): i32 = missing" -> "cosmo0.type.unresolved-name",
+      "def f(): Vec[i32] = { Vec[i32](1) }" -> "cosmo0.type.wrong-arity",
+      "class A {}\ndef f(a: A): i32 = { a.missing }" -> "cosmo0.type.invalid-field",
+      "var x: i32 = true" -> "cosmo0.type.assignment-mismatch",
+      "def f(): Bool = { 1 }" -> "cosmo0.type.return-mismatch",
+      """class A {
+        |  var count: usize
+        |
+        |  def f(&self): Unit = {
+        |    self.count = 1
+        |  }
+        |}
+        |""".stripMargin -> "cosmo0.type.invalid-mutability",
+      "def f(items: &Vec[i32]): Unit = { items.push(1) }" ->
+        "cosmo0.type.invalid-mutability",
+      """class Token {}
+        |
+        |def f(value: Option[Token]): String = {
+        |  value match {
+        |    case Option[Token]::Some => {
+        |      "bad"
+        |    }
+        |    case Option[Token]::None => {
+        |      "none"
+        |    }
+        |  }
+        |}
+        |""".stripMargin -> "cosmo0.type.wrong-arity",
+    )
+
+    cases.foreach { case (source, code) =>
+      val result = Cosmo0().check(source)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Failed)
+      assert(
+        result.diagnostics.exists(_.code == code),
+        s"missing diagnostic $code in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
+  test("cosmo0 typed-expression typer does not call the full Cosmo typer"):
+    assert(classOf[SourceTyper].getName.contains("cosmo0.SourceTyper"))
 
   test("elaboration preserves spans for accepted nodes and diagnostics"):
     val accepted = Cosmo0().elaborate("\nval answer = 42")

@@ -142,6 +142,11 @@ final case class UntypedVariantConstructor(
     span: SourceSpan,
 ) extends UntypedExpr
 
+final case class UntypedTypeConstructor(
+    valueType: UntypedType,
+    span: SourceSpan,
+) extends UntypedExpr
+
 final case class UntypedCall(
     callee: UntypedExpr,
     args: List[UntypedExpr],
