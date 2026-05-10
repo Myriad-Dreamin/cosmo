@@ -39,16 +39,33 @@ final class Cosmo0:
   def check(sourceText: String): Cosmo0Result[Cosmo0CheckedModule] =
     check(Cosmo0SourceFile("<memory>", sourceText))
 
-  def check(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0CheckedModule] =
+  def elaborate(sourceText: String): Cosmo0Result[Cosmo0UntypedModule] =
+    elaborate(Cosmo0SourceFile("<memory>", sourceText))
+
+  def elaborate(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0UntypedModule] =
     parse(source) match
       case parsed if parsed.isSuccess =>
+        Cosmo0UntypedElaborator().elaborate(parsed.value.get)
+      case failed =>
+        Cosmo0Result.failure(Cosmo0Phase.Check, failed.diagnostics)
+
+  def check(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0CheckedModule] =
+    elaborate(source) match
+      case elaborated if elaborated.isSuccess =>
         Cosmo0Result.pending(
           Cosmo0Phase.Check,
           pendingDiagnostic(
             Cosmo0Phase.Check,
             "cosmo0.check.pending",
-            "cosmo0 subset checking is not implemented yet",
+            "cosmo0 source typing is not implemented yet",
           ),
+        )
+      case unsupported if unsupported.isUnsupported =>
+        Cosmo0Result(
+          Cosmo0Phase.Check,
+          Cosmo0PhaseStatus.Unsupported,
+          None,
+          unsupported.diagnostics,
         )
       case failed =>
         Cosmo0Result.failure(Cosmo0Phase.Check, failed.diagnostics)
@@ -60,6 +77,13 @@ final class Cosmo0:
     check(source) match
       case checked if checked.isFailure =>
         Cosmo0Result.failure(Cosmo0Phase.Compile, checked.diagnostics)
+      case checked if checked.isUnsupported =>
+        Cosmo0Result(
+          Cosmo0Phase.Compile,
+          Cosmo0PhaseStatus.Unsupported,
+          None,
+          checked.diagnostics,
+        )
       case _ =>
         Cosmo0Result.unsupported(
           Cosmo0Phase.Compile,
