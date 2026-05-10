@@ -126,6 +126,52 @@ class LirTests extends munit.FunSuite:
     assertEquals(function.signature.sourceSignature, Some(sourceSignature))
     assertEquals(function.signature.params, List(Lir.t(SourceType.I32)))
 
+  test("LIR type checker accepts a valid hand-written module"):
+    val result = LirTypeChecker().check(checkedLirModule())
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    assertEquals(result.value, Some(checkedLirModule()))
+
+  test("LIR type checker rejects structural, type, call, variant, and mutability errors"):
+    val cases = List(
+      missingBlockModule() -> "cosmo0.lir.missing-block",
+      invalidBranchModule() -> "cosmo0.lir.invalid-branch",
+      invalidBranchConditionModule() -> "cosmo0.lir.invalid-branch",
+      invalidReturnModule() -> "cosmo0.lir.invalid-return",
+      typeMismatchModule() -> "cosmo0.lir.assignment-mismatch",
+      useBeforeDefinitionModule() -> "cosmo0.lir.use-before-definition",
+      invalidCallModule() -> "cosmo0.lir.invalid-call",
+      invalidDescriptorModule() -> "cosmo0.lir.invalid-descriptor",
+      invalidVariantModule() -> "cosmo0.lir.invalid-variant",
+      invalidMutabilityModule() -> "cosmo0.lir.invalid-mutability",
+    )
+
+    cases.foreach { case (module, code) =>
+      val result = LirTypeChecker().check(module)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Failed)
+      assert(
+        result.diagnostics.exists(_.code == code),
+        s"missing diagnostic $code in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
+  test("LIR type checker diagnostics are deterministic and identify failing constructs"):
+    val first = invalidBranchModule()
+    val second = first.copy(declarations = first.declarations.reverse)
+
+    val firstDiagnostics = LirTypeChecker().check(first).diagnostics.map(d => d.code -> d.message)
+    val secondDiagnostics = LirTypeChecker().check(second).diagnostics.map(d => d.code -> d.message)
+
+    assertEquals(firstDiagnostics, secondDiagnostics)
+    assert(
+      firstDiagnostics.exists { case (_, message) => message.contains("^missing") },
+      s"expected branch target in diagnostics: $firstDiagnostics",
+    )
+
   test("LIR node classes live in the cosmo0 package boundary"):
     val modelClasses = List(
       classOf[LirModule],
@@ -137,6 +183,211 @@ class LirTests extends munit.FunSuite:
     )
 
     assert(modelClasses.forall(_.getName.startsWith("cosmo0.")))
+
+  private def checkedLirModule(function: LirFunction = checkedProcessFunction()): LirModule =
+    LirModule(
+      "checked",
+      List(tokenDecl(), identityFunction(), function),
+    )
+
+  private def checkedProcessFunction(
+      entryOperations: List[LirOp] = checkedEntryOperations(),
+      entryTerminator: LirTerminator = LirCondBranch(
+        Lir.bool(true),
+        Lir.label("exit"),
+        Lir.label("error"),
+      ),
+      returnTerminator: LirTerminator = LirReturn(Some(Lir.ref("count", SourceType.I32))),
+  ): LirFunction =
+    Lir.function(
+      "checked_process",
+      List(Lir.param("input", tokenType)),
+      SourceType.I32,
+      locals = checkedLocals(),
+      blocks = List(
+        Lir.block(
+          "entry",
+          operations = entryOperations,
+          terminator = entryTerminator,
+        ),
+        Lir.block(
+          "exit",
+          terminator = returnTerminator,
+        ),
+        Lir.block(
+          "error",
+          terminator = LirErrorExit("cosmo0.lir.test", Some("failed")),
+        ),
+      ),
+    )
+
+  private def checkedLocals(): List[LirLocal] =
+    List(
+      Lir.local("token", tokenType, mutable = true),
+      Lir.local("labels", stringVecType, mutable = true),
+      Lir.local("maybe", optionTokenType),
+      Lir.local("tag", SourceType.I32),
+      Lir.local("payload", tokenType),
+      Lir.local("tmp", SourceType.Usize),
+      Lir.local("count", SourceType.I32, mutable = true),
+    )
+
+  private def checkedEntryOperations(): List[LirOp] =
+    List(
+      LirAllocLocal(Lir.local("token", tokenType, mutable = true)),
+      LirAllocLocal(Lir.local("labels", stringVecType, mutable = true)),
+      LirAllocLocal(Lir.local("count", SourceType.I32, mutable = true), Some(Lir.int(0))),
+      LirFieldGet(
+        Lir.localId("tmp"),
+        Lir.ref("input", tokenType),
+        "offset",
+        Lir.t(SourceType.Usize),
+      ),
+      LirFieldSet(
+        Lir.ref("token", tokenType),
+        "offset",
+        Lir.ref("tmp", SourceType.Usize),
+      ),
+      LirAssign(Lir.localPlace("count", SourceType.I32), Lir.int(1)),
+      LirDirectCall(
+        Some(Lir.localId("count")),
+        Lir.declId("identity"),
+        List(Lir.ref("count", SourceType.I32)),
+        Lir.signature(List(SourceType.I32), SourceType.I32),
+      ),
+      LirLoweredMethodCall(
+        None,
+        Lir.ref("labels", stringVecType),
+        "push",
+        List(Lir.string("ok")),
+        Lir.signature(List(SourceType.String), SourceType.Unit),
+      ),
+      LirDescriptorIntrinsic(
+        None,
+        LirDescriptorRef("Vec", List(Lir.t(SourceType.String))),
+        "push",
+        List(Lir.ref("labels", stringVecType), Lir.string("ok")),
+        Some(Lir.t(SourceType.Unit)),
+      ),
+      LirConstructVariant(
+        Lir.localId("maybe"),
+        Lir.t(optionTokenType),
+        "Some",
+        List(Lir.ref("token", tokenType)),
+      ),
+      LirReadVariantTag(
+        Lir.localId("tag"),
+        Lir.ref("maybe", optionTokenType),
+        Lir.t(optionTokenType),
+      ),
+      LirReadVariantPayload(
+        Lir.localId("payload"),
+        Lir.ref("maybe", optionTokenType),
+        "Some",
+        0,
+        Lir.t(tokenType),
+      ),
+    )
+
+  private def missingBlockModule(): LirModule =
+    checkedLirModule(
+      Lir.function(
+        "checked_process",
+        List(Lir.param("input", tokenType)),
+        SourceType.I32,
+        locals = checkedLocals(),
+        blocks = Nil,
+      ),
+    )
+
+  private def invalidBranchModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryTerminator = LirCondBranch(
+          Lir.bool(true),
+          Lir.label("exit"),
+          Lir.label("missing"),
+        ),
+      ),
+    )
+
+  private def invalidBranchConditionModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryTerminator = LirCondBranch(
+          Lir.ref("count", SourceType.I32),
+          Lir.label("exit"),
+          Lir.label("error"),
+        ),
+      ),
+    )
+
+  private def invalidReturnModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        returnTerminator = LirReturn(Some(Lir.bool(false))),
+      ),
+    )
+
+  private def typeMismatchModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryOperations =
+          checkedEntryOperations() :+ LirAssign(Lir.localPlace("count", SourceType.I32), Lir.bool(false)),
+      ),
+    )
+
+  private def useBeforeDefinitionModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryOperations =
+          LirAssign(Lir.localPlace("count", SourceType.I32), Lir.ref("tmp", SourceType.Usize)) :: checkedEntryOperations(),
+      ),
+    )
+
+  private def invalidCallModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryOperations = checkedEntryOperations().map {
+          case LirDirectCall(output, callee, args, _) =>
+            LirDirectCall(output, callee, args, Lir.signature(List(SourceType.Bool), SourceType.I32))
+          case other => other
+        },
+      ),
+    )
+
+  private def invalidDescriptorModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryOperations = checkedEntryOperations().map {
+          case LirDescriptorIntrinsic(output, descriptor, name, args, _) =>
+            LirDescriptorIntrinsic(output, descriptor, name, args, Some(Lir.t(SourceType.I32)))
+          case other => other
+        },
+      ),
+    )
+
+  private def invalidVariantModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryOperations = checkedEntryOperations().map {
+          case LirConstructVariant(output, owner, _, payload) =>
+            LirConstructVariant(output, owner, "Missing", payload)
+          case other => other
+        },
+      ),
+    )
+
+  private def invalidMutabilityModule(): LirModule =
+    checkedLirModule(
+      checkedProcessFunction(
+        entryOperations = checkedEntryOperations().map {
+          case LirFieldSet(_, field, value) =>
+            LirFieldSet(Lir.ref("input", tokenType), field, value)
+          case other => other
+        },
+      ),
+    )
 
   private def tokenDecl(): LirTypeDecl =
     LirTypeDecl(
