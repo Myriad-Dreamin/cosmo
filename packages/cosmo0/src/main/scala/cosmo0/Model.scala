@@ -112,7 +112,7 @@ final case class ParsedModule(
 )
 
 final case class CheckedModule(
-    parsed: ParsedModule,
+    typed: TypedModule,
 )
 
 final case class CompiledModule(
