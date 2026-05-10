@@ -52,14 +52,11 @@ final class Cosmo0:
   def check(source: SourceFile): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
-        Result.pending(
-          Phase.Check,
-          pendingDiagnostic(
-            Phase.Check,
-            "cosmo0.check.pending",
-            "cosmo0 source typing is not implemented yet",
-          ),
-        )
+        SourceTyper().check(elaborated.value.get) match
+          case checked if checked.isSuccess =>
+            Result.success(Phase.Check, CheckedModule(checked.value.get))
+          case failed =>
+            Result.failure(Phase.Check, failed.diagnostics)
       case unsupported if unsupported.isUnsupported =>
         Result(
           Phase.Check,

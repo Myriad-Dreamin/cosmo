@@ -280,11 +280,21 @@ final class UntypedElaborator(
         }
 
     private def blockItem(node: syntax.Node): Option[UntypedBlockItem] =
-      unwrapSemi(node) match
-        case None => None
-        case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
-        case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
-        case Some(other)          => expr(other)
+      node match
+        case Semi(None) => None
+        case Semi(Some(inner)) =>
+          unwrapSemi(inner) match
+            case None => None
+            case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
+            case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
+            case Some(other) =>
+              expr(other).map(value => UntypedExprStmt(value, nodeSpan(node)))
+        case other =>
+          unwrapSemi(other) match
+            case None => None
+            case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
+            case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
+            case Some(value)          => expr(value)
 
     private def local(
         node: Val,
@@ -345,6 +355,15 @@ final class UntypedElaborator(
             "cosmo0.elaborate.unsupported.higher-order-api",
             s"${rhs.name} is outside the initial cosmo0 higher-order API subset",
           )
+        case Some(Apply(typeApply @ Apply(_, _, true), args, false)) =>
+          val callee = typeFromNode(typeApply, Some(nodeSpan(typeApply))).map(t =>
+            UntypedTypeConstructor(t, nodeSpan(typeApply)),
+          )
+          val callArgs = args.map(expr)
+          for
+            c <- callee
+            as <- sequence(callArgs)
+          yield UntypedCall(c, as, nodeSpan(node))
         case Some(Apply(lhs, args, false)) =>
           val callee = expr(lhs)
           val callArgs = args.map(expr)
