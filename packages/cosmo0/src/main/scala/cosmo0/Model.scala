@@ -115,6 +115,11 @@ final case class CheckedModule(
     typed: TypedModule,
 )
 
+final case class LoweredModule(
+    checked: CheckedModule,
+    lir: LirModule,
+)
+
 final case class CompiledModule(
     checked: CheckedModule,
     output: String,

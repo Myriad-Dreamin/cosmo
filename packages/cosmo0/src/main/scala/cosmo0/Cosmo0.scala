@@ -70,7 +70,10 @@ final class Cosmo0:
   def compile(sourceText: String): Result[CompiledModule] =
     compile(SourceFile("<memory>", sourceText))
 
-  def compile(source: SourceFile): Result[CompiledModule] =
+  def lower(sourceText: String): Result[LoweredModule] =
+    lower(SourceFile("<memory>", sourceText))
+
+  def lower(source: SourceFile): Result[LoweredModule] =
     check(source) match
       case checked if checked.isFailure =>
         Result.failure(Phase.Compile, checked.diagnostics)
@@ -80,6 +83,25 @@ final class Cosmo0:
           PhaseStatus.Unsupported,
           None,
           checked.diagnostics,
+        )
+      case checked =>
+        val checkedModule = checked.value.get
+        LirLowerer().lower(checkedModule.typed) match
+          case lowered if lowered.isSuccess =>
+            Result.success(Phase.Compile, LoweredModule(checkedModule, lowered.value.get))
+          case failed =>
+            Result.failure(Phase.Compile, failed.diagnostics)
+
+  def compile(source: SourceFile): Result[CompiledModule] =
+    lower(source) match
+      case lowered if lowered.isFailure =>
+        Result.failure(Phase.Compile, lowered.diagnostics)
+      case lowered if lowered.isUnsupported =>
+        Result(
+          Phase.Compile,
+          PhaseStatus.Unsupported,
+          None,
+          lowered.diagnostics,
         )
       case _ =>
         Result.unsupported(

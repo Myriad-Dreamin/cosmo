@@ -1245,7 +1245,7 @@ final class SourceTyper(
       node match
         case UntypedNamedType(path, span) =>
           path.parts match
-            case name :: Nil if owner.contains(name) || (name == "self" && owner.nonEmpty) =>
+            case name :: Nil if owner.contains(name) || ((name == "self" || name == "Self") && owner.nonEmpty) =>
               SourceType.User(owner.get)
             case name :: Nil =>
               SourceType.scalar(name)
