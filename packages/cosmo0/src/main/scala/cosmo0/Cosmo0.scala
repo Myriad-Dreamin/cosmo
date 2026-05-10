@@ -6,114 +6,114 @@ import fastparse.Parsed
 import fastparse.parse as fastParse
 
 final class Cosmo0:
-  def parse(sourceText: String): Cosmo0Result[Cosmo0ParsedModule] =
-    parse(Cosmo0SourceFile("<memory>", sourceText))
+  def parse(sourceText: String): Result[ParsedModule] =
+    parse(SourceFile("<memory>", sourceText))
 
-  def parse(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0ParsedModule] =
+  def parse(source: SourceFile): Result[ParsedModule] =
     try
       fastParse(source.text, Parser.root(_)) match
         case Parsed.Success(ast, _) =>
-          Cosmo0Result.success(
-            Cosmo0Phase.Parse,
-            Cosmo0ParsedModule(source, ast),
+          Result.success(
+            Phase.Parse,
+            ParsedModule(source, ast),
           )
         case failure: Parsed.Failure =>
-          Cosmo0Result.failure(
-            Cosmo0Phase.Parse,
+          Result.failure(
+            Phase.Parse,
             List(parseFailureDiagnostic(source, failure)),
           )
     catch
       case NonFatal(error) =>
-        Cosmo0Result.failure(
-          Cosmo0Phase.Parse,
+        Result.failure(
+          Phase.Parse,
           List(
-            Cosmo0Diagnostic(
-              Cosmo0Phase.Parse,
-              Cosmo0DiagnosticSeverity.Error,
+            Diagnostic(
+              Phase.Parse,
+              DiagnosticSeverity.Error,
               "cosmo0.parse.exception",
               Option(error.getMessage).getOrElse(error.getClass.getName),
             ),
           ),
         )
 
-  def check(sourceText: String): Cosmo0Result[Cosmo0CheckedModule] =
-    check(Cosmo0SourceFile("<memory>", sourceText))
+  def check(sourceText: String): Result[CheckedModule] =
+    check(SourceFile("<memory>", sourceText))
 
-  def elaborate(sourceText: String): Cosmo0Result[Cosmo0UntypedModule] =
-    elaborate(Cosmo0SourceFile("<memory>", sourceText))
+  def elaborate(sourceText: String): Result[UntypedModule] =
+    elaborate(SourceFile("<memory>", sourceText))
 
-  def elaborate(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0UntypedModule] =
+  def elaborate(source: SourceFile): Result[UntypedModule] =
     parse(source) match
       case parsed if parsed.isSuccess =>
-        Cosmo0UntypedElaborator().elaborate(parsed.value.get)
+        UntypedElaborator().elaborate(parsed.value.get)
       case failed =>
-        Cosmo0Result.failure(Cosmo0Phase.Check, failed.diagnostics)
+        Result.failure(Phase.Check, failed.diagnostics)
 
-  def check(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0CheckedModule] =
+  def check(source: SourceFile): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
-        Cosmo0Result.pending(
-          Cosmo0Phase.Check,
+        Result.pending(
+          Phase.Check,
           pendingDiagnostic(
-            Cosmo0Phase.Check,
+            Phase.Check,
             "cosmo0.check.pending",
             "cosmo0 source typing is not implemented yet",
           ),
         )
       case unsupported if unsupported.isUnsupported =>
-        Cosmo0Result(
-          Cosmo0Phase.Check,
-          Cosmo0PhaseStatus.Unsupported,
+        Result(
+          Phase.Check,
+          PhaseStatus.Unsupported,
           None,
           unsupported.diagnostics,
         )
       case failed =>
-        Cosmo0Result.failure(Cosmo0Phase.Check, failed.diagnostics)
+        Result.failure(Phase.Check, failed.diagnostics)
 
-  def compile(sourceText: String): Cosmo0Result[Cosmo0CompiledModule] =
-    compile(Cosmo0SourceFile("<memory>", sourceText))
+  def compile(sourceText: String): Result[CompiledModule] =
+    compile(SourceFile("<memory>", sourceText))
 
-  def compile(source: Cosmo0SourceFile): Cosmo0Result[Cosmo0CompiledModule] =
+  def compile(source: SourceFile): Result[CompiledModule] =
     check(source) match
       case checked if checked.isFailure =>
-        Cosmo0Result.failure(Cosmo0Phase.Compile, checked.diagnostics)
+        Result.failure(Phase.Compile, checked.diagnostics)
       case checked if checked.isUnsupported =>
-        Cosmo0Result(
-          Cosmo0Phase.Compile,
-          Cosmo0PhaseStatus.Unsupported,
+        Result(
+          Phase.Compile,
+          PhaseStatus.Unsupported,
           None,
           checked.diagnostics,
         )
       case _ =>
-        Cosmo0Result.unsupported(
-          Cosmo0Phase.Compile,
+        Result.unsupported(
+          Phase.Compile,
           pendingDiagnostic(
-            Cosmo0Phase.Compile,
+            Phase.Compile,
             "cosmo0.compile.unsupported",
             "cosmo0 compilation is not implemented yet",
           ),
         )
 
   private def parseFailureDiagnostic(
-      source: Cosmo0SourceFile,
+      source: SourceFile,
       failure: Parsed.Failure,
-  ): Cosmo0Diagnostic =
-    Cosmo0Diagnostic(
-      Cosmo0Phase.Parse,
-      Cosmo0DiagnosticSeverity.Error,
+  ): Diagnostic =
+    Diagnostic(
+      Phase.Parse,
+      DiagnosticSeverity.Error,
       "cosmo0.parse.failed",
       failure.trace().longAggregateMsg,
       Some(source.span(failure.index, failure.index)),
     )
 
   private def pendingDiagnostic(
-      phase: Cosmo0Phase,
+      phase: Phase,
       code: String,
       message: String,
-  ): Cosmo0Diagnostic =
-    Cosmo0Diagnostic(
+  ): Diagnostic =
+    Diagnostic(
       phase,
-      Cosmo0DiagnosticSeverity.Info,
+      DiagnosticSeverity.Info,
       code,
       message,
     )

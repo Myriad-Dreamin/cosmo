@@ -1,6 +1,6 @@
 package cosmo0
 
-class Cosmo0Tests extends munit.FunSuite:
+class FacadeTests extends munit.FunSuite:
   test("facade can be instantiated independently"):
     val compiler = Cosmo0()
     assertNotEquals(compiler, null)
@@ -8,8 +8,8 @@ class Cosmo0Tests extends munit.FunSuite:
   test("parse accepts source text and returns a parsed module"):
     val result = Cosmo0().parse("val answer = 42")
 
-    assertEquals(result.phase, Cosmo0Phase.Parse)
-    assertEquals(result.status, Cosmo0PhaseStatus.Succeeded)
+    assertEquals(result.phase, Phase.Parse)
+    assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.value.nonEmpty)
     assertEquals(result.value.get.source.name, "<memory>")
     assert(result.diagnostics.isEmpty)
@@ -17,8 +17,8 @@ class Cosmo0Tests extends munit.FunSuite:
   test("parse failures return structured diagnostics"):
     val result = Cosmo0().parse("val =")
 
-    assertEquals(result.phase, Cosmo0Phase.Parse)
-    assertEquals(result.status, Cosmo0PhaseStatus.Failed)
+    assertEquals(result.phase, Phase.Parse)
+    assertEquals(result.status, PhaseStatus.Failed)
     assert(result.value.isEmpty)
     assertEquals(result.diagnostics.head.code, "cosmo0.parse.failed")
     assert(result.diagnostics.head.span.nonEmpty)
@@ -26,8 +26,8 @@ class Cosmo0Tests extends munit.FunSuite:
   test("check returns a structured pending result"):
     val result = Cosmo0().check("val answer = 42")
 
-    assertEquals(result.phase, Cosmo0Phase.Check)
-    assertEquals(result.status, Cosmo0PhaseStatus.Pending)
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Pending)
     assert(result.value.isEmpty)
     assertEquals(result.diagnostics.head.code, "cosmo0.check.pending")
 
@@ -57,27 +57,27 @@ class Cosmo0Tests extends munit.FunSuite:
         |""".stripMargin,
     )
 
-    assertEquals(result.phase, Cosmo0Phase.Check)
-    assertEquals(result.status, Cosmo0PhaseStatus.Succeeded)
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
 
     val module = result.value.get
     assertEquals(module.declarations.map(_.name), List("SourceId", "Severity", "Diagnostic"))
 
-    val alias = module.declarations.head.asInstanceOf[Cosmo0UntypedTypeAlias]
-    assert(alias.target.isInstanceOf[Cosmo0UntypedAppliedType])
+    val alias = module.declarations.head.asInstanceOf[UntypedTypeAlias]
+    assert(alias.target.isInstanceOf[UntypedAppliedType])
 
-    val severity = module.declarations(1).asInstanceOf[Cosmo0UntypedClass]
+    val severity = module.declarations(1).asInstanceOf[UntypedClass]
     assertEquals(
-      severity.members.collect { case variant: Cosmo0UntypedVariant => variant.name },
+      severity.members.collect { case variant: UntypedVariant => variant.name },
       List("Note", "Error"),
     )
 
-    val diagnostic = module.declarations(2).asInstanceOf[Cosmo0UntypedClass]
-    val push = diagnostic.members.collectFirst { case fn: Cosmo0UntypedFunction => fn }.get
-    val selfType = push.params.head.valueType.get.asInstanceOf[Cosmo0UntypedRefType]
+    val diagnostic = module.declarations(2).asInstanceOf[UntypedClass]
+    val push = diagnostic.members.collectFirst { case fn: UntypedFunction => fn }.get
+    val selfType = push.params.head.valueType.get.asInstanceOf[UntypedRefType]
     assert(selfType.mutable)
-    assert(push.body.exists(_.isInstanceOf[Cosmo0UntypedBlock]))
+    assert(push.body.exists(_.isInstanceOf[UntypedBlock]))
 
   test("elaborate represents match arms and standard-generic variant constructors"):
     val result = Cosmo0().elaborate(
@@ -95,14 +95,14 @@ class Cosmo0Tests extends munit.FunSuite:
         |""".stripMargin,
     )
 
-    assertEquals(result.status, Cosmo0PhaseStatus.Succeeded)
-    val fn = result.value.get.declarations.head.asInstanceOf[Cosmo0UntypedFunction]
-    val body = fn.body.get.asInstanceOf[Cosmo0UntypedBlock]
-    val matchExpr = body.items.collectFirst { case m: Cosmo0UntypedMatch => m }.get
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
+    val body = fn.body.get.asInstanceOf[UntypedBlock]
+    val matchExpr = body.items.collectFirst { case m: UntypedMatch => m }.get
 
     assertEquals(matchExpr.arms.length, 2)
-    val somePattern = matchExpr.arms.head.pattern.asInstanceOf[Cosmo0UntypedVariantPattern]
-    assert(somePattern.constructor.isInstanceOf[Cosmo0UntypedVariantConstructor])
+    val somePattern = matchExpr.arms.head.pattern.asInstanceOf[UntypedVariantPattern]
+    assert(somePattern.constructor.isInstanceOf[UntypedVariantConstructor])
     assertEquals(somePattern.args.length, 1)
 
   test("elaborate rejects unsupported full-language constructs deterministically"):
@@ -124,8 +124,8 @@ class Cosmo0Tests extends munit.FunSuite:
     cases.foreach { case (source, code) =>
       val result = Cosmo0().elaborate(source)
 
-      assertEquals(result.phase, Cosmo0Phase.Check)
-      assertEquals(result.status, Cosmo0PhaseStatus.Unsupported)
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Unsupported)
       assert(result.value.isEmpty)
       assert(
         result.diagnostics.exists(_.code == code),
@@ -136,8 +136,8 @@ class Cosmo0Tests extends munit.FunSuite:
   test("check stops on unsupported subset constructs"):
     val result = Cosmo0().check("trait Display {}")
 
-    assertEquals(result.phase, Cosmo0Phase.Check)
-    assertEquals(result.status, Cosmo0PhaseStatus.Unsupported)
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Unsupported)
     assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.trait")
 
   test("elaboration preserves spans for accepted nodes and diagnostics"):
@@ -162,15 +162,15 @@ class Cosmo0Tests extends munit.FunSuite:
   test("compile returns a structured unsupported result"):
     val result = Cosmo0().compile("val answer = 42")
 
-    assertEquals(result.phase, Cosmo0Phase.Compile)
-    assertEquals(result.status, Cosmo0PhaseStatus.Unsupported)
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Unsupported)
     assert(result.value.isEmpty)
     assertEquals(result.diagnostics.head.code, "cosmo0.compile.unsupported")
 
   test("compile stops on unsupported subset constructs"):
     val result = Cosmo0().compile("trait Display {}")
 
-    assertEquals(result.phase, Cosmo0Phase.Compile)
-    assertEquals(result.status, Cosmo0PhaseStatus.Unsupported)
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Unsupported)
     assert(result.value.isEmpty)
     assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.trait")

@@ -5,43 +5,43 @@ import scala.collection.mutable.ListBuffer
 import cosmo.syntax
 import cosmo.syntax.*
 
-object Cosmo0UntypedElaborator:
+object UntypedElaborator:
   val defaultStandardGenericNames: Set[String] =
     Set("Arena", "Box", "Id", "Map", "Option", "Ptr", "Ref", "RefMut", "Result", "Set", "Vec")
 
-  def apply(): Cosmo0UntypedElaborator =
-    new Cosmo0UntypedElaborator(defaultStandardGenericNames)
+  def apply(): UntypedElaborator =
+    new UntypedElaborator(defaultStandardGenericNames)
 
-final class Cosmo0UntypedElaborator(
+final class UntypedElaborator(
     standardGenericNames: Set[String],
 ):
-  def elaborate(parsed: Cosmo0ParsedModule): Cosmo0Result[Cosmo0UntypedModule] =
+  def elaborate(parsed: ParsedModule): Result[UntypedModule] =
     val state = State(parsed.source, standardGenericNames)
     val declarations = parsed.ast.stmts.flatMap(state.moduleDecl)
     val diagnostics = state.diagnostics.toList
 
     if diagnostics.isEmpty then
-      Cosmo0Result.success(
-        Cosmo0Phase.Check,
-        Cosmo0UntypedModule(
+      Result.success(
+        Phase.Check,
+        UntypedModule(
           parsed.source,
           declarations,
           state.nodeSpan(parsed.ast),
         ),
       )
     else
-      Cosmo0Result(
-        Cosmo0Phase.Check,
-        Cosmo0PhaseStatus.Unsupported,
+      Result(
+        Phase.Check,
+        PhaseStatus.Unsupported,
         None,
         diagnostics,
       )
 
   private final class State(
-      source: Cosmo0SourceFile,
+      source: SourceFile,
       standardGenericNames: Set[String],
   ):
-    val diagnostics: ListBuffer[Cosmo0Diagnostic] = ListBuffer.empty
+    val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
 
     private val assignmentOps =
       Set("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=")
@@ -49,14 +49,14 @@ final class Cosmo0UntypedElaborator(
     private val higherOrderMethodNames =
       Set("filter", "flatMap", "fold", "forEach", "foreach", "map")
 
-    def moduleDecl(node: syntax.Node): Option[Cosmo0UntypedDecl] =
+    def moduleDecl(node: syntax.Node): Option[UntypedDecl] =
       unwrapSemi(node) match
         case None => None
         case Some(importNode: Import) => importDecl(importNode)
         case Some(classNode: Class)   => classDecl(classNode)
         case Some(defNode: Def)       => functionDecl(defNode)
-        case Some(valueNode: Val)     => valueDecl(valueNode, Cosmo0UntypedValueKind.Val)
-        case Some(valueNode: Var)     => valueDecl(valueNode, Cosmo0UntypedValueKind.Var)
+        case Some(valueNode: Val)     => valueDecl(valueNode, UntypedValueKind.Val)
+        case Some(valueNode: Var)     => valueDecl(valueNode, UntypedValueKind.Var)
         case Some(typeNode: Typ)      => typeAlias(typeNode)
         case Some(implNode: Impl) =>
           unsupported(
@@ -83,15 +83,15 @@ final class Cosmo0UntypedElaborator(
             s"${constructName(other)} is not a supported top-level cosmo0 declaration",
           )
 
-    private def importDecl(node: Import): Option[Cosmo0UntypedImport] =
+    private def importDecl(node: Import): Option[UntypedImport] =
       val path = pathFromNode(node.path, Some(nodeSpan(node)))
       val dest = node.dest.map(pathFromNode(_, Some(nodeSpan(node))))
       for
         p <- path
         d <- sequence(dest.toList).map(_.headOption)
-      yield Cosmo0UntypedImport(p, d, nodeSpan(node))
+      yield UntypedImport(p, d, nodeSpan(node))
 
-    private def classDecl(node: Class): Option[Cosmo0UntypedClass] =
+    private def classDecl(node: Class): Option[UntypedClass] =
       if node.ab then
         unsupported(
           node,
@@ -112,9 +112,9 @@ final class Cosmo0UntypedElaborator(
         )
       else
         val members = classMembers(node.body)
-        sequence(members).map(Cosmo0UntypedClass(node.name.name, _, nodeSpan(node)))
+        sequence(members).map(UntypedClass(node.name.name, _, nodeSpan(node)))
 
-    private def classMembers(node: syntax.Node): List[Option[Cosmo0UntypedClassMember]] =
+    private def classMembers(node: syntax.Node): List[Option[UntypedClassMember]] =
       unwrapSemi(node) match
         case None => Nil
         case Some(block: Block) =>
@@ -130,11 +130,11 @@ final class Cosmo0UntypedElaborator(
             ),
           )
 
-    private def classMember(node: syntax.Node): Option[Cosmo0UntypedClassMember] =
+    private def classMember(node: syntax.Node): Option[UntypedClassMember] =
       unwrapSemi(node) match
         case None => None
-        case Some(valueNode: Val) => valueDecl(valueNode, Cosmo0UntypedValueKind.Val)
-        case Some(valueNode: Var) => valueDecl(valueNode, Cosmo0UntypedValueKind.Var)
+        case Some(valueNode: Val) => valueDecl(valueNode, UntypedValueKind.Val)
+        case Some(valueNode: Var) => valueDecl(valueNode, UntypedValueKind.Var)
         case Some(defNode: Def)   => functionDecl(defNode)
         case Some(typeNode: Typ)  => typeAlias(typeNode)
         case Some(caseNode: Case) => variantDecl(caseNode)
@@ -157,7 +157,7 @@ final class Cosmo0UntypedElaborator(
             s"${constructName(other)} is not a supported cosmo0 class member",
           )
 
-    private def functionDecl(node: Def): Option[Cosmo0UntypedFunction] =
+    private def functionDecl(node: Def): Option[UntypedFunction] =
       if hasExplicitTypeParams(node.params) then
         unsupported(
           node,
@@ -172,35 +172,35 @@ final class Cosmo0UntypedElaborator(
           ps <- sequence(params)
           rt <- sequence(returnType.toList).map(_.headOption)
           b <- sequence(body.toList).map(_.headOption)
-        yield Cosmo0UntypedFunction(node.name.name, ps, rt, b, nodeSpan(node))
+        yield UntypedFunction(node.name.name, ps, rt, b, nodeSpan(node))
 
     private def valueDecl(
         node: Val,
-        kind: Cosmo0UntypedValueKind,
-    ): Option[Cosmo0UntypedValueDecl] =
+        kind: UntypedValueKind,
+    ): Option[UntypedValueDecl] =
       val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
       val init = node.init.map(expr)
       for
         t <- sequence(valueType.toList).map(_.headOption)
         i <- sequence(init.toList).map(_.headOption)
-      yield Cosmo0UntypedValueDecl(kind, node.name.name, t, i, nodeSpan(node))
+      yield UntypedValueDecl(kind, node.name.name, t, i, nodeSpan(node))
 
     private def valueDecl(
         node: Var,
-        kind: Cosmo0UntypedValueKind,
-    ): Option[Cosmo0UntypedValueDecl] =
+        kind: UntypedValueKind,
+    ): Option[UntypedValueDecl] =
       val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
       val init = node.init.map(expr)
       for
         t <- sequence(valueType.toList).map(_.headOption)
         i <- sequence(init.toList).map(_.headOption)
-      yield Cosmo0UntypedValueDecl(kind, node.name.name, t, i, nodeSpan(node))
+      yield UntypedValueDecl(kind, node.name.name, t, i, nodeSpan(node))
 
-    private def typeAlias(node: Typ): Option[Cosmo0UntypedTypeAlias] =
+    private def typeAlias(node: Typ): Option[UntypedTypeAlias] =
       node.init.orElse(node.ty) match
         case Some(targetNode) =>
           typeFromNode(targetNode, Some(nodeSpan(node))).map(target =>
-            Cosmo0UntypedTypeAlias(node.name.name, target, nodeSpan(node)),
+            UntypedTypeAlias(node.name.name, target, nodeSpan(node)),
           )
         case None =>
           unsupported(
@@ -209,7 +209,7 @@ final class Cosmo0UntypedElaborator(
             "cosmo0 type aliases must name a concrete target type",
           )
 
-    private def variantDecl(node: Case): Option[Cosmo0UntypedVariant] =
+    private def variantDecl(node: Case): Option[UntypedVariant] =
       if node.body.nonEmpty then
         unsupported(
           node,
@@ -219,10 +219,10 @@ final class Cosmo0UntypedElaborator(
       else
         node.cond match
           case name: Ident =>
-            Some(Cosmo0UntypedVariant(name.name, Nil, nodeSpan(node)))
+            Some(UntypedVariant(name.name, Nil, nodeSpan(node)))
           case Apply(name: Ident, args, false) =>
             val fields = args.map(variantField)
-            sequence(fields).map(Cosmo0UntypedVariant(name.name, _, nodeSpan(node)))
+            sequence(fields).map(UntypedVariant(name.name, _, nodeSpan(node)))
           case other =>
             unsupported(
               other,
@@ -230,11 +230,11 @@ final class Cosmo0UntypedElaborator(
               "cosmo0 case variants must be a variant name with optional payload types",
             )
 
-    private def variantField(node: syntax.Node): Option[Cosmo0UntypedVariantField] =
+    private def variantField(node: syntax.Node): Option[UntypedVariantField] =
       node match
         case KeyedArg(name: Ident, valueType) =>
           typeFromNode(valueType, Some(nodeSpan(node))).map(t =>
-            Cosmo0UntypedVariantField(Some(name.name), t, nodeSpan(node)),
+            UntypedVariantField(Some(name.name), t, nodeSpan(node)),
           )
         case KeyedArg(_, _) =>
           unsupported(
@@ -244,10 +244,10 @@ final class Cosmo0UntypedElaborator(
           )
         case other =>
           typeFromNode(other, Some(nodeSpan(other))).map(t =>
-            Cosmo0UntypedVariantField(None, t, nodeSpan(other)),
+            UntypedVariantField(None, t, nodeSpan(other)),
           )
 
-    private def param(node: Param): Option[Cosmo0UntypedParam] =
+    private def param(node: Param): Option[UntypedParam] =
       if node.ct then
         unsupported(
           node,
@@ -260,58 +260,58 @@ final class Cosmo0UntypedElaborator(
         for
           t <- sequence(valueType.toList).map(_.headOption)
           d <- sequence(default.toList).map(_.headOption)
-        yield Cosmo0UntypedParam(node.name.name, t, d, nodeSpan(node))
+        yield UntypedParam(node.name.name, t, d, nodeSpan(node))
 
-    private def blockItem(node: syntax.Node): Option[Cosmo0UntypedBlockItem] =
+    private def blockItem(node: syntax.Node): Option[UntypedBlockItem] =
       unwrapSemi(node) match
         case None => None
-        case Some(valueNode: Val) => local(valueNode, Cosmo0UntypedValueKind.Val)
-        case Some(valueNode: Var) => local(valueNode, Cosmo0UntypedValueKind.Var)
+        case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
+        case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
         case Some(other)          => expr(other)
 
     private def local(
         node: Val,
-        kind: Cosmo0UntypedValueKind,
-    ): Option[Cosmo0UntypedLocal] =
+        kind: UntypedValueKind,
+    ): Option[UntypedLocal] =
       val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
       val init = node.init.map(expr)
       for
         t <- sequence(valueType.toList).map(_.headOption)
         i <- sequence(init.toList).map(_.headOption)
-      yield Cosmo0UntypedLocal(kind, node.name.name, t, i, nodeSpan(node))
+      yield UntypedLocal(kind, node.name.name, t, i, nodeSpan(node))
 
     private def local(
         node: Var,
-        kind: Cosmo0UntypedValueKind,
-    ): Option[Cosmo0UntypedLocal] =
+        kind: UntypedValueKind,
+    ): Option[UntypedLocal] =
       val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
       val init = node.init.map(expr)
       for
         t <- sequence(valueType.toList).map(_.headOption)
         i <- sequence(init.toList).map(_.headOption)
-      yield Cosmo0UntypedLocal(kind, node.name.name, t, i, nodeSpan(node))
+      yield UntypedLocal(kind, node.name.name, t, i, nodeSpan(node))
 
-    private def expr(node: syntax.Node): Option[Cosmo0UntypedExpr] =
+    private def expr(node: syntax.Node): Option[UntypedExpr] =
       unwrapSemi(node) match
-        case None => Some(Cosmo0UntypedUnitLiteral(nodeSpan(node)))
+        case None => Some(UntypedUnitLiteral(nodeSpan(node)))
         case Some(block: Block) =>
           val items = block.stmts.map(blockItem)
-          sequence(items).map(Cosmo0UntypedBlock(_, nodeSpan(block)))
+          sequence(items).map(UntypedBlock(_, nodeSpan(block)))
         case Some(name: Ident) =>
-          Some(Cosmo0UntypedName(Cosmo0UntypedPath(List(name.name), nodeSpan(name)), nodeSpan(name)))
+          Some(UntypedName(UntypedPath(List(name.name), nodeSpan(name)), nodeSpan(name)))
         case Some(BoolLit(value)) =>
-          Some(Cosmo0UntypedBoolLiteral(value, nodeSpan(node)))
+          Some(UntypedBoolLiteral(value, nodeSpan(node)))
         case Some(IntLit(value)) =>
-          Some(Cosmo0UntypedIntLiteral(value, nodeSpan(node)))
+          Some(UntypedIntLiteral(value, nodeSpan(node)))
         case Some(FloatLit(value)) =>
-          Some(Cosmo0UntypedFloatLiteral(value, nodeSpan(node)))
+          Some(UntypedFloatLiteral(value, nodeSpan(node)))
         case Some(StrLit(value)) =>
-          Some(Cosmo0UntypedStringLiteral(value, nodeSpan(node)))
+          Some(UntypedStringLiteral(value, nodeSpan(node)))
         case Some(Select(lhs, rhs, false)) =>
-          expr(lhs).map(receiver => Cosmo0UntypedSelect(receiver, rhs.name, nodeSpan(node)))
+          expr(lhs).map(receiver => UntypedSelect(receiver, rhs.name, nodeSpan(node)))
         case Some(Select(lhs, rhs, true)) =>
           typeFromNode(lhs, Some(nodeSpan(node))).map(owner =>
-            Cosmo0UntypedVariantConstructor(owner, rhs.name, nodeSpan(node)),
+            UntypedVariantConstructor(owner, rhs.name, nodeSpan(node)),
           )
         case Some(Apply(Select(_, rhs, false), _, false))
             if higherOrderMethodNames.contains(rhs.name) =>
@@ -326,7 +326,7 @@ final class Cosmo0UntypedElaborator(
           for
             c <- callee
             as <- sequence(callArgs)
-          yield Cosmo0UntypedCall(c, as, nodeSpan(node))
+          yield UntypedCall(c, as, nodeSpan(node))
         case Some(applyNode @ Apply(_, _, true)) =>
           unsupported(
             applyNode,
@@ -337,12 +337,12 @@ final class Cosmo0UntypedElaborator(
           for
             target <- expr(lhs)
             value <- expr(rhs)
-          yield Cosmo0UntypedAssign(target, value, op, nodeSpan(node))
+          yield UntypedAssign(target, value, op, nodeSpan(node))
         case Some(BinOp(op, lhs, rhs)) =>
           for
             left <- expr(lhs)
             right <- expr(rhs)
-          yield Cosmo0UntypedBinary(op, left, right, nodeSpan(node))
+          yield UntypedBinary(op, left, right, nodeSpan(node))
         case Some(UnOp("mut", _)) =>
           unsupported(
             node,
@@ -350,31 +350,31 @@ final class Cosmo0UntypedElaborator(
             "mut is only supported in cosmo0 reference type syntax",
           )
         case Some(UnOp(op, lhs)) =>
-          expr(lhs).map(value => Cosmo0UntypedUnary(op, value, nodeSpan(node)))
+          expr(lhs).map(value => UntypedUnary(op, value, nodeSpan(node)))
         case Some(If(cond, thenBranch, elseBranch)) =>
           for
             c <- expr(cond)
             t <- expr(thenBranch)
             e <- sequence(elseBranch.map(expr).toList).map(_.headOption)
-          yield Cosmo0UntypedIf(c, t, e, nodeSpan(node))
+          yield UntypedIf(c, t, e, nodeSpan(node))
         case Some(Loop(body)) =>
-          expr(body).map(Cosmo0UntypedLoop(_, nodeSpan(node)))
+          expr(body).map(UntypedLoop(_, nodeSpan(node)))
         case Some(While(cond, body)) =>
           for
             c <- expr(cond)
             b <- expr(body)
-          yield Cosmo0UntypedWhile(c, b, nodeSpan(node))
+          yield UntypedWhile(c, b, nodeSpan(node))
         case Some(For(name, iter, body)) =>
           for
             i <- expr(iter)
             b <- expr(body)
-          yield Cosmo0UntypedFor(name.name, i, b, nodeSpan(node))
+          yield UntypedFor(name.name, i, b, nodeSpan(node))
         case Some(Match(lhs, rhs: CaseBlock)) =>
           val arms = rhs.stmts.map(matchArm)
           for
             scrutinee <- expr(lhs)
             as <- sequence(arms)
-          yield Cosmo0UntypedMatch(scrutinee, as, nodeSpan(node))
+          yield UntypedMatch(scrutinee, as, nodeSpan(node))
         case Some(Match(_, rhs)) =>
           unsupported(
             rhs,
@@ -382,11 +382,11 @@ final class Cosmo0UntypedElaborator(
             "cosmo0 match expressions must contain only case arms",
           )
         case Some(Return(value)) =>
-          expr(value).map(Cosmo0UntypedReturn(_, nodeSpan(node)))
+          expr(value).map(UntypedReturn(_, nodeSpan(node)))
         case Some(Break()) =>
-          Some(Cosmo0UntypedBreak(nodeSpan(node)))
+          Some(UntypedBreak(nodeSpan(node)))
         case Some(Continue()) =>
-          Some(Cosmo0UntypedContinue(nodeSpan(node)))
+          Some(UntypedContinue(nodeSpan(node)))
         case Some(lambda: Lambda) =>
           unsupported(
             lambda,
@@ -460,37 +460,37 @@ final class Cosmo0UntypedElaborator(
             s"${constructName(other)} is outside the initial cosmo0 expression subset",
           )
 
-    private def matchArm(node: Case): Option[Cosmo0UntypedMatchArm] =
+    private def matchArm(node: Case): Option[UntypedMatchArm] =
       val p = pattern(node.cond)
       val b = node.body.map(expr)
       for
         patternValue <- p
         bodyValue <- sequence(b.toList).map(_.headOption)
-      yield Cosmo0UntypedMatchArm(patternValue, bodyValue, nodeSpan(node))
+      yield UntypedMatchArm(patternValue, bodyValue, nodeSpan(node))
 
-    private def pattern(node: syntax.Node): Option[Cosmo0UntypedPattern] =
+    private def pattern(node: syntax.Node): Option[UntypedPattern] =
       node match
         case Ident("_") =>
-          Some(Cosmo0UntypedWildcardPattern(nodeSpan(node)))
+          Some(UntypedWildcardPattern(nodeSpan(node)))
         case Ident(name) =>
-          Some(Cosmo0UntypedBindingPattern(name, nodeSpan(node)))
+          Some(UntypedBindingPattern(name, nodeSpan(node)))
         case BoolLit(value) =>
-          Some(Cosmo0UntypedBoolLiteral(value, nodeSpan(node)))
+          Some(UntypedBoolLiteral(value, nodeSpan(node)))
         case IntLit(value) =>
-          Some(Cosmo0UntypedIntLiteral(value, nodeSpan(node)))
+          Some(UntypedIntLiteral(value, nodeSpan(node)))
         case FloatLit(value) =>
-          Some(Cosmo0UntypedFloatLiteral(value, nodeSpan(node)))
+          Some(UntypedFloatLiteral(value, nodeSpan(node)))
         case StrLit(value) =>
-          Some(Cosmo0UntypedStringLiteral(value, nodeSpan(node)))
+          Some(UntypedStringLiteral(value, nodeSpan(node)))
         case Apply(callee, args, false) =>
           val constructor = expr(callee)
           val argPatterns = args.map(pattern)
           for
             c <- constructor
             as <- sequence(argPatterns)
-          yield Cosmo0UntypedVariantPattern(c, as, nodeSpan(node))
+          yield UntypedVariantPattern(c, as, nodeSpan(node))
         case select: Select =>
-          expr(select).map(constructor => Cosmo0UntypedVariantPattern(constructor, Nil, nodeSpan(node)))
+          expr(select).map(constructor => UntypedVariantPattern(constructor, Nil, nodeSpan(node)))
         case other =>
           unsupported(
             other,
@@ -500,8 +500,8 @@ final class Cosmo0UntypedElaborator(
 
     private def typeFromNode(
         node: syntax.Node,
-        fallbackSpan: Option[Cosmo0SourceSpan] = None,
-    ): Option[Cosmo0UntypedType] =
+        fallbackSpan: Option[SourceSpan] = None,
+    ): Option[UntypedType] =
       node match
         case Ident("Type") =>
           unsupported(
@@ -511,11 +511,11 @@ final class Cosmo0UntypedElaborator(
           )
         case UnOp("&", UnOp("mut", target)) =>
           typeFromNode(target, fallbackSpan).map(t =>
-            Cosmo0UntypedRefType(t, mutable = true, nodeSpan(node, fallbackSpan)),
+            UntypedRefType(t, mutable = true, nodeSpan(node, fallbackSpan)),
           )
         case UnOp("&", target) =>
           typeFromNode(target, fallbackSpan).map(t =>
-            Cosmo0UntypedRefType(t, mutable = false, nodeSpan(node, fallbackSpan)),
+            UntypedRefType(t, mutable = false, nodeSpan(node, fallbackSpan)),
           )
         case Apply(lhs, args, true) =>
           pathFromNode(lhs, fallbackSpan) match
@@ -524,11 +524,11 @@ final class Cosmo0UntypedElaborator(
               sequence(typeArgs).map { values =>
                 base.parts.lastOption match
                   case Some("Ref") if values.size == 1 =>
-                    Cosmo0UntypedRefType(values.head, mutable = false, nodeSpan(node, fallbackSpan))
+                    UntypedRefType(values.head, mutable = false, nodeSpan(node, fallbackSpan))
                   case Some("RefMut") if values.size == 1 =>
-                    Cosmo0UntypedRefType(values.head, mutable = true, nodeSpan(node, fallbackSpan))
+                    UntypedRefType(values.head, mutable = true, nodeSpan(node, fallbackSpan))
                   case _ =>
-                    Cosmo0UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan))
+                    UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan))
               }
             case Some(base) =>
               unsupported(
@@ -545,19 +545,19 @@ final class Cosmo0UntypedElaborator(
           )
         case pathNode =>
           pathFromNode(pathNode, fallbackSpan).map(path =>
-            Cosmo0UntypedNamedType(path, nodeSpan(pathNode, fallbackSpan)),
+            UntypedNamedType(path, nodeSpan(pathNode, fallbackSpan)),
           )
 
     private def pathFromNode(
         node: syntax.Node,
-        fallbackSpan: Option[Cosmo0SourceSpan] = None,
-    ): Option[Cosmo0UntypedPath] =
+        fallbackSpan: Option[SourceSpan] = None,
+    ): Option[UntypedPath] =
       node match
         case Ident(name) =>
-          Some(Cosmo0UntypedPath(List(name), nodeSpan(node, fallbackSpan)))
+          Some(UntypedPath(List(name), nodeSpan(node, fallbackSpan)))
         case Select(lhs, rhs, _) =>
           pathFromNode(lhs, fallbackSpan).map(path =>
-            Cosmo0UntypedPath(path.parts :+ rhs.name, nodeSpan(node, fallbackSpan)),
+            UntypedPath(path.parts :+ rhs.name, nodeSpan(node, fallbackSpan)),
           )
         case other =>
           unsupported(
@@ -566,13 +566,13 @@ final class Cosmo0UntypedElaborator(
             s"${constructName(other)} cannot be used as a cosmo0 path",
           )
 
-    def nodeSpan(node: syntax.Node): Cosmo0SourceSpan =
+    def nodeSpan(node: syntax.Node): SourceSpan =
       nodeSpan(node, None)
 
     private def nodeSpan(
         node: syntax.Node,
-        fallbackSpan: Option[Cosmo0SourceSpan],
-    ): Cosmo0SourceSpan =
+        fallbackSpan: Option[SourceSpan],
+    ): SourceSpan =
       if node.offset >= 0 && node.end >= node.offset then source.span(node.offset, node.end)
       else fallbackSpan.getOrElse(source.span(0, 0))
 
@@ -599,9 +599,9 @@ final class Cosmo0UntypedElaborator(
         code: String,
         message: String,
     ): Option[A] =
-      diagnostics += Cosmo0Diagnostic(
-        Cosmo0Phase.Check,
-        Cosmo0DiagnosticSeverity.Error,
+      diagnostics += Diagnostic(
+        Phase.Check,
+        DiagnosticSeverity.Error,
         code,
         message,
         Some(nodeSpan(node)),

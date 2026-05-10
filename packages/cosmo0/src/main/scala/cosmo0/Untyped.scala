@@ -1,262 +1,262 @@
 package cosmo0
 
-sealed trait Cosmo0UntypedNode:
-  def span: Cosmo0SourceSpan
+sealed trait UntypedNode:
+  def span: SourceSpan
 
-final case class Cosmo0UntypedModule(
-    source: Cosmo0SourceFile,
-    declarations: List[Cosmo0UntypedDecl],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedNode
+final case class UntypedModule(
+    source: SourceFile,
+    declarations: List[UntypedDecl],
+    span: SourceSpan,
+) extends UntypedNode
 
-sealed trait Cosmo0UntypedDecl extends Cosmo0UntypedNode:
+sealed trait UntypedDecl extends UntypedNode:
   def name: String
 
-sealed trait Cosmo0UntypedClassMember extends Cosmo0UntypedNode
+sealed trait UntypedClassMember extends UntypedNode
 
-sealed trait Cosmo0UntypedBlockItem extends Cosmo0UntypedNode
+sealed trait UntypedBlockItem extends UntypedNode
 
-sealed trait Cosmo0UntypedStmt extends Cosmo0UntypedBlockItem
+sealed trait UntypedStmt extends UntypedBlockItem
 
-sealed trait Cosmo0UntypedExpr extends Cosmo0UntypedBlockItem
+sealed trait UntypedExpr extends UntypedBlockItem
 
-sealed trait Cosmo0UntypedPattern extends Cosmo0UntypedNode
+sealed trait UntypedPattern extends UntypedNode
 
-sealed trait Cosmo0UntypedType extends Cosmo0UntypedNode
+sealed trait UntypedType extends UntypedNode
 
-enum Cosmo0UntypedValueKind:
+enum UntypedValueKind:
   case Val, Var
 
-final case class Cosmo0UntypedPath(
+final case class UntypedPath(
     parts: List[String],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedNode:
+    span: SourceSpan,
+) extends UntypedNode:
   def text: String = parts.mkString("::")
 
-final case class Cosmo0UntypedImport(
-    path: Cosmo0UntypedPath,
-    dest: Option[Cosmo0UntypedPath],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedDecl:
+final case class UntypedImport(
+    path: UntypedPath,
+    dest: Option[UntypedPath],
+    span: SourceSpan,
+) extends UntypedDecl:
   def name: String = dest.orElse(Some(path)).fold("<import>")(_.text)
 
-final case class Cosmo0UntypedClass(
+final case class UntypedClass(
     name: String,
-    members: List[Cosmo0UntypedClassMember],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedDecl
+    members: List[UntypedClassMember],
+    span: SourceSpan,
+) extends UntypedDecl
 
-final case class Cosmo0UntypedFunction(
+final case class UntypedFunction(
     name: String,
-    params: List[Cosmo0UntypedParam],
-    returnType: Option[Cosmo0UntypedType],
-    body: Option[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedDecl
-    with Cosmo0UntypedClassMember
+    params: List[UntypedParam],
+    returnType: Option[UntypedType],
+    body: Option[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedDecl
+    with UntypedClassMember
 
-final case class Cosmo0UntypedValueDecl(
-    kind: Cosmo0UntypedValueKind,
+final case class UntypedValueDecl(
+    kind: UntypedValueKind,
     name: String,
-    valueType: Option[Cosmo0UntypedType],
-    init: Option[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedDecl
-    with Cosmo0UntypedClassMember
+    valueType: Option[UntypedType],
+    init: Option[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedDecl
+    with UntypedClassMember
 
-final case class Cosmo0UntypedTypeAlias(
+final case class UntypedTypeAlias(
     name: String,
-    target: Cosmo0UntypedType,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedDecl
-    with Cosmo0UntypedClassMember
+    target: UntypedType,
+    span: SourceSpan,
+) extends UntypedDecl
+    with UntypedClassMember
 
-final case class Cosmo0UntypedVariant(
+final case class UntypedVariant(
     name: String,
-    fields: List[Cosmo0UntypedVariantField],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedClassMember
+    fields: List[UntypedVariantField],
+    span: SourceSpan,
+) extends UntypedClassMember
 
-final case class Cosmo0UntypedVariantField(
+final case class UntypedVariantField(
     name: Option[String],
-    valueType: Cosmo0UntypedType,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedNode
+    valueType: UntypedType,
+    span: SourceSpan,
+) extends UntypedNode
 
-final case class Cosmo0UntypedParam(
+final case class UntypedParam(
     name: String,
-    valueType: Option[Cosmo0UntypedType],
-    default: Option[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedNode
+    valueType: Option[UntypedType],
+    default: Option[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedNode
 
-final case class Cosmo0UntypedNamedType(
-    path: Cosmo0UntypedPath,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedType
+final case class UntypedNamedType(
+    path: UntypedPath,
+    span: SourceSpan,
+) extends UntypedType
 
-final case class Cosmo0UntypedAppliedType(
-    base: Cosmo0UntypedPath,
-    args: List[Cosmo0UntypedType],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedType
+final case class UntypedAppliedType(
+    base: UntypedPath,
+    args: List[UntypedType],
+    span: SourceSpan,
+) extends UntypedType
 
-final case class Cosmo0UntypedRefType(
-    target: Cosmo0UntypedType,
+final case class UntypedRefType(
+    target: UntypedType,
     mutable: Boolean,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedType
+    span: SourceSpan,
+) extends UntypedType
 
-final case class Cosmo0UntypedLocal(
-    kind: Cosmo0UntypedValueKind,
+final case class UntypedLocal(
+    kind: UntypedValueKind,
     name: String,
-    valueType: Option[Cosmo0UntypedType],
-    init: Option[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedStmt
+    valueType: Option[UntypedType],
+    init: Option[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedStmt
 
-final case class Cosmo0UntypedExprStmt(
-    expr: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedStmt
+final case class UntypedExprStmt(
+    expr: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedStmt
 
-final case class Cosmo0UntypedBlock(
-    items: List[Cosmo0UntypedBlockItem],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedBlock(
+    items: List[UntypedBlockItem],
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedName(
-    path: Cosmo0UntypedPath,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedName(
+    path: UntypedPath,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedSelect(
-    receiver: Cosmo0UntypedExpr,
+final case class UntypedSelect(
+    receiver: UntypedExpr,
     field: String,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedVariantConstructor(
-    owner: Cosmo0UntypedType,
+final case class UntypedVariantConstructor(
+    owner: UntypedType,
     variant: String,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedCall(
-    callee: Cosmo0UntypedExpr,
-    args: List[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedCall(
+    callee: UntypedExpr,
+    args: List[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedAssign(
-    target: Cosmo0UntypedExpr,
-    value: Cosmo0UntypedExpr,
+final case class UntypedAssign(
+    target: UntypedExpr,
+    value: UntypedExpr,
     op: String,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedUnary(
+final case class UntypedUnary(
     op: String,
-    expr: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+    expr: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedBinary(
+final case class UntypedBinary(
     op: String,
-    left: Cosmo0UntypedExpr,
-    right: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+    left: UntypedExpr,
+    right: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedIf(
-    cond: Cosmo0UntypedExpr,
-    thenBranch: Cosmo0UntypedExpr,
-    elseBranch: Option[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedIf(
+    cond: UntypedExpr,
+    thenBranch: UntypedExpr,
+    elseBranch: Option[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedLoop(
-    body: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedLoop(
+    body: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedWhile(
-    cond: Cosmo0UntypedExpr,
-    body: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedWhile(
+    cond: UntypedExpr,
+    body: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedFor(
+final case class UntypedFor(
     name: String,
-    iter: Cosmo0UntypedExpr,
-    body: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+    iter: UntypedExpr,
+    body: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedMatch(
-    scrutinee: Cosmo0UntypedExpr,
-    arms: List[Cosmo0UntypedMatchArm],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedMatch(
+    scrutinee: UntypedExpr,
+    arms: List[UntypedMatchArm],
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedMatchArm(
-    pattern: Cosmo0UntypedPattern,
-    body: Option[Cosmo0UntypedExpr],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedNode
+final case class UntypedMatchArm(
+    pattern: UntypedPattern,
+    body: Option[UntypedExpr],
+    span: SourceSpan,
+) extends UntypedNode
 
-final case class Cosmo0UntypedReturn(
-    value: Cosmo0UntypedExpr,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedReturn(
+    value: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedBreak(
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedBreak(
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedContinue(
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedContinue(
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedBoolLiteral(
+final case class UntypedBoolLiteral(
     value: Boolean,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
-    with Cosmo0UntypedPattern
+    span: SourceSpan,
+) extends UntypedExpr
+    with UntypedPattern
 
-final case class Cosmo0UntypedIntLiteral(
+final case class UntypedIntLiteral(
     value: BigInt,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
-    with Cosmo0UntypedPattern
+    span: SourceSpan,
+) extends UntypedExpr
+    with UntypedPattern
 
-final case class Cosmo0UntypedFloatLiteral(
+final case class UntypedFloatLiteral(
     value: BigDecimal,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
-    with Cosmo0UntypedPattern
+    span: SourceSpan,
+) extends UntypedExpr
+    with UntypedPattern
 
-final case class Cosmo0UntypedStringLiteral(
+final case class UntypedStringLiteral(
     value: String,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
-    with Cosmo0UntypedPattern
+    span: SourceSpan,
+) extends UntypedExpr
+    with UntypedPattern
 
-final case class Cosmo0UntypedUnitLiteral(
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedExpr
+final case class UntypedUnitLiteral(
+    span: SourceSpan,
+) extends UntypedExpr
 
-final case class Cosmo0UntypedWildcardPattern(
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedPattern
+final case class UntypedWildcardPattern(
+    span: SourceSpan,
+) extends UntypedPattern
 
-final case class Cosmo0UntypedBindingPattern(
+final case class UntypedBindingPattern(
     name: String,
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedPattern
+    span: SourceSpan,
+) extends UntypedPattern
 
-final case class Cosmo0UntypedVariantPattern(
-    constructor: Cosmo0UntypedExpr,
-    args: List[Cosmo0UntypedPattern],
-    span: Cosmo0SourceSpan,
-) extends Cosmo0UntypedPattern
+final case class UntypedVariantPattern(
+    constructor: UntypedExpr,
+    args: List[UntypedPattern],
+    span: SourceSpan,
+) extends UntypedPattern
