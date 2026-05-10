@@ -84,12 +84,14 @@ final class UntypedElaborator(
           )
 
     private def importDecl(node: Import): Option[UntypedImport] =
-      val path = pathFromNode(node.path, Some(nodeSpan(node)))
-      val dest = node.dest.map(pathFromNode(_, Some(nodeSpan(node))))
-      for
-        p <- path
-        d <- sequence(dest.toList).map(_.headOption)
-      yield UntypedImport(p, d, nodeSpan(node))
+      val span = nodeSpan(node)
+      val path = pathFromNode(node.path, Some(span))
+      val dest = node.dest.fold[Option[Option[UntypedPath]]](Some(None)) { destNode =>
+        pathFromNode(destNode, Some(span)).map(Some(_))
+      }
+      path.zip(dest).map { case (p, d) =>
+        UntypedImport(p, d, span)
+      }
 
     private def classDecl(node: Class): Option[UntypedClass] =
       if node.ab then
@@ -165,36 +167,47 @@ final class UntypedElaborator(
           "user-defined generic functions are outside the initial cosmo0 subset",
         )
       else
-        val params = node.params.getOrElse(Nil).map(param)
-        val returnType = node.ret.map(typeFromNode(_, Some(nodeSpan(node))))
-        val body = node.rhs.map(expr)
-        for
-          ps <- sequence(params)
-          rt <- sequence(returnType.toList).map(_.headOption)
-          b <- sequence(body.toList).map(_.headOption)
-        yield UntypedFunction(node.name.name, ps, rt, b, nodeSpan(node))
+        val span = nodeSpan(node)
+        val params = sequence(node.params.getOrElse(Nil).map(param))
+        val returnType = node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
+          typeFromNode(ret, Some(span)).map(Some(_))
+        }
+        val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) { rhs =>
+          expr(rhs).map(Some(_))
+        }
+        params.zip(returnType).zip(body).map { case ((ps, rt), b) =>
+          UntypedFunction(node.name.name, ps, rt, b, span)
+        }
 
     private def valueDecl(
         node: Val,
         kind: UntypedValueKind,
     ): Option[UntypedValueDecl] =
-      val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
-      val init = node.init.map(expr)
-      for
-        t <- sequence(valueType.toList).map(_.headOption)
-        i <- sequence(init.toList).map(_.headOption)
-      yield UntypedValueDecl(kind, node.name.name, t, i, nodeSpan(node))
+      val span = nodeSpan(node)
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+        typeFromNode(ty, Some(span)).map(Some(_))
+      }
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
+        expr(value).map(Some(_))
+      }
+      valueType.zip(init).map { case (t, i) =>
+        UntypedValueDecl(kind, node.name.name, t, i, span)
+      }
 
     private def valueDecl(
         node: Var,
         kind: UntypedValueKind,
     ): Option[UntypedValueDecl] =
-      val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
-      val init = node.init.map(expr)
-      for
-        t <- sequence(valueType.toList).map(_.headOption)
-        i <- sequence(init.toList).map(_.headOption)
-      yield UntypedValueDecl(kind, node.name.name, t, i, nodeSpan(node))
+      val span = nodeSpan(node)
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+        typeFromNode(ty, Some(span)).map(Some(_))
+      }
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
+        expr(value).map(Some(_))
+      }
+      valueType.zip(init).map { case (t, i) =>
+        UntypedValueDecl(kind, node.name.name, t, i, span)
+      }
 
     private def typeAlias(node: Typ): Option[UntypedTypeAlias] =
       node.init.orElse(node.ty) match
@@ -255,12 +268,16 @@ final class UntypedElaborator(
           "explicit compile-time parameters are outside the initial cosmo0 subset",
         )
       else
-        val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
-        val default = node.init.map(expr)
-        for
-          t <- sequence(valueType.toList).map(_.headOption)
-          d <- sequence(default.toList).map(_.headOption)
-        yield UntypedParam(node.name.name, t, d, nodeSpan(node))
+        val span = nodeSpan(node)
+        val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+          typeFromNode(ty, Some(span)).map(Some(_))
+        }
+        val default = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
+          expr(value).map(Some(_))
+        }
+        valueType.zip(default).map { case (t, d) =>
+          UntypedParam(node.name.name, t, d, span)
+        }
 
     private def blockItem(node: syntax.Node): Option[UntypedBlockItem] =
       unwrapSemi(node) match
@@ -273,23 +290,31 @@ final class UntypedElaborator(
         node: Val,
         kind: UntypedValueKind,
     ): Option[UntypedLocal] =
-      val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
-      val init = node.init.map(expr)
-      for
-        t <- sequence(valueType.toList).map(_.headOption)
-        i <- sequence(init.toList).map(_.headOption)
-      yield UntypedLocal(kind, node.name.name, t, i, nodeSpan(node))
+      val span = nodeSpan(node)
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+        typeFromNode(ty, Some(span)).map(Some(_))
+      }
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
+        expr(value).map(Some(_))
+      }
+      valueType.zip(init).map { case (t, i) =>
+        UntypedLocal(kind, node.name.name, t, i, span)
+      }
 
     private def local(
         node: Var,
         kind: UntypedValueKind,
     ): Option[UntypedLocal] =
-      val valueType = node.ty.map(typeFromNode(_, Some(nodeSpan(node))))
-      val init = node.init.map(expr)
-      for
-        t <- sequence(valueType.toList).map(_.headOption)
-        i <- sequence(init.toList).map(_.headOption)
-      yield UntypedLocal(kind, node.name.name, t, i, nodeSpan(node))
+      val span = nodeSpan(node)
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+        typeFromNode(ty, Some(span)).map(Some(_))
+      }
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
+        expr(value).map(Some(_))
+      }
+      valueType.zip(init).map { case (t, i) =>
+        UntypedLocal(kind, node.name.name, t, i, span)
+      }
 
     private def expr(node: syntax.Node): Option[UntypedExpr] =
       unwrapSemi(node) match
@@ -352,11 +377,13 @@ final class UntypedElaborator(
         case Some(UnOp(op, lhs)) =>
           expr(lhs).map(value => UntypedUnary(op, value, nodeSpan(node)))
         case Some(If(cond, thenBranch, elseBranch)) =>
-          for
-            c <- expr(cond)
-            t <- expr(thenBranch)
-            e <- sequence(elseBranch.map(expr).toList).map(_.headOption)
-          yield UntypedIf(c, t, e, nodeSpan(node))
+          val span = nodeSpan(node)
+          val elseValue = elseBranch.fold[Option[Option[UntypedExpr]]](Some(None)) { branch =>
+            expr(branch).map(Some(_))
+          }
+          expr(cond).zip(expr(thenBranch)).zip(elseValue).map { case ((c, t), e) =>
+            UntypedIf(c, t, e, span)
+          }
         case Some(Loop(body)) =>
           expr(body).map(UntypedLoop(_, nodeSpan(node)))
         case Some(While(cond, body)) =>
@@ -461,12 +488,13 @@ final class UntypedElaborator(
           )
 
     private def matchArm(node: Case): Option[UntypedMatchArm] =
-      val p = pattern(node.cond)
-      val b = node.body.map(expr)
-      for
-        patternValue <- p
-        bodyValue <- sequence(b.toList).map(_.headOption)
-      yield UntypedMatchArm(patternValue, bodyValue, nodeSpan(node))
+      val span = nodeSpan(node)
+      val body = node.body.fold[Option[Option[UntypedExpr]]](Some(None)) { bodyNode =>
+        expr(bodyNode).map(Some(_))
+      }
+      pattern(node.cond).zip(body).map { case (patternValue, bodyValue) =>
+        UntypedMatchArm(patternValue, bodyValue, span)
+      }
 
     private def pattern(node: syntax.Node): Option[UntypedPattern] =
       node match
