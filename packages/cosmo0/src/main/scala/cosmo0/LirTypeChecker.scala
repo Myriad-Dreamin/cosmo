@@ -30,6 +30,7 @@ final class LirTypeChecker(
       name: String,
       valueType: LirTypeRef,
       mutable: Boolean,
+      mutationAllowed: Boolean,
       param: Boolean,
   )
 
@@ -227,10 +228,10 @@ final class LirTypeChecker(
 
     private def buildLocalEnv(function: LirFunction): Map[LirLocalId, LocalInfo] =
       val params = function.params.map { param =>
-        LocalInfo(param.id, param.name, param.valueType, mutable = false, param = true)
+        LocalInfo(param.id, param.name, param.valueType, mutable = false, param.mutationAllowed, param = true)
       }
       val locals = function.locals.map { local =>
-        LocalInfo(local.id, local.name, local.valueType, local.mutable, param = false)
+        LocalInfo(local.id, local.name, local.valueType, local.mutable, local.mutationAllowed, param = false)
       }
       (params ++ locals)
         .groupBy(_.id)
@@ -322,6 +323,8 @@ final class LirTypeChecker(
             defineKnown(output, defined, env)
           case LirReadVariantTag(output, _, _) =>
             defineKnown(output, defined, env)
+          case LirCheckVariantTag(output, _, _, _) =>
+            defineKnown(output, defined, env)
           case LirReadVariantPayload(output, _, _, _, _) =>
             defineKnown(output, defined, env)
         }
@@ -358,7 +361,11 @@ final class LirTypeChecker(
                   "cosmo0.lir.invalid-local",
                   s"${env.function.id} cannot allocate parameter ${local.id}",
                 )
-              if info.name != local.name || !sameType(info.valueType, local.valueType) || info.mutable != local.mutable then
+              if info.name != local.name ||
+                  !sameType(info.valueType, local.valueType) ||
+                  info.mutable != local.mutable ||
+                  info.mutationAllowed != local.mutationAllowed
+              then
                 error(
                   "cosmo0.lir.invalid-local",
                   s"${env.function.id} allocates ${local.id} with metadata that does not match the function local declaration",
@@ -515,6 +522,20 @@ final class LirTypeChecker(
             )
           defineOutput(output, LirTypeRef(SourceType.I32), env, defined, s"variant_tag ${owner.display}")
 
+        case LirCheckVariantTag(output, scrutinee, owner, variant) =>
+          checkValue(scrutinee, env, defined)
+          if !sameSourceType(SourceType.deref(scrutinee.valueType.source), owner.source) then
+            error(
+              "cosmo0.lir.assignment-mismatch",
+              s"${env.function.id} checks variant tag for ${owner.display} from ${scrutinee.valueType.display}",
+            )
+          if !variantNames(owner, env).contains(variant) then
+            error(
+              "cosmo0.lir.invalid-variant",
+              s"${env.function.id} checks missing variant ${owner.display}::$variant",
+            )
+          defineOutput(output, LirTypeRef(SourceType.Bool), env, defined, s"variant_is ${owner.display}::$variant")
+
         case LirReadVariantPayload(output, scrutinee, variant, index, valueType) =>
           checkValue(scrutinee, env, defined)
           val owner = LirTypeRef(SourceType.deref(scrutinee.valueType.source))
@@ -544,6 +565,8 @@ final class LirTypeChecker(
     ): Option[ExpectedCallable] =
       SourceType.dealias(SourceType.deref(receiver.valueType.source)) match
         case owner: SourceType.Standard =>
+          descriptorMethod(owner, method, receiver.valueType)
+        case owner: SourceType.Builtin =>
           descriptorMethod(owner, method, receiver.valueType)
         case SourceType.User(name) =>
           env.declarations.typesByName.get(name).flatMap { ty =>
@@ -585,9 +608,9 @@ final class LirTypeChecker(
           )
           None
         case Some(info) =>
-          val owner: SourceType.Standard =
-            SourceType.Standard(descriptor.name, descriptor.args.map(_.source))
-          info.method(name) match
+          val owner =
+            descriptorOwnerType(descriptor)
+          syntheticDescriptorOperation(descriptor, name).orElse(info.method(name) match
             case Some(callable) =>
               val signature = callable.instantiate(owner, syntheticSpan)
               val params = LirTypeRef(owner) :: signature.params.map(param => LirTypeRef(param.valueType))
@@ -613,13 +636,62 @@ final class LirTypeChecker(
                     s"descriptor ${descriptor.name} has no operation $name",
                   )
                   None
+          )
+
+    private def syntheticDescriptorOperation(
+        descriptor: LirDescriptorRef,
+        name: String,
+    ): Option[ExpectedCallable] =
+      descriptor.name match
+        case "Vec" | "Set" | "Arena" if descriptor.args.length == 1 =>
+          val owner = LirTypeRef(descriptorOwnerType(descriptor))
+          val itemType = descriptor.args.head
+          name match
+            case "iter_has_next" =>
+              Some(
+                ExpectedCallable(
+                  LirCallableSignature(List(owner), LirTypeRef(SourceType.Bool)),
+                  receiverMutable = false,
+                ),
+              )
+            case "iter_next" =>
+              Some(
+                ExpectedCallable(
+                  LirCallableSignature(List(owner), itemType),
+                  receiverMutable = false,
+                ),
+              )
+            case _ =>
+              None
+        case "Map" if descriptor.args.length == 2 =>
+          val owner = LirTypeRef(descriptorOwnerType(descriptor))
+          val keyType = descriptor.args.head
+          name match
+            case "iter_has_next" =>
+              Some(
+                ExpectedCallable(
+                  LirCallableSignature(List(owner), LirTypeRef(SourceType.Bool)),
+                  receiverMutable = false,
+                ),
+              )
+            case "iter_next" =>
+              Some(
+                ExpectedCallable(
+                  LirCallableSignature(List(owner), keyType),
+                  receiverMutable = false,
+                ),
+              )
+            case _ =>
+              None
+        case _ =>
+          None
 
     private def descriptorMethod(
-        owner: SourceType.Standard,
+        owner: SourceType,
         method: String,
         receiverType: LirTypeRef,
     ): Option[ExpectedCallable] =
-      descriptors.get(owner.name).flatMap(_.method(method)).map { callable =>
+      descriptorName(owner).flatMap(name => descriptors.get(name).flatMap(_.method(method))).map { callable =>
         val signature = callable.instantiate(owner, syntheticSpan)
         ExpectedCallable(
           LirCallableSignature(signature.params.map(param => LirTypeRef(param.valueType)), LirTypeRef(signature.returnType), Some(signature)),
@@ -961,11 +1033,24 @@ final class LirTypeChecker(
         case _ =>
           None
 
+    private def descriptorOwnerType(descriptor: LirDescriptorRef): SourceType =
+      SourceType.scalar(descriptor.name).filter(_ => descriptor.args.isEmpty).getOrElse {
+        SourceType.Standard(descriptor.name, descriptor.args.map(_.source))
+      }
+
+    private def descriptorName(ownerType: SourceType): Option[String] =
+      SourceType.dealias(ownerType) match
+        case SourceType.Standard(name, _) => Some(name)
+        case SourceType.Builtin(name)     => Some(name)
+        case _                            => None
+
     private def mutableValue(value: LirValue, env: FunctionEnv): Boolean =
       SourceType.refMutable(value.valueType.source).contains(true) ||
         (value match
-          case LirLocalRef(id, _)  => env.locals.get(id).exists(_.mutable)
-          case LirGlobalRef(id, _) => env.declarations.globals.get(id).exists(_.mutable)
+          case LirLocalRef(id, _) =>
+            env.locals.get(id).exists(info => info.mutable || info.mutationAllowed)
+          case LirGlobalRef(id, _) =>
+            env.declarations.globals.get(id).exists(global => global.mutable || global.mutationAllowed)
           case _                   => false
         )
 

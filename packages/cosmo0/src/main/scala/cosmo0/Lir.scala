@@ -42,6 +42,7 @@ final case class LirParam(
     id: LirLocalId,
     name: String,
     valueType: LirTypeRef,
+    mutationAllowed: Boolean = false,
 )
 
 final case class LirLocal(
@@ -49,6 +50,7 @@ final case class LirLocal(
     name: String,
     valueType: LirTypeRef,
     mutable: Boolean = false,
+    mutationAllowed: Boolean = false,
 )
 
 final case class LirFunction(
@@ -74,6 +76,7 @@ final case class LirGlobal(
     valueType: LirTypeRef,
     mutable: Boolean,
     initializer: Option[LirValue] = None,
+    mutationAllowed: Boolean = false,
 ) extends LirDeclaration
 
 final case class LirTypeAliasDecl(
@@ -238,6 +241,13 @@ final case class LirReadVariantTag(
     owner: LirTypeRef,
 ) extends LirOp
 
+final case class LirCheckVariantTag(
+    output: LirLocalId,
+    scrutinee: LirValue,
+    owner: LirTypeRef,
+    variant: String,
+) extends LirOp
+
 final case class LirReadVariantPayload(
     output: LirLocalId,
     scrutinee: LirValue,
@@ -284,16 +294,18 @@ object Lir:
       name: String,
       valueType: SourceType,
       id: String = "",
+      mutationAllowed: Boolean = false,
   ): LirParam =
-    LirParam(localId(stableId(id, name)), name, t(valueType))
+    LirParam(localId(stableId(id, name)), name, t(valueType), mutationAllowed)
 
   def local(
       name: String,
       valueType: SourceType,
       mutable: Boolean = false,
       id: String = "",
+      mutationAllowed: Boolean = false,
   ): LirLocal =
-    LirLocal(localId(stableId(id, name)), name, t(valueType), mutable)
+    LirLocal(localId(stableId(id, name)), name, t(valueType), mutable, mutationAllowed)
 
   def ref(id: String, valueType: SourceType): LirLocalRef =
     LirLocalRef(localId(id), t(valueType))
@@ -433,6 +445,8 @@ object LirDebugRenderer:
         s"$output = variant ${renderType(owner)}::$variant(${renderArgs(payload)})"
       case LirReadVariantTag(output, scrutinee, owner) =>
         s"$output = variant_tag ${renderValue(scrutinee)}: ${renderType(owner)}"
+      case LirCheckVariantTag(output, scrutinee, owner, variant) =>
+        s"$output = variant_is ${renderValue(scrutinee)}: ${renderType(owner)}::$variant"
       case LirReadVariantPayload(output, scrutinee, variant, index, valueType) =>
         s"$output = variant_payload ${renderValue(scrutinee)}.$variant[$index]: ${renderType(valueType)}"
 
