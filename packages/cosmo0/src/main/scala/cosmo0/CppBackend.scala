@@ -104,10 +104,12 @@ final class CppBackend(
         "#include <cstdint>",
         "#include <cstdio>",
         "#include <cstdlib>",
+        "#include <fstream>",
         "#include <iterator>",
         "#include <map>",
         "#include <optional>",
         "#include <set>",
+        "#include <sstream>",
         "#include <string>",
         "#include <type_traits>",
         "#include <unordered_map>",
@@ -186,6 +188,16 @@ final class CppBackend(
         |inline void println(const T &value) {
         |  print_value(value);
         |  std::printf("\n");
+        |}
+        |
+        |inline std::string read_file(const std::string &path) {
+        |  std::ifstream input(path);
+        |  if (!input) {
+        |    error_exit("cosmo0.runtime.read_file", path.c_str());
+        |  }
+        |  std::ostringstream output;
+        |  output << input.rdbuf();
+        |  return output.str();
         |}
         |
         |template <typename T, typename E>
@@ -511,6 +523,9 @@ final class CppBackend(
             case None =>
               Nil
 
+        case LirConstructType(output, owner, fields) =>
+          constructType(output, owner, fields, locals)
+
         case LirConstructVariant(output, owner, variant, payload) =>
           constructVariant(owner, variant, payload, locals) match
             case Some(value) => List(s"${locals.local(output)} = $value;")
@@ -722,6 +737,8 @@ final class CppBackend(
               Some(EmittedDescriptor.Stmt(s"cosmo0_runtime::print(${arg(0)})", Set("runtime.print")))
             case "println" if requireArity(1) =>
               Some(EmittedDescriptor.Stmt(s"cosmo0_runtime::println(${arg(0)})", Set("runtime.print")))
+            case "read_file" if requireArity(1) =>
+              Some(EmittedDescriptor.Expr(s"cosmo0_runtime::read_file(${arg(0)})", Set("runtime.fs")))
             case _ =>
               unsupportedDescriptor(descriptorText(descriptor), name)
               None
@@ -1031,6 +1048,26 @@ final class CppBackend(
         case _ =>
           unsupportedType(owner.source)
           None
+
+    private def constructType(
+        output: LirLocalId,
+        owner: LirTypeRef,
+        fields: List[LirFieldInit],
+        locals: FunctionNames,
+    ): List[String] =
+      SourceType.dealias(owner.source) match
+        case SourceType.User(name) =>
+          env.typesByName.get(name) match
+            case Some(ty) =>
+              val target = locals.local(output)
+              s"$target = ${names.typeName(ty.id)}{};" ::
+                fields.map(field => s"$target.${fieldName(field.name)} = ${renderValue(field.value, locals)};")
+            case None =>
+              unsupportedType(owner.source)
+              Nil
+        case _ =>
+          unsupportedType(owner.source)
+          Nil
 
     private def variantTag(
         scrutinee: LirValue,

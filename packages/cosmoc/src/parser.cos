@@ -1,18 +1,524 @@
 class ParserToken {
-  val text: String
   val offset: usize
+  val text: String
 }
 
 class ParserState {
-  val source: String
   var offset: usize
+  val source: String
 
   def position(&self): usize = {
     self.offset
   }
 
+  def is_at_end(&self): Bool = {
+    self.offset >= self.source.len()
+  }
+
+  def current_byte(&self): u8 = {
+    if (self.is_at_end()) {
+      0
+    } else {
+      self.source.byte_at(self.offset)
+    }
+  }
+
   def advance(&mut self): Unit = {
-    self.offset = self.offset + 1
+    if (!self.is_at_end()) {
+      self.offset = self.offset + 1
+    }
+  }
+
+  def starts_with(&self, text: String): Bool = {
+    val end = self.offset + text.len();
+    if (end > self.source.len()) {
+      false
+    } else {
+      self.source.slice(self.offset, end) == text
+    }
+  }
+
+  def match_text(&mut self, text: String): Bool = {
+    if (self.starts_with(text)) {
+      self.offset = self.offset + text.len();
+      true
+    } else {
+      false
+    }
+  }
+
+  def expect_text(&mut self, text: String): Bool = {
+    self.skip_ws();
+    self.match_text(text)
+  }
+
+  def expect_word(&mut self, text: String): Bool = {
+    self.skip_ws();
+    val start = self.offset;
+    if (self.match_text(text)) {
+      if (self.is_word_boundary()) {
+        true
+      } else {
+        self.offset = start;
+        false
+      }
+    } else {
+      false
+    }
+  }
+
+  def is_word_boundary(&self): Bool = {
+    if (self.is_at_end()) {
+      true
+    } else {
+      !is_ident_continue(self.current_byte())
+    }
+  }
+
+  def skip_ws(&mut self): Unit = {
+    var changed = true;
+    while (changed) {
+      changed = false;
+      while (!self.is_at_end() and is_space(self.current_byte())) {
+        self.advance();
+        changed = true
+      }
+      if (self.starts_with("//")) {
+        while (!self.is_at_end() and self.current_byte() != 10) {
+          self.advance()
+        }
+        changed = true
+      }
+    }
+  }
+
+  def parse_identifier(&mut self): Bool = {
+    self.skip_ws();
+    if (self.is_at_end()) {
+      false
+    } else {
+      if (!is_ident_start(self.current_byte())) {
+        false
+      } else {
+        self.advance();
+        while (!self.is_at_end() and is_ident_continue(self.current_byte())) {
+          self.advance()
+        }
+        true
+      }
+    }
+  }
+
+  def parse_path(&mut self): Bool = {
+    if (!self.parse_identifier()) {
+      false
+    } else {
+      var keep = true;
+      while (keep) {
+        self.skip_ws();
+        if (self.match_text("::")) {
+          if (!self.parse_identifier()) {
+            return false
+          }
+        } else {
+          if (self.match_text(".")) {
+            if (!self.parse_identifier()) {
+              return false
+            }
+          } else {
+            keep = false
+          }
+        }
+      }
+      true
+    }
+  }
+
+  def parse_type(&mut self): Bool = {
+    self.skip_ws();
+    if (self.match_text("&")) {
+      self.skip_ws();
+      self.expect_word("mut");
+      self.parse_type()
+    } else {
+      if (!self.parse_path()) {
+        false
+      } else {
+        self.parse_generic_args()
+      }
+    }
+  }
+
+  def parse_generic_args(&mut self): Bool = {
+    self.skip_ws();
+    if (!self.match_text("[")) {
+      true
+    } else {
+      self.skip_ws();
+      if (self.match_text("]")) {
+        true
+      } else {
+        var keep = true;
+        while (keep) {
+          if (!self.parse_type()) {
+            return false
+          }
+          self.skip_ws();
+          if (self.match_text(",")) {
+            keep = true
+          } else {
+            keep = false
+          }
+        }
+        self.expect_text("]")
+      }
+    }
+  }
+
+  def parse_params(&mut self): Bool = {
+    if (!self.expect_text("(")) {
+      false
+    } else {
+      self.skip_ws();
+      if (self.match_text(")")) {
+        true
+      } else {
+        var keep = true;
+        while (keep) {
+          if (!self.parse_param()) {
+            return false
+          }
+          self.skip_ws();
+          if (self.match_text(",")) {
+            keep = true
+          } else {
+            keep = false
+          }
+        }
+        self.expect_text(")")
+      }
+    }
+  }
+
+  def parse_param(&mut self): Bool = {
+    self.skip_ws();
+    if (self.match_text("&")) {
+      self.skip_ws();
+      self.expect_word("mut");
+      self.expect_word("self")
+    } else {
+      if (!self.parse_identifier()) {
+        false
+      } else {
+        self.skip_ws();
+        if (self.match_text(":")) {
+          if (!self.parse_type()) {
+            return false
+          }
+        }
+        self.skip_ws();
+        if (self.match_text("=")) {
+          self.consume_expr_until_statement_end()
+        } else {
+          true
+        }
+      }
+    }
+  }
+
+  def parse_class_after_keyword(&mut self): Bool = {
+    if (!self.parse_identifier()) {
+      false
+    } else {
+      self.skip_ws();
+      if (self.starts_with("[")) {
+        if (!self.consume_balanced_group(91, 93)) {
+          return false
+        }
+      }
+      self.skip_ws();
+      if (self.starts_with("(")) {
+        if (!self.parse_params()) {
+          return false
+        }
+      }
+      self.parse_class_body()
+    }
+  }
+
+  def parse_class_body(&mut self): Bool = {
+    if (!self.expect_text("{")) {
+      false
+    } else {
+      var keep = true;
+      while (keep) {
+        self.skip_ws();
+        if (self.match_text("}")) {
+          return true
+        }
+        if (!self.parse_class_member()) {
+          return false
+        }
+        self.consume_optional_semicolon()
+      }
+      false
+    }
+  }
+
+  def parse_class_member(&mut self): Bool = {
+    if (self.expect_word("val")) {
+      self.parse_value_after_keyword(true)
+    } else {
+      if (self.expect_word("var")) {
+        self.parse_value_after_keyword(true)
+      } else {
+        if (self.expect_word("def")) {
+          self.parse_def_after_keyword()
+        } else {
+          if (self.expect_word("type")) {
+            self.parse_type_alias_after_keyword()
+          } else {
+            if (self.expect_word("case")) {
+              self.parse_case_after_keyword()
+            } else {
+              false
+            }
+          }
+        }
+      }
+    }
+  }
+
+  def parse_case_after_keyword(&mut self): Bool = {
+    if (!self.parse_identifier()) {
+      false
+    } else {
+      self.skip_ws();
+      if (self.starts_with("(")) {
+        self.consume_balanced_group(40, 41)
+      } else {
+        true
+      }
+    }
+  }
+
+  def parse_def_after_keyword(&mut self): Bool = {
+    if (!self.parse_identifier()) {
+      false
+    } else {
+      self.skip_ws();
+      if (self.starts_with("(")) {
+        if (!self.parse_params()) {
+          return false
+        }
+      }
+      self.skip_ws();
+      if (self.match_text(":")) {
+        if (!self.parse_type()) {
+          return false
+        }
+      }
+      self.skip_ws();
+      if (self.match_text("=")) {
+        self.parse_rhs()
+      } else {
+        true
+      }
+    }
+  }
+
+  def parse_value_after_keyword(&mut self, allow_missing_init: Bool): Bool = {
+    if (!self.parse_identifier()) {
+      false
+    } else {
+      self.skip_ws();
+      if (self.match_text(":")) {
+        if (!self.parse_type()) {
+          return false
+        }
+      }
+      self.skip_ws();
+      if (self.match_text("=")) {
+        self.parse_rhs()
+      } else {
+        allow_missing_init
+      }
+    }
+  }
+
+  def parse_type_alias_after_keyword(&mut self): Bool = {
+    if (!self.parse_identifier()) {
+      false
+    } else {
+      if (!self.expect_text("=")) {
+        false
+      } else {
+        self.parse_type()
+      }
+    }
+  }
+
+  def parse_import_after_keyword(&mut self): Bool = {
+    val ok = self.consume_expr_until_statement_end();
+    self.consume_optional_semicolon();
+    ok
+  }
+
+  def parse_rhs(&mut self): Bool = {
+    self.skip_ws();
+    if (self.starts_with("{")) {
+      self.consume_balanced_group(123, 125)
+    } else {
+      val ok = self.consume_expr_until_statement_end();
+      self.consume_optional_semicolon();
+      ok
+    }
+  }
+
+  def parse_item(&mut self): Bool = {
+    self.skip_ws();
+    if (self.match_text(";")) {
+      true
+    } else {
+      if (self.expect_word("pub")) {
+        self.parse_item()
+      } else {
+        if (self.expect_word("private")) {
+          self.parse_item()
+        } else {
+          if (self.expect_word("import")) {
+            self.parse_import_after_keyword()
+          } else {
+            if (self.expect_word("class")) {
+              self.parse_class_after_keyword()
+            } else {
+              if (self.expect_word("trait")) {
+                self.parse_class_after_keyword()
+              } else {
+                if (self.expect_word("def")) {
+                  self.parse_def_after_keyword()
+                } else {
+                  if (self.expect_word("val")) {
+                    self.parse_value_after_keyword(true)
+                  } else {
+                    if (self.expect_word("var")) {
+                      self.parse_value_after_keyword(true)
+                    } else {
+                      if (self.expect_word("type")) {
+                        self.parse_type_alias_after_keyword()
+                      } else {
+                        false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  def consume_optional_semicolon(&mut self): Bool = {
+    self.skip_ws();
+    self.match_text(";");
+    true
+  }
+
+  def consume_string(&mut self): Bool = {
+    if (self.current_byte() != 34) {
+      false
+    } else {
+      self.advance();
+      while (!self.is_at_end()) {
+        if (self.current_byte() == 92) {
+          self.advance();
+          if (!self.is_at_end()) {
+            self.advance()
+          }
+        } else {
+          if (self.current_byte() == 34) {
+            self.advance();
+            return true
+          } else {
+            self.advance()
+          }
+        }
+      }
+      false
+    }
+  }
+
+  def consume_balanced_group(&mut self, open: u8, close: u8): Bool = {
+    if (self.current_byte() != open) {
+      false
+    } else {
+      var depth: usize = 0;
+      while (!self.is_at_end()) {
+        val byte = self.current_byte();
+        if (byte == 34) {
+          if (!self.consume_string()) {
+            return false
+          }
+        } else {
+          if (byte == open) {
+            depth = depth + 1;
+            self.advance()
+          } else {
+            if (byte == close) {
+              depth = depth - 1;
+              self.advance();
+              if (depth == 0) {
+                return true
+              }
+            } else {
+              self.advance()
+            }
+          }
+        }
+      }
+      false
+    }
+  }
+
+  def consume_expr_until_statement_end(&mut self): Bool = {
+    self.skip_ws();
+    var saw = false;
+    var depth: usize = 0;
+    while (!self.is_at_end()) {
+      val byte = self.current_byte();
+      if (byte == 34) {
+        if (!self.consume_string()) {
+          return false
+        }
+        saw = true
+      } else {
+        if (byte == 40 or byte == 91 or byte == 123) {
+          depth = depth + 1;
+          saw = true;
+          self.advance()
+        } else {
+          if (byte == 41 or byte == 93 or byte == 125) {
+            if (depth == 0) {
+              return saw
+            } else {
+              depth = depth - 1;
+              saw = true;
+              self.advance()
+            }
+          } else {
+            if (depth == 0 and byte == 59) {
+              return saw
+            } else {
+              saw = true;
+              self.advance()
+            }
+          }
+        }
+      }
+    }
+    saw
   }
 }
 
@@ -22,4 +528,48 @@ def parser_version(): i32 = {
 
 def source_len(source: String): usize = {
   source.len()
+}
+
+def is_space(byte: u8): Bool = {
+  byte == 32 or byte == 9 or byte == 10 or byte == 13
+}
+
+def is_digit(byte: u8): Bool = {
+  byte >= 48 and byte <= 57
+}
+
+def is_lower(byte: u8): Bool = {
+  byte >= 97 and byte <= 122
+}
+
+def is_upper(byte: u8): Bool = {
+  byte >= 65 and byte <= 90
+}
+
+def is_ident_start(byte: u8): Bool = {
+  is_lower(byte) or is_upper(byte) or byte == 95
+}
+
+def is_ident_continue(byte: u8): Bool = {
+  is_ident_start(byte) or is_digit(byte)
+}
+
+def parse_source(source: String): Bool = {
+  var state = ParserState(0, source);
+  state.skip_ws();
+  while (!state.is_at_end()) {
+    if (!state.parse_item()) {
+      return false
+    }
+    state.skip_ws()
+  }
+  true
+}
+
+def parse_diagnostic_code(source: String): String = {
+  if (parse_source(source)) {
+    ""
+  } else {
+    "cosmo0.parse.failed"
+  }
 }
