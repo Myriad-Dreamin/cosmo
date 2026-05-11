@@ -6,6 +6,8 @@ import fastparse.Parsed
 import fastparse.parse as fastParse
 
 final class Cosmo0:
+  private val packagePipeline = PackagePipeline(this)
+
   def parse(sourceText: String): Result[ParsedModule] =
     parse(SourceFile("<memory>", sourceText))
 
@@ -110,6 +112,58 @@ final class Cosmo0:
             Result.success(
               Phase.Compile,
               CompiledModule(loweredModule.checked, emitted.value.get.source),
+            )
+          case failed =>
+            Result.failure(Phase.Compile, failed.diagnostics)
+
+  def loadPackage(rootPath: String): Result[Cosmo0Package] =
+    packagePipeline.load(rootPath)
+
+  def checkPackage(rootPath: String): Result[CheckedPackage] =
+    loadPackage(rootPath) match
+      case loaded if loaded.isSuccess =>
+        checkPackage(loaded.value.get)
+      case failed =>
+        Result(
+          Phase.Check,
+          failed.status,
+          None,
+          failed.diagnostics,
+        )
+
+  def checkPackage(pkg: Cosmo0Package): Result[CheckedPackage] =
+    packagePipeline.check(pkg)
+
+  def compilePackage(rootPath: String): Result[CompiledPackage] =
+    loadPackage(rootPath) match
+      case loaded if loaded.isSuccess =>
+        compilePackage(loaded.value.get)
+      case failed =>
+        Result(
+          Phase.Compile,
+          failed.status,
+          None,
+          failed.diagnostics,
+        )
+
+  def compilePackage(pkg: Cosmo0Package): Result[CompiledPackage] =
+    checkPackage(pkg) match
+      case checked if checked.isFailure =>
+        Result.failure(Phase.Compile, checked.diagnostics)
+      case checked if checked.isUnsupported =>
+        Result(
+          Phase.Compile,
+          PhaseStatus.Unsupported,
+          None,
+          checked.diagnostics,
+        )
+      case checked =>
+        val checkedPackage = checked.value.get
+        CppBackend().emit(checkedPackage.lowered.lir) match
+          case emitted if emitted.isSuccess =>
+            Result.success(
+              Phase.Compile,
+              CompiledPackage(checkedPackage, emitted.value.get),
             )
           case failed =>
             Result.failure(Phase.Compile, failed.diagnostics)
