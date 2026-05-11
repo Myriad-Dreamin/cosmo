@@ -32,6 +32,20 @@ for (const file of requiredDocs) {
   requireFile(join(docRoot, file))
 }
 
+for (const file of requiredDocs) {
+  const path = join(docRoot, file)
+  if (!existsSync(path)) {
+    continue
+  }
+  const content = read(path)
+  if (!content.includes('== Examples')) {
+    errors.push(`${path} must include an "== Examples" section`)
+  }
+  if (!content.includes('```')) {
+    errors.push(`${path} must include at least one fenced example block`)
+  }
+}
+
 const requiredSnippets = new Map([
   [
     'spec.typ',
@@ -119,4 +133,4 @@ if (errors.length > 0) {
   process.exit(1)
 }
 
-console.log(`cosmo0 docs validation passed (${requiredDocs.length} required docs checked)`)
+console.log(`cosmo0 docs validation passed (${requiredDocs.length} required docs with examples checked)`)

@@ -8,6 +8,29 @@ This file owns source-facing core0 standard APIs and capability identifiers. The
 
 Standard APIs are the public surface available to cosmo0 source. A backend descriptor, lowered intrinsic, or extern binding may implement a standard API, but the public behavior belongs here and in the related type, expression, runtime, and package files.
 
+== Examples
+
+Placeholder Stage 1 source-facing shape:
+
+```cos
+import core0.text.SourceText
+import core0.result.Result
+
+def load_source(path: Path): Result<SourceText, IoError> = {
+  val text = Fs.read_to_string(path)
+  SourceText.from_string(text)
+}
+```
+
+Implementation detail that should not become source-facing API:
+
+```text
+descriptor String::len(%source_text) -> usize
+descriptor Vec<Token>::push(%tokens, %token) -> Unit
+```
+
+The first example is a shape for future API proposals to refine. The second example names internal descriptor-style operations that may implement standard APIs but should not be the public dependency of cosmo1 source.
+
 == Capability Identifiers
 
 Placeholder for stable core0 capability identifiers such as text, collections, results, arena identifiers, paths, filesystem access, command execution, JSON bridges, numeric literal helpers, deterministic output, and other staged runtime surfaces.

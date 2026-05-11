@@ -8,6 +8,31 @@ This file owns expression typing and expression validity for cosmo0. The heading
 
 Placeholder for accepted unit, boolean, integer, numeric-text, string, byte, char, and aggregate literal behavior.
 
+== Examples
+
+Accepted expression shapes:
+
+```cos
+val at_end: Bool = cursor.offset == source.len()
+val first: Option<Char> = source.get(0)
+val token = Token(TokenKind.Ident, span, "name")
+
+val tag = token.kind match {
+  case TokenKind.Eof => 0
+  case _ => 1
+}
+```
+
+Rejected expression shapes until later specs admit them:
+
+```cos
+val inc = (x: i32) => x + 1
+val quoted = quote { cursor.offset }
+val lifted = Type(1)
+```
+
+The accepted example uses literals, selection, calls, construction, and a simple match. The rejected example uses a lambda, quotation, and type-level lifting.
+
 == Names and Selection
 
 Placeholder for local names, fields, methods, module-qualified names, standard API names, and rejected lookup forms.

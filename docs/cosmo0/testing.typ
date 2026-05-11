@@ -8,6 +8,35 @@ This file owns testing policy for the cosmo0 model. The bug/spec sync rule and s
 
 Placeholder for accepted source examples that prove documented cosmo0 behavior works through the intended pipeline.
 
+== Examples
+
+Positive test shape:
+
+```cos
+class Span {
+  val start: usize
+  val end: usize
+}
+
+def empty(span: Span): Bool = span.start == span.end
+```
+
+Negative test shape:
+
+```cos
+def id[T](value: T): T = value
+```
+
+Bug regression checklist shape:
+
+```text
+1. Add the smallest source case that reproduces the bug.
+2. Assert the expected diagnostic or successful output.
+3. Update the owning docs/cosmo0/*.typ file if intended behavior changed.
+```
+
+The positive example should compile once its owning language sections are fully specified. The negative example should be rejected because user-defined generic functions are outside the initial cosmo0 subset.
+
 == Negative Tests
 
 Placeholder for unsupported syntax, type, declaration, expression, control-flow, runtime, and package cases that must be rejected with diagnostics.

@@ -12,6 +12,34 @@ The subset is intentionally smaller than full Cosmo. User-defined generic progra
 
 Source-facing behavior is specified by the `docs/cosmo0/` files. Compiler descriptors, backend intrinsics, and extern hooks are implementation mechanisms unless `runtime.typ` says they are visible capability behavior.
 
+== Examples
+
+Accepted shape for a small bootstrap data type:
+
+```cos
+class Span {
+  val start: usize
+  val end: usize
+}
+
+class Token {
+  val span: Span
+  val text: String
+}
+
+def is_empty(span: Span): Bool = span.start == span.end
+```
+
+Rejected shape until later specs admit user-defined generics and function values:
+
+```cos
+def map_tokens[T](tokens: Vec<Token>, f: Token => T): Vec<T> = {
+  tokens.map(f)
+}
+```
+
+The accepted example is intentionally simple: it uses concrete classes, fields, primitive and standard types, and a non-generic function. The rejected example crosses multiple full-language boundaries at once.
+
 == Document Ownership
 
 - `spec.typ` owns the index, subset boundary, conformance overview, and cross-document policy.

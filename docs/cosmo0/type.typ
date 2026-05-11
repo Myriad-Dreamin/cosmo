@@ -8,6 +8,33 @@ This file is the owner for cosmo0 type syntax and type validity. Section heading
 
 Placeholder for scalar and built-in value types accepted by cosmo0, including unit, booleans, integer widths, sizes, bytes, chars, strings, and any other primitive forms admitted by future capability work.
 
+== Examples
+
+Accepted type shapes:
+
+```cos
+type TokenId = Id<Token>
+
+class TokenBuffer {
+  val source: String
+  var tokens: Vec<Token>
+}
+
+def token_text(token: &Token): &String = &token.text
+```
+
+Rejected type shapes until later specs admit them:
+
+```cos
+class Box[T] {
+  val value: T
+}
+
+def IdOf(T: Type) = Id<T>
+```
+
+The accepted example uses a simple alias, concrete standard type application, and an immutable reference. The rejected example uses a user-defined generic class and a type-level function.
+
 == Reference and Mutability Types
 
 Placeholder for immutable references, mutable references, receiver forms, mutable locals, mutable fields, and the type rules that govern mutation through references.

@@ -14,6 +14,11 @@ The repository SHALL maintain a `docs/cosmo0/` specification skeleton covering t
 - **WHEN** a future cosmo0 change alters source-facing behavior
 - **THEN** reviewers can identify the owning `docs/cosmo0/` file for the affected behavior area
 
+#### Scenario: Boundary examples are present
+
+- **WHEN** reviewers inspect the cosmo0 docs skeleton
+- **THEN** each required `docs/cosmo0/` file includes examples that illustrate accepted, rejected, or placeholder behavior shapes
+
 ### Requirement: cosmo0 Bug Spec Synchronization
 
 The cosmo0 docs SHALL define a bug/spec sync policy requiring behavior-changing fixes to update regression tests and, when intended semantics change, the owning spec file.

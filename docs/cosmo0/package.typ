@@ -8,6 +8,36 @@ This file owns package metadata, source loading, import graphs, module ordering,
 
 Placeholder for package manifest fields, target selection, source-root configuration, and diagnostics for invalid package metadata.
 
+== Examples
+
+Minimal package metadata shape:
+
+```json
+{
+  "name": "cosmo1-stage1-smoke",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "root": "src"
+}
+```
+
+Source-loading shape for a first-stage package:
+
+```text
+src/source.cos
+src/token.cos
+src/lexer.cos
+```
+
+Import shape that should resolve within the package graph:
+
+```cos
+import source.SourceText
+import token.Token
+```
+
+The exact metadata schema remains a placeholder, but examples show the intended target boundary: a cosmo0 package declares its bootstrap target, discovers source files under a stable root, and resolves imports deterministically.
+
 == Imports and Source Loading
 
 Placeholder for source discovery, import resolution, package-relative module paths, filesystem API dependencies, and source text ownership.

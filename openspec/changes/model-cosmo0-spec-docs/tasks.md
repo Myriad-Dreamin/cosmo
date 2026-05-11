@@ -18,3 +18,8 @@
 
 - [x] 4.1 Add a lightweight validation that required `docs/cosmo0/` files exist.
 - [x] 4.2 Add review or test guidance proving staged runtime proposals reference their spec impact.
+
+## 5. Examples
+
+- [x] 5.1 Add boundary examples to each required `docs/cosmo0/` file.
+- [x] 5.2 Extend lightweight validation to require example sections and fenced example blocks.
