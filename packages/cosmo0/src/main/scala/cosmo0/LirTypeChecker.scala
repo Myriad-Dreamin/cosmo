@@ -319,6 +319,8 @@ final class LirTypeChecker(
             output.fold(defined)(defineKnown(_, defined, env))
           case LirDescriptorIntrinsic(output, _, _, _, _) =>
             output.fold(defined)(defineKnown(_, defined, env))
+          case LirConstructType(output, _, _) =>
+            defineKnown(output, defined, env)
           case LirConstructVariant(output, _, _, _) =>
             defineKnown(output, defined, env)
           case LirReadVariantTag(output, _, _) =>
@@ -501,6 +503,47 @@ final class LirTypeChecker(
             case None =>
               defined
 
+        case LirConstructType(output, owner, fields) =>
+          fields.foreach(field => checkValue(field.value, env, defined))
+          typeDeclFor(owner.source, env.declarations) match
+            case Some(ty) =>
+              val fieldsByName = ty.fields.map(field => field.name -> field).toMap
+              val providedNames = fields.map(_.name)
+              providedNames.groupBy(identity).toList.sortBy(_._1).foreach { case (name, values) =>
+                if values.length > 1 then
+                  error(
+                    "cosmo0.lir.invalid-call",
+                    s"${env.function.id} constructor for ${owner.display} initializes field $name more than once",
+                  )
+              }
+              ty.fields.foreach { field =>
+                if !providedNames.contains(field.name) then
+                  error(
+                    "cosmo0.lir.invalid-call",
+                    s"${env.function.id} constructor for ${owner.display} is missing field ${field.name}",
+                  )
+              }
+              fields.foreach { init =>
+                fieldsByName.get(init.name) match
+                  case Some(field) =>
+                    if !assignable(init.value.valueType, field.valueType) then
+                      error(
+                        "cosmo0.lir.assignment-mismatch",
+                        s"${env.function.id} constructor field ${owner.display}.${init.name} has type ${init.value.valueType.display}, expected ${field.valueType.display}",
+                      )
+                  case None =>
+                    error(
+                      "cosmo0.lir.unknown-field",
+                      s"${env.function.id} constructor for ${owner.display} uses unknown field ${init.name}",
+                    )
+              }
+            case None =>
+              error(
+                "cosmo0.lir.unknown-type",
+                s"no LIR type declaration for constructor owner ${owner.display}",
+              )
+          defineOutput(output, owner, env, defined, s"construct ${owner.display}")
+
         case LirConstructVariant(output, owner, variant, payload) =>
           payload.foreach(checkValue(_, env, defined))
           variantShape(owner, variant, env).foreach { shape =>
@@ -602,6 +645,16 @@ final class LirTypeChecker(
                 LirCallableSignature(
                   List(LirTypeRef(SourceType.Error)),
                   LirTypeRef(SourceType.Unit),
+                ),
+                receiverMutable = false,
+              ),
+            )
+          case "read_file" =>
+            return Some(
+              ExpectedCallable(
+                LirCallableSignature(
+                  List(LirTypeRef(SourceType.String)),
+                  LirTypeRef(SourceType.String),
                 ),
                 receiverMutable = false,
               ),

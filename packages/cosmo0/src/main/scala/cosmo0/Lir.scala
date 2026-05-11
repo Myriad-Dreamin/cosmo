@@ -228,6 +228,17 @@ final case class LirDescriptorIntrinsic(
     resultType: Option[LirTypeRef],
 ) extends LirOp
 
+final case class LirFieldInit(
+    name: String,
+    value: LirValue,
+)
+
+final case class LirConstructType(
+    output: LirLocalId,
+    owner: LirTypeRef,
+    fields: List[LirFieldInit],
+) extends LirOp
+
 final case class LirConstructVariant(
     output: LirLocalId,
     owner: LirTypeRef,
@@ -441,6 +452,9 @@ object LirDebugRenderer:
       case LirDescriptorIntrinsic(output, descriptor, name, args, resultType) =>
         val result = resultType.fold("Unit")(renderType)
         s"${renderOutput(output)}descriptor ${renderDescriptor(descriptor)}::$name(${renderArgs(args)}) -> $result"
+      case LirConstructType(output, owner, fields) =>
+        val args = fields.map(field => s"${field.name} = ${renderValue(field.value)}").mkString(", ")
+        s"$output = construct ${renderType(owner)}($args)"
       case LirConstructVariant(output, owner, variant, payload) =>
         s"$output = variant ${renderType(owner)}::$variant(${renderArgs(payload)})"
       case LirReadVariantTag(output, scrutinee, owner) =>

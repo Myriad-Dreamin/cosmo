@@ -1,0 +1,154 @@
+import parser;
+
+def parser_fixture_manifest_path(): String = {
+  "fixtures/cosmo0/parser/manifest.tsv"
+}
+
+def is_manifest_data_line(line: String): Bool = {
+  if (line.is_empty()) {
+    false
+  } else {
+    line.byte_at(0) != 35
+  }
+}
+
+def trim_trailing_cr(line: String): String = {
+  if (line.is_empty()) {
+    line
+  } else {
+    val last = line.len() - 1;
+    if (line.byte_at(last) == 13) {
+      line.slice(0, last)
+    } else {
+      line
+    }
+  }
+}
+
+def field_count(line: String): usize = {
+  var count: usize = 1;
+  var offset: usize = 0;
+  while (offset < line.len()) {
+    if (line.byte_at(offset) == 124) {
+      count = count + 1
+    }
+    offset = offset + 1
+  }
+  count
+}
+
+def field_at(line: String, index: usize): String = {
+  var field_index: usize = 0;
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset < line.len()) {
+    if (line.byte_at(offset) == 124) {
+      if (field_index == index) {
+        return line.slice(start, offset)
+      } else {
+        field_index = field_index + 1;
+        start = offset + 1
+      }
+    }
+    offset = offset + 1
+  }
+  if (field_index == index) {
+    line.slice(start, line.len())
+  } else {
+    ""
+  }
+}
+
+def parse_manifest(manifest: String): Vec[String] = {
+  var fixtures = Vec[String]();
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset < manifest.len()) {
+    if (manifest.byte_at(offset) == 10) {
+      val line = trim_trailing_cr(manifest.slice(start, offset));
+      if (is_manifest_data_line(line)) {
+        fixtures.push(line)
+      }
+      start = offset + 1
+    }
+    offset = offset + 1
+  }
+  if (start < manifest.len()) {
+    val line = trim_trailing_cr(manifest.slice(start, manifest.len()));
+    if (is_manifest_data_line(line)) {
+      fixtures.push(line)
+    }
+  }
+  fixtures
+}
+
+def manifest_is_well_formed(fixtures: Vec[String]): Bool = {
+  if (fixtures.is_empty()) {
+    false
+  } else {
+    var has_ok = false;
+    var has_error = false;
+    val ids = Set[String]();
+    for (fixture in fixtures) {
+      val count = field_count(fixture);
+      if (count != 3 and count != 4) {
+        return false
+      }
+      val id = field_at(fixture, 0);
+      val path = field_at(fixture, 1);
+      val status = field_at(fixture, 2);
+      if (id.is_empty() or path.is_empty()) {
+        return false
+      }
+      if (ids.contains(id)) {
+        return false
+      }
+      ids.insert(id);
+      if (status == "ok") {
+        has_ok = true
+      } else {
+        if (status == "error") {
+          has_error = true
+        } else {
+          return false
+        }
+      }
+    }
+    has_ok and has_error
+  }
+}
+
+def run_fixture(fixture: String): Bool = {
+  val source = read_file(field_at(fixture, 1));
+  val accepted = parse_source(source);
+  if (field_at(fixture, 2) == "ok") {
+    accepted
+  } else {
+    if (accepted) {
+      false
+    } else {
+      val expected_code = field_at(fixture, 3);
+      if (expected_code.is_empty()) {
+        true
+      } else {
+        parse_diagnostic_code(source) == expected_code
+      }
+    }
+  }
+}
+
+def main(): i32 = {
+  val manifest = read_file(parser_fixture_manifest_path());
+  val fixtures = parse_manifest(manifest);
+  if (!manifest_is_well_formed(fixtures)) {
+    println("parser fixture manifest is not well formed");
+    return 1
+  }
+  for (fixture in fixtures) {
+    if (!run_fixture(fixture)) {
+      println(field_at(fixture, 0));
+      return 1
+    }
+  }
+  0
+}
