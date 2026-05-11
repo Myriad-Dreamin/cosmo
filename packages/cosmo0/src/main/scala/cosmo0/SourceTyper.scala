@@ -666,7 +666,9 @@ final class SourceTyper(
                 context,
               )
             case None =>
-              classConstructor(calleeName, name.span).orElse(descriptorConstructor(calleeName, name.span)) match
+              if isRuntimeFunction(calleeName) then
+                runtimeFunctionCall(calleeName, name, node.args, node.span, scope, context)
+              else classConstructor(calleeName, name.span).orElse(descriptorConstructor(calleeName, name.span)) match
                 case Some(signature) =>
                   val callee = descriptorOwner(calleeName) match
                     case Some(owner) if SourceType.same(signature.returnType, owner) =>
@@ -829,6 +831,41 @@ final class SourceTyper(
         false,
         false,
       )
+
+    private def runtimeFunctionCall(
+        calleeName: String,
+        name: UntypedName,
+        args: List[UntypedExpr],
+        span: SourceSpan,
+        scope: Scope,
+        context: FunctionContext,
+    ): ExprInfo =
+      if args.length != 1 then
+        error(
+          "cosmo0.type.wrong-arity",
+          s"$calleeName expects 1 argument(s), got ${args.length}",
+          span,
+        )
+      val typedArgs = args.map(expr(_, scope, None, context).expr)
+      val params = typedArgs.headOption
+        .zip(args.headOption)
+        .map { case (typed, raw) => CallableParam("value", typed.valueType, raw.span) }
+        .toList
+      val signature = CallableSignature(calleeName, params, SourceType.Unit)
+      ExprInfo(
+        TypedCall(
+          TypedName(name.path, signature.functionType, false, false, name.span),
+          typedArgs,
+          SourceType.Unit,
+          signature,
+          span,
+        ),
+        mutableBinding = false,
+        mutationAllowed = true,
+      )
+
+    private def isRuntimeFunction(name: String): Boolean =
+      name == "print" || name == "println"
 
     private def assignExpr(
         node: UntypedAssign,

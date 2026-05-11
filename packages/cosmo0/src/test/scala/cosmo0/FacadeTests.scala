@@ -271,13 +271,14 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(diagnosticSpan.start.line, 2)
     assert(diagnosticSpan.end.offset >= diagnosticSpan.start.offset)
 
-  test("compile returns a structured unsupported result"):
+  test("compile returns generated C++ for accepted source"):
     val result = Cosmo0().compile("val answer = 42")
 
     assertEquals(result.phase, Phase.Compile)
-    assertEquals(result.status, PhaseStatus.Unsupported)
-    assert(result.value.isEmpty)
-    assertEquals(result.diagnostics.head.code, "cosmo0.compile.unsupported")
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.value.nonEmpty)
+    assert(result.value.get.output.contains("inline const int32_t answer = static_cast<int32_t>(42);"))
+    assert(result.diagnostics.isEmpty)
 
   test("compile stops on unsupported subset constructs"):
     val result = Cosmo0().compile("trait Display {}")
