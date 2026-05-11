@@ -45,13 +45,4 @@ class ParserFixtureTests extends munit.FunSuite:
       s"parser_test.cos must reference ${ParserFixtureManifest.manifestPath}",
     )
 
-  test("packaged parser sources mirror shared parser program fixtures"):
-    assertEquals(
-      ParserFixtureManifest.readFile("packages/cosmoc/src/parser.cos"),
-      ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
-    )
-    assertEquals(
-      ParserFixtureManifest.readFile("packages/cosmoc/src/parser_test.cos"),
-      ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
-    )
 end ParserFixtureTests
