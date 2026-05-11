@@ -32,6 +32,7 @@ object SourceType:
   val I32: SourceType = Builtin("i32")
   val Usize: SourceType = Builtin("usize")
   val String: SourceType = Builtin("String")
+  val StringBuilder: SourceType = Builtin("StringBuilder")
   val Char: SourceType = Builtin("Char")
   val Byte: SourceType = Builtin("u8")
   val F64: SourceType = Builtin("f64")
@@ -53,6 +54,7 @@ object SourceType:
       "Byte" -> Byte,
       "Char" -> Char,
       "String" -> String,
+      "StringBuilder" -> StringBuilder,
       "str" -> String,
       "f32" -> Builtin("f32"),
       "f64" -> F64,
@@ -163,13 +165,17 @@ final case class DescriptorCallable(
     returnType: SourceTypeTemplate,
     receiverMutable: Boolean = false,
 ):
-  def instantiate(owner: SourceType.Standard, span: SourceSpan): CallableSignature =
+  def instantiate(owner: SourceType, span: SourceSpan): CallableSignature =
+    val typeArgs =
+      SourceType.dealias(owner) match
+        case SourceType.Standard(_, args) => args
+        case _                            => Nil
     CallableSignature(
       name,
       params.map(param =>
-        CallableParam(param.name, param.valueType.instantiate(owner.args), span),
+        CallableParam(param.name, param.valueType.instantiate(typeArgs), span),
       ),
-      returnType.instantiate(owner.args),
+      returnType.instantiate(typeArgs),
       Some(CallableReceiver(owner, receiverMutable)),
     )
 
@@ -191,8 +197,15 @@ object StandardGenericDescriptors:
   private val UnitT = SourceTypeTemplate.Concrete(SourceType.Unit)
   private val BoolT = SourceTypeTemplate.Concrete(SourceType.Bool)
   private val UsizeT = SourceTypeTemplate.Concrete(SourceType.Usize)
+  private val StringT = SourceTypeTemplate.Concrete(SourceType.String)
+  private val StringBuilderT = SourceTypeTemplate.Concrete(SourceType.StringBuilder)
+  private val CharT = SourceTypeTemplate.Concrete(SourceType.Char)
+  private val ByteT = SourceTypeTemplate.Concrete(SourceType.Byte)
 
   val all: Map[String, StandardGenericDescriptor] =
+    (standardGenericDescriptors ++ runtimeDescriptors).map(descriptor => descriptor.name -> descriptor).toMap
+
+  private def standardGenericDescriptors: List[StandardGenericDescriptor] =
     List(
       descriptor(
         "Vec",
@@ -203,6 +216,7 @@ object StandardGenericDescriptors:
           call("get", List(param("index", UsizeT)), T),
           call("set", List(param("index", UsizeT), param("value", T)), UnitT, receiverMutable = true),
           call("size", Nil, UsizeT),
+          call("len", Nil, UsizeT),
           call("is_empty", Nil, BoolT),
         ),
       ),
@@ -246,6 +260,14 @@ object StandardGenericDescriptors:
             List(param("id", SourceTypeTemplate.Standard("Id", List(T)))),
             SourceTypeTemplate.Ref(T, mutable = false),
           ),
+          call(
+            "get_mut",
+            List(param("id", SourceTypeTemplate.Standard("Id", List(T)))),
+            SourceTypeTemplate.Ref(T, mutable = true),
+            receiverMutable = true,
+          ),
+          call("size", Nil, UsizeT),
+          call("len", Nil, UsizeT),
         ),
       ),
       descriptor("Id", 1, constructors = Nil, methods = Nil),
@@ -263,6 +285,9 @@ object StandardGenericDescriptors:
           ),
           call("contains", List(param("key", T)), BoolT),
           call("contains_key", List(param("key", T)), BoolT),
+          call("size", Nil, UsizeT),
+          call("len", Nil, UsizeT),
+          call("is_empty", Nil, BoolT),
         ),
       ),
       descriptor(
@@ -272,6 +297,9 @@ object StandardGenericDescriptors:
         methods = List(
           call("insert", List(param("value", T)), UnitT, receiverMutable = true),
           call("contains", List(param("value", T)), BoolT),
+          call("size", Nil, UsizeT),
+          call("len", Nil, UsizeT),
+          call("is_empty", Nil, BoolT),
         ),
       ),
       descriptor(
@@ -294,14 +322,107 @@ object StandardGenericDescriptors:
         ),
         methods = List(
           call("get", Nil, SourceTypeTemplate.Ref(T, mutable = false)),
+          call("get_mut", Nil, SourceTypeTemplate.Ref(T, mutable = true), receiverMutable = true),
         ),
       ),
       descriptor("Ref", 1, constructors = Nil, methods = Nil),
       descriptor("RefMut", 1, constructors = Nil, methods = Nil),
-    ).map(descriptor => descriptor.name -> descriptor).toMap
+    )
+
+  private def runtimeDescriptors: List[StandardGenericDescriptor] =
+    List(
+      descriptor(
+        "Bool",
+        0,
+        constructors = Nil,
+        methods = List(
+          call("not", Nil, BoolT),
+          call("and", List(param("right", BoolT)), BoolT),
+          call("or", List(param("right", BoolT)), BoolT),
+          call("eq", List(param("right", BoolT)), BoolT),
+          call("ne", List(param("right", BoolT)), BoolT),
+        ),
+      ),
+      descriptor(
+        "Char",
+        0,
+        constructors = Nil,
+        methods = comparableMethods(CharT),
+      ),
+      descriptor(
+        "String",
+        0,
+        constructors = Nil,
+        methods = List(
+          call("size", Nil, UsizeT),
+          call("len", Nil, UsizeT),
+          call("is_empty", Nil, BoolT),
+          call("slice", List(param("start", UsizeT), param("end", UsizeT)), StringT),
+          call("char_at", List(param("index", UsizeT)), CharT),
+          call("byte_at", List(param("index", UsizeT)), ByteT),
+          call("concat", List(param("right", StringT)), StringT),
+          call("eq", List(param("right", StringT)), BoolT),
+          call("ne", List(param("right", StringT)), BoolT),
+        ),
+      ),
+      descriptor(
+        "StringBuilder",
+        0,
+        constructors = List(call("<init>", Nil, StringBuilderT)),
+        methods = List(
+          call("append", List(param("value", StringT)), UnitT, receiverMutable = true),
+          call("append_char", List(param("value", CharT)), UnitT, receiverMutable = true),
+          call("clear", Nil, UnitT, receiverMutable = true),
+          call("finish", Nil, StringT),
+        ),
+      ),
+    ) ++ numericDescriptors
+
+  private def numericDescriptors: List[StandardGenericDescriptor] =
+    List(
+      SourceType.Builtin("i8"),
+      SourceType.Builtin("i16"),
+      SourceType.I32,
+      SourceType.Builtin("i64"),
+      SourceType.Byte,
+      SourceType.Builtin("u16"),
+      SourceType.Builtin("u32"),
+      SourceType.Builtin("u64"),
+      SourceType.Usize,
+      SourceType.Builtin("f32"),
+      SourceType.F64,
+    ).map { valueType =>
+      val template = SourceTypeTemplate.Concrete(valueType)
+      descriptor(
+        valueType.display,
+        0,
+        constructors = Nil,
+        methods = numericMethods(template),
+      )
+    }
 
   def get(name: String): Option[StandardGenericDescriptor] =
     all.get(name)
+
+  private def numericMethods(valueType: SourceTypeTemplate): List[DescriptorCallable] =
+    List(
+      call("neg", Nil, valueType),
+      call("add", List(param("right", valueType)), valueType),
+      call("sub", List(param("right", valueType)), valueType),
+      call("mul", List(param("right", valueType)), valueType),
+      call("div", List(param("right", valueType)), valueType),
+      call("mod", List(param("right", valueType)), valueType),
+    ) ++ comparableMethods(valueType)
+
+  private def comparableMethods(valueType: SourceTypeTemplate): List[DescriptorCallable] =
+    List(
+      call("eq", List(param("right", valueType)), BoolT),
+      call("ne", List(param("right", valueType)), BoolT),
+      call("lt", List(param("right", valueType)), BoolT),
+      call("le", List(param("right", valueType)), BoolT),
+      call("gt", List(param("right", valueType)), BoolT),
+      call("ge", List(param("right", valueType)), BoolT),
+    )
 
   private def descriptor(
       name: String,
