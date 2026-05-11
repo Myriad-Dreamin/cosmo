@@ -22,3 +22,10 @@
 - [ ] 4.1 Add golden or snapshot tests for representative verified LIR inputs.
 - [ ] 4.2 Add tests proving repeated emission of the same verified LIR is byte-for-byte stable.
 - [ ] 4.3 Add tests proving backend output does not depend on full Cosmo compiler codegen.
+
+## 5. Initial Compile Acceptance Targets
+
+- [ ] 5.1 Convert or replace `packages/cosmoc/src/parser.cos` so it is a parser library source with no `main` function and only backend-supported cosmo0 constructs.
+- [ ] 5.2 Add compile validation proving `packages/cosmoc/src/parser.cos` emits C++ accepted by the configured C++ toolchain as a library-style target.
+- [ ] 5.3 Add compile validation proving `samples/HelloWorld/main.cos` emits C++ accepted by the configured C++ toolchain as an executable target.
+- [ ] 5.4 Keep `parser_test.cos` executable fixture-running behavior out of this backend proposal and covered by the dedicated parser test program proposal.
