@@ -1,0 +1,6 @@
+import util
+
+def entry(): usize = {
+  val labels = collect();
+  labels.len()
+}
