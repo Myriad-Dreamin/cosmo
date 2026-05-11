@@ -11,7 +11,7 @@ This change also makes the cosmo0 model explicit. Every descriptor or std capabi
 - Define the cosmo0 specification document set used by staged runtime work.
 - Define the primitive descriptor boundary.
 - Define the core0 standard capability model used by cosmo1 stages.
-- Split descriptor/std growth into reviewable proposals that are roughly one thousand lines each.
+- Split descriptor/std growth into focused proposals that can be reviewed and adjusted as implementation feedback changes the plan.
 - Require each proposal to deliver the unlocked cosmo1 component and tests.
 - Require cosmo0 compiler bug fixes to synchronize implementation, spec, and regression tests.
 
@@ -77,7 +77,7 @@ Every descriptor/std proposal must be a vertical slice with these parts:
 - Cosmo1 validation tests that use the capability through cosmo1 source.
 - Negative tests for invalid usage, missing capability, or forbidden descriptor expansion.
 
-The proposal size target is approximately one thousand changed lines. The line budget is a review heuristic, not a hard limit. If a slice grows too large, split by cosmo1 component or by standard capability boundary rather than by implementation layer.
+The proposal sequence is a planning aid, not a fixed delivery contract. If a slice grows too large or the implementation reveals a better boundary, split or merge proposals by cosmo1 component or standard capability boundary rather than by implementation layer.
 
 ### Descriptor Boundary
 
@@ -139,7 +139,9 @@ Stage 1 should not require:
 - `core0.map-set`
 - `core0.big-number`
 
-### Reviewable Proposal Sequence
+### Initial Proposal Sequence
+
+This sequence records the current planning model. Future proposals may split, merge, rename, or reorder these slices when implementation feedback shows a better boundary.
 
 #### 1. `model-cosmo0-spec-docs`
 
@@ -257,7 +259,7 @@ Tests:
 Scope:
 
 - Add `Path`, `IoError`, and `Fs.read_to_string`.
-- Optionally add `Fs.write_string` if it fits the line budget.
+- Optionally add `Fs.write_string` if it stays within the focused filesystem/source-loading boundary.
 - Bind implementation through extern ABI or source-compiled std module.
 - Update `std.typ`, `runtime.typ`, and `package.typ`.
 
@@ -347,7 +349,7 @@ Each later proposal follows the same unit contract: cosmo0 spec updates, descrip
 ## Migration Plan
 
 1. Land this OpenSpec-only planning change.
-2. Review the proposal sequence on GitHub and split any proposal whose scope is too broad.
+2. Review the initial proposal sequence on GitHub and adjust proposal boundaries before implementation begins.
 3. Implement `model-cosmo0-spec-docs` first so later work has an explicit cosmo0 model to update.
 4. Implement descriptor-boundary work before adding new std capabilities.
 5. Grow Stage 1 std capabilities in the listed order until `validate-cosmo1-stage1-through-cosmo0` can check and compile the Stage 1 package.
@@ -363,8 +365,8 @@ Rollback is additive: if a later proposal proves too broad or incorrectly scoped
 - Risk: spec writing falls behind implementation.
   Mitigation: proposal tasks require spec updates, and bug/spec sync is part of the review checklist.
 
-- Risk: PRs exceed the reviewable line budget.
-  Mitigation: split by cosmo1 component or standard capability boundary.
+- Risk: the initial proposal sequence does not match the best implementation boundaries.
+  Mitigation: split, merge, rename, or reorder proposals by cosmo1 component or standard capability boundary.
 
 - Risk: Stage 1 accidentally depends on later capabilities.
   Mitigation: Stage 1 capability validation explicitly excludes JSON, command execution, arena IDs, map/set, and big-number support.

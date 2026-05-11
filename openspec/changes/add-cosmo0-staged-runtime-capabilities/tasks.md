@@ -32,18 +32,18 @@
 - [ ] 5.3 Track backend runtime requirements as standard modules, support libraries, or extern symbols rather than descriptor operation families.
 - [ ] 5.4 Keep descriptor lowering only for the minimal primitive/intrinsic boundary.
 
-## 6. Proposal Sequence
+## 6. Initial Proposal Planning
 
-- [ ] 6.1 Define `model-cosmo0-spec-docs` with cosmo0 spec skeleton, bug/spec sync policy, Stage 1 profile skeleton, and docs validation.
-- [ ] 6.2 Define `narrow-cosmo0-primitive-descriptors` with primitive descriptor whitelist, `source/span.cos`, basic `lex/token.cos`, and primitive tests.
-- [ ] 6.3 Define `add-cosmo0-extern-abi-hooks` with extern runtime binding metadata, an extern-backed cosmo1 smoke component, and missing-symbol tests.
-- [ ] 6.4 Define `add-core0-stage-capability-registry` with stage profiles, Stage 1 package metadata, and missing-capability tests.
-- [ ] 6.5 Define `add-core0-text-interfaces` with text std APIs, `source/source.cos`, `source/source_map.cos`, and text tests.
-- [ ] 6.6 Define `add-core0-option-result-vec-minimal` with std collection/result APIs, `driver/diagnostic.cos`, lexer token buffers, and collection/result tests.
-- [ ] 6.7 Define `add-core0-path-fs` with path/filesystem std APIs, source loading components, and file-read tests.
-- [ ] 6.8 Define `add-core0-text-output` with text output std APIs, diagnostic rendering, and deterministic output tests.
-- [ ] 6.9 Define `add-core0-char-class` with lexer character helpers, `lex/lexer.cos`, and tokenization tests.
-- [ ] 6.10 Define `validate-cosmo1-stage1-capability-profile` with complete Stage 1 validation sources and package check/compile tests.
+- [ ] 6.1 Capture `model-cosmo0-spec-docs` as the current first slice for cosmo0 spec skeleton, bug/spec sync policy, Stage 1 profile skeleton, and docs validation.
+- [ ] 6.2 Capture `narrow-cosmo0-primitive-descriptors` as the current primitive descriptor slice for the descriptor whitelist, `source/span.cos`, basic `lex/token.cos`, and primitive tests.
+- [ ] 6.3 Capture `add-cosmo0-extern-abi-hooks` as the current extern runtime binding slice with an extern-backed cosmo1 smoke component and missing-symbol tests.
+- [ ] 6.4 Capture `add-core0-stage-capability-registry` as the current stage profile slice for Stage 1 package metadata and missing-capability tests.
+- [ ] 6.5 Capture `add-core0-text-interfaces` as the current text std slice for `source/source.cos`, `source/source_map.cos`, and text tests.
+- [ ] 6.6 Capture `add-core0-option-result-vec-minimal` as the current collection/result std slice for `driver/diagnostic.cos`, lexer token buffers, and collection/result tests.
+- [ ] 6.7 Capture `add-core0-path-fs` as the current path/filesystem std slice for source loading components and file-read tests.
+- [ ] 6.8 Capture `add-core0-text-output` as the current text output std slice for diagnostic rendering and deterministic output tests.
+- [ ] 6.9 Capture `add-core0-char-class` as the current lexer helper slice for `lex/lexer.cos` and tokenization tests.
+- [ ] 6.10 Capture `validate-cosmo1-stage1-capability-profile` as the current Stage 1 validation slice for complete Stage 1 validation sources and package check/compile tests.
 
 ## 7. Tests
 
