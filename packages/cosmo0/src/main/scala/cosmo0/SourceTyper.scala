@@ -441,10 +441,14 @@ final class SourceTyper(
                 symbol.mutationAllowed,
               )
             case None =>
-              classConstructor(name, node.span) match
+              classConstructor(name, node.span).orElse(descriptorConstructor(name, node.span)) match
                 case Some(signature) =>
-                  val valueType = signature.functionType
-                  ExprInfo(TypedName(node.path, valueType, false, false, node.span), false, false)
+                  val callee = descriptorOwner(name) match
+                    case Some(owner) if SourceType.same(signature.returnType, owner) =>
+                      TypedTypeConstructorExpr(owner, signature.functionType, node.span)
+                    case _ =>
+                      TypedName(node.path, signature.functionType, false, false, node.span)
+                  ExprInfo(callee, false, false)
                 case None =>
                   error(
                     "cosmo0.type.unresolved-name",
@@ -495,35 +499,21 @@ final class SourceTyper(
 
       val receiver = expr(node.receiver, scope, None, context)
       SourceType.dealias(receiver.expr.valueType) match
-        case owner @ SourceType.Standard(name, _) =>
-          standardGenerics.get(name).flatMap(_.method(node.field)) match
-            case Some(method) =>
-              val signature = method.instantiate(owner, node.span)
-              ExprInfo(
-                TypedSelect(
-                  receiver.expr,
-                  node.field,
-                  signature.functionType,
-                  mutableBinding = false,
-                  mutationAllowed = false,
-                  node.span,
-                ),
-                mutableBinding = false,
-                mutationAllowed = false,
-              )
-            case None =>
-              invalidField(node.field, receiver.expr.valueType, node.span)
-        case SourceType.Ref(owner @ SourceType.Standard(name, _), _) =>
-          standardGenerics.get(name).flatMap(_.method(node.field)) match
-            case Some(method) =>
-              val signature = method.instantiate(owner, node.span)
-              ExprInfo(
-                TypedSelect(receiver.expr, node.field, signature.functionType, false, false, node.span),
-                false,
-                false,
-              )
-            case None =>
-              invalidField(node.field, receiver.expr.valueType, node.span)
+        case owner if descriptorMethod(owner, node.field, node.span).nonEmpty =>
+          val method = descriptorMethod(owner, node.field, node.span).get
+          val signature = method.instantiate(normalizeDescriptorOwner(owner), node.span)
+          ExprInfo(
+            TypedSelect(
+              receiver.expr,
+              node.field,
+              signature.functionType,
+              mutableBinding = false,
+              mutationAllowed = false,
+              node.span,
+            ),
+            mutableBinding = false,
+            mutationAllowed = false,
+          )
         case ty =>
           classInfoFor(ty) match
             case Some(cls) =>
@@ -676,10 +666,15 @@ final class SourceTyper(
                 context,
               )
             case None =>
-              classConstructor(calleeName, name.span) match
+              classConstructor(calleeName, name.span).orElse(descriptorConstructor(calleeName, name.span)) match
                 case Some(signature) =>
+                  val callee = descriptorOwner(calleeName) match
+                    case Some(owner) if SourceType.same(signature.returnType, owner) =>
+                      TypedTypeConstructorExpr(owner, signature.functionType, name.span)
+                    case _ =>
+                      TypedName(name.path, signature.functionType, false, false, name.span)
                   callWithSignature(
-                    TypedName(name.path, signature.functionType, false, false, name.span),
+                    callee,
                     signature,
                     node.args,
                     node.span,
@@ -720,38 +715,18 @@ final class SourceTyper(
 
       val receiver = expr(select.receiver, scope, None, context)
       SourceType.dealias(receiver.expr.valueType) match
-        case owner @ SourceType.Standard(name, _) =>
-          standardGenerics.get(name).flatMap(_.method(select.field)) match
-            case Some(method) =>
-              val signature = method.instantiate(owner, select.span)
-              checkReceiverMutation(receiver, signature, select.span)
-              callWithSignature(
-                TypedSelect(receiver.expr, select.field, signature.functionType, false, false, select.span),
-                signature,
-                args,
-                span,
-                scope,
-                context,
-              )
-            case None =>
-              val selected = selectExpr(select, scope, context)
-              callFunctionValue(selected, args, span, scope, context)
-        case SourceType.Ref(owner @ SourceType.Standard(name, _), _) =>
-          standardGenerics.get(name).flatMap(_.method(select.field)) match
-            case Some(method) =>
-              val signature = method.instantiate(owner, select.span)
-              checkReceiverMutation(receiver, signature, select.span)
-              callWithSignature(
-                TypedSelect(receiver.expr, select.field, signature.functionType, false, false, select.span),
-                signature,
-                args,
-                span,
-                scope,
-                context,
-              )
-            case None =>
-              val selected = selectExpr(select, scope, context)
-              callFunctionValue(selected, args, span, scope, context)
+        case owner if descriptorMethod(owner, select.field, select.span).nonEmpty =>
+          val method = descriptorMethod(owner, select.field, select.span).get
+          val signature = method.instantiate(normalizeDescriptorOwner(owner), select.span)
+          checkReceiverMutation(receiver, signature, select.span)
+          callWithSignature(
+            TypedSelect(receiver.expr, select.field, signature.functionType, false, false, select.span),
+            signature,
+            args,
+            span,
+            scope,
+            context,
+          )
         case ty =>
           classInfoFor(ty) match
             case Some(cls) =>
@@ -1016,6 +991,7 @@ final class SourceTyper(
       val iter = expr(node.iter, scope, None, context)
       val itemType = SourceType.dealias(iter.expr.valueType) match
         case SourceType.Standard("Vec" | "Set" | "Arena", item :: Nil) => item
+        case SourceType.Standard("Map", key :: _ :: Nil)               => key
         case other =>
           error(
             "cosmo0.type.invalid-iterator",
@@ -1200,6 +1176,46 @@ final class SourceTyper(
         case SourceType.User(name) =>
           classes.get(name).flatMap(_.variants.get(variant)).map(_.signature(name))
         case _ => None
+
+    private def descriptorConstructor(
+        name: String,
+        span: SourceSpan,
+    ): Option[CallableSignature] =
+      descriptorOwner(name).flatMap(owner =>
+        standardGenerics.get(name).flatMap(_.constructor("<init>")).map(_.instantiate(owner, span)),
+      )
+
+    private def descriptorMethod(
+        ownerType: SourceType,
+        methodName: String,
+        span: SourceSpan,
+    ): Option[DescriptorCallable] =
+      val owner = normalizeDescriptorOwner(ownerType)
+      descriptorName(owner).flatMap(name =>
+        standardGenerics.get(name).filter(_.arity == descriptorArity(owner)).flatMap(_.method(methodName)),
+      )
+
+    private def descriptorOwner(name: String): Option[SourceType] =
+      standardGenerics.get(name).filter(_.arity == 0).flatMap { _ =>
+        SourceType.scalar(name)
+      }
+
+    private def normalizeDescriptorOwner(ownerType: SourceType): SourceType =
+      SourceType.dealias(ownerType) match
+        case SourceType.Ref(target, _) => SourceType.dealias(target)
+        case other                     => other
+
+    private def descriptorName(ownerType: SourceType): Option[String] =
+      normalizeDescriptorOwner(ownerType) match
+        case SourceType.Standard(name, _) => Some(name)
+        case SourceType.Builtin(name)     => Some(name)
+        case _                            => None
+
+    private def descriptorArity(ownerType: SourceType): Int =
+      normalizeDescriptorOwner(ownerType) match
+        case SourceType.Standard(_, args) => args.length
+        case SourceType.Builtin(_)        => 0
+        case _                            => -1
 
     private def classConstructor(
         name: String,

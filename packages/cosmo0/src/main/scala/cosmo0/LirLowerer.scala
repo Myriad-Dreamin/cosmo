@@ -5,10 +5,11 @@ import scala.collection.mutable.ListBuffer
 
 object LirLowerer:
   def apply(): LirLowerer =
-    new LirLowerer(LirTypeChecker())
+    new LirLowerer(LirTypeChecker(), StandardGenericDescriptors.all)
 
 final class LirLowerer(
     checker: LirTypeChecker,
+    descriptors: Map[String, StandardGenericDescriptor] = StandardGenericDescriptors.all,
 ):
   def lower(module: TypedModule): Result[LirModule] =
     val state = State(module)
@@ -87,6 +88,7 @@ final class LirLowerer(
       id: LirLocalId,
       valueType: SourceType,
       mutable: Boolean,
+      mutationAllowed: Boolean,
   )
 
   private final class FunctionBuilder(
@@ -94,20 +96,36 @@ final class LirLowerer(
       context: DeclContext,
       report: (String, String, SourceSpan) => Unit,
   ):
+    private final class OpenBlock(val label: LirLabel):
+      val operations: ListBuffer[LirOp] = ListBuffer.empty
+      var terminator: Option[LirTerminator] = None
+
+    private final case class LoopTargets(
+        breakTarget: LirLabel,
+        continueTarget: LirLabel,
+    )
+
+    private sealed trait PatternCondition
+    private case object AlwaysPattern extends PatternCondition
+    private final case class ConditionalPattern(condition: LirValue) extends PatternCondition
+
     private val scopes = mutable.ArrayBuffer.empty[mutable.LinkedHashMap[String, Binding]]
     private val localOrdinals = mutable.LinkedHashMap.empty[String, Int]
+    private val labelOrdinals = mutable.LinkedHashMap.empty[String, Int]
     private val localBuffer = ListBuffer.empty[LirLocal]
-    private val operations = ListBuffer.empty[LirOp]
-    private var sealedTerminator: Option[LirTerminator] = None
+    private val blockBuffer = ListBuffer.empty[OpenBlock]
+    private val loopStack = mutable.ArrayBuffer.empty[LoopTargets]
     private var tempIndex = 0
+    private var current: OpenBlock = newBlock(Lir.label("entry"))
 
     scopes += mutable.LinkedHashMap.empty[String, Binding]
 
     val params: List[LirParam] =
       function.params.map { param =>
         val id = nextLocalId(param.name)
-        bind(Binding(param.name, id, param.valueType, mutable = false))
-        LirParam(id, param.name, Lir.t(param.valueType))
+        val mutationAllowed = mutationCapability(param.valueType)
+        bind(Binding(param.name, id, param.valueType, mutable = false, mutationAllowed))
+        LirParam(id, param.name, Lir.t(param.valueType), mutationAllowed)
       }
 
     def lower(): LirFunction =
@@ -130,7 +148,13 @@ final class LirLowerer(
         params,
         Lir.t(function.returnType),
         localBuffer.toList.sortBy(_.id.value),
-        List(LirBlock(Lir.label("entry"), operations.toList, sealedTerminator.getOrElse(LirUnreachable()))),
+        blockBuffer.toList.map(block =>
+          LirBlock(
+            block.label,
+            block.operations.toList,
+            block.terminator.getOrElse(LirUnreachable()),
+          ),
+        ),
         owner = function.owner.flatMap(context.typeId),
         sourceSignature = Some(function.signature),
       )
@@ -175,7 +199,7 @@ final class LirLowerer(
               None
             else
               for receiver <- lowerExpr(select.receiver) yield
-                val output = declareTemp(select.valueType)
+                val output = declareTemp(select.valueType, mutationAllowed = Some(select.mutationAllowed))
                 emit(LirFieldGet(output.id, receiver, select.field, Lir.t(select.valueType)))
                 LirLocalRef(output.id, Lir.t(output.valueType))
 
@@ -206,35 +230,25 @@ final class LirLowerer(
             unsupported(value, s"type constructor ${value.constructedType.display}")
             None
           case value: TypedVariantConstructorExpr =>
-            unsupported(value, s"variant constructor ${value.owner.display}::${value.variant}")
-            None
+            lowerVariantValue(value)
           case value: TypedUnary =>
-            unsupported(value, s"unary operator ${value.op}")
-            None
+            lowerUnary(value)
           case value: TypedBinary =>
-            unsupported(value, s"binary operator ${value.op}")
-            None
+            lowerBinary(value)
           case value: TypedIf =>
-            unsupported(value, "if expression")
-            None
+            lowerIf(value)
           case value: TypedLoop =>
-            unsupported(value, "loop expression")
-            None
+            lowerLoop(value)
           case value: TypedWhile =>
-            unsupported(value, "while expression")
-            None
+            lowerWhile(value)
           case value: TypedFor =>
-            unsupported(value, "for expression")
-            None
+            lowerFor(value)
           case value: TypedMatch =>
-            unsupported(value, "match expression")
-            None
+            lowerMatch(value)
           case value: TypedBreak =>
-            unsupported(value, "break expression")
-            None
+            lowerBreak(value)
           case value: TypedContinue =>
-            unsupported(value, "continue expression")
-            None
+            lowerContinue(value)
 
     private def lowerName(name: TypedName): Option[LirValue] =
       name.path.parts match
@@ -272,50 +286,463 @@ final class LirLowerer(
       call.callee match
         case name: TypedName if name.path.parts.length == 1 =>
           val args = call.args.flatMap(lowerExpr)
-          if args.length != call.args.length then return None
-          val calleeName = name.path.parts.head
-          context.functionId(None, calleeName) match
-            case Some(id) =>
-              emit(
-                LirDirectCall(
-                  output.map(_.id),
-                  id,
-                  args,
-                  LirCallableSignature.fromSource(call.signature),
-                ),
-              )
-              callResult(output, call.valueType)
-            case None =>
-              unsupported(call, s"call to non-function value ${name.path.text}")
-              None
+          if args.length != call.args.length then None
+          else
+            val calleeName = name.path.parts.head
+            context.functionId(None, calleeName) match
+              case Some(id) =>
+                emit(
+                  LirDirectCall(
+                    output.map(_.id),
+                    id,
+                    args,
+                    LirCallableSignature.fromSource(call.signature),
+                  ),
+                )
+                callResult(output, call.valueType)
+              case None =>
+                unsupported(call, s"call to non-function value ${name.path.text}")
+                None
 
         case select: TypedSelect =>
           lowerExpr(select.receiver) match
             case Some(receiver) =>
               val args = call.args.flatMap(lowerExpr)
-              if args.length != call.args.length then return None
-              emit(
-                LirLoweredMethodCall(
-                  output.map(_.id),
-                  receiver,
-                  select.field,
-                  args,
-                  LirCallableSignature.fromSource(call.signature),
-                ),
-              )
-              callResult(output, call.valueType)
+              if args.length != call.args.length then None
+              else
+                descriptorRefForMethod(receiver.valueType.source, select.field) match
+                  case Some(descriptor) =>
+                    emit(
+                      LirDescriptorIntrinsic(
+                        output.map(_.id),
+                        descriptor,
+                        select.field,
+                        receiver :: args,
+                        Some(Lir.t(call.valueType)),
+                      ),
+                    )
+                    callResult(output, call.valueType)
+                  case None if isDescriptorBacked(receiver.valueType.source) =>
+                    unsupportedDescriptor(call, descriptorName(receiver.valueType.source).getOrElse("<unknown>"), select.field)
+                    None
+                  case None =>
+                    emit(
+                      LirLoweredMethodCall(
+                        output.map(_.id),
+                        receiver,
+                        select.field,
+                        args,
+                        LirCallableSignature.fromSource(call.signature),
+                      ),
+                    )
+                    callResult(output, call.valueType)
             case None =>
               None
 
         case constructor: TypedVariantConstructorExpr =>
-          unsupported(constructor, s"variant constructor ${constructor.owner.display}::${constructor.variant}")
-          None
+          val args = call.args.flatMap(lowerExpr)
+          if args.length != call.args.length then None
+          else
+            output match
+              case Some(binding) =>
+                emit(
+                  LirConstructVariant(
+                    binding.id,
+                    Lir.t(constructor.owner),
+                    constructor.variant,
+                    args,
+                  ),
+                )
+                callResult(output, call.valueType)
+              case None =>
+                report(
+                  "cosmo0.lir.lower.invalid-variant-constructor",
+                  s"variant constructor ${constructor.owner.display}::${constructor.variant} has no LIR output",
+                  constructor.span,
+                )
+                None
         case constructor: TypedTypeConstructorExpr =>
-          unsupported(constructor, s"type constructor ${constructor.constructedType.display}")
-          None
+          val args = call.args.flatMap(lowerExpr)
+          if args.length != call.args.length then None
+          else lowerDescriptorConstructor(constructor, output, args, call.valueType)
         case other =>
           unsupported(other, "indirect function call")
           None
+
+    private def lowerDescriptorConstructor(
+        constructor: TypedTypeConstructorExpr,
+        output: Option[Binding],
+        args: List[LirValue],
+        valueType: SourceType,
+    ): Option[LirValue] =
+      descriptorRefForConstructor(constructor.constructedType) match
+        case Some(descriptor) =>
+          emit(
+            LirDescriptorIntrinsic(
+              output.map(_.id),
+              descriptor,
+              "<init>",
+              args,
+              Some(Lir.t(valueType)),
+            ),
+          )
+          callResult(output, valueType)
+        case None =>
+          unsupportedDescriptor(constructor, descriptorName(constructor.constructedType).getOrElse(constructor.constructedType.display), "<init>")
+          None
+
+    private def lowerUnary(value: TypedUnary): Option[LirValue] =
+      val opName =
+        value.op match
+          case "!" => Some("not")
+          case "-" => Some("neg")
+          case _   => None
+      opName match
+        case Some(name) =>
+          lowerExpr(value.expr).flatMap { arg =>
+            descriptorRefForValue(arg.valueType.source, name) match
+              case Some(descriptor) =>
+                val output = declareTemp(value.valueType)
+                emit(
+                  LirDescriptorIntrinsic(
+                    Some(output.id),
+                    descriptor,
+                    name,
+                    List(arg),
+                    Some(Lir.t(value.valueType)),
+                  ),
+                )
+                Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+              case None =>
+                unsupportedDescriptor(value, descriptorName(arg.valueType.source).getOrElse(arg.valueType.display), name)
+                None
+          }
+        case None =>
+          unsupported(value, s"unary operator ${value.op}")
+          None
+
+    private def lowerBinary(value: TypedBinary): Option[LirValue] =
+      val opName =
+        value.op match
+          case "+"          => Some("add")
+          case "-"          => Some("sub")
+          case "*"          => Some("mul")
+          case "/"          => Some("div")
+          case "%"          => Some("mod")
+          case "=="         => Some("eq")
+          case "!="         => Some("ne")
+          case "<"          => Some("lt")
+          case "<="         => Some("le")
+          case ">"          => Some("gt")
+          case ">="         => Some("ge")
+          case "and" | "&&" => Some("and")
+          case "or" | "||"  => Some("or")
+          case _            => None
+      opName match
+        case Some(name) =>
+          for
+            left <- lowerExpr(value.left)
+            right <- lowerExpr(value.right)
+            result <- lowerDescriptorBinary(value, name, left, right)
+          yield result
+        case None =>
+          unsupported(value, s"binary operator ${value.op}")
+          None
+
+    private def lowerDescriptorBinary(
+        value: TypedBinary,
+        name: String,
+        left: LirValue,
+        right: LirValue,
+    ): Option[LirValue] =
+      descriptorRefForValue(left.valueType.source, name) match
+        case Some(descriptor) =>
+          val output = declareTemp(value.valueType)
+          emit(
+            LirDescriptorIntrinsic(
+              Some(output.id),
+              descriptor,
+              name,
+              List(left, right),
+              Some(Lir.t(value.valueType)),
+            ),
+          )
+          Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+        case None =>
+          unsupportedDescriptor(value, descriptorName(left.valueType.source).getOrElse(left.valueType.display), name)
+          None
+
+    private def lowerVariantValue(constructor: TypedVariantConstructorExpr): Option[LirValue] =
+      SourceType.dealias(constructor.valueType) match
+        case SourceType.Function(_, _) =>
+          unsupported(constructor, s"unapplied variant constructor ${constructor.owner.display}::${constructor.variant}")
+          None
+        case SourceType.Unit | SourceType.Never =>
+          Some(LirUnitValue)
+        case _ =>
+          val output = declareTemp(constructor.valueType)
+          emit(
+            LirConstructVariant(
+              output.id,
+              Lir.t(constructor.owner),
+              constructor.variant,
+              Nil,
+            ),
+          )
+          Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+
+    private def lowerIf(value: TypedIf): Option[LirValue] =
+      lowerExpr(value.cond) match
+        case Some(condition) =>
+          val group = nextLabelGroup("if")
+          val thenLabel = numberedLabel(group, 0, "then")
+          val elseLabel = numberedLabel(group, 1, "else")
+          val joinLabel = numberedLabel(group, 2, "join")
+          val resultSlot = joinOutput(value.valueType)
+
+          terminate(
+            LirCondBranch(
+              condition,
+              thenLabel,
+              value.elseBranch.fold(joinLabel)(_ => elseLabel),
+            ),
+          )
+
+          startBlock(thenLabel)
+          val thenResult = lowerExpr(value.thenBranch)
+          val thenFallsThrough =
+            finishStructuredBranch(resultSlot, thenResult, joinLabel, value.thenBranch.span)
+
+          val elseFallsThrough =
+            value.elseBranch match
+              case Some(elseExpr) =>
+                startBlock(elseLabel)
+                val elseResult = lowerExpr(elseExpr)
+                finishStructuredBranch(resultSlot, elseResult, joinLabel, elseExpr.span)
+              case None =>
+                true
+
+          if thenFallsThrough || elseFallsThrough then
+            startBlock(joinLabel)
+            structuredResult(resultSlot)
+          else None
+        case None =>
+          None
+
+    private def lowerLoop(value: TypedLoop): Option[LirValue] =
+      val group = nextLabelGroup("loop")
+      val headerLabel = numberedLabel(group, 0, "header")
+      val bodyLabel = numberedLabel(group, 1, "body")
+      val continueLabel = numberedLabel(group, 2, "continue")
+      val exitLabel = numberedLabel(group, 3, "exit")
+
+      terminate(LirBranch(headerLabel))
+      startBlock(headerLabel)
+      terminate(LirBranch(bodyLabel))
+
+      startBlock(bodyLabel)
+      withLoop(LoopTargets(exitLabel, continueLabel)) {
+        lowerExpr(value.body)
+        if !isTerminated then terminate(LirBranch(continueLabel))
+      }
+
+      startBlock(continueLabel)
+      terminate(LirBranch(headerLabel))
+
+      startBlock(exitLabel)
+      Some(LirUnitValue)
+
+    private def lowerWhile(value: TypedWhile): Option[LirValue] =
+      val group = nextLabelGroup("while")
+      val headerLabel = numberedLabel(group, 0, "header")
+      val bodyLabel = numberedLabel(group, 1, "body")
+      val continueLabel = numberedLabel(group, 2, "continue")
+      val exitLabel = numberedLabel(group, 3, "exit")
+
+      terminate(LirBranch(headerLabel))
+      startBlock(headerLabel)
+      lowerExpr(value.cond) match
+        case Some(condition) =>
+          terminate(LirCondBranch(condition, bodyLabel, exitLabel))
+        case None =>
+          if !isTerminated then
+            report(
+              "cosmo0.lir.lower.missing-condition",
+              "while condition did not produce a LIR value",
+              value.cond.span,
+            )
+            terminate(LirErrorExit("cosmo0.lir.lower.missing-condition", Some("while")))
+
+      startBlock(bodyLabel)
+      withLoop(LoopTargets(exitLabel, continueLabel)) {
+        lowerExpr(value.body)
+        if !isTerminated then terminate(LirBranch(continueLabel))
+      }
+
+      startBlock(continueLabel)
+      terminate(LirBranch(headerLabel))
+
+      startBlock(exitLabel)
+      Some(LirUnitValue)
+
+    private def lowerFor(value: TypedFor): Option[LirValue] =
+      val iterAndDescriptor =
+        lowerExpr(value.iter).flatMap(iterValue =>
+          iterableDescriptor(iterValue.valueType.source, value.itemType, value.span).map(iterValue -> _),
+        )
+      iterAndDescriptor match
+        case None =>
+          None
+        case Some((iterValue, descriptor)) =>
+          lowerForLoop(value, iterValue, descriptor)
+
+    private def lowerForLoop(
+        value: TypedFor,
+        iterValue: LirValue,
+        descriptor: LirDescriptorRef,
+    ): Option[LirValue] =
+      val group = nextLabelGroup("for")
+      val headerLabel = numberedLabel(group, 0, "header")
+      val bodyLabel = numberedLabel(group, 1, "body")
+      val continueLabel = numberedLabel(group, 2, "continue")
+      val exitLabel = numberedLabel(group, 3, "exit")
+      val itemBinding = declareLocal(value.name, value.itemType, mutable = false)
+
+      terminate(LirBranch(headerLabel))
+      startBlock(headerLabel)
+      val hasNext = declareTemp(SourceType.Bool)
+      emit(
+        LirDescriptorIntrinsic(
+          Some(hasNext.id),
+          descriptor,
+          "iter_has_next",
+          List(iterValue),
+          Some(Lir.t(SourceType.Bool)),
+        ),
+      )
+      terminate(
+        LirCondBranch(
+          LirLocalRef(hasNext.id, Lir.t(SourceType.Bool)),
+          bodyLabel,
+          exitLabel,
+        ),
+      )
+
+      startBlock(bodyLabel)
+      withLoop(LoopTargets(exitLabel, continueLabel)) {
+        withScope {
+          bind(itemBinding)
+          emit(
+            LirDescriptorIntrinsic(
+              Some(itemBinding.id),
+              descriptor,
+              "iter_next",
+              List(iterValue),
+              Some(Lir.t(value.itemType)),
+            ),
+          )
+          lowerExpr(value.body)
+          if !isTerminated then terminate(LirBranch(continueLabel))
+        }
+      }
+
+      startBlock(continueLabel)
+      terminate(LirBranch(headerLabel))
+
+      startBlock(exitLabel)
+      Some(LirUnitValue)
+
+    private def lowerMatch(value: TypedMatch): Option[LirValue] =
+      lowerExpr(value.scrutinee) match
+        case Some(scrutinee) =>
+          lowerMatchWithScrutinee(value, scrutinee)
+        case None =>
+          None
+
+    private def lowerMatchWithScrutinee(
+        value: TypedMatch,
+        scrutinee: LirValue,
+    ): Option[LirValue] =
+      val group = nextLabelGroup("match")
+      val armLabels = value.arms.zipWithIndex.map { case (_, index) =>
+        numberedLabel(group, 10 + index, s"arm$index")
+      }
+      val defaultLabel = numberedLabel(group, 80, "default")
+      val joinLabel = numberedLabel(group, 90, "join")
+      val resultSlot = joinOutput(value.valueType)
+      var needsDefault = true
+      var chainOpen = true
+
+      value.arms.zip(armLabels).zipWithIndex.foreach { case ((arm, armLabel), index) =>
+        if chainOpen then
+          patternCondition(arm.pattern, scrutinee) match
+            case Some(AlwaysPattern) =>
+              terminate(LirBranch(armLabel))
+              needsDefault = false
+              chainOpen = false
+            case Some(ConditionalPattern(condition)) =>
+              val falseTarget =
+                if index == value.arms.length - 1 then defaultLabel
+                else numberedLabel(group, index + 1, "test")
+              terminate(LirCondBranch(condition, armLabel, falseTarget))
+              if index == value.arms.length - 1 then chainOpen = false
+              else startBlock(falseTarget)
+            case None =>
+              if !isTerminated then
+                terminate(LirErrorExit("cosmo0.lir.lower.unsupported-pattern", Some("match")))
+              needsDefault = false
+              chainOpen = false
+      }
+
+      if value.arms.isEmpty && !isTerminated then
+        terminate(LirBranch(defaultLabel))
+
+      var anyFallthrough = false
+      value.arms.zip(armLabels).foreach { case (arm, armLabel) =>
+        startBlock(armLabel)
+        val armResult = withScope {
+          bindPattern(arm.pattern, scrutinee)
+          arm.body.flatMap(lowerExpr).orElse(Some(LirUnitValue))
+        }
+        val fallsThrough =
+          finishStructuredBranch(resultSlot, armResult, joinLabel, arm.span)
+        anyFallthrough = anyFallthrough || fallsThrough
+      }
+
+      if needsDefault then
+        startBlock(defaultLabel)
+        terminate(LirErrorExit("cosmo0.lir.lower.non-exhaustive-match", Some(function.name)))
+
+      if anyFallthrough then
+        startBlock(joinLabel)
+        structuredResult(resultSlot)
+      else None
+
+    private def lowerBreak(value: TypedBreak): Option[LirValue] =
+      loopStack.lastOption match
+        case Some(targets) =>
+          terminate(LirBranch(targets.breakTarget))
+        case None =>
+          report(
+            "cosmo0.lir.lower.invalid-break",
+            "break can only be lowered inside a loop",
+            value.span,
+          )
+          terminate(LirErrorExit("cosmo0.lir.lower.invalid-break", Some(function.name)))
+      None
+
+    private def lowerContinue(value: TypedContinue): Option[LirValue] =
+      loopStack.lastOption match
+        case Some(targets) =>
+          terminate(LirBranch(targets.continueTarget))
+        case None =>
+          report(
+            "cosmo0.lir.lower.invalid-continue",
+            "continue can only be lowered inside a loop",
+            value.span,
+          )
+          terminate(LirErrorExit("cosmo0.lir.lower.invalid-continue", Some(function.name)))
+      None
 
     private def lowerAssign(assign: TypedAssign): Unit =
       if assign.op != "=" then
@@ -377,20 +804,69 @@ final class LirLowerer(
         case None =>
           Some(LirUnitValue)
 
+    private def joinOutput(valueType: SourceType): Option[Binding] =
+      SourceType.dealias(valueType) match
+        case SourceType.Unit | SourceType.Never =>
+          None
+        case _ =>
+          Some(declareTemp(valueType, mutable = true))
+
+    private def structuredResult(output: Option[Binding]): Option[LirValue] =
+      output match
+        case Some(binding) =>
+          Some(LirLocalRef(binding.id, Lir.t(binding.valueType)))
+        case None =>
+          Some(LirUnitValue)
+
+    private def finishStructuredBranch(
+        output: Option[Binding],
+        result: Option[LirValue],
+        joinLabel: LirLabel,
+        span: SourceSpan,
+    ): Boolean =
+      if isTerminated then false
+      else
+        var canBranch = true
+        output match
+          case Some(binding) =>
+            result match
+              case Some(value) =>
+                emit(LirAssign(LirLocalPlace(binding.id, Lir.t(binding.valueType)), value))
+              case None =>
+                report(
+                  "cosmo0.lir.lower.missing-branch-value",
+                  s"structured expression did not produce ${binding.valueType.display}",
+                  span,
+                )
+                terminate(LirErrorExit("cosmo0.lir.lower.missing-branch-value", Some(function.name)))
+                canBranch = false
+          case None =>
+        if canBranch && !isTerminated then
+          terminate(LirBranch(joinLabel))
+          true
+        else false
+
     private def declareLocal(
         name: String,
         valueType: SourceType,
         mutable: Boolean,
     ): Binding =
       val id = nextLocalId(name)
-      val binding = Binding(name, id, valueType, mutable)
+      val binding = Binding(name, id, valueType, mutable, mutationCapability(valueType))
       localBuffer += localFor(binding)
       binding
 
-    private def declareTemp(valueType: SourceType): Binding =
+    private def declareTemp(
+        valueType: SourceType,
+        mutable: Boolean = false,
+        mutationAllowed: Option[Boolean] = None,
+    ): Binding =
       val name = s"tmp$tempIndex"
       tempIndex += 1
-      declareLocal(name, valueType, mutable = false)
+      val id = nextLocalId(name)
+      val binding = Binding(name, id, valueType, mutable, mutationAllowed.getOrElse(mutationCapability(valueType)))
+      localBuffer += localFor(binding)
+      binding
 
     private def nextLocalId(name: String): LirLocalId =
       val base = stablePart(name)
@@ -400,7 +876,7 @@ final class LirLowerer(
       else Lir.localId(s"${base}_$ordinal")
 
     private def localFor(binding: Binding): LirLocal =
-      LirLocal(binding.id, binding.name, Lir.t(binding.valueType), binding.mutable)
+      LirLocal(binding.id, binding.name, Lir.t(binding.valueType), binding.mutable, binding.mutationAllowed)
 
     private def bind(binding: Binding): Unit =
       scopes.last.update(binding.name, binding)
@@ -413,19 +889,184 @@ final class LirLowerer(
       try body
       finally scopes.remove(scopes.length - 1)
 
+    private def withLoop[A](targets: LoopTargets)(body: => A): A =
+      loopStack += targets
+      try body
+      finally loopStack.remove(loopStack.length - 1)
+
     private def emit(op: LirOp): Unit =
-      if !isTerminated then operations += op
+      if !isTerminated then current.operations += op
 
     private def terminate(terminator: LirTerminator): Unit =
-      if sealedTerminator.isEmpty then sealedTerminator = Some(terminator)
+      if current.terminator.isEmpty then current.terminator = Some(terminator)
 
     private def isTerminated: Boolean =
-      sealedTerminator.nonEmpty
+      current.terminator.nonEmpty
+
+    private def newBlock(label: LirLabel): OpenBlock =
+      val block = new OpenBlock(label)
+      blockBuffer += block
+      block
+
+    private def startBlock(label: LirLabel): Unit =
+      current = newBlock(label)
+
+    private def nextLabelGroup(prefix: String): String =
+      val base = stablePart(prefix)
+      val ordinal = labelOrdinals.getOrElse(base, 0)
+      labelOrdinals.update(base, ordinal + 1)
+      s"$base$ordinal"
+
+    private def numberedLabel(group: String, index: Int, suffix: String): LirLabel =
+      Lir.label(s"${group}_${"%02d".format(index)}_${stablePart(suffix)}")
+
+    private def descriptorRefForConstructor(valueType: SourceType): Option[LirDescriptorRef] =
+      descriptorRefFor(valueType).filter { descriptor =>
+        descriptors.get(descriptor.name).exists(_.constructor("<init>").nonEmpty)
+      }
+
+    private def descriptorRefForMethod(
+        valueType: SourceType,
+        method: String,
+    ): Option[LirDescriptorRef] =
+      descriptorRefFor(valueType).filter { descriptor =>
+        descriptors.get(descriptor.name).exists(_.method(method).nonEmpty)
+      }
+
+    private def descriptorRefForValue(
+        valueType: SourceType,
+        operation: String,
+    ): Option[LirDescriptorRef] =
+      descriptorRefFor(valueType).filter { descriptor =>
+        descriptors.get(descriptor.name).exists(_.method(operation).nonEmpty)
+      }
+
+    private def descriptorRefFor(valueType: SourceType): Option[LirDescriptorRef] =
+      SourceType.dealias(valueType) match
+        case SourceType.Ref(target, _) =>
+          descriptorRefFor(target)
+        case SourceType.Standard(name, args) if descriptors.get(name).exists(_.arity == args.length) =>
+          Some(LirDescriptorRef(name, args.map(Lir.t)))
+        case SourceType.Builtin(name) if descriptors.get(name).exists(_.arity == 0) =>
+          Some(LirDescriptorRef(name))
+        case _ =>
+          None
+
+    private def isDescriptorBacked(valueType: SourceType): Boolean =
+      descriptorRefFor(valueType).nonEmpty
+
+    private def descriptorName(valueType: SourceType): Option[String] =
+      SourceType.dealias(valueType) match
+        case SourceType.Ref(target, _)     => descriptorName(target)
+        case SourceType.Standard(name, _)  => Some(name)
+        case SourceType.Builtin(name)      => Some(name)
+        case _                             => None
+
+    private def iterableDescriptor(
+        valueType: SourceType,
+        itemType: SourceType,
+        span: SourceSpan,
+    ): Option[LirDescriptorRef] =
+      SourceType.dealias(valueType) match
+        case SourceType.Standard(name @ ("Vec" | "Set" | "Arena"), item :: Nil) =>
+          if !SourceType.same(item, itemType) then
+            report(
+              "cosmo0.lir.lower.invalid-iterator",
+              s"for loop item type ${itemType.display} does not match ${valueType.display} item ${item.display}",
+              span,
+            )
+          Some(LirDescriptorRef(name, List(Lir.t(item))))
+        case SourceType.Standard("Map", key :: value :: Nil) =>
+          if !SourceType.same(key, itemType) then
+            report(
+              "cosmo0.lir.lower.invalid-iterator",
+              s"for loop item type ${itemType.display} does not match ${valueType.display} key ${key.display}",
+              span,
+            )
+          Some(LirDescriptorRef("Map", List(Lir.t(key), Lir.t(value))))
+        case other =>
+          report(
+            "cosmo0.lir.lower.invalid-iterator",
+            s"type ${other.display} is not a descriptor-backed iterable",
+            span,
+          )
+          None
+
+    private def patternCondition(
+        pattern: TypedPattern,
+        scrutinee: LirValue,
+    ): Option[PatternCondition] =
+      pattern match
+        case _: TypedWildcardPattern =>
+          Some(AlwaysPattern)
+        case _: TypedBindingPattern =>
+          Some(AlwaysPattern)
+        case TypedVariantPattern(constructor: TypedVariantConstructorExpr, _, valueType, _) =>
+          val output = declareTemp(SourceType.Bool)
+          emit(
+            LirCheckVariantTag(
+              output.id,
+              scrutinee,
+              Lir.t(valueType),
+              constructor.variant,
+            ),
+          )
+          Some(ConditionalPattern(LirLocalRef(output.id, Lir.t(SourceType.Bool))))
+        case value: TypedVariantPattern =>
+          unsupportedPattern(value, "variant pattern with non-constructor head")
+          None
+        case value =>
+          unsupportedPattern(value, "literal pattern")
+          None
+
+    private def bindPattern(pattern: TypedPattern, scrutinee: LirValue): Unit =
+      pattern match
+        case TypedWildcardPattern(_, _) =>
+        case TypedBindingPattern(name, valueType, _) =>
+          val binding = declareLocal(name, valueType, mutable = false)
+          bind(binding)
+          emit(LirAllocLocal(localFor(binding), Some(scrutinee)))
+        case TypedVariantPattern(constructor: TypedVariantConstructorExpr, args, _, _) =>
+          args.zipWithIndex.foreach { case (arg, index) =>
+            arg match
+              case TypedWildcardPattern(_, _) =>
+              case TypedBindingPattern(name, valueType, _) =>
+                val binding = declareLocal(name, valueType, mutable = false)
+                bind(binding)
+                emit(
+                  LirReadVariantPayload(
+                    binding.id,
+                    scrutinee,
+                    constructor.variant,
+                    index,
+                    Lir.t(valueType),
+                  ),
+                )
+              case other =>
+                unsupportedPattern(other, "nested or literal variant payload pattern")
+          }
+        case value: TypedVariantPattern =>
+          unsupportedPattern(value, "variant pattern with non-constructor head")
+        case _ =>
+
+    private def unsupportedPattern(pattern: TypedPattern, construct: String): Unit =
+      report(
+        "cosmo0.lir.lower.unsupported-pattern",
+        s"match lowering does not support $construct yet",
+        pattern.span,
+      )
 
     private def unsupported(node: TypedNode, construct: String): Unit =
       report(
         "cosmo0.lir.lower.unsupported-expression",
         s"declaration lowering does not support $construct yet",
+        node.span,
+      )
+
+    private def unsupportedDescriptor(node: TypedNode, descriptor: String, operation: String): Unit =
+      report(
+        "cosmo0.lir.lower.unsupported-descriptor",
+        s"descriptor $descriptor has no lowerable operation $operation",
         node.span,
       )
 
@@ -469,6 +1110,7 @@ final class LirLowerer(
               Lir.t(value.valueType),
               mutable = value.kind == UntypedValueKind.Var,
               initializer = value.init.flatMap(staticValue),
+              mutationAllowed = mutationCapability(value.valueType),
             ),
           )
 
@@ -554,6 +1196,12 @@ final class LirLowerer(
         message,
         Some(span),
       )
+
+  private def mutationCapability(valueType: SourceType): Boolean =
+    SourceType.dealias(valueType) match
+      case SourceType.Ref(_, mutable)          => mutable
+      case SourceType.Never | SourceType.Error => false
+      case _                                   => true
 
   private def moduleName(source: SourceFile): String =
     val raw =

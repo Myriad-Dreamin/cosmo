@@ -12,6 +12,7 @@ class LirTests extends munit.FunSuite:
       rendered,
       """fn @process process(%input input: Token) -> i32 {
         |  local %count count: i32 mut
+        |  local %is_some is_some: Bool
         |  local %labels labels: Vec[String] mut
         |  local %maybe maybe: Option[Token]
         |  local %payload payload: Token
@@ -33,6 +34,7 @@ class LirTests extends munit.FunSuite:
         |    descriptor Vec[String]::push(%labels, "ok") -> Unit
         |    %maybe = variant Option[Token]::Some(%token)
         |    %tag = variant_tag %maybe: Option[Token]
+        |    %is_some = variant_is %maybe: Option[Token]::Some
         |    %payload = variant_payload %maybe.Some[0]: Token
         |    cond_branch true ? ^exit : ^error
         |  ^error:
@@ -226,6 +228,7 @@ class LirTests extends munit.FunSuite:
       Lir.local("token", tokenType, mutable = true),
       Lir.local("labels", stringVecType, mutable = true),
       Lir.local("maybe", optionTokenType),
+      Lir.local("is_some", SourceType.Bool),
       Lir.local("tag", SourceType.I32),
       Lir.local("payload", tokenType),
       Lir.local("tmp", SourceType.Usize),
@@ -279,6 +282,12 @@ class LirTests extends munit.FunSuite:
         Lir.localId("tag"),
         Lir.ref("maybe", optionTokenType),
         Lir.t(optionTokenType),
+      ),
+      LirCheckVariantTag(
+        Lir.localId("is_some"),
+        Lir.ref("maybe", optionTokenType),
+        Lir.t(optionTokenType),
+        "Some",
       ),
       LirReadVariantPayload(
         Lir.localId("payload"),
@@ -434,6 +443,7 @@ class LirTests extends munit.FunSuite:
       Lir.local("token", tokenType, mutable = true),
       Lir.local("labels", stringVecType, mutable = true),
       Lir.local("maybe", optionTokenType),
+      Lir.local("is_some", SourceType.Bool),
       Lir.local("tag", SourceType.I32),
       Lir.local("payload", tokenType),
       Lir.local("tmp", SourceType.Usize),
@@ -492,6 +502,12 @@ class LirTests extends munit.FunSuite:
             Lir.localId("tag"),
             Lir.ref("maybe", optionTokenType),
             Lir.t(optionTokenType),
+          ),
+          LirCheckVariantTag(
+            Lir.localId("is_some"),
+            Lir.ref("maybe", optionTokenType),
+            Lir.t(optionTokenType),
+            "Some",
           ),
           LirReadVariantPayload(
             Lir.localId("payload"),
