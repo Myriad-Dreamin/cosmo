@@ -1,0 +1,5 @@
+def collect(): Vec[String] = {
+  val labels = Vec[String]();
+  labels.push("ok");
+  labels
+}

@@ -124,3 +124,44 @@ final case class CompiledModule(
     checked: CheckedModule,
     output: String,
 )
+
+final case class Cosmo0PackageMetadata(
+    name: String,
+    version: String,
+    sourceRoot: String = "src",
+    target: Option[String] = None,
+):
+  def outputModuleName: String =
+    val raw = name.stripPrefix("@").replace('/', '_')
+    val builder = new StringBuilder
+    raw.foreach { char =>
+      if char.isLetterOrDigit || char == '_' then builder.append(char)
+      else if builder.nonEmpty && builder.last != '_' then builder.append('_')
+    }
+    val cleaned = builder.toString.stripPrefix("_").stripSuffix("_")
+    if cleaned.nonEmpty then cleaned else "package"
+
+final case class Cosmo0PackageModule(
+    modulePath: List[String],
+    source: SourceFile,
+):
+  def name: String = modulePath.mkString("::")
+
+final case class Cosmo0Package(
+    rootPath: String,
+    metadata: Cosmo0PackageMetadata,
+    modules: List[Cosmo0PackageModule],
+)
+
+final case class CheckedPackage(
+    metadata: Cosmo0PackageMetadata,
+    modules: List[Cosmo0PackageModule],
+    moduleOrder: List[String],
+    checked: CheckedModule,
+    lowered: LoweredModule,
+)
+
+final case class CompiledPackage(
+    checked: CheckedPackage,
+    output: CppOutput,
+)
