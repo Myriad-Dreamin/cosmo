@@ -594,6 +594,25 @@ final class LirTypeChecker(
         descriptor: LirDescriptorRef,
         name: String,
     ): Option[ExpectedCallable] =
+      if descriptor.name == "Runtime" && descriptor.args.isEmpty then
+        name match
+          case "print" | "println" =>
+            return Some(
+              ExpectedCallable(
+                LirCallableSignature(
+                  List(LirTypeRef(SourceType.Error)),
+                  LirTypeRef(SourceType.Unit),
+                ),
+                receiverMutable = false,
+              ),
+            )
+          case _ =>
+            error(
+              "cosmo0.lir.invalid-descriptor",
+              s"descriptor Runtime has no operation $name",
+            )
+            return None
+
       descriptors.get(descriptor.name) match
         case None =>
           error(

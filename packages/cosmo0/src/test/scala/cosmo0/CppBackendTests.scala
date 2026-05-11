@@ -1,0 +1,358 @@
+package cosmo0
+
+import scala.scalajs.js
+import scala.scalajs.js.annotation.JSImport
+
+class CppBackendTests extends munit.FunSuite:
+  private val tokenType = SourceType.User("Token")
+  private val optionTokenType = SourceType.Standard("Option", List(tokenType))
+  private val stringVecType = SourceType.Standard("Vec", List(SourceType.String))
+
+  test("backend rejects structurally invalid LIR at the compile boundary"):
+    val result = CppBackend().emit(
+      LirModule(
+        "bad",
+        List(
+          Lir.function(
+            "bad",
+            params = Nil,
+            returnType = SourceType.I32,
+            locals = Nil,
+            blocks = Nil,
+          ),
+        ),
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(
+      result.diagnostics.exists(_.code == "cosmo0.lir.missing-block"),
+      s"missing LIR boundary diagnostic in ${result.diagnostics.map(_.code)}",
+    )
+
+  test("backend emits declarations, bodies, descriptors, variants, and runtime support"):
+    val result = CppBackend().emit(checkedLirModule())
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val source = result.value.get.source
+    assert(source.contains("namespace cosmo0 {"))
+    assert(source.contains("namespace checked {"))
+    assert(source.contains("struct Token"))
+    assert(source.contains("std::variant<Variant_Empty, Variant_WithText> data{};"))
+    assert(source.contains("inline int32_t identity(int32_t value);"))
+    assert(source.contains("tmp = token.offset;"))
+    assert(source.contains("labels.push_back(std::string(\"ok\"));"))
+    assert(source.contains("maybe = std::optional<Token>(token);"))
+    assert(source.contains("is_some = maybe.has_value();"))
+    assert(source.contains("payload = maybe.value();"))
+    assert(!source.contains("CodeGen"))
+
+  test("backend output is byte-for-byte stable for equivalent LIR ordering"):
+    val first = checkedLirModule()
+    val second = LirModule(
+      "checked",
+      List(
+        checkedProcessFunction(
+          locals = checkedLocals().reverse,
+          blocks = checkedBlocks().reverse,
+        ),
+        identityFunction(),
+        tokenDecl().copy(
+          fields = tokenDecl().fields.reverse,
+          variants = tokenDecl().variants.reverse,
+        ),
+      ),
+    )
+
+    val firstOutput = CppBackend().emit(first)
+    val secondOutput = CppBackend().emit(second)
+
+    assert(firstOutput.isSuccess, firstOutput.diagnostics.map(_.message).mkString("\n"))
+    assert(secondOutput.isSuccess, secondOutput.diagnostics.map(_.message).mkString("\n"))
+    assertEquals(firstOutput.value.get.source, secondOutput.value.get.source)
+
+  test("backend diagnoses descriptor operations that are valid LIR but unsupported by C++ emission"):
+    val boxType = SourceType.Standard("Box", List(SourceType.I32))
+    val refType = SourceType.Ref(SourceType.I32, mutable = false)
+    val module = LirModule(
+      "unsupported",
+      List(
+        Lir.function(
+          "read_box",
+          List(Lir.param("box", boxType)),
+          refType,
+          locals = List(Lir.local("value", refType)),
+          blocks = List(
+            Lir.block(
+              "entry",
+              operations = List(
+                LirDescriptorIntrinsic(
+                  Some(Lir.localId("value")),
+                  LirDescriptorRef("Box", List(Lir.t(SourceType.I32))),
+                  "get",
+                  List(Lir.ref("box", boxType)),
+                  Some(Lir.t(refType)),
+                ),
+              ),
+              terminator = LirReturn(Some(Lir.ref("value", refType))),
+            ),
+          ),
+        ),
+      ),
+    )
+
+    val result = CppBackend().emit(module)
+
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(
+      result.diagnostics.exists(_.code == "cosmo0.cpp.unsupported-descriptor"),
+      s"missing backend unsupported descriptor diagnostic in ${result.diagnostics.map(_.code)}",
+    )
+
+  test("Cosmo0 compile emits C++ for the HelloWorld executable target"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "samples/HelloWorld/main.cos",
+        """def main() = {
+          |  println("Hello, World!")
+          |
+          |  val x = 1
+          |  val y = 2
+          |  val z = x + y
+          |  println(z);
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("int main()"))
+    assert(output.contains("cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
+    assert(output.contains("cosmo0_runtime::println(z);"))
+    assertCxxAccepts(output)
+
+  test("Cosmo0 compile emits library-shaped C++ for parser.cos without a main wrapper"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "packages/cosmoc/src/parser.cos",
+        """class ParserToken {
+          |  val text: String
+          |  val offset: usize
+          |}
+          |
+          |class ParserState {
+          |  val source: String
+          |  var offset: usize
+          |
+          |  def position(&self): usize = {
+          |    self.offset
+          |  }
+          |
+          |  def advance(&mut self): Unit = {
+          |    self.offset = self.offset + 1
+          |  }
+          |}
+          |
+          |def parser_version(): i32 = {
+          |  1
+          |}
+          |
+          |def source_len(source: String): usize = {
+          |  source.len()
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("struct ParserToken"))
+    assert(output.contains("inline std::size_t source_len(std::string source)"))
+    assert(!output.contains("int main()"))
+    assertCxxAccepts(output)
+
+  private def assertCxxAccepts(source: String): Unit =
+    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo0 backend acceptance test"))
+    val result = NodeSpawnSync(
+      compiler,
+      js.Array("-std=c++17", "-fsyntax-only", "-x", "c++", "-"),
+      js.Dynamic.literal(input = source, encoding = "utf8"),
+    )
+    assertEquals(
+      result.status.toOption,
+      Some(0),
+      s"C++ compiler rejected generated output with ${compiler}\n${result.stderr.getOrElse("")}",
+    )
+
+  private def cxxCompiler(): Option[String] =
+    List("c++", "g++", "clang++").find { command =>
+      val result = NodeSpawnSync(
+        command,
+        js.Array("--version"),
+        js.Dynamic.literal(encoding = "utf8"),
+      )
+      result.status.toOption.contains(0)
+    }
+
+  private def checkedLirModule(
+      function: LirFunction = checkedProcessFunction(),
+  ): LirModule =
+    LirModule(
+      "checked",
+      List(tokenDecl(), identityFunction(), function),
+    )
+
+  private def checkedProcessFunction(
+      locals: List[LirLocal] = checkedLocals(),
+      blocks: List[LirBlock] = checkedBlocks(),
+  ): LirFunction =
+    Lir.function(
+      "process",
+      List(Lir.param("input", tokenType)),
+      SourceType.I32,
+      locals = locals,
+      blocks = blocks,
+    )
+
+  private def checkedLocals(): List[LirLocal] =
+    List(
+      Lir.local("token", tokenType, mutable = true),
+      Lir.local("labels", stringVecType, mutable = true),
+      Lir.local("maybe", optionTokenType),
+      Lir.local("is_some", SourceType.Bool),
+      Lir.local("tag", SourceType.I32),
+      Lir.local("payload", tokenType),
+      Lir.local("tmp", SourceType.Usize),
+      Lir.local("count", SourceType.I32, mutable = true),
+    )
+
+  private def checkedBlocks(): List[LirBlock] =
+    List(
+      Lir.block(
+        "entry",
+        operations = checkedEntryOperations(),
+        terminator = LirCondBranch(
+          Lir.bool(true),
+          Lir.label("exit"),
+          Lir.label("error"),
+        ),
+      ),
+      Lir.block(
+        "exit",
+        terminator = LirReturn(Some(Lir.ref("count", SourceType.I32))),
+      ),
+      Lir.block(
+        "error",
+        terminator = LirErrorExit("cosmo0.lir.test", Some("failed")),
+      ),
+    )
+
+  private def checkedEntryOperations(): List[LirOp] =
+    List(
+      LirAllocLocal(Lir.local("token", tokenType, mutable = true)),
+      LirAllocLocal(Lir.local("labels", stringVecType, mutable = true)),
+      LirAllocLocal(Lir.local("count", SourceType.I32, mutable = true), Some(Lir.int(0))),
+      LirFieldGet(
+        Lir.localId("tmp"),
+        Lir.ref("token", tokenType),
+        "offset",
+        Lir.t(SourceType.Usize),
+      ),
+      LirFieldSet(
+        Lir.ref("token", tokenType),
+        "offset",
+        Lir.ref("tmp", SourceType.Usize),
+      ),
+      LirAssign(Lir.localPlace("count", SourceType.I32), Lir.int(1)),
+      LirDirectCall(
+        Some(Lir.localId("count")),
+        Lir.declId("identity"),
+        List(Lir.ref("count", SourceType.I32)),
+        Lir.signature(List(SourceType.I32), SourceType.I32),
+      ),
+      LirDescriptorIntrinsic(
+        None,
+        LirDescriptorRef("Vec", List(Lir.t(SourceType.String))),
+        "push",
+        List(Lir.ref("labels", stringVecType), Lir.string("ok")),
+        Some(Lir.t(SourceType.Unit)),
+      ),
+      LirConstructVariant(
+        Lir.localId("maybe"),
+        Lir.t(optionTokenType),
+        "Some",
+        List(Lir.ref("token", tokenType)),
+      ),
+      LirReadVariantTag(
+        Lir.localId("tag"),
+        Lir.ref("maybe", optionTokenType),
+        Lir.t(optionTokenType),
+      ),
+      LirCheckVariantTag(
+        Lir.localId("is_some"),
+        Lir.ref("maybe", optionTokenType),
+        Lir.t(optionTokenType),
+        "Some",
+      ),
+      LirReadVariantPayload(
+        Lir.localId("payload"),
+        Lir.ref("maybe", optionTokenType),
+        "Some",
+        0,
+        Lir.t(tokenType),
+      ),
+    )
+
+  private def tokenDecl(): LirTypeDecl =
+    LirTypeDecl(
+      Lir.declId("token"),
+      "Token",
+      fields = List(
+        LirField("text", Lir.t(SourceType.String)),
+        LirField("offset", Lir.t(SourceType.Usize), mutable = true),
+      ),
+      variants = List(
+        LirVariant("WithText", List(LirVariantPayload(Some("value"), Lir.t(SourceType.String)))),
+        LirVariant("Empty"),
+      ),
+    )
+
+  private def identityFunction(): LirFunction =
+    Lir.function(
+      "identity",
+      List(Lir.param("value", SourceType.I32)),
+      SourceType.I32,
+      locals = Nil,
+      blocks = List(
+        Lir.block(
+          "entry",
+          terminator = LirReturn(Some(Lir.ref("value", SourceType.I32))),
+        ),
+      ),
+    )
+
+@js.native
+@JSImport("node:child_process", "spawnSync")
+private object NodeSpawnSync extends js.Object:
+  def apply(command: String, args: js.Array[String], options: js.Any): NodeSpawnSyncResult = js.native
+
+@js.native
+private trait NodeSpawnSyncResult extends js.Object:
+  val status: js.UndefOr[Int] = js.native
+  val stderr: js.UndefOr[String] = js.native
