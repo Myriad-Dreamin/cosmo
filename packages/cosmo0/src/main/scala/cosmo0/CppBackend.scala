@@ -523,6 +523,9 @@ final class CppBackend(
             case None =>
               Nil
 
+        case LirConstructType(output, owner, fields) =>
+          constructType(output, owner, fields, locals)
+
         case LirConstructVariant(output, owner, variant, payload) =>
           constructVariant(owner, variant, payload, locals) match
             case Some(value) => List(s"${locals.local(output)} = $value;")
@@ -1045,6 +1048,26 @@ final class CppBackend(
         case _ =>
           unsupportedType(owner.source)
           None
+
+    private def constructType(
+        output: LirLocalId,
+        owner: LirTypeRef,
+        fields: List[LirFieldInit],
+        locals: FunctionNames,
+    ): List[String] =
+      SourceType.dealias(owner.source) match
+        case SourceType.User(name) =>
+          env.typesByName.get(name) match
+            case Some(ty) =>
+              val target = locals.local(output)
+              s"$target = ${names.typeName(ty.id)}{};" ::
+                fields.map(field => s"$target.${fieldName(field.name)} = ${renderValue(field.value, locals)};")
+            case None =>
+              unsupportedType(owner.source)
+              Nil
+        case _ =>
+          unsupportedType(owner.source)
+          Nil
 
     private def variantTag(
         scrutinee: LirValue,

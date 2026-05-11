@@ -146,8 +146,8 @@ class CppBackendTests extends munit.FunSuite:
   test("Cosmo0 compile emits library-shaped C++ for parser.cos without a main wrapper"):
     val result = Cosmo0().compile(
       SourceFile(
-        "packages/cosmoc/src/parser.cos",
-        ParserFixtureManifest.readFile("packages/cosmoc/src/parser.cos"),
+        ParserFixtureManifest.parserSourcePath,
+        ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
       ),
     )
 
@@ -216,10 +216,10 @@ class CppBackendTests extends munit.FunSuite:
   private def compileParserTestProgram(): Result[CompiledModule] =
     Cosmo0().compile(
       SourceFile(
-        "packages/cosmoc/src/parser_test.cos",
+        ParserFixtureManifest.parserTestSourcePath,
         List(
-          ParserFixtureManifest.readFile("packages/cosmoc/src/parser.cos"),
-          ParserFixtureManifest.readFile("packages/cosmoc/src/parser_test.cos"),
+          ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+          ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
         ).mkString("\n"),
       ),
     )

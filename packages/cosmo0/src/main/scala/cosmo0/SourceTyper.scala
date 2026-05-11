@@ -443,11 +443,16 @@ final class SourceTyper(
             case None =>
               classConstructor(name, node.span).orElse(descriptorConstructor(name, node.span)) match
                 case Some(signature) =>
-                  val callee = descriptorOwner(name) match
-                    case Some(owner) if SourceType.same(signature.returnType, owner) =>
-                      TypedTypeConstructorExpr(owner, signature.functionType, node.span)
-                    case _ =>
-                      TypedName(node.path, signature.functionType, false, false, node.span)
+                  val callee =
+                    SourceType.dealias(signature.returnType) match
+                      case owner: SourceType.User =>
+                        TypedTypeConstructorExpr(owner, signature.functionType, node.span)
+                      case _ =>
+                        descriptorOwner(name) match
+                          case Some(owner) if SourceType.same(signature.returnType, owner) =>
+                            TypedTypeConstructorExpr(owner, signature.functionType, node.span)
+                          case _ =>
+                            TypedName(node.path, signature.functionType, false, false, node.span)
                   ExprInfo(callee, false, false)
                 case None =>
                   error(
@@ -670,11 +675,16 @@ final class SourceTyper(
                 runtimeFunctionCall(calleeName, name, node.args, node.span, scope, context)
               else classConstructor(calleeName, name.span).orElse(descriptorConstructor(calleeName, name.span)) match
                 case Some(signature) =>
-                  val callee = descriptorOwner(calleeName) match
-                    case Some(owner) if SourceType.same(signature.returnType, owner) =>
-                      TypedTypeConstructorExpr(owner, signature.functionType, name.span)
-                    case _ =>
-                      TypedName(name.path, signature.functionType, false, false, name.span)
+                  val callee =
+                    SourceType.dealias(signature.returnType) match
+                      case owner: SourceType.User =>
+                        TypedTypeConstructorExpr(owner, signature.functionType, name.span)
+                      case _ =>
+                        descriptorOwner(calleeName) match
+                          case Some(owner) if SourceType.same(signature.returnType, owner) =>
+                            TypedTypeConstructorExpr(owner, signature.functionType, name.span)
+                          case _ =>
+                            TypedName(name.path, signature.functionType, false, false, name.span)
                   callWithSignature(
                     callee,
                     signature,

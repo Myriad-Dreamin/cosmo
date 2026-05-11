@@ -17,6 +17,12 @@ object ParserFixtureManifest:
   val manifestPath: String =
     "fixtures/cosmo0/parser/manifest.tsv"
 
+  val parserSourcePath: String =
+    "fixtures/cosmo0/parser/program/parser.cos"
+
+  val parserTestSourcePath: String =
+    "fixtures/cosmo0/parser/program/parser_test.cos"
+
   def load(): List[Fixture] =
     readFile(manifestPath)
       .split("\n")

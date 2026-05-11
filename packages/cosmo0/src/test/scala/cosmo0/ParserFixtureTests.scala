@@ -39,9 +39,19 @@ class ParserFixtureTests extends munit.FunSuite:
             )
 
   test("parser_test and Scala parser tests consume the same manifest"):
-    val parserTestSource = ParserFixtureManifest.readFile("packages/cosmoc/src/parser_test.cos")
+    val parserTestSource = ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath)
     assert(
       parserTestSource.contains(s""""${ParserFixtureManifest.manifestPath}""""),
       s"parser_test.cos must reference ${ParserFixtureManifest.manifestPath}",
+    )
+
+  test("packaged parser sources mirror shared parser program fixtures"):
+    assertEquals(
+      ParserFixtureManifest.readFile("packages/cosmoc/src/parser.cos"),
+      ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+    )
+    assertEquals(
+      ParserFixtureManifest.readFile("packages/cosmoc/src/parser_test.cos"),
+      ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
     )
 end ParserFixtureTests

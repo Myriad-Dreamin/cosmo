@@ -375,9 +375,41 @@ final class LirLowerer(
         case constructor: TypedTypeConstructorExpr =>
           val args = call.args.flatMap(lowerExpr)
           if args.length != call.args.length then None
-          else lowerDescriptorConstructor(constructor, output, args, call.valueType)
+          else
+            SourceType.dealias(constructor.constructedType) match
+              case SourceType.User(_) =>
+                lowerUserConstructor(constructor, output, args, call.valueType, call.signature)
+              case _ =>
+                lowerDescriptorConstructor(constructor, output, args, call.valueType)
         case other =>
           unsupported(other, "indirect function call")
+          None
+
+    private def lowerUserConstructor(
+        constructor: TypedTypeConstructorExpr,
+        output: Option[Binding],
+        args: List[LirValue],
+        valueType: SourceType,
+        signature: CallableSignature,
+    ): Option[LirValue] =
+      output match
+        case Some(binding) =>
+          emit(
+            LirConstructType(
+              binding.id,
+              Lir.t(valueType),
+              signature.params.zip(args).map { case (param, arg) =>
+                LirFieldInit(param.name, arg)
+              },
+            ),
+          )
+          callResult(output, valueType)
+        case None =>
+          report(
+            "cosmo0.lir.lower.invalid-constructor",
+            s"type constructor ${constructor.constructedType.display} has no LIR output",
+            constructor.span,
+          )
           None
 
     private def lowerDescriptorConstructor(
