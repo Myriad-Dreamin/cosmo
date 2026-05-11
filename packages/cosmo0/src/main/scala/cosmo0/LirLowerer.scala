@@ -289,7 +289,18 @@ final class LirLowerer(
           if args.length != call.args.length then None
           else
             val calleeName = name.path.parts.head
-            context.functionId(None, calleeName) match
+            if isRuntimeFunction(calleeName) then
+              emit(
+                LirDescriptorIntrinsic(
+                  output.map(_.id),
+                  LirDescriptorRef("Runtime"),
+                  calleeName,
+                  args,
+                  Some(Lir.t(SourceType.Unit)),
+                ),
+              )
+              callResult(output, call.valueType)
+            else context.functionId(None, calleeName) match
               case Some(id) =>
                 emit(
                   LirDirectCall(
@@ -1074,6 +1085,9 @@ final class LirLowerer(
       SourceType.dealias(valueType) match
         case SourceType.Function(_, _) => true
         case _                         => false
+
+    private def isRuntimeFunction(name: String): Boolean =
+      name == "print" || name == "println"
 
   private final class State(module: TypedModule):
     private val errors = ListBuffer.empty[Diagnostic]

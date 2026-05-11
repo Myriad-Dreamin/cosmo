@@ -103,15 +103,16 @@ final class Cosmo0:
           None,
           lowered.diagnostics,
         )
-      case _ =>
-        Result.unsupported(
-          Phase.Compile,
-          pendingDiagnostic(
-            Phase.Compile,
-            "cosmo0.compile.unsupported",
-            "cosmo0 compilation is not implemented yet",
-          ),
-        )
+      case lowered =>
+        val loweredModule = lowered.value.get
+        CppBackend().emit(loweredModule.lir) match
+          case emitted if emitted.isSuccess =>
+            Result.success(
+              Phase.Compile,
+              CompiledModule(loweredModule.checked, emitted.value.get.source),
+            )
+          case failed =>
+            Result.failure(Phase.Compile, failed.diagnostics)
 
   private def parseFailureDiagnostic(
       source: SourceFile,

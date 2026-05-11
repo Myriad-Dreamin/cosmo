@@ -1,0 +1,25 @@
+class ParserToken {
+  val text: String
+  val offset: usize
+}
+
+class ParserState {
+  val source: String
+  var offset: usize
+
+  def position(&self): usize = {
+    self.offset
+  }
+
+  def advance(&mut self): Unit = {
+    self.offset = self.offset + 1
+  }
+}
+
+def parser_version(): i32 = {
+  1
+}
+
+def source_len(source: String): usize = {
+  source.len()
+}
