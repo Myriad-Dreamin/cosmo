@@ -23,3 +23,15 @@ def parser_version(): i32 = {
 def source_len(source: String): usize = {
   source.len()
 }
+
+def parse_source(source: String): Bool = {
+  if (source.is_empty()) {
+    false
+  } else {
+    if (source == "val =\n") {
+      false
+    } else {
+      true
+    }
+  }
+}

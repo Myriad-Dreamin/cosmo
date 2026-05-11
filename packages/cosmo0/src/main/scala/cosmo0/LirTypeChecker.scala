@@ -606,6 +606,16 @@ final class LirTypeChecker(
                 receiverMutable = false,
               ),
             )
+          case "read_file" =>
+            return Some(
+              ExpectedCallable(
+                LirCallableSignature(
+                  List(LirTypeRef(SourceType.String)),
+                  LirTypeRef(SourceType.String),
+                ),
+                receiverMutable = false,
+              ),
+            )
           case _ =>
             error(
               "cosmo0.lir.invalid-descriptor",

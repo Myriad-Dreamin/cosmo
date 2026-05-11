@@ -1,0 +1,80 @@
+import parser;
+
+def parser_fixture_manifest_path(): String = {
+  "fixtures/cosmo0/parser/manifest.tsv"
+}
+
+def is_manifest_data_line(line: String): Bool = {
+  if (line.is_empty()) {
+    false
+  } else {
+    line.byte_at(0) != 35
+  }
+}
+
+def field_at(line: String, index: usize): String = {
+  var field_index: usize = 0;
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset < line.len()) {
+    if (line.byte_at(offset) == 124) {
+      if (field_index == index) {
+        return line.slice(start, offset)
+      } else {
+        field_index = field_index + 1;
+        start = offset + 1
+      }
+    }
+    offset = offset + 1
+  }
+  if (field_index == index) {
+    line.slice(start, line.len())
+  } else {
+    ""
+  }
+}
+
+def parse_manifest(manifest: String): Vec[String] = {
+  var fixtures = Vec[String]();
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset < manifest.len()) {
+    if (manifest.byte_at(offset) == 10) {
+      val line = manifest.slice(start, offset);
+      if (is_manifest_data_line(line)) {
+        fixtures.push(line)
+      }
+      start = offset + 1
+    }
+    offset = offset + 1
+  }
+  if (start < manifest.len()) {
+    val line = manifest.slice(start, manifest.len());
+    if (is_manifest_data_line(line)) {
+      fixtures.push(line)
+    }
+  }
+  fixtures
+}
+
+def run_fixture(fixture: String): Bool = {
+  val source = read_file(field_at(fixture, 1));
+  val accepted = parse_source(source);
+  if (field_at(fixture, 2) == "ok") {
+    accepted
+  } else {
+    !accepted
+  }
+}
+
+def main(): i32 = {
+  val manifest = read_file(parser_fixture_manifest_path());
+  val fixtures = parse_manifest(manifest);
+  for (fixture in fixtures) {
+    if (!run_fixture(fixture)) {
+      println(field_at(fixture, 0));
+      return 1
+    }
+  }
+  0
+}

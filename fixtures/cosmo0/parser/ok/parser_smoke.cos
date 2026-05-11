@@ -1,0 +1,7 @@
+class ParserSmoke {
+  val text: String
+}
+
+def parser_smoke(): i32 = {
+  42
+}

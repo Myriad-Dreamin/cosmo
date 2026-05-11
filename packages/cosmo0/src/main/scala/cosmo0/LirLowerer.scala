@@ -296,7 +296,7 @@ final class LirLowerer(
                   LirDescriptorRef("Runtime"),
                   calleeName,
                   args,
-                  Some(Lir.t(SourceType.Unit)),
+                  Some(Lir.t(call.valueType)),
                 ),
               )
               callResult(output, call.valueType)
@@ -1087,7 +1087,7 @@ final class LirLowerer(
         case _                         => false
 
     private def isRuntimeFunction(name: String): Boolean =
-      name == "print" || name == "println"
+      name == "print" || name == "println" || name == "read_file"
 
   private final class State(module: TypedModule):
     private val errors = ListBuffer.empty[Diagnostic]

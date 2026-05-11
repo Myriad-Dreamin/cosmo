@@ -147,32 +147,7 @@ class CppBackendTests extends munit.FunSuite:
     val result = Cosmo0().compile(
       SourceFile(
         "packages/cosmoc/src/parser.cos",
-        """class ParserToken {
-          |  val text: String
-          |  val offset: usize
-          |}
-          |
-          |class ParserState {
-          |  val source: String
-          |  var offset: usize
-          |
-          |  def position(&self): usize = {
-          |    self.offset
-          |  }
-          |
-          |  def advance(&mut self): Unit = {
-          |    self.offset = self.offset + 1
-          |  }
-          |}
-          |
-          |def parser_version(): i32 = {
-          |  1
-          |}
-          |
-          |def source_len(source: String): usize = {
-          |  source.len()
-          |}
-          |""".stripMargin,
+        ParserFixtureManifest.readFile("packages/cosmoc/src/parser.cos"),
       ),
     )
 
@@ -184,8 +159,70 @@ class CppBackendTests extends munit.FunSuite:
     val output = result.value.get.output
     assert(output.contains("struct ParserToken"))
     assert(output.contains("inline std::size_t source_len(std::string source)"))
+    assert(output.contains("inline bool parse_source(std::string source)"))
     assert(!output.contains("int main()"))
     assertCxxAccepts(output)
+
+  test("Cosmo0 compile emits executable C++ for parser_test linked with parser.cos"):
+    val result = compileParserTestProgram()
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("int main()"))
+    assert(output.contains("cosmo0_runtime::read_file"))
+    assert(output.contains("parse_source"))
+    assertCxxAccepts(output)
+
+  test("parser_test executable passes the shared parser fixture manifest"):
+    val result = compileParserTestProgram()
+
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for parser_test execution test"))
+    TestNodeFs.mkdirSync("target/cosmo0-cpp-tests", js.Dynamic.literal("recursive" -> true))
+    val sourcePath = "target/cosmo0-cpp-tests/parser_test.cpp"
+    val executablePath = "target/cosmo0-cpp-tests/parser_test"
+    TestNodeFs.writeFileSync(sourcePath, output)
+
+    val compile = NodeSpawnSync(
+      compiler,
+      js.Array("-std=c++17", sourcePath, "-o", executablePath),
+      js.Dynamic.literal(encoding = "utf8"),
+    )
+    assertEquals(
+      compile.status.toOption,
+      Some(0),
+      s"C++ compiler rejected parser_test executable output with ${compiler}\n${compile.stderr.getOrElse("")}",
+    )
+
+    val run = NodeSpawnSync(
+      executablePath,
+      js.Array(),
+      js.Dynamic.literal(encoding = "utf8"),
+    )
+    assertEquals(
+      run.status.toOption,
+      Some(0),
+      s"parser_test fixture run failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+    )
+
+  private def compileParserTestProgram(): Result[CompiledModule] =
+    Cosmo0().compile(
+      SourceFile(
+        "packages/cosmoc/src/parser_test.cos",
+        List(
+          ParserFixtureManifest.readFile("packages/cosmoc/src/parser.cos"),
+          ParserFixtureManifest.readFile("packages/cosmoc/src/parser_test.cos"),
+        ).mkString("\n"),
+      ),
+    )
 
   private def assertCxxAccepts(source: String): Unit =
     val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo0 backend acceptance test"))
@@ -355,4 +392,11 @@ private object NodeSpawnSync extends js.Object:
 @js.native
 private trait NodeSpawnSyncResult extends js.Object:
   val status: js.UndefOr[Int] = js.native
+  val stdout: js.UndefOr[String] = js.native
   val stderr: js.UndefOr[String] = js.native
+
+@js.native
+@JSImport("node:fs",JSImport.Namespace)
+private object TestNodeFs extends js.Object:
+  def mkdirSync(path: String, options: js.Any): Unit = js.native
+  def writeFileSync(path: String, data: String): Unit = js.native
