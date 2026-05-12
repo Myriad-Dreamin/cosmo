@@ -79,7 +79,7 @@ final class UntypedElaborator(
           )
 
     private final case class ExternDecoratorArgs(
-        symbol: Option[String] = None,
+        name: Option[String] = None,
         include: Option[String] = None,
         supportLibrary: Option[String] = None,
     )
@@ -131,7 +131,7 @@ final class UntypedElaborator(
               Some(
                 SourceExternBinding(
                   abi,
-                  values.symbol,
+                  values.name,
                   values.include,
                   values.supportLibrary,
                   nodeSpan(node),
@@ -179,12 +179,20 @@ final class UntypedElaborator(
         else values = update(value)
 
       args.foreach {
+        case arg @ KeyedArg(Ident("name"), StrLit(value)) =>
+          setOnce(
+            arg,
+            "name",
+            values.name,
+            value => values.copy(name = Some(value)),
+            value,
+          )
         case arg @ KeyedArg(Ident("symbol"), StrLit(value)) =>
           setOnce(
             arg,
             "symbol",
-            values.symbol,
-            value => values.copy(symbol = Some(value)),
+            values.name,
+            value => values.copy(name = Some(value)),
             value,
           )
         case arg @ KeyedArg(Ident("include"), StrLit(value)) =>
@@ -203,7 +211,7 @@ final class UntypedElaborator(
             value => values.copy(supportLibrary = Some(value)),
             value,
           )
-        case arg @ KeyedArg(Ident(key), _) if Set("symbol", "include", "supportLibrary").contains(key) =>
+        case arg @ KeyedArg(Ident(key), _) if Set("name", "symbol", "include", "supportLibrary").contains(key) =>
           report(
             arg,
             "cosmo0.elaborate.invalid-extern",
@@ -239,13 +247,13 @@ final class UntypedElaborator(
         values: ExternDecoratorArgs,
         node: syntax.Node,
     ): Boolean =
-      val symbolOk = values.symbol.forall { value =>
+      val nameOk = values.name.forall { value =>
         val ok = CppQualifiedSymbol.isIdentifier(value)
         if !ok then
           report(
             node,
             "cosmo0.elaborate.invalid-extern",
-            s"extern C symbol $value is not an unqualified C identifier",
+            s"extern C name $value is not an unqualified C identifier",
           )
         ok
       }
@@ -269,7 +277,7 @@ final class UntypedElaborator(
           )
         ok
       }
-      symbolOk && includeOk && supportLibraryOk
+      nameOk && includeOk && supportLibraryOk
 
     private def isIncludeSpecifier(value: String): Boolean =
       isRequirementValue(value) &&

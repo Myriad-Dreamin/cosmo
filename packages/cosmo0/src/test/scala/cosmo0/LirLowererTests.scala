@@ -256,7 +256,7 @@ class LirLowererTests extends munit.FunSuite:
 
   test("lowers direct C extern declarations to fixed-arity calls"):
     val result = Cosmo0().lower(
-      """@extern("c", symbol: "abs", include: "<stdlib.h>")
+      """@extern("c", name = "abs", include = "<stdlib.h>")
         |def c_abs(value: i32): i32
         |
         |def use(value: i32): i32 = {

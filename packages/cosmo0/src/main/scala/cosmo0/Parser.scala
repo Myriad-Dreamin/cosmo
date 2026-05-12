@@ -165,7 +165,7 @@ object Parser {
   })
   def arg[$: P] = P(spread | keyedArg).m
   def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
-  def keyedArg[$: P] = P((compound ~ (":" ~/ compound).?).map {
+  def keyedArg[$: P] = P((compound ~ ((":" | P("=" ~ !">")) ~/ compound).?).map {
     case (lhs, Some(rhs)) => KeyedArg(lhs, rhs)
     case (lhs, None)      => lhs
   })

@@ -34,7 +34,7 @@ object BackendRequirement:
 
 final case class SourceExternBinding(
     abi: String,
-    symbol: Option[String],
+    name: Option[String],
     include: Option[String],
     supportLibrary: Option[String],
     span: SourceSpan,
@@ -205,7 +205,7 @@ object TrustedExternAbi:
   ): Option[LirExternBinding] =
     if function.owner.nonEmpty || function.body.nonEmpty || sourceBinding.abi != directCAbiName then None
     else
-      val symbolName = sourceBinding.symbol.getOrElse(function.name)
+      val symbolName = sourceBinding.name.getOrElse(function.name)
       if !CppQualifiedSymbol.isIdentifier(symbolName) then None
       else
         val symbol = CppQualifiedSymbol.relative(symbolName)

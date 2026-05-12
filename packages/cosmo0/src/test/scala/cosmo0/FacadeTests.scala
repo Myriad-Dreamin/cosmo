@@ -111,7 +111,7 @@ class FacadeTests extends munit.FunSuite:
 
   test("elaborate preserves direct C extern metadata"):
     val result = Cosmo0().elaborate(
-      """@extern("c", symbol: "abs", include: "<stdlib.h>")
+      """@extern("c", name = "abs", include = "<stdlib.h>")
         |def c_abs(value: i32): i32
         |""".stripMargin,
     )
@@ -123,20 +123,32 @@ class FacadeTests extends munit.FunSuite:
     val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
     val binding = fn.externBinding.getOrElse(fail("missing extern metadata"))
     assertEquals(binding.abi, TrustedExternAbi.directCAbiName)
-    assertEquals(binding.symbol, Some("abs"))
+    assertEquals(binding.name, Some("abs"))
     assertEquals(binding.include, Some("<stdlib.h>"))
     assertEquals(binding.supportLibrary, None)
     assertEquals(fn.body, None)
 
+  test("elaborate accepts symbol alias for direct C extern name"):
+    val result = Cosmo0().elaborate(
+      """@extern("c", symbol = "abs")
+        |def c_abs(value: i32): i32
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
+    assertEquals(fn.externBinding.map(_.name), Some(Some("abs")))
+
   test("elaborate rejects invalid direct C extern declarations"):
     val cases = List(
-      """@extern("c", symbol: "std::puts")
+      """@extern("c", name = "std::puts")
         |def puts(value: i32): i32
         |""".stripMargin,
       """@extern("c")
         |def host(value: i32): i32 = value
         |""".stripMargin,
-      """@extern("c", include: "stdlib.h")
+      """@extern("c", include = "stdlib.h")
         |def c_abs(value: i32): i32
         |""".stripMargin,
     )
