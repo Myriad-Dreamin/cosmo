@@ -61,6 +61,43 @@ The initial ABI name is `cosmo0.extern.v0`. A trusted extern binding records the
 
 Extern hooks are not general user-level FFI. cosmo0 source may call the std declaration, such as `println`, but arbitrary packages may not introduce new bodyless host declarations without accepted metadata.
 
+== C Extern Function Correspondence
+
+The source form `@extern("c") def name(...)` denotes a trusted direct binding to a C ABI function. The cosmo declaration is the source-facing signature; the extern metadata records the C target symbol, required headers or libraries, and the ABI family. A direct C binding has positional argument correspondence: cosmo argument `0` is emitted as C argument `0`, cosmo argument `1` as C argument `1`, and so on. The return type maps to the C result type or `Unit` for `void`.
+
+Example direct binding shape:
+
+```cos
+@extern("c", symbol = "puts")
+@requires(include = "<stdio.h>")
+def puts(text: CString): i32
+```
+
+Corresponding C declaration and emitted call shape:
+
+```c
+int puts(const char *text);
+puts(text);
+```
+
+The declaration is not a C macro binding and is not an arbitrary C expression. It names a callable C function symbol with a stable ABI and direct parameter passing. Header requirements make the symbol visible to the generated C++ translation unit; support-library requirements name additional link/runtime obligations when needed.
+
+Variadic C functions require an explicit variadic signature model. A future declaration such as:
+
+```cos
+@extern("c", symbol = "printf")
+@requires(include = "<stdio.h>")
+def printf(format: StaticCString, ...): i32
+```
+
+corresponds to the C prototype:
+
+```c
+int printf(const char *format, ...);
+```
+
+but support for `...`, format-string validation, signature candidates, and template-like `Any` parameter families is outside the direct-binding subset. Until that later capability is accepted, trusted extern bindings in cosmo0 should use fixed, directly mapped signatures or repository-owned runtime shims such as `::cosmo0_runtime::println`.
+
 == Backend Runtime Requirements
 
 The C++ backend tracks runtime requirements independently from descriptor operations. Requirement records may name descriptor support, runtime symbols, include headers, or support libraries. Descriptor requirements do not create new source APIs, and extern requirements do not create descriptor families.

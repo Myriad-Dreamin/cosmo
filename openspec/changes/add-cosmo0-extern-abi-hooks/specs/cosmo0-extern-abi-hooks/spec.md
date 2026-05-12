@@ -31,6 +31,23 @@ cosmo0 backends SHALL track runtime symbol, include, support-library, and descri
 - **THEN** the backend records the required runtime symbol and include requirement
 - **AND** descriptor requirements remain represented as descriptor requirements
 
+### Requirement: Direct C Function Correspondence
+
+Trusted `@extern("c")` declarations SHALL correspond to callable C ABI function symbols with direct positional parameter passing. The declaration SHALL NOT represent C macros or arbitrary C/C++ call expressions.
+
+#### Scenario: Fixed-arity C function binding maps positionally
+
+- **WHEN** a trusted declaration is written as `@extern("c") def puts(text: CString): i32`
+- **THEN** the extern metadata names the C symbol `puts`
+- **AND** cosmo argument `text` is emitted as the first C function argument
+- **AND** backend requirements include the header or support library needed to make `puts` available
+
+#### Scenario: Variadic C function binding is deferred
+
+- **WHEN** a trusted declaration needs to correspond to a C prototype such as `int printf(const char *format, ...)`
+- **THEN** the direct-binding subset documents the C correspondence
+- **AND** support for `...`, signature candidates, format-string validation, and template-like `Any` extern parameters is left to a later accepted capability
+
 ### Requirement: Missing Extern Runtime Symbols
 
 The C++ backend SHALL diagnose extern bindings whose runtime symbols are unavailable for the selected backend.
