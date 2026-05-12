@@ -31,16 +31,28 @@ cosmo0 backends SHALL track runtime symbol, include, support-library, and descri
 - **THEN** the backend records the required runtime symbol and include requirement
 - **AND** descriptor requirements remain represented as descriptor requirements
 
+#### Scenario: File-level C includes are emitted in source order
+
+- **WHEN** a trusted source file declares `@include-c("<a.h>");` before `@include-c("<b.h>");`
+- **THEN** the C++ backend emits `#include <a.h>` before `#include <b.h>`
+- **AND** both headers are recorded as include backend requirements
+
 ### Requirement: Direct C Function Correspondence
 
 Trusted `@extern("c")` declarations SHALL correspond to callable C ABI function symbols with direct positional parameter passing. The declaration SHALL NOT represent C macros or arbitrary C/C++ call expressions.
 
 #### Scenario: Fixed-arity C function binding maps positionally
 
-- **WHEN** a trusted declaration is written as `@extern("c") def puts(text: CString): i32`
+- **WHEN** a trusted declaration is written after `@include-c("<stdio.h>");` as `@extern("c", name = "puts") def puts(text: CString): i32`
 - **THEN** the extern metadata names the C symbol `puts`
 - **AND** cosmo argument `text` is emitted as the first C function argument
-- **AND** backend requirements include the header or support library needed to make `puts` available
+- **AND** the file-level include makes the header requirement explicit without using a function-level include argument
+
+#### Scenario: Function-level include argument is rejected
+
+- **WHEN** a trusted declaration is written as `@extern("c", include = "<stdio.h>") def puts(text: CString): i32`
+- **THEN** elaboration fails with an invalid extern decorator diagnostic
+- **AND** the diagnostic directs the source to use a file-level `@include-c(...);` directive
 
 #### Scenario: Variadic C function binding is deferred
 

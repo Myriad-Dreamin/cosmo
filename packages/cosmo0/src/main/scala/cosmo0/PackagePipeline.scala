@@ -113,11 +113,13 @@ private[cosmo0] final class PackagePipeline(
   ): Result[CheckedPackage] =
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
     val declarations = ordered.flatMap(_.publicDeclarations)
+    val cIncludes = ordered.flatMap(_.untyped.cIncludes)
     val combinedModule =
       UntypedModule(
         combinedSource,
         declarations,
         combinedSource.span(0, 0),
+        cIncludes,
       )
 
     SourceTyper().check(combinedModule) match

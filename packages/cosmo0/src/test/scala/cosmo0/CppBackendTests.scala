@@ -180,7 +180,9 @@ class CppBackendTests extends munit.FunSuite:
     val lowered = Cosmo0().lower(
       SourceFile(
         "direct_c_extern.cos",
-        """@extern("c", name = "abs", include = "<stdlib.h>")
+        """@include-c("<stdio.h>");
+          |@include-c("<stdlib.h>");
+          |@extern("c", name = "abs")
           |def c_abs(value: i32): i32
           |
           |def use(value: i32): i32 = {
@@ -203,9 +205,12 @@ class CppBackendTests extends munit.FunSuite:
       s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
     )
     val output = result.value.get
+    assert(output.source.contains("#include <stdio.h>"))
+    assert(output.source.indexOf("#include <stdio.h>") < output.source.indexOf("#include <stdlib.h>"))
     assert(output.source.contains("#include <stdlib.h>"))
     assert(output.source.contains("abs(value);"))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("abs")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<stdio.h>")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<stdlib.h>")))
     assert(output.runtimeRequirements.contains("runtime-symbol:abs"))
     assertCxxAccepts(output.source)

@@ -116,7 +116,15 @@ object Parser {
     case Semi(Some(x)) => x
     case x             => x
   })
-  def decorator[$: P]: P[Node] = P("@" ~/ factor)
+  def decorator[$: P]: P[Node] = P("@" ~/ decoratorFactor)
+  def decoratorFactor[$: P]: P[Node] =
+    P(decoratorPrimaryExpr.flatMapX(factorR))
+  def decoratorPrimaryExpr[$: P] =
+    P(tmplLit | decoratorIdent | parens | paramsLit | literal | braces).m
+  def decoratorIdent[$: P] =
+    P(id ~ ("-" ~/ id).rep).map { case (head, tail) =>
+      Ident((head +: tail.toList).mkString("-"))
+    }
   def decorated[$: P] =
     (ifItem | forItem | whileItem | loopItem | caseItem | semiWrap | semi).m
   def semiWrap[$: P]: P[Node] = P(

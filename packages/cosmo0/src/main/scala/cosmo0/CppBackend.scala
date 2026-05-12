@@ -56,6 +56,8 @@ final class CppBackend(
     private val env = buildDeclEnv(module)
     private val names = BackendNames(env)
 
+    requirements ++= module.cIncludes.map(include => BackendRequirement.include(include.header))
+
     val namespace: List[String] =
       List("cosmo0", safeIdent(module.name, "module"))
 
@@ -119,19 +121,8 @@ final class CppBackend(
         "#include <variant>",
         "#include <vector>",
       )
-      val extra = externIncludeRequirements
-        .map(header => s"#include $header")
-        .distinct
-        .sorted
-        .filterNot(base.toSet)
-      base ++ extra
-
-    private def externIncludeRequirements: List[String] =
-      module.declarations.collect { case function: LirFunction =>
-        function.externBinding.toList.flatMap(_.requirements.collect {
-          case BackendRequirement(BackendRequirementKind.Include, value) => value
-        })
-      }.flatten
+      val fileLevel = module.cIncludes.map(include => s"#include ${include.header}")
+      base ++ fileLevel
 
     private def runtimePrelude: String =
       """namespace cosmo0_runtime {

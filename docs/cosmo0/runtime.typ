@@ -63,12 +63,21 @@ Extern hooks are not general user-level FFI. cosmo0 source may call the std decl
 
 == C Extern Function Correspondence
 
-The source form `@extern("c") def name(...)` denotes a trusted direct binding to a C ABI function. The cosmo declaration is the source-facing signature; the extern metadata records the C target symbol, required headers or libraries, and the ABI family. A direct C binding has positional argument correspondence: cosmo argument `0` is emitted as C argument `0`, cosmo argument `1` as C argument `1`, and so on. The return type maps to the C result type or `Unit` for `void`.
+The source form `@extern("c") def name(...)` denotes a trusted direct binding to a C ABI function. The cosmo declaration is the source-facing signature; the extern metadata records the C target symbol and ABI family. A direct C binding has positional argument correspondence: cosmo argument `0` is emitted as C argument `0`, cosmo argument `1` as C argument `1`, and so on. The return type maps to the C result type or `Unit` for `void`.
+
+C header availability is a file-level concern because include order can matter. A source file declares required C headers with semicolon-terminated file decorators:
+
+```cos
+@include-c("<stdio.h>");
+```
+
+The backend emits file-level C includes in source order. Direct C extern function decorators SHALL NOT carry `include` arguments.
 
 Example direct binding shape:
 
 ```cos
-@extern("c", name = "puts", include = "<stdio.h>")
+@include-c("<stdio.h>");
+@extern("c", name = "puts")
 def puts(text: CString): i32
 ```
 
@@ -79,12 +88,13 @@ int puts(const char *text);
 puts(text);
 ```
 
-The declaration is not a C macro binding and is not an arbitrary C expression. It names a callable C function symbol with a stable ABI and direct parameter passing. Header requirements make the symbol visible to the generated C++ translation unit; support-library requirements name additional link/runtime obligations when needed.
+The declaration is not a C macro binding and is not an arbitrary C expression. It names a callable C function symbol with a stable ABI and direct parameter passing. File-level include requirements make the symbol visible to the generated C++ translation unit; support-library requirements name additional link/runtime obligations when needed.
 
 Variadic C functions require an explicit variadic signature model. A future declaration such as:
 
 ```cos
-@extern("c", name = "printf", include = "<stdio.h>")
+@include-c("<stdio.h>");
+@extern("c", name = "printf")
 def printf(format: StaticCString, ...): i32
 ```
 

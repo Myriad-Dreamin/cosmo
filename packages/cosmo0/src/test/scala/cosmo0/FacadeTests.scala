@@ -111,7 +111,7 @@ class FacadeTests extends munit.FunSuite:
 
   test("elaborate preserves direct C extern metadata"):
     val result = Cosmo0().elaborate(
-      """@extern("c", name = "abs", include = "<stdlib.h>")
+      """@extern("c", name = "abs")
         |def c_abs(value: i32): i32
         |""".stripMargin,
     )
@@ -124,9 +124,21 @@ class FacadeTests extends munit.FunSuite:
     val binding = fn.externBinding.getOrElse(fail("missing extern metadata"))
     assertEquals(binding.abi, TrustedExternAbi.directCAbiName)
     assertEquals(binding.name, Some("abs"))
-    assertEquals(binding.include, Some("<stdlib.h>"))
     assertEquals(binding.supportLibrary, None)
     assertEquals(fn.body, None)
+
+  test("elaborate preserves file-level C include directives"):
+    val result = Cosmo0().elaborate(
+      """@include-c("<stdio.h>");
+        |@include-c("\"runtime/support.h\"");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assertEquals(result.value.get.cIncludes.map(_.header), List("<stdio.h>", "\"runtime/support.h\""))
+    assertEquals(result.value.get.declarations.map(_.name), List("smoke"))
 
   test("elaborate accepts symbol alias for direct C extern name"):
     val result = Cosmo0().elaborate(
@@ -148,7 +160,7 @@ class FacadeTests extends munit.FunSuite:
       """@extern("c")
         |def host(value: i32): i32 = value
         |""".stripMargin,
-      """@extern("c", include = "stdlib.h")
+      """@extern("c", include = "<stdlib.h>")
         |def c_abs(value: i32): i32
         |""".stripMargin,
     )
@@ -161,6 +173,30 @@ class FacadeTests extends munit.FunSuite:
       assert(
         result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-extern"),
         s"missing invalid extern diagnostic in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
+  test("elaborate rejects invalid C include directives"):
+    val cases = List(
+      """@include-c("<stdio.h>")
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include-c("stdio.h");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include-c("<a.h>", "<b.h>");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+    )
+
+    cases.foreach { source =>
+      val result = Cosmo0().elaborate(source)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Unsupported)
+      assert(
+        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-include-c"),
+        s"missing invalid include-c diagnostic in ${result.diagnostics.map(_.code)}",
       )
     }
 

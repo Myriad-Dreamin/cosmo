@@ -256,7 +256,8 @@ class LirLowererTests extends munit.FunSuite:
 
   test("lowers direct C extern declarations to fixed-arity calls"):
     val result = Cosmo0().lower(
-      """@extern("c", name = "abs", include = "<stdlib.h>")
+      """@include-c("<stdlib.h>");
+        |@extern("c", name = "abs")
         |def c_abs(value: i32): i32
         |
         |def use(value: i32): i32 = {
@@ -272,6 +273,7 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assertEquals(result.value.get.lir.cIncludes.map(_.header), List("<stdlib.h>"))
     assert(rendered.contains("fn @c_abs c_abs(%value value: i32) -> i32 extern c \"abs\""))
     assert(rendered.contains("call @c_abs(%value) -> i32"))
     assert(!rendered.contains("descriptor Runtime"))

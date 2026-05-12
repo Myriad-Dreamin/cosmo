@@ -1131,6 +1131,7 @@ final class LirLowerer(
       LirModule(
         moduleName(module.source),
         (module.declarations.flatMap(lowerDecl) ++ syntheticExternDeclarations).sortBy(_.id.value),
+        module.cIncludes,
       )
 
     private def lowerDecl(declaration: TypedDecl): List[LirDeclaration] =

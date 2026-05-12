@@ -3,6 +3,7 @@ package cosmo0
 final case class LirModule(
     name: String,
     declarations: List[LirDeclaration],
+    cIncludes: List[SourceCInclude] = Nil,
 )
 
 sealed trait LirDeclaration:

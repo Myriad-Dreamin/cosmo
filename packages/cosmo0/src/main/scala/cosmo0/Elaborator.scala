@@ -27,6 +27,7 @@ final class UntypedElaborator(
           parsed.source,
           declarations,
           state.nodeSpan(parsed.ast),
+          state.cIncludes.toList,
         ),
       )
     else
@@ -42,6 +43,7 @@ final class UntypedElaborator(
       standardGenericNames: Set[String],
   ):
     val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
+    val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
 
     private val assignmentOps =
       Set("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=")
@@ -80,28 +82,71 @@ final class UntypedElaborator(
 
     private final case class ExternDecoratorArgs(
         name: Option[String] = None,
-        include: Option[String] = None,
         supportLibrary: Option[String] = None,
     )
 
     private def decoratedModuleDecl(node: Decorate): Option[UntypedDecl] =
-      externDecorator(node.lhs).flatMap { binding =>
-        unwrapSemi(node.rhs) match
-          case Some(defNode: Def) =>
-            functionDecl(defNode, Some(binding))
-          case Some(other) =>
-            unsupported(
-              other,
-              "cosmo0.elaborate.invalid-extern",
-              "@extern(\"c\") can only decorate top-level function declarations",
-            )
-          case None =>
+      includeCDecorator(node.lhs) match
+        case Some(include) =>
+          unwrapSemi(node.rhs) match
+            case None =>
+              cIncludes += include
+              None
+            case Some(other) =>
+              unsupported(
+                other,
+                "cosmo0.elaborate.invalid-include-c",
+                "@include-c(...) must be a file-level decorator terminated by a semicolon",
+              )
+        case None if isIncludeCDecorator(node.lhs) =>
+          None
+        case None =>
+          externDecorator(node.lhs).flatMap { binding =>
+            unwrapSemi(node.rhs) match
+              case Some(defNode: Def) =>
+                functionDecl(defNode, Some(binding))
+              case Some(other) =>
+                unsupported(
+                  other,
+                  "cosmo0.elaborate.invalid-extern",
+                  "@extern(\"c\") can only decorate top-level function declarations",
+                )
+              case None =>
+                unsupported(
+                  node,
+                  "cosmo0.elaborate.invalid-extern",
+                  "@extern(\"c\") must decorate a top-level function declaration",
+                )
+          }
+
+    private def includeCDecorator(node: syntax.Node): Option[SourceCInclude] =
+      node match
+        case Apply(Ident("include-c"), List(StrLit(header)), false) =>
+          if isIncludeSpecifier(header) then Some(SourceCInclude(header, nodeSpan(node)))
+          else
             unsupported(
               node,
-              "cosmo0.elaborate.invalid-extern",
-              "@extern(\"c\") must decorate a top-level function declaration",
+              "cosmo0.elaborate.invalid-include-c",
+              s"include-c header $header must be written as <header> or \"header\"",
             )
-      }
+        case Apply(Ident("include-c"), _, false) =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.invalid-include-c",
+            "@include-c(...) expects exactly one include string",
+          )
+        case Ident("include-c") =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.invalid-include-c",
+            "@include-c(...) expects exactly one include string",
+          )
+        case _ => None
+
+    private def isIncludeCDecorator(node: syntax.Node): Boolean =
+      node match
+        case Ident("include-c") | Apply(Ident("include-c"), _, false) => true
+        case _                                                        => false
 
     private def externDecorator(node: syntax.Node): Option[SourceExternBinding] =
       node match
@@ -132,7 +177,6 @@ final class UntypedElaborator(
                 SourceExternBinding(
                   abi,
                   values.name,
-                  values.include,
                   values.supportLibrary,
                   nodeSpan(node),
                 ),
@@ -195,14 +239,6 @@ final class UntypedElaborator(
             value => values.copy(name = Some(value)),
             value,
           )
-        case arg @ KeyedArg(Ident("include"), StrLit(value)) =>
-          setOnce(
-            arg,
-            "include",
-            values.include,
-            value => values.copy(include = Some(value)),
-            value,
-          )
         case arg @ KeyedArg(Ident("supportLibrary"), StrLit(value)) =>
           setOnce(
             arg,
@@ -211,7 +247,14 @@ final class UntypedElaborator(
             value => values.copy(supportLibrary = Some(value)),
             value,
           )
-        case arg @ KeyedArg(Ident(key), _) if Set("name", "symbol", "include", "supportLibrary").contains(key) =>
+        case arg @ KeyedArg(Ident("include"), _) =>
+          report(
+            arg,
+            "cosmo0.elaborate.invalid-extern",
+            "extern decorators do not accept include; use a file-level @include-c(...) directive",
+          )
+          ok = false
+        case arg @ KeyedArg(Ident(key), _) if Set("name", "symbol", "supportLibrary").contains(key) =>
           report(
             arg,
             "cosmo0.elaborate.invalid-extern",
@@ -257,16 +300,6 @@ final class UntypedElaborator(
           )
         ok
       }
-      val includeOk = values.include.forall { value =>
-        val ok = isIncludeSpecifier(value)
-        if !ok then
-          report(
-            node,
-            "cosmo0.elaborate.invalid-extern",
-            s"extern include $value must be written as <header> or \"header\"",
-          )
-        ok
-      }
       val supportLibraryOk = values.supportLibrary.forall { value =>
         val ok = isRequirementValue(value)
         if !ok then
@@ -277,7 +310,7 @@ final class UntypedElaborator(
           )
         ok
       }
-      nameOk && includeOk && supportLibraryOk
+      nameOk && supportLibraryOk
 
     private def isIncludeSpecifier(value: String): Boolean =
       isRequirementValue(value) &&

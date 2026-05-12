@@ -7,6 +7,7 @@ final case class TypedModule(
     source: SourceFile,
     declarations: List[TypedDecl],
     span: SourceSpan,
+    cIncludes: List[SourceCInclude] = Nil,
 ) extends TypedNode
 
 sealed trait TypedDecl extends TypedNode:

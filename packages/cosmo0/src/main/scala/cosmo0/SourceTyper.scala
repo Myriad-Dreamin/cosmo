@@ -127,7 +127,7 @@ final class SourceTyper(
         typedDecl(decl, globalScope),
       )
 
-      val result = TypedModule(module.source, declarations, module.span)
+      val result = TypedModule(module.source, declarations, module.span, module.cIncludes)
       if diagnostics.isEmpty then Result.success(Phase.Check, result)
       else Result.failure(Phase.Check, diagnostics.toList)
 

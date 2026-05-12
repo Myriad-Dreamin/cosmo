@@ -35,11 +35,16 @@ object BackendRequirement:
 final case class SourceExternBinding(
     abi: String,
     name: Option[String],
-    include: Option[String],
     supportLibrary: Option[String],
     span: SourceSpan,
 ):
   require(abi.nonEmpty, "source extern ABI names must be non-empty")
+
+final case class SourceCInclude(
+    header: String,
+    span: SourceSpan,
+):
+  require(header.nonEmpty, "C include headers must be non-empty")
 
 final case class CppQualifiedSymbol(
     parts: List[String],
@@ -214,7 +219,6 @@ object TrustedExternAbi:
             directCAbiName,
             symbol,
             List(BackendRequirement.runtimeSymbol(symbol)) ++
-              sourceBinding.include.map(BackendRequirement.include) ++
               sourceBinding.supportLibrary.map(BackendRequirement.supportLibrary),
           ),
         )
