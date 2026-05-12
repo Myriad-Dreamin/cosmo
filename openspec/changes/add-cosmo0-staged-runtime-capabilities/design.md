@@ -153,7 +153,7 @@ Scope:
 
 Cosmo1 component unlocked:
 
-- Stage profile skeleton for `packages/cosmo1`.
+- Stage profile skeleton for the existing `packages/cosmoc` compiler package.
 
 Tests:
 
@@ -207,7 +207,7 @@ Scope:
 
 Cosmo1 components unlocked:
 
-- Stage 1 package metadata/profile for `packages/cosmo1`.
+- Stage 1 package metadata/profile for `packages/cosmoc`.
 
 Tests:
 

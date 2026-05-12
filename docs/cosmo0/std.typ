@@ -36,7 +36,18 @@ The first example is a shape for future API proposals to refine. The second exam
 
 == Capability Identifiers
 
-Placeholder for stable core0 capability identifiers such as text, collections, results, arena identifiers, paths, filesystem access, command execution, JSON bridges, numeric literal helpers, deterministic output, and other staged runtime surfaces.
+Stable core0 capability identifiers are the source-facing availability names used by stage profiles. They are not descriptor family names.
+
+The current Stage 1 identifiers are:
+
+- `core0.stage`: stage validation and package-profile metadata.
+- `core0.text`: string/text operations used by source, token, and diagnostic code.
+- `core0.text-output`: deterministic text output through a trusted std API such as `std.io.println`.
+- `core0.option-result-vec`: minimal option, result, and vector surface for early compiler data.
+- `core0.path-fs`: path and source-file loading surface.
+- `core0.char-class`: character classification helpers for lexing.
+
+Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
 
@@ -48,9 +59,9 @@ Additional extern-backed std APIs require accepted capability text in this file 
 
 == Stage 1 Capability Profile
 
-The Stage 1 profile is a placeholder for APIs needed by source loading, spans, diagnostics, token definitions, and lexing. The profile is intentionally incomplete until staged changes add exact signatures and tests.
+The named Stage 1 profile is `cosmo1.stage1`. It requires `core0.stage`, `core0.text`, `core0.text-output`, `core0.option-result-vec`, `core0.path-fs`, and `core0.char-class`.
 
-The validation plan for Stage 1 is tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`. Proposals that fill this profile must update this file and the behavior-specific owner files they affect.
+The validation plan for Stage 1 is tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`. Proposals that fill API signatures under these capability names must update this file and the behavior-specific owner files they affect.
 
 == Descriptor-Backed Transition Policy
 

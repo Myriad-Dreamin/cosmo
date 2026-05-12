@@ -13,6 +13,8 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(pkg.metadata.version, "0.0.0")
     assertEquals(pkg.metadata.sourceRoot, "src")
     assertEquals(pkg.metadata.target, Some("cosmo0"))
+    assertEquals(pkg.metadata.stageProfile, None)
+    assertEquals(pkg.metadata.sourceFiles, None)
     assertEquals(pkg.modules.map(_.modulePath), List(List("main")))
 
   test("package loader reports metadata, source, and unsupported target diagnostics"):
@@ -151,4 +153,44 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("inline void extern_std_smoke()"))
     assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
+
+  test("cosmoc Stage 1 package selects the cosmo1 Stage 1 capability profile"):
+    val path = "packages/cosmoc"
+    val loaded = Cosmo0().loadPackage(path)
+
+    assertEquals(loaded.phase, Phase.Check)
+    assert(
+      loaded.isSuccess,
+      s"cosmoc Stage 1 package load failed with diagnostics: ${loaded.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(loaded.value.get.metadata.stageProfile, Some(StageCapabilityRegistry.Cosmo1Stage1))
+    assertEquals(loaded.value.get.metadata.sourceFiles, Some(List("parser.cos", "parser_test.cos")))
+    assertEquals(loaded.value.get.modules.map(_.modulePath), List(List("parser"), List("parser_test")))
+
+    val checked = Cosmo0().checkPackage(path)
+
+    assertEquals(checked.phase, Phase.Check)
+    assert(
+      checked.isSuccess,
+      s"cosmoc Stage 1 package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(checked.value.get.moduleOrder, List("parser", "parser_test"))
+
+    val compiled = Cosmo0().compilePackage(path)
+
+    assertEquals(compiled.phase, Phase.Compile)
+    assert(
+      compiled.isSuccess,
+      s"cosmoc Stage 1 package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val output = compiled.value.get.output
+    assert(output.source.contains("inline bool parse_source("))
+    assert(output.source.contains("inline int32_t main()"))
+    assert(output.source.contains("::cosmo0_runtime::read_file("))
+    assert(output.source.contains("::cosmo0_runtime::println("))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))

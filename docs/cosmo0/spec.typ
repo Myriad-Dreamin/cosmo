@@ -66,14 +66,18 @@ Detailed acceptance criteria for each behavior area belong in the owning file na
 
 == Stage 1 Capability Profile
 
-The Stage 1 profile is a placeholder for the source, span, diagnostic, token, lexing, and minimal support APIs needed by cosmo1's first executable compiler slice. The profile will be filled by staged capability changes and is cross-referenced by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`.
+cosmo0 package validation may select a named stage capability profile. A profile records the primitive descriptor support, core0 standard capabilities, and backend extern/runtime requirements that must be available before a package is accepted for that stage.
 
-For now, Stage 1 capability ownership is split across:
+The first profile is `cosmo1.stage1`. It covers the source, span, diagnostic, token, lexing, source-loading, and deterministic text-output surface needed by cosmo1's first executable compiler slice. The profile is cross-referenced by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`.
+
+Stage 1 capability ownership is split across:
 
 - `std.typ` for standard API capability identifiers;
 - `runtime.typ` for backend and extern support behind those APIs;
 - `package.typ` for source loading and stage validation expectations;
 - `testing.typ` for acceptance, regression, and sync checks.
+
+Stage validation is requirement-based: a missing required primitive descriptor, standard capability, or backend requirement is a package-check diagnostic. Capabilities not named by the selected profile do not block validation for that stage.
 
 == Sync Policy
 
