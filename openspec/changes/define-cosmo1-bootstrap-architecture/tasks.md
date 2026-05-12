@@ -7,7 +7,7 @@
 
 ## 2. Naming and Layout Decisions
 
-- [ ] 2.1 Decide the cosmo1 package name and package metadata.
+- [ ] 2.1 Define the `packages/cosmoc` package metadata used by cosmo1 stage validation.
 - [ ] 2.2 Decide whether `json_loader` is a required bridge file or a temporary experiment.
 - [ ] 2.3 Decide which planned files can be grouped for the initial skeleton.
 - [ ] 2.4 Decide which current Scala compiler artifacts must be mirrored first.

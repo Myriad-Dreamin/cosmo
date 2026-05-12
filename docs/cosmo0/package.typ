@@ -14,10 +14,15 @@ Minimal package metadata shape:
 
 ```json
 {
-  "name": "cosmo1-stage1-smoke",
+  "name": "@cosmo/compiler",
   "version": "0.0.0",
   "target": "cosmo0",
-  "root": "src"
+  "root": "src",
+  "stageProfile": "cosmo1.stage1",
+  "sources": [
+    "parser.cos",
+    "parser_test.cos"
+  ]
 }
 ```
 
@@ -36,7 +41,7 @@ import source.SourceText
 import token.Token
 ```
 
-The exact metadata schema remains a placeholder, but examples show the intended target boundary: a cosmo0 package declares its bootstrap target, discovers source files under a stable root, and resolves imports deterministically.
+The exact metadata schema remains small: a cosmo0 package declares its bootstrap target, discovers source files under a stable root, optionally selects a stage profile, may restrict validation to an ordered `sources` list, and resolves imports deterministically.
 
 == Imports and Source Loading
 
@@ -54,12 +59,16 @@ Placeholder for deterministic module ordering, import-cycle diagnostics, and pac
 
 == Stage Validation
 
-Placeholder for validating cosmo1 compiler stages through cosmo0-compiled code. Stage validation should name the required standard and runtime capabilities rather than assuming full Cosmo availability.
+Stage validation uses the optional `stageProfile` metadata field. When present, the value names a registered capability profile such as `cosmo1.stage1`.
+
+Package check validates that the selected profile is known and that required primitive descriptors, core0 standard capabilities, and backend extern/runtime requirements are available. Missing requirements are reported as package-check diagnostics before backend emission.
+
+When `sources` is present, package validation loads only those source-root-relative files. This lets `packages/cosmoc` keep exploratory files near the compiler while validating a narrower Stage 1 slice.
 
 Extern-backed smoke validation should import and call the std API it is proving. A smoke package that only needs output may depend on `std.io.println`; it should not pull in filesystem or command APIs unless the stage being validated explicitly requires those capabilities.
 
 == Stage 1 Capability Profile
 
-The Stage 1 package placeholder covers source-file loading, module discovery for the first validation package, stable diagnostic inputs, and deterministic smoke output. Exact acceptance tests are tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`.
+The Stage 1 package profile is `cosmo1.stage1`. It covers source-file loading, module discovery for the first validation package, stable diagnostic inputs, text operations, and deterministic smoke output.
 
-This file will be updated when Stage 1 validation needs package metadata, multi-file loading, or source-root behavior beyond the current placeholder.
+The first scaffolded consumer lives at `packages/cosmoc` and selects `stageProfile: "cosmo1.stage1"`. Exact acceptance tests for the complete Stage 1 package remain tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`.

@@ -7,7 +7,7 @@ cosmo1 stages need different primitive and standard capabilities. Stage validati
 - Add core0 standard capability identifiers.
 - Add stage profiles for cosmo0/cosmo1 validation requests.
 - Validate required primitive descriptors, standard modules, and extern runtime bindings for a requested stage.
-- Add Stage 1 package metadata/profile scaffolding for `packages/cosmo1`.
+- Add Stage 1 package metadata/profile scaffolding for the existing `packages/cosmoc` compiler package.
 
 ## Capabilities
 

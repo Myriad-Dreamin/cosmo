@@ -1,4 +1,10 @@
 {
   "name": "@cosmo/compiler",
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "sources": [
+    "parser.cos",
+    "parser_test.cos"
+  ]
 }
