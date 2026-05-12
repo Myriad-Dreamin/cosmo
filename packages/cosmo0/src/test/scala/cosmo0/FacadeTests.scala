@@ -109,6 +109,104 @@ class FacadeTests extends munit.FunSuite:
     assert(somePattern.constructor.isInstanceOf[UntypedVariantConstructor])
     assertEquals(somePattern.args.length, 1)
 
+  test("elaborate preserves direct C extern metadata"):
+    val result = Cosmo0().elaborate(
+      """@extern("c", name = "abs")
+        |def c_abs(value: i32): i32
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
+    val binding = fn.externBinding.getOrElse(fail("missing extern metadata"))
+    assertEquals(binding.abi, TrustedExternAbi.directCAbiName)
+    assertEquals(binding.name, Some("abs"))
+    assertEquals(binding.supportLibrary, None)
+    assertEquals(fn.body, None)
+
+  test("elaborate preserves file-level C include directives"):
+    val result = Cosmo0().elaborate(
+      """@include("stdio.h");
+        |@include("\"runtime/support.h\"", kind = "c");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assertEquals(result.value.get.cIncludes.map(_.header), List("<stdio.h>", "\"runtime/support.h\""))
+    assertEquals(result.value.get.declarations.map(_.name), List("smoke"))
+
+  test("elaborate accepts symbol alias for direct C extern name"):
+    val result = Cosmo0().elaborate(
+      """@extern("c", symbol = "abs")
+        |def c_abs(value: i32): i32
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
+    assertEquals(fn.externBinding.map(_.name), Some(Some("abs")))
+
+  test("elaborate rejects invalid direct C extern declarations"):
+    val cases = List(
+      """@extern("c", name = "std::puts")
+        |def puts(value: i32): i32
+        |""".stripMargin,
+      """@extern("c")
+        |def host(value: i32): i32 = value
+        |""".stripMargin,
+      """@extern("c", include = "<stdlib.h>")
+        |def c_abs(value: i32): i32
+        |""".stripMargin,
+    )
+
+    cases.foreach { source =>
+      val result = Cosmo0().elaborate(source)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Unsupported)
+      assert(
+        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-extern"),
+        s"missing invalid extern diagnostic in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
+  test("elaborate rejects invalid C include directives"):
+    val cases = List(
+      """@include("stdio.h")
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include("stdio");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include("stdio.h", kind = "cpp");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include("a.h", "b.h");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include-c("<stdio.h>");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+    )
+
+    cases.foreach { source =>
+      val result = Cosmo0().elaborate(source)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Unsupported)
+      assert(
+        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-include") ||
+          result.diagnostics.exists(_.code == "cosmo0.elaborate.unsupported.include-kind"),
+        s"missing invalid include diagnostic in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
   test("elaborate rejects unsupported full-language constructs deterministically"):
     val cases = List(
       "trait Display {}" -> "cosmo0.elaborate.unsupported.trait",

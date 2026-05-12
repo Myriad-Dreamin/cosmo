@@ -7,6 +7,7 @@ final case class UntypedModule(
     source: SourceFile,
     declarations: List[UntypedDecl],
     span: SourceSpan,
+    cIncludes: List[SourceCInclude] = Nil,
 ) extends UntypedNode
 
 sealed trait UntypedDecl extends UntypedNode:
@@ -52,6 +53,7 @@ final case class UntypedFunction(
     returnType: Option[UntypedType],
     body: Option[UntypedExpr],
     span: SourceSpan,
+    externBinding: Option[SourceExternBinding] = None,
 ) extends UntypedDecl
     with UntypedClassMember
 

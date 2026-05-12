@@ -128,3 +128,27 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("struct TokenKind"))
     assert(output.source.contains("struct Token"))
     assert(output.source.contains("inline bool span_token_smoke()"))
+
+  test("cosmo1 extern std smoke package checks and records runtime requirements"):
+    val path = "fixtures/cosmo0/cosmo1/extern-std-smoke"
+    val checked = Cosmo0().checkPackage(path)
+
+    assertEquals(checked.phase, Phase.Check)
+    assert(
+      checked.isSuccess,
+      s"cosmo1 extern std package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(checked.value.get.moduleOrder, List("std/io", "main"))
+
+    val compiled = Cosmo0().compilePackage(path)
+
+    assertEquals(compiled.phase, Phase.Compile)
+    assert(
+      compiled.isSuccess,
+      s"cosmo1 extern std package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = compiled.value.get.output
+    assert(output.source.contains("inline void extern_std_smoke()"))
+    assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))

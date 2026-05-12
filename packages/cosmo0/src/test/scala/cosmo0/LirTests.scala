@@ -163,6 +163,7 @@ class LirTests extends munit.FunSuite:
 
   test("LIR type checker rejects ordinary runtime APIs as descriptor families"):
     val cases = List(
+      LirDescriptorRef("Runtime") -> "println",
       LirDescriptorRef("Json") -> "parse",
       LirDescriptorRef("Filesystem") -> "read_file",
       LirDescriptorRef("Command") -> "run",
@@ -182,6 +183,18 @@ class LirTests extends munit.FunSuite:
 
     assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("StringBuilder"))
     assert(StandardGenericDescriptors.get("StringBuilder").isEmpty)
+
+  test("extern C++ symbols are structured qualified names"):
+    val symbol = CppQualifiedSymbol.global("cosmo0_runtime", "println")
+
+    assertEquals(symbol.namespace, List("cosmo0_runtime"))
+    assertEquals(symbol.name, "println")
+    assertEquals(symbol.canonical, "cosmo0_runtime::println")
+    assertEquals(symbol.cppName, "::cosmo0_runtime::println")
+    assertEquals(BackendRequirement.runtimeSymbol(symbol).legacyName, "runtime-symbol:cosmo0_runtime::println")
+    intercept[IllegalArgumentException] {
+      CppQualifiedSymbol.parse("cosmo0_runtime::println(value)")
+    }
 
   test("LIR type checker diagnostics are deterministic and identify failing constructs"):
     val first = invalidBranchModule()
