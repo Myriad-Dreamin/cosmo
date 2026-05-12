@@ -1,0 +1,99 @@
+class TextView {
+  val text: String
+  val start: usize
+  val end: usize
+
+  def len(&self): usize = {
+    if (self.end > self.start) {
+      self.end - self.start
+    } else {
+      0
+    }
+  }
+
+  def is_empty(&self): Bool = {
+    self.len() == 0
+  }
+
+  def to_string(&self): String = {
+    self.text.slice(self.start, self.end)
+  }
+
+  def byte_at(&self, index: usize): Byte = {
+    self.text.byte_at(self.start + index)
+  }
+
+  def char_at(&self, index: usize): Char = {
+    self.text.char_at(self.start + index)
+  }
+}
+
+class TextBuilder {
+  var text: String
+
+  def len(&self): usize = {
+    self.text.len()
+  }
+
+  def is_empty(&self): Bool = {
+    self.text.is_empty()
+  }
+
+  def push(&mut self, value: String): Unit = {
+    self.text = self.text.concat(value)
+  }
+
+  def push_view(&mut self, value: TextView): Unit = {
+    self.push(value.to_string())
+  }
+
+  def push_line(&mut self, value: String): Unit = {
+    self.push(value);
+    self.push("\n")
+  }
+
+  def finish(&self): String = {
+    self.text
+  }
+}
+
+def core0_text_len(text: String): usize = {
+  text.len()
+}
+
+def core0_text_is_empty(text: String): Bool = {
+  text.is_empty()
+}
+
+def core0_text_slice(text: String, start: usize, end: usize): String = {
+  text.slice(start, end)
+}
+
+def core0_text_view(text: String, start: usize, end: usize): TextView = {
+  TextView(text, start, end)
+}
+
+def core0_text_byte_at(text: String, index: usize): Byte = {
+  text.byte_at(index)
+}
+
+def core0_text_char_at(text: String, index: usize): Char = {
+  text.char_at(index)
+}
+
+def core0_text_starts_with(text: String, offset: usize, needle: String): Bool = {
+  val end = offset + needle.len();
+  if (end > text.len()) {
+    false
+  } else {
+    text.slice(offset, end) == needle
+  }
+}
+
+def core0_text_builder(): TextBuilder = {
+  TextBuilder("")
+}
+
+def core0_text_builder_from(text: String): TextBuilder = {
+  TextBuilder(text)
+}

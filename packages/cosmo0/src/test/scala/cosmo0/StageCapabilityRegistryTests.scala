@@ -31,6 +31,22 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
       StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
 
     assertMissingCapability(diagnostics, StageCapabilityRegistry.Core0Text)
+    assert(
+      diagnostics.exists(_.message.contains("requires std capability core0.text")),
+      s"core0.text should be diagnosed as a std capability: ${diagnostics.map(_.message)}",
+    )
+
+  test("core0.text is surfaced through std capability metadata, not descriptors"):
+    val profile = StageCapabilityRegistry.stage1Profile
+
+    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Text))
+    assert(!profile.requiredPrimitiveDescriptors.contains(StageCapabilityRegistry.Core0Text))
+    assert(!profile.requiredPrimitiveDescriptors.contains("TextBuilder"))
+    assert(!profile.requiredPrimitiveDescriptors.contains("TextView"))
+    assert(!profile.requiredPrimitiveDescriptors.contains("SourceText"))
+    assert(StandardGenericDescriptors.get("TextBuilder").isEmpty)
+    assert(StandardGenericDescriptors.get("TextView").isEmpty)
+    assert(StandardGenericDescriptors.get("SourceText").isEmpty)
 
   test("Stage 1 profile diagnoses missing core0.path-fs"):
     val availability = StageCapabilityRegistry.defaultAvailability.copy(

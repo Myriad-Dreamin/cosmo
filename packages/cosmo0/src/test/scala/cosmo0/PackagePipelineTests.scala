@@ -165,8 +165,32 @@ class PackagePipelineTests extends munit.FunSuite:
       s"cosmoc Stage 1 package load failed with diagnostics: ${loaded.diagnostics.map(d => d.code -> d.message)}",
     )
     assertEquals(loaded.value.get.metadata.stageProfile, Some(StageCapabilityRegistry.Cosmo1Stage1))
-    assertEquals(loaded.value.get.metadata.sourceFiles, Some(List("parser.cos", "parser_test.cos")))
-    assertEquals(loaded.value.get.modules.map(_.modulePath), List(List("parser"), List("parser_test")))
+    assertEquals(
+      loaded.value.get.metadata.sourceFiles,
+      Some(
+        List(
+          "core0/text.cos",
+          "source/source.cos",
+          "source/source_map.cos",
+          "source/source_test.cos",
+          "source/source_map_test.cos",
+          "parser.cos",
+          "parser_test.cos",
+        ),
+      ),
+    )
+    assertEquals(
+      loaded.value.get.modules.map(_.modulePath),
+      List(
+        List("core0", "text"),
+        List("parser"),
+        List("parser_test"),
+        List("source", "source"),
+        List("source", "source_map"),
+        List("source", "source_map_test"),
+        List("source", "source_test"),
+      ),
+    )
 
     val checked = Cosmo0().checkPackage(path)
 
@@ -175,7 +199,18 @@ class PackagePipelineTests extends munit.FunSuite:
       checked.isSuccess,
       s"cosmoc Stage 1 package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
     )
-    assertEquals(checked.value.get.moduleOrder, List("parser", "parser_test"))
+    assertEquals(
+      checked.value.get.moduleOrder,
+      List(
+        "core0/text",
+        "parser",
+        "parser_test",
+        "source/source",
+        "source/source_map",
+        "source/source_map_test",
+        "source/source_test",
+      ),
+    )
 
     val compiled = Cosmo0().compilePackage(path)
 
@@ -186,10 +221,15 @@ class PackagePipelineTests extends munit.FunSuite:
     )
 
     val output = compiled.value.get.output
+    assert(output.source.contains("struct TextBuilder"))
+    assert(output.source.contains("struct SourceText"))
+    assert(output.source.contains("struct SourceMap"))
+    assert(output.source.contains("inline std::string core0_text_slice("))
     assert(output.source.contains("inline bool parse_source("))
     assert(output.source.contains("inline int32_t main()"))
     assert(output.source.contains("::cosmo0_runtime::read_file("))
     assert(output.source.contains("::cosmo0_runtime::println("))
+    assert(!output.source.contains("StringBuilder"))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))
