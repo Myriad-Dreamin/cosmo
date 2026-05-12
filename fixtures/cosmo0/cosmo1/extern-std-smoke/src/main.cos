@@ -1,0 +1,5 @@
+import std.io
+
+def extern_std_smoke(): Unit = {
+  println("cosmo1 extern smoke")
+}

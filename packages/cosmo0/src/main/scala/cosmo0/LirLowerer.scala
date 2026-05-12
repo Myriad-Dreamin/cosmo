@@ -95,6 +95,7 @@ final class LirLowerer(
       function: TypedFunction,
       context: DeclContext,
       report: (String, String, SourceSpan) => Unit,
+      useSyntheticExtern: String => LirDeclId,
   ):
     private final class OpenBlock(val label: LirLabel):
       val operations: ListBuffer[LirOp] = ListBuffer.empty
@@ -289,18 +290,7 @@ final class LirLowerer(
           if args.length != call.args.length then None
           else
             val calleeName = name.path.parts.head
-            if isRuntimeFunction(calleeName) then
-              emit(
-                LirDescriptorIntrinsic(
-                  output.map(_.id),
-                  LirDescriptorRef("Runtime"),
-                  calleeName,
-                  args,
-                  Some(Lir.t(call.valueType)),
-                ),
-              )
-              callResult(output, call.valueType)
-            else context.functionId(None, calleeName) match
+            context.functionId(None, calleeName) match
               case Some(id) =>
                 emit(
                   LirDirectCall(
@@ -312,8 +302,19 @@ final class LirLowerer(
                 )
                 callResult(output, call.valueType)
               case None =>
-                unsupported(call, s"call to non-function value ${name.path.text}")
-                None
+                if TrustedExternAbi.isTrustedSourceName(calleeName) then
+                  emit(
+                    LirDirectCall(
+                      output.map(_.id),
+                      useSyntheticExtern(calleeName),
+                      args,
+                      LirCallableSignature.fromSource(call.signature),
+                    ),
+                  )
+                  callResult(output, call.valueType)
+                else
+                  unsupported(call, s"call to non-function value ${name.path.text}")
+                  None
 
         case select: TypedSelect =>
           lowerExpr(select.receiver) match
@@ -1118,12 +1119,10 @@ final class LirLowerer(
         case SourceType.Function(_, _) => true
         case _                         => false
 
-    private def isRuntimeFunction(name: String): Boolean =
-      name == "print" || name == "println" || name == "read_file"
-
   private final class State(module: TypedModule):
     private val errors = ListBuffer.empty[Diagnostic]
     private val context = DeclContext.from(module)
+    private val syntheticExternNames = mutable.LinkedHashSet.empty[String]
 
     def diagnostics: List[Diagnostic] =
       errors.toList
@@ -1131,7 +1130,8 @@ final class LirLowerer(
     def lower(): LirModule =
       LirModule(
         moduleName(module.source),
-        module.declarations.flatMap(lowerDecl).sortBy(_.id.value),
+        (module.declarations.flatMap(lowerDecl) ++ syntheticExternDeclarations).sortBy(_.id.value),
+        module.cIncludes,
       )
 
     private def lowerDecl(declaration: TypedDecl): List[LirDeclaration] =
@@ -1197,7 +1197,37 @@ final class LirLowerer(
           typeDecl :: aliases ::: cls.methods.map(lowerFunction)
 
     private def lowerFunction(function: TypedFunction): LirFunction =
-      FunctionBuilder(function, context, error).lower()
+      TrustedExternAbi.bindingForDeclaration(function) match
+        case Some(binding) =>
+          LirFunction(
+            context.functionId(function.owner, function.name).getOrElse(Lir.declId(qualifiedId(function.owner, function.name))),
+            function.name,
+            function.params.map { param =>
+              LirParam(Lir.localId(stablePart(param.name)), param.name, Lir.t(param.valueType), mutationCapability(param.valueType))
+            },
+            Lir.t(function.returnType),
+            locals = Nil,
+            blocks = Nil,
+            owner = function.owner.flatMap(context.typeId),
+            sourceSignature = Some(function.signature),
+            externBinding = Some(binding),
+          )
+        case None if function.body.isEmpty =>
+          error(
+            "cosmo0.lir.lower.missing-extern-binding",
+            s"function ${function.name} has no body and no trusted extern ABI binding",
+            function.span,
+          )
+          FunctionBuilder(function, context, error, useSyntheticExtern).lower()
+        case None =>
+          FunctionBuilder(function, context, error, useSyntheticExtern).lower()
+
+    private def useSyntheticExtern(name: String): LirDeclId =
+      syntheticExternNames += name
+      TrustedExternAbi.syntheticId(name)
+
+    private def syntheticExternDeclarations: List[LirFunction] =
+      syntheticExternNames.toList.sorted.flatMap(TrustedExternAbi.syntheticFunction)
 
     private def staticValue(expr: TypedExpr): Option[LirValue] =
       expr match

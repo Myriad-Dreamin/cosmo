@@ -193,7 +193,6 @@ object StandardGenericDescriptors:
   object Boundary:
     val primitiveRuntimeDescriptorNames: Set[String] =
       Set(
-        "Runtime",
         "Bool",
         "Char",
         "String",

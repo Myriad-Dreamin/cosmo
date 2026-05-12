@@ -7,6 +7,7 @@ final case class TypedModule(
     source: SourceFile,
     declarations: List[TypedDecl],
     span: SourceSpan,
+    cIncludes: List[SourceCInclude] = Nil,
 ) extends TypedNode
 
 sealed trait TypedDecl extends TypedNode:
@@ -47,6 +48,7 @@ final case class TypedFunction(
     signature: CallableSignature,
     owner: Option[String],
     span: SourceSpan,
+    externBinding: Option[SourceExternBinding] = None,
 ) extends TypedDecl
     with TypedClassMember
 

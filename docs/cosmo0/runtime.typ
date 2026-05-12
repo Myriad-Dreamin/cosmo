@@ -6,9 +6,8 @@ This file owns runtime and backend requirements behind cosmo0 source behavior. T
 
 == Primitive Descriptors
 
-Primitive descriptors are a closed implementation allowlist. They cover only compiler-essential scalar behavior and required ABI hooks:
+Primitive descriptors are a closed implementation allowlist. They cover only compiler-essential scalar behavior:
 
-- `Runtime` ABI hooks required by the current backend
 - `Bool`
 - `Char`
 - `String` scalar backing and currently implemented primitive string helpers
@@ -37,18 +36,82 @@ descriptor Vec<Token>::push(%tokens, %token) -> Unit
 Extern-backed standard API shape:
 
 ```cos
-extern "cosmo0" def fs_read_to_string(path: Path): Result<String, IoError>
+import std.io
+
+def smoke(): Unit = {
+  println("cosmo1 extern smoke")
+}
+```
+
+Possible lowered extern obligation:
+
+```text
+extern cosmo0.extern.v0 "::cosmo0_runtime::println"
+runtime-symbol:cosmo0_runtime::println
+include:<cstdio>
 ```
 
 The source-facing call belongs to `std.typ` and expression/type owner files. This file owns the lowered descriptor or extern obligations needed to make that call deterministic and portable.
 
 == Extern ABI Hooks
 
-Extern ABI hooks are backend/runtime obligations used to implement standard APIs or compiler-required operations. A hook does not by itself define a source-facing standard API and does not authorize a descriptor family with the same domain name.
+Extern ABI hooks are backend/runtime obligations used to implement trusted core0/std declarations or compiler-required operations. A hook does not by itself define a source-facing standard API and does not authorize a descriptor family with the same domain name.
+
+The initial ABI name is `cosmo0.extern.v0`. A trusted extern binding records the target runtime symbol as a structured C++ qualified symbol and any backend requirements such as include headers or support libraries. C++ runtime symbols that live in a namespace are emitted as absolute calls, for example `::cosmo0_runtime::println`, while backend requirement keys use the canonical symbol name `cosmo0_runtime::println`. Backends SHALL diagnose an extern binding when the named runtime symbol is not supported by the selected backend.
+
+Extern hooks are not general user-level FFI. cosmo0 source may call the std declaration, such as `println`, but arbitrary packages may not introduce new bodyless host declarations without accepted metadata.
+
+== C Extern Function Correspondence
+
+The source form `@extern("c") def name(...)` denotes a trusted direct binding to a C ABI function. The cosmo declaration is the source-facing signature; the extern metadata records the C target symbol and ABI family. A direct C binding has positional argument correspondence: cosmo argument `0` is emitted as C argument `0`, cosmo argument `1` as C argument `1`, and so on. The return type maps to the C result type or `Unit` for `void`.
+
+C header availability is a file-level concern because include order can matter. A source file declares required C headers with semicolon-terminated file decorators. The include kind can be written explicitly or inferred from a `.h` extension:
+
+```cos
+@include("stdio.h", kind = "c");
+@include("stdlib.h");
+```
+
+The backend emits file-level C includes in source order. Direct C extern function decorators SHALL NOT carry `include` arguments.
+
+Example direct binding shape:
+
+```cos
+@include("stdio.h");
+@extern("c", name = "puts")
+def puts(text: CString): i32
+```
+
+Corresponding C declaration and emitted call shape:
+
+```c
+int puts(const char *text);
+puts(text);
+```
+
+The declaration is not a C macro binding and is not an arbitrary C expression. It names a callable C function symbol with a stable ABI and direct parameter passing. File-level include requirements make the symbol visible to the generated C++ translation unit; support-library requirements name additional link/runtime obligations when needed.
+
+Variadic C functions require an explicit variadic signature model. A future declaration such as:
+
+```cos
+@include("stdio.h");
+@extern("c", name = "printf")
+def printf(format: StaticCString, ...): i32
+```
+
+corresponds to the C prototype:
+
+```c
+int printf(const char *format, ...);
+```
+
+but support for `...`, format-string validation, signature candidates, and template-like `Any` parameter families is outside the direct-binding subset. Until that later capability is accepted, trusted extern bindings in cosmo0 should use fixed, directly mapped signatures or repository-owned runtime shims such as `::cosmo0_runtime::println`.
 
 == Backend Runtime Requirements
 
-Placeholder for runtime support emitted by the C++ backend, including helper declarations, deterministic inclusion, standard container lowering, and unsupported-runtime diagnostics.
+The C++ backend tracks runtime requirements independently from descriptor operations. Requirement records may name descriptor support, runtime symbols, include headers, or support libraries. Descriptor requirements do not create new source APIs, and extern requirements do not create descriptor families.
+
+The backend SHALL emit a diagnostic when a lowered extern binding names a missing runtime symbol. The diagnostic must occur at compile/backend time before a generated C++ artifact is treated as valid.
 
 == Determinism
 

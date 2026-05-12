@@ -7,8 +7,10 @@ final case class CppOutput(
     moduleName: String,
     namespace: List[String],
     source: String,
-    runtimeRequirements: List[String] = Nil,
-)
+    backendRequirements: List[BackendRequirement] = Nil,
+):
+  def runtimeRequirements: List[String] =
+    backendRequirements.map(_.legacyName).distinct.sorted
 
 object CppBackend:
   def apply(): CppBackend =
@@ -25,7 +27,7 @@ final class CppBackend(
         if state.diagnostics.isEmpty then
           Result.success(
             Phase.Compile,
-            CppOutput(module.name, state.namespace, source, state.runtimeRequirements),
+            CppOutput(module.name, state.namespace, source, state.backendRequirements),
           )
         else Result.failure(Phase.Compile, state.diagnostics)
       case failed =>
@@ -50,9 +52,11 @@ final class CppBackend(
 
   private final class State(module: LirModule):
     private val errors = ListBuffer.empty[Diagnostic]
-    private val requirements = mutable.LinkedHashSet.empty[String]
+    private val requirements = mutable.LinkedHashSet.empty[BackendRequirement]
     private val env = buildDeclEnv(module)
     private val names = BackendNames(env)
+
+    requirements ++= module.cIncludes.map(include => BackendRequirement.include(include.header))
 
     val namespace: List[String] =
       List("cosmo0", safeIdent(module.name, "module"))
@@ -60,8 +64,8 @@ final class CppBackend(
     def diagnostics: List[Diagnostic] =
       errors.toList
 
-    def runtimeRequirements: List[String] =
-      requirements.toList.sorted
+    def backendRequirements: List[BackendRequirement] =
+      requirements.toList.sortBy(_.legacyName)
 
     def emit(): String =
       val body = ListBuffer.empty[String]
@@ -99,7 +103,7 @@ final class CppBackend(
       DeclEnv(declarations, byId, functions, globals, typesById, typesByName, aliasesByName)
 
     private def runtimeIncludes: List[String] =
-      List(
+      val base = List(
         "#include <cstddef>",
         "#include <cstdint>",
         "#include <cstdio>",
@@ -117,6 +121,8 @@ final class CppBackend(
         "#include <variant>",
         "#include <vector>",
       )
+      val fileLevel = module.cIncludes.map(include => s"#include ${include.header}")
+      base ++ fileLevel
 
     private def runtimePrelude: String =
       """namespace cosmo0_runtime {
@@ -439,13 +445,13 @@ final class CppBackend(
       if lines.isEmpty then Nil else lines :+ ""
 
     private def functionForwardDeclarations: List[String] =
-      val lines = env.functions.values.toList.sortBy(_.id.value).map { function =>
+      val lines = env.functions.values.toList.filter(_.externBinding.isEmpty).sortBy(_.id.value).map { function =>
         s"inline ${returnType(function.returnType)} ${names.functionName(function.id)}(${params(function)});"
       }
       if lines.isEmpty then Nil else lines :+ ""
 
     private def functionDefinitions: List[String] =
-      intersperseBlank(env.functions.values.toList.sortBy(_.id.value).map(renderFunction))
+      intersperseBlank(env.functions.values.toList.filter(_.externBinding.isEmpty).sortBy(_.id.value).map(renderFunction))
 
     private def renderFunction(function: LirFunction): String =
       val locals = FunctionNames(function)
@@ -494,8 +500,12 @@ final class CppBackend(
           List(s"${fieldAccess(receiver, field, locals)} = ${renderValue(value, locals)};")
 
         case LirDirectCall(output, callee, args, _) =>
-          val invocation = s"${names.functionName(callee)}(${args.map(renderValue(_, locals)).mkString(", ")})"
-          assignOrStatement(output, invocation, locals)
+          env.functions.get(callee).flatMap(_.externBinding) match
+            case Some(binding) =>
+              emitExternCall(output, callee, binding, args, locals)
+            case None =>
+              val invocation = s"${names.functionName(callee)}(${args.map(renderValue(_, locals)).mkString(", ")})"
+              assignOrStatement(output, invocation, locals)
 
         case LirLoweredMethodCall(output, receiver, method, args, _) =>
           methodFunction(receiver, method) match
@@ -510,10 +520,10 @@ final class CppBackend(
         case LirDescriptorIntrinsic(output, descriptor, name, args, _) =>
           emitDescriptor(descriptor, name, args, locals) match
             case Some(EmittedDescriptor.Expr(value, needed)) =>
-              requirements ++= needed
+              requirements ++= needed.map(BackendRequirement.descriptor)
               assignOrStatement(output, value, locals)
             case Some(EmittedDescriptor.Stmt(value, needed)) =>
-              requirements ++= needed
+              requirements ++= needed.map(BackendRequirement.descriptor)
               output match
                 case Some(id) =>
                   unsupportedDescriptor(descriptorText(descriptor), name, s"operation writes no value for $id")
@@ -585,6 +595,21 @@ final class CppBackend(
       output match
         case Some(id) => List(s"${locals.local(id)} = $expression;")
         case None     => List(s"$expression;")
+
+    private def emitExternCall(
+        output: Option[LirLocalId],
+        callee: LirDeclId,
+        binding: LirExternBinding,
+        args: List[LirValue],
+        locals: FunctionNames,
+    ): List[String] =
+      requirements ++= binding.requirements
+      if binding.abi != TrustedExternAbi.directCAbiName && !supportedExternSymbols.contains(binding.symbol) then
+        missingExternRuntimeSymbol(callee, binding)
+        Nil
+      else
+        val invocation = s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
+        assignOrStatement(output, invocation, locals)
 
     private def renderPlace(place: LirPlace, locals: FunctionNames): String =
       place match
@@ -722,26 +747,7 @@ final class CppBackend(
         args: List[LirValue],
         locals: FunctionNames,
     ): Option[EmittedDescriptor] =
-      def arg(index: Int): String = renderValue(args(index), locals)
-      def requireArity(count: Int): Boolean =
-        if args.length == count then true
-        else
-          unsupportedDescriptor(descriptorText(descriptor), name, s"expected $count runtime argument(s), got ${args.length}")
-          false
-
       descriptor.name match
-        case "Runtime" =>
-          name match
-            case "print" if requireArity(1) =>
-              Some(EmittedDescriptor.Stmt(s"cosmo0_runtime::print(${arg(0)})", Set("runtime.print")))
-            case "println" if requireArity(1) =>
-              Some(EmittedDescriptor.Stmt(s"cosmo0_runtime::println(${arg(0)})", Set("runtime.print")))
-            case "read_file" if requireArity(1) =>
-              Some(EmittedDescriptor.Expr(s"cosmo0_runtime::read_file(${arg(0)})", Set("runtime.fs")))
-            case _ =>
-              unsupportedDescriptor(descriptorText(descriptor), name)
-              None
-
         case name0 if numericDescriptors.contains(name0) =>
           emitNumericDescriptor(name, args, locals, descriptor)
 
@@ -1121,7 +1127,7 @@ final class CppBackend(
 
     private def mainWrapper: Option[String] =
       env.functions.values
-        .find(function => function.owner.isEmpty && function.name == "main" && function.params.isEmpty)
+        .find(function => function.externBinding.isEmpty && function.owner.isEmpty && function.name == "main" && function.params.isEmpty)
         .map { main =>
           val qualified = (namespace :+ names.functionName(main.id)).mkString("::")
           SourceType.dealias(main.returnType.source) match
@@ -1156,6 +1162,17 @@ final class CppBackend(
         DiagnosticSeverity.Error,
         "cosmo0.cpp.unsupported-descriptor",
         s"C++ backend does not support descriptor $descriptor::$operation$suffix",
+      )
+
+    private def missingExternRuntimeSymbol(
+        callee: LirDeclId,
+        binding: LirExternBinding,
+    ): Unit =
+      errors += Diagnostic(
+        Phase.Compile,
+        DiagnosticSeverity.Error,
+        "cosmo0.cpp.missing-extern-runtime-symbol",
+        s"C++ backend has no runtime symbol ${binding.symbol.canonical} for extern function $callee",
       )
 
     private def unsupportedType(valueType: SourceType): Unit =
@@ -1306,6 +1323,13 @@ final class CppBackend(
 
     private lazy val numericDescriptors: Set[String] =
       Set("i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64")
+
+    private lazy val supportedExternSymbols: Set[CppQualifiedSymbol] =
+      Set(
+        CppQualifiedSymbol.global("cosmo0_runtime", "print"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "println"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "read_file"),
+      )
 
     private lazy val cppKeywords: Set[String] =
       Set(

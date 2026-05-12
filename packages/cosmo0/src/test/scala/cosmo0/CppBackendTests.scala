@@ -139,9 +139,125 @@ class CppBackendTests extends munit.FunSuite:
     )
     val output = result.value.get.output
     assert(output.contains("int main()"))
-    assert(output.contains("cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
-    assert(output.contains("cosmo0_runtime::println(z);"))
+    assert(output.contains("::cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
+    assert(output.contains("::cosmo0_runtime::println(z);"))
     assertCxxAccepts(output)
+
+  test("backend emits extern-bound std calls and typed runtime requirements"):
+    val lowered = Cosmo0().lower(
+      SourceFile(
+        "extern_smoke.cos",
+        """def println(value: String): Unit
+          |
+          |def smoke(): Unit = {
+          |  println("cosmo1 extern smoke")
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assert(
+      lowered.isSuccess,
+      s"lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val result = CppBackend().emit(lowered.value.get.lir)
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get
+    assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
+    assert(output.runtimeRequirements.contains("runtime-symbol:cosmo0_runtime::println"))
+    assert(!output.runtimeRequirements.contains("Runtime"))
+    assertCxxAccepts(output.source)
+
+  test("backend emits direct C extern calls and include requirements"):
+    val lowered = Cosmo0().lower(
+      SourceFile(
+        "direct_c_extern.cos",
+        """@include("stdio.h");
+          |@include("stdlib.h", kind = "c");
+          |@extern("c", name = "abs")
+          |def c_abs(value: i32): i32
+          |
+          |def use(value: i32): i32 = {
+          |  c_abs(value)
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assert(
+      lowered.isSuccess,
+      s"lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val result = CppBackend().emit(lowered.value.get.lir)
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get
+    assert(output.source.contains("#include <stdio.h>"))
+    assert(output.source.indexOf("#include <stdio.h>") < output.source.indexOf("#include <stdlib.h>"))
+    assert(output.source.contains("#include <stdlib.h>"))
+    assert(output.source.contains("abs(value);"))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("abs")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<stdio.h>")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<stdlib.h>")))
+    assert(output.runtimeRequirements.contains("runtime-symbol:abs"))
+    assertCxxAccepts(output.source)
+
+  test("backend diagnoses missing extern runtime symbols"):
+    val binding = LirExternBinding(
+      TrustedExternAbi.abiName,
+      CppQualifiedSymbol.global("cosmo0_runtime", "missing"),
+      List(BackendRequirement.runtimeSymbol("cosmo0_runtime::missing")),
+    )
+    val extern = Lir.function(
+      "missing",
+      List(Lir.param("value", SourceType.String)),
+      SourceType.Unit,
+      locals = Nil,
+      blocks = Nil,
+      externBinding = Some(binding),
+    )
+    val caller = Lir.function(
+      "call_missing",
+      Nil,
+      SourceType.Unit,
+      locals = Nil,
+      blocks = List(
+        Lir.block(
+          "entry",
+          operations = List(
+            LirDirectCall(
+              None,
+              extern.id,
+              List(Lir.string("x")),
+              Lir.signature(List(SourceType.String), SourceType.Unit),
+            ),
+          ),
+          terminator = LirReturn(None),
+        ),
+      ),
+    )
+
+    val result = CppBackend().emit(LirModule("missing_extern", List(extern, caller)))
+
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(
+      result.diagnostics.exists(_.code == "cosmo0.cpp.missing-extern-runtime-symbol"),
+      s"missing extern runtime diagnostic in ${result.diagnostics.map(_.code)}",
+    )
 
   test("Cosmo0 compile emits library-shaped C++ for parser.cos without a main wrapper"):
     val result = Cosmo0().compile(

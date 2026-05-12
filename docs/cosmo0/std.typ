@@ -8,6 +8,8 @@ This file owns source-facing core0 standard APIs and capability identifiers. The
 
 Standard APIs are the public surface available to cosmo0 source. A backend descriptor, lowered intrinsic, or extern binding may implement a standard API, but the public behavior belongs here and in the related type, expression, runtime, and package files.
 
+Std-owned declarations may be extern-backed when early bootstrap cannot implement them in cosmo0 source. Such declarations remain standard APIs; the extern metadata is a trusted implementation detail owned by `runtime.typ`.
+
 == Examples
 
 Placeholder Stage 1 source-facing shape:
@@ -27,6 +29,7 @@ Implementation detail that should not become source-facing API:
 ```text
 descriptor String::len(%source_text) -> usize
 descriptor Vec<Token>::push(%tokens, %token) -> Unit
+extern cosmo0.extern.v0 "::cosmo0_runtime::println"
 ```
 
 The first example is a shape for future API proposals to refine. The second example names internal descriptor-style operations that may implement standard APIs but should not be the public dependency of cosmo1 source.
@@ -36,6 +39,12 @@ The first example is a shape for future API proposals to refine. The second exam
 Placeholder for stable core0 capability identifiers such as text, collections, results, arena identifiers, paths, filesystem access, command execution, JSON bridges, numeric literal helpers, deterministic output, and other staged runtime surfaces.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
+
+== Extern-Backed APIs
+
+The initial trusted extern-backed std surface is intentionally small. `std.io.println(value: String): Unit` may lower to the C++ runtime symbol `::cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
+
+Additional extern-backed std APIs require accepted capability text in this file plus matching runtime binding rules in `runtime.typ`. Filesystem, command execution, JSON bridges, and other host-backed facilities remain std-owned API areas; they SHALL NOT be added as descriptor families merely because their implementation needs runtime support.
 
 == Stage 1 Capability Profile
 

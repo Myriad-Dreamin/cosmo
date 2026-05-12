@@ -149,14 +149,18 @@ final class LirTypeChecker(
       }
 
     private def checkFunction(function: LirFunction, declarations: DeclEnv): Unit =
+      function.sourceSignature.foreach(checkSourceSignature(function, _))
+
+      if function.externBinding.nonEmpty then
+        checkExternFunction(function)
+        return
+
       if function.blocks.isEmpty then
         error(
           "cosmo0.lir.missing-block",
           s"${function.id} has no LIR blocks",
         )
         return
-
-      function.sourceSignature.foreach(checkSourceSignature(function, _))
 
       val locals = buildLocalEnv(function)
       val blocks = buildBlockEnv(function)
@@ -225,6 +229,36 @@ final class LirTypeChecker(
               "cosmo0.lir.invalid-signature",
               s"${function.id} receiver parameter has type ${param.valueType.display}, expected receiver ${receiver.valueType.display}",
             )
+
+    private def checkExternFunction(function: LirFunction): Unit =
+      val binding = function.externBinding.get
+      if !TrustedExternAbi.isSupportedAbiName(binding.abi) then
+        error(
+          "cosmo0.lir.invalid-extern-binding",
+          s"${function.id} uses unsupported extern ABI ${binding.abi}",
+        )
+      if function.locals.nonEmpty then
+        error(
+          "cosmo0.lir.invalid-extern-binding",
+          s"${function.id} extern binding cannot declare local storage",
+        )
+      if function.blocks.nonEmpty then
+        error(
+          "cosmo0.lir.invalid-extern-binding",
+          s"${function.id} extern binding cannot also define LIR blocks",
+        )
+      binding.requirements
+        .map(_.legacyName)
+        .groupBy(identity)
+        .toList
+        .collect { case (requirement, values) if values.length > 1 => requirement }
+        .sorted
+        .foreach { requirement =>
+          error(
+            "cosmo0.lir.invalid-extern-binding",
+            s"${function.id} extern binding repeats backend requirement $requirement",
+          )
+        }
 
     private def buildLocalEnv(function: LirFunction): Map[LirLocalId, LocalInfo] =
       val params = function.params.map { param =>
@@ -637,35 +671,6 @@ final class LirTypeChecker(
         descriptor: LirDescriptorRef,
         name: String,
     ): Option[ExpectedCallable] =
-      if descriptor.name == "Runtime" && descriptor.args.isEmpty then
-        name match
-          case "print" | "println" =>
-            return Some(
-              ExpectedCallable(
-                LirCallableSignature(
-                  List(LirTypeRef(SourceType.Error)),
-                  LirTypeRef(SourceType.Unit),
-                ),
-                receiverMutable = false,
-              ),
-            )
-          case "read_file" =>
-            return Some(
-              ExpectedCallable(
-                LirCallableSignature(
-                  List(LirTypeRef(SourceType.String)),
-                  LirTypeRef(SourceType.String),
-                ),
-                receiverMutable = false,
-              ),
-            )
-          case _ =>
-            error(
-              "cosmo0.lir.invalid-descriptor",
-              s"descriptor Runtime has no operation $name",
-            )
-            return None
-
       descriptors.get(descriptor.name) match
         case None =>
           error(
