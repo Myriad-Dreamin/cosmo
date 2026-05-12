@@ -32,7 +32,6 @@ object SourceType:
   val I32: SourceType = Builtin("i32")
   val Usize: SourceType = Builtin("usize")
   val String: SourceType = Builtin("String")
-  val StringBuilder: SourceType = Builtin("StringBuilder")
   val Char: SourceType = Builtin("Char")
   val Byte: SourceType = Builtin("u8")
   val F64: SourceType = Builtin("f64")
@@ -54,7 +53,6 @@ object SourceType:
       "Byte" -> Byte,
       "Char" -> Char,
       "String" -> String,
-      "StringBuilder" -> StringBuilder,
       "str" -> String,
       "f32" -> Builtin("f32"),
       "f64" -> F64,
@@ -192,18 +190,77 @@ final case class StandardGenericDescriptor(
     methods.get(name)
 
 object StandardGenericDescriptors:
+  object Boundary:
+    val primitiveRuntimeDescriptorNames: Set[String] =
+      Set(
+        "Runtime",
+        "Bool",
+        "Char",
+        "String",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "usize",
+        "f32",
+        "f64",
+      )
+
+    val temporaryStandardDescriptorNames: Set[String] =
+      Set(
+        "Vec",
+        "Option",
+        "Result",
+        "Arena",
+        "Id",
+        "Map",
+        "Set",
+        "Ptr",
+        "Box",
+        "Ref",
+        "RefMut",
+      )
+
+    val rejectedRuntimeDescriptorFamilies: Set[String] =
+      Set(
+        "Json",
+        "JsonValue",
+        "Filesystem",
+        "FileSystem",
+        "Fs",
+        "Command",
+        "Process",
+        "StringBuilder",
+        "BigInt",
+        "BigDecimal",
+      )
+
+    val allowedDescriptorNames: Set[String] =
+      primitiveRuntimeDescriptorNames ++ temporaryStandardDescriptorNames
+
+    def isAllowedDescriptorName(name: String): Boolean =
+      allowedDescriptorNames.contains(name)
+
   private val T = SourceTypeTemplate.Arg(0)
   private val U = SourceTypeTemplate.Arg(1)
   private val UnitT = SourceTypeTemplate.Concrete(SourceType.Unit)
   private val BoolT = SourceTypeTemplate.Concrete(SourceType.Bool)
   private val UsizeT = SourceTypeTemplate.Concrete(SourceType.Usize)
   private val StringT = SourceTypeTemplate.Concrete(SourceType.String)
-  private val StringBuilderT = SourceTypeTemplate.Concrete(SourceType.StringBuilder)
   private val CharT = SourceTypeTemplate.Concrete(SourceType.Char)
   private val ByteT = SourceTypeTemplate.Concrete(SourceType.Byte)
 
+  private val implementationDescriptors: List[StandardGenericDescriptor] =
+    standardGenericDescriptors ++ runtimeDescriptors
+
+  validateDescriptorBoundary(implementationDescriptors)
+
   val all: Map[String, StandardGenericDescriptor] =
-    (standardGenericDescriptors ++ runtimeDescriptors).map(descriptor => descriptor.name -> descriptor).toMap
+    implementationDescriptors.map(descriptor => descriptor.name -> descriptor).toMap
 
   private def standardGenericDescriptors: List[StandardGenericDescriptor] =
     List(
@@ -365,17 +422,6 @@ object StandardGenericDescriptors:
           call("ne", List(param("right", StringT)), BoolT),
         ),
       ),
-      descriptor(
-        "StringBuilder",
-        0,
-        constructors = List(call("<init>", Nil, StringBuilderT)),
-        methods = List(
-          call("append", List(param("value", StringT)), UnitT, receiverMutable = true),
-          call("append_char", List(param("value", CharT)), UnitT, receiverMutable = true),
-          call("clear", Nil, UnitT, receiverMutable = true),
-          call("finish", Nil, StringT),
-        ),
-      ),
     ) ++ numericDescriptors
 
   private def numericDescriptors: List[StandardGenericDescriptor] =
@@ -403,6 +449,22 @@ object StandardGenericDescriptors:
 
   def get(name: String): Option[StandardGenericDescriptor] =
     all.get(name)
+
+  private def validateDescriptorBoundary(
+      descriptors: List[StandardGenericDescriptor],
+  ): Unit =
+    val rejected =
+      descriptors.map(_.name).filter(Boundary.rejectedRuntimeDescriptorFamilies.contains)
+    require(
+      rejected.isEmpty,
+      s"rejected runtime descriptor families registered: ${rejected.distinct.sorted.mkString(", ")}",
+    )
+    val unknown =
+      descriptors.map(_.name).filterNot(Boundary.isAllowedDescriptorName)
+    require(
+      unknown.isEmpty,
+      s"descriptor families are outside the cosmo0 primitive boundary: ${unknown.distinct.sorted.mkString(", ")}",
+    )
 
   private def numericMethods(valueType: SourceTypeTemplate): List[DescriptorCallable] =
     List(

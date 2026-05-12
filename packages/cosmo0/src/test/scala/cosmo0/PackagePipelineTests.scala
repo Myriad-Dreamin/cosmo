@@ -104,3 +104,27 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(firstOutput.runtimeRequirements, firstOutput.runtimeRequirements.distinct.sorted)
     assert(firstOutput.runtimeRequirements.contains("vec"))
     assert(!firstOutput.source.contains("CodeGen"))
+
+  test("cosmo1 primitive span/token smoke package checks and compiles"):
+    val path = "fixtures/cosmo0/cosmo1/primitive-descriptor-smoke"
+    val checked = Cosmo0().checkPackage(path)
+
+    assertEquals(checked.phase, Phase.Check)
+    assert(
+      checked.isSuccess,
+      s"cosmo1 span/token package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(checked.value.get.moduleOrder, List("source/span", "lex/token", "main"))
+
+    val compiled = Cosmo0().compilePackage(path)
+
+    assertEquals(compiled.phase, Phase.Compile)
+    assert(
+      compiled.isSuccess,
+      s"cosmo1 span/token package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = compiled.value.get.output
+    assert(output.source.contains("struct Span"))
+    assert(output.source.contains("struct TokenKind"))
+    assert(output.source.contains("struct Token"))
+    assert(output.source.contains("inline bool span_token_smoke()"))

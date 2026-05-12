@@ -233,17 +233,28 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("descriptor Arena[Node]::alloc(%arena, %fallback) -> Id[Node]"))
     assert(rendered.contains("descriptor Arena[Node]::get(%arena, %node_id) -> &Node"))
 
-  test("lowers scalar, string, and string builder helpers to descriptor intrinsics"):
+  test("lowers primitive scalar operations, boolean branches, and references"):
     val result = Cosmo0().lower(
-      """def build_text(left: i32, right: i32, text: String): String = {
-        |  var builder = StringBuilder();
-        |  builder.append(text);
-        |  builder.append("!");
+      """class Cell {
+        |  var value: usize
+        |}
+        |
+        |def read_cell(cell: &Cell): usize = {
+        |  cell.value
+        |}
+        |
+        |def write_cell(cell: &mut Cell, value: usize): Unit = {
+        |  cell.value = value
+        |}
+        |
+        |def primitive_ops(flag: Bool, left: i32, right: i32, text: String, byte: u8): Bool = {
         |  val sum = left + right;
-        |  if (sum > 0 and text.size() > 0) {
-        |    builder.finish()
+        |  val has_text = text.size() > 0;
+        |  val same_text = text == "ok";
+        |  if (flag and sum >= 0) {
+        |    has_text and byte != 0
         |  } else {
-        |    "empty"
+        |    same_text or text.len() == 0
         |  }
         |}
         |""".stripMargin,
@@ -256,15 +267,18 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("descriptor StringBuilder::<init>() -> StringBuilder"))
-    assert(rendered.contains("descriptor StringBuilder::append(%builder, %text) -> Unit"))
-    assert(rendered.contains("descriptor StringBuilder::append(%builder, \"!\") -> Unit"))
+    assert(rendered.contains("%tmp0 = field_get %cell.value: usize"))
+    assert(rendered.contains("field_set %cell.value = %value"))
     assert(rendered.contains("descriptor i32::add(%left, %right) -> i32"))
-    assert(rendered.contains("descriptor i32::gt(%sum, 0:i32) -> Bool"))
+    assert(rendered.contains("descriptor i32::ge(%sum, 0:i32) -> Bool"))
     assert(rendered.contains("descriptor String::size(%text) -> usize"))
+    assert(rendered.contains("descriptor String::eq(%text, \"ok\") -> Bool"))
+    assert(rendered.contains("descriptor String::len(%text) -> usize"))
+    assert(rendered.contains("descriptor u8::ne(%byte, 0:u8) -> Bool"))
     assert(rendered.contains("descriptor usize::gt("))
+    assert(rendered.contains("descriptor usize::eq("))
     assert(rendered.contains("descriptor Bool::and("))
-    assert(rendered.contains("descriptor StringBuilder::finish(%builder) -> String"))
+    assert(rendered.contains("descriptor Bool::or("))
 
   test("lowers map and set for loops through deterministic descriptor iteration"):
     val result = Cosmo0().lower(
