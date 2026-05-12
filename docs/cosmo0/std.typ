@@ -29,7 +29,7 @@ Implementation detail that should not become source-facing API:
 ```text
 descriptor String::len(%source_text) -> usize
 descriptor Vec<Token>::push(%tokens, %token) -> Unit
-extern cosmo0.extern.v0 "cosmo0_runtime::println"
+extern cosmo0.extern.v0 "::cosmo0_runtime::println"
 ```
 
 The first example is a shape for future API proposals to refine. The second example names internal descriptor-style operations that may implement standard APIs but should not be the public dependency of cosmo1 source.
@@ -42,7 +42,7 @@ Capability identifiers should be named at the smallest useful boundary so Stage 
 
 == Extern-Backed APIs
 
-The initial trusted extern-backed std surface is intentionally small. `std.io.println(value: String): Unit` may lower to the C++ runtime symbol `cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
+The initial trusted extern-backed std surface is intentionally small. `std.io.println(value: String): Unit` may lower to the C++ runtime symbol `::cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
 
 Additional extern-backed std APIs require accepted capability text in this file plus matching runtime binding rules in `runtime.typ`. Filesystem, command execution, JSON bridges, and other host-backed facilities remain std-owned API areas; they SHALL NOT be added as descriptor families merely because their implementation needs runtime support.
 

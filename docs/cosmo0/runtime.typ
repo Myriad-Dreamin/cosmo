@@ -46,7 +46,7 @@ def smoke(): Unit = {
 Possible lowered extern obligation:
 
 ```text
-extern cosmo0.extern.v0 "cosmo0_runtime::println"
+extern cosmo0.extern.v0 "::cosmo0_runtime::println"
 runtime-symbol:cosmo0_runtime::println
 include:<cstdio>
 ```
@@ -57,7 +57,7 @@ The source-facing call belongs to `std.typ` and expression/type owner files. Thi
 
 Extern ABI hooks are backend/runtime obligations used to implement trusted core0/std declarations or compiler-required operations. A hook does not by itself define a source-facing standard API and does not authorize a descriptor family with the same domain name.
 
-The initial ABI name is `cosmo0.extern.v0`. A trusted extern binding records the target runtime symbol and any backend requirements such as include headers or support libraries. Backends SHALL diagnose an extern binding when the named runtime symbol is not supported by the selected backend.
+The initial ABI name is `cosmo0.extern.v0`. A trusted extern binding records the target runtime symbol as a structured C++ qualified symbol and any backend requirements such as include headers or support libraries. C++ runtime symbols that live in a namespace are emitted as absolute calls, for example `::cosmo0_runtime::println`, while backend requirement keys use the canonical symbol name `cosmo0_runtime::println`. Backends SHALL diagnose an extern binding when the named runtime symbol is not supported by the selected backend.
 
 Extern hooks are not general user-level FFI. cosmo0 source may call the std declaration, such as `println`, but arbitrary packages may not introduce new bodyless host declarations without accepted metadata.
 

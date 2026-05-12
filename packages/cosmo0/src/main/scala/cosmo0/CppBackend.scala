@@ -604,7 +604,7 @@ final class CppBackend(
         missingExternRuntimeSymbol(callee, binding)
         Nil
       else
-        val invocation = s"${binding.symbol}(${args.map(renderValue(_, locals)).mkString(", ")})"
+        val invocation = s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
         assignOrStatement(output, invocation, locals)
 
     private def renderPlace(place: LirPlace, locals: FunctionNames): String =
@@ -1168,7 +1168,7 @@ final class CppBackend(
         Phase.Compile,
         DiagnosticSeverity.Error,
         "cosmo0.cpp.missing-extern-runtime-symbol",
-        s"C++ backend has no runtime symbol ${binding.symbol} for extern function $callee",
+        s"C++ backend has no runtime symbol ${binding.symbol.canonical} for extern function $callee",
       )
 
     private def unsupportedType(valueType: SourceType): Unit =
@@ -1320,11 +1320,11 @@ final class CppBackend(
     private lazy val numericDescriptors: Set[String] =
       Set("i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64")
 
-    private lazy val supportedExternSymbols: Set[String] =
+    private lazy val supportedExternSymbols: Set[CppQualifiedSymbol] =
       Set(
-        "cosmo0_runtime::print",
-        "cosmo0_runtime::println",
-        "cosmo0_runtime::read_file",
+        CppQualifiedSymbol.global("cosmo0_runtime", "print"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "println"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "read_file"),
       )
 
     private lazy val cppKeywords: Set[String] =

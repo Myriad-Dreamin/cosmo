@@ -139,8 +139,8 @@ class CppBackendTests extends munit.FunSuite:
     )
     val output = result.value.get.output
     assert(output.contains("int main()"))
-    assert(output.contains("cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
-    assert(output.contains("cosmo0_runtime::println(z);"))
+    assert(output.contains("::cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
+    assert(output.contains("::cosmo0_runtime::println(z);"))
     assertCxxAccepts(output)
 
   test("backend emits extern-bound std calls and typed runtime requirements"):
@@ -169,7 +169,7 @@ class CppBackendTests extends munit.FunSuite:
       s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
     )
     val output = result.value.get
-    assert(output.source.contains("cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
+    assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
     assert(output.runtimeRequirements.contains("runtime-symbol:cosmo0_runtime::println"))
@@ -179,7 +179,7 @@ class CppBackendTests extends munit.FunSuite:
   test("backend diagnoses missing extern runtime symbols"):
     val binding = LirExternBinding(
       TrustedExternAbi.abiName,
-      "cosmo0_runtime::missing",
+      CppQualifiedSymbol.global("cosmo0_runtime", "missing"),
       List(BackendRequirement.runtimeSymbol("cosmo0_runtime::missing")),
     )
     val extern = Lir.function(

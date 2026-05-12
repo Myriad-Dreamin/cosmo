@@ -2,13 +2,19 @@
 
 ### Requirement: Trusted Extern ABI Metadata
 
-cosmo0 SHALL allow only trusted core0/std declarations to attach extern ABI metadata. Extern metadata SHALL name the ABI, target runtime symbol, and backend requirements without adding a descriptor family for the same runtime domain.
+cosmo0 SHALL allow only trusted core0/std declarations to attach extern ABI metadata. Extern metadata SHALL name the ABI, target runtime symbol, and backend requirements without adding a descriptor family for the same runtime domain. C++ extern target symbols SHALL be represented as structured qualified symbols rather than arbitrary C++ call expressions.
 
 #### Scenario: Trusted std declaration lowers to extern metadata
 
 - **WHEN** a trusted std declaration such as `println(value: String): Unit` has no cosmo0 body
 - **THEN** lowering records an extern binding using `cosmo0.extern.v0`
 - **AND** lowering emits direct calls to the trusted extern declaration instead of a `Runtime` descriptor operation
+
+#### Scenario: Namespaced C++ extern target is emitted absolutely
+
+- **WHEN** a trusted extern binding targets the C++ symbol `cosmo0_runtime::println`
+- **THEN** the C++ backend emits the call as `::cosmo0_runtime::println(...)`
+- **AND** backend runtime requirement tracking records the canonical runtime symbol `cosmo0_runtime::println`
 
 #### Scenario: Untrusted bodyless declaration is rejected
 

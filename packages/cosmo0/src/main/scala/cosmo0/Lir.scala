@@ -412,7 +412,7 @@ object LirDebugRenderer:
     val params = function.params.map(renderParam).mkString(", ")
     val owner = function.owner.fold("")(owner => s" owner $owner")
     val extern = function.externBinding.fold("") { binding =>
-      s""" extern ${binding.abi} ${quote(binding.symbol)}"""
+      s""" extern ${binding.abi} ${quote(binding.symbol.cppName)}"""
     }
     val header =
       line(

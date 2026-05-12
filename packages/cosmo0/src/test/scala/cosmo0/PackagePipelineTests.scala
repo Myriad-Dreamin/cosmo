@@ -149,6 +149,6 @@ class PackagePipelineTests extends munit.FunSuite:
     )
     val output = compiled.value.get.output
     assert(output.source.contains("inline void extern_std_smoke()"))
-    assert(output.source.contains("cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
+    assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))

@@ -250,7 +250,7 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("fn @println println(%value value: String) -> Unit extern cosmo0.extern.v0 \"cosmo0_runtime::println\""))
+    assert(rendered.contains("fn @println println(%value value: String) -> Unit extern cosmo0.extern.v0 \"::cosmo0_runtime::println\""))
     assert(rendered.contains("call @println(\"cosmo1 extern smoke\") -> Unit"))
     assert(!rendered.contains("descriptor Runtime"))
 

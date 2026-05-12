@@ -23,28 +23,82 @@ object BackendRequirement:
   def runtimeSymbol(symbol: String): BackendRequirement =
     BackendRequirement(BackendRequirementKind.RuntimeSymbol, symbol)
 
+  def runtimeSymbol(symbol: CppQualifiedSymbol): BackendRequirement =
+    runtimeSymbol(symbol.canonical)
+
   def include(header: String): BackendRequirement =
     BackendRequirement(BackendRequirementKind.Include, header)
 
   def supportLibrary(name: String): BackendRequirement =
     BackendRequirement(BackendRequirementKind.SupportLibrary, name)
 
+final case class CppQualifiedSymbol(
+    parts: List[String],
+    absolute: Boolean = true,
+):
+  require(parts.nonEmpty, "C++ qualified symbols must have at least one part")
+  require(
+    parts.forall(CppQualifiedSymbol.isIdentifier),
+    s"C++ qualified symbol parts must be identifiers: ${parts.mkString("::")}",
+  )
+
+  def namespace: List[String] =
+    parts.dropRight(1)
+
+  def name: String =
+    parts.last
+
+  def canonical: String =
+    parts.mkString("::")
+
+  def cppName: String =
+    if absolute then s"::$canonical" else canonical
+
+  override def toString: String =
+    canonical
+
+object CppQualifiedSymbol:
+  private val Identifier =
+    raw"[A-Za-z_][A-Za-z0-9_]*".r
+
+  def global(parts: String*): CppQualifiedSymbol =
+    CppQualifiedSymbol(parts.toList, absolute = true)
+
+  def relative(parts: String*): CppQualifiedSymbol =
+    CppQualifiedSymbol(parts.toList, absolute = false)
+
+  def parse(value: String, absoluteByDefault: Boolean = true): CppQualifiedSymbol =
+    require(value.nonEmpty, "C++ qualified symbols must be non-empty")
+    val absolute = value.startsWith("::") || absoluteByDefault
+    val trimmed =
+      if value.startsWith("::") then value.drop(2) else value
+    CppQualifiedSymbol(trimmed.split("::", -1).toList, absolute)
+
+  private def isIdentifier(value: String): Boolean =
+    Identifier.pattern.matcher(value).matches
+
 final case class LirExternBinding(
     abi: String,
-    symbol: String,
+    symbol: CppQualifiedSymbol,
     requirements: List[BackendRequirement],
 ):
   require(abi.nonEmpty, "extern binding ABI names must be non-empty")
-  require(symbol.nonEmpty, "extern binding symbols must be non-empty")
 
 object TrustedExternAbi:
   val abiName = "cosmo0.extern.v0"
+
+  private val printSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "print")
+  private val printlnSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "println")
+  private val readFileSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "read_file")
 
   private final case class TrustedBinding(
       sourceName: String,
       params: List[SourceType],
       returnType: SourceType,
-      symbol: String,
+      symbol: CppQualifiedSymbol,
       requirements: List[BackendRequirement],
   ):
     def callable(span: SourceSpan): CallableSignature =
@@ -88,9 +142,9 @@ object TrustedExternAbi:
         "print",
         List(SourceType.Error),
         SourceType.Unit,
-        "cosmo0_runtime::print",
+        printSymbol,
         List(
-          BackendRequirement.runtimeSymbol("cosmo0_runtime::print"),
+          BackendRequirement.runtimeSymbol(printSymbol),
           BackendRequirement.include("<cstdio>"),
         ),
       ),
@@ -98,9 +152,9 @@ object TrustedExternAbi:
         "println",
         List(SourceType.Error),
         SourceType.Unit,
-        "cosmo0_runtime::println",
+        printlnSymbol,
         List(
-          BackendRequirement.runtimeSymbol("cosmo0_runtime::println"),
+          BackendRequirement.runtimeSymbol(printlnSymbol),
           BackendRequirement.include("<cstdio>"),
         ),
       ),
@@ -108,9 +162,9 @@ object TrustedExternAbi:
         "read_file",
         List(SourceType.String),
         SourceType.String,
-        "cosmo0_runtime::read_file",
+        readFileSymbol,
         List(
-          BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file"),
+          BackendRequirement.runtimeSymbol(readFileSymbol),
           BackendRequirement.include("<fstream>"),
         ),
       ),
