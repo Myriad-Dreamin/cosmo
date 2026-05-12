@@ -77,6 +77,7 @@ final class SourceTyper(
       signature: CallableSignature,
       owner: Option[String],
       span: SourceSpan,
+      externBinding: Option[SourceExternBinding],
   )
 
   private final case class ClassInfo(
@@ -271,6 +272,7 @@ final class SourceTyper(
         info.signature,
         info.owner,
         info.span,
+        info.externBinding,
       )
 
     private def typedValueDecl(value: UntypedValueDecl, scope: Scope): Option[TypedValueDecl] =
@@ -324,7 +326,7 @@ final class SourceTyper(
         returnType,
         receiver,
       )
-      FunctionInfo(fn.name, params, returnType, fn.body, signature, owner, fn.span)
+      FunctionInfo(fn.name, params, returnType, fn.body, signature, owner, fn.span, fn.externBinding)
 
     private def expr(
         node: UntypedExpr,

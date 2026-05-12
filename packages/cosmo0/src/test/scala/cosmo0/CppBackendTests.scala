@@ -176,6 +176,40 @@ class CppBackendTests extends munit.FunSuite:
     assert(!output.runtimeRequirements.contains("Runtime"))
     assertCxxAccepts(output.source)
 
+  test("backend emits direct C extern calls and include requirements"):
+    val lowered = Cosmo0().lower(
+      SourceFile(
+        "direct_c_extern.cos",
+        """@extern("c", symbol: "abs", include: "<stdlib.h>")
+          |def c_abs(value: i32): i32
+          |
+          |def use(value: i32): i32 = {
+          |  c_abs(value)
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assert(
+      lowered.isSuccess,
+      s"lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val result = CppBackend().emit(lowered.value.get.lir)
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get
+    assert(output.source.contains("#include <stdlib.h>"))
+    assert(output.source.contains("abs(value);"))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("abs")))
+    assert(output.backendRequirements.contains(BackendRequirement.include("<stdlib.h>")))
+    assert(output.runtimeRequirements.contains("runtime-symbol:abs"))
+    assertCxxAccepts(output.source)
+
   test("backend diagnoses missing extern runtime symbols"):
     val binding = LirExternBinding(
       TrustedExternAbi.abiName,

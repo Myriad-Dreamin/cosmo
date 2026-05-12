@@ -254,6 +254,28 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("call @println(\"cosmo1 extern smoke\") -> Unit"))
     assert(!rendered.contains("descriptor Runtime"))
 
+  test("lowers direct C extern declarations to fixed-arity calls"):
+    val result = Cosmo0().lower(
+      """@extern("c", symbol: "abs", include: "<stdlib.h>")
+        |def c_abs(value: i32): i32
+        |
+        |def use(value: i32): i32 = {
+        |  c_abs(value)
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"lowering failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assert(rendered.contains("fn @c_abs c_abs(%value value: i32) -> i32 extern c \"abs\""))
+    assert(rendered.contains("call @c_abs(%value) -> i32"))
+    assert(!rendered.contains("descriptor Runtime"))
+
   test("lower reports missing extern metadata for untrusted bodyless declarations"):
     val result = Cosmo0().lower("def host_call(value: String): Unit")
 

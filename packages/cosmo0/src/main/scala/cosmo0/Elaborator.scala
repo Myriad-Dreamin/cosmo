@@ -64,12 +64,7 @@ final class UntypedElaborator(
             "cosmo0.elaborate.unsupported.impl",
             "impl declarations are outside the initial cosmo0 subset",
           )
-        case Some(decorated: Decorate) =>
-          unsupported(
-            decorated,
-            "cosmo0.elaborate.unsupported.decorator",
-            "decorators and staging annotations are outside the initial cosmo0 subset",
-          )
+        case Some(decorated: Decorate) => decoratedModuleDecl(decorated)
         case Some(caseNode: Case) =>
           unsupported(
             caseNode,
@@ -82,6 +77,207 @@ final class UntypedElaborator(
             "cosmo0.elaborate.unsupported.top-level",
             s"${constructName(other)} is not a supported top-level cosmo0 declaration",
           )
+
+    private final case class ExternDecoratorArgs(
+        symbol: Option[String] = None,
+        include: Option[String] = None,
+        supportLibrary: Option[String] = None,
+    )
+
+    private def decoratedModuleDecl(node: Decorate): Option[UntypedDecl] =
+      externDecorator(node.lhs).flatMap { binding =>
+        unwrapSemi(node.rhs) match
+          case Some(defNode: Def) =>
+            functionDecl(defNode, Some(binding))
+          case Some(other) =>
+            unsupported(
+              other,
+              "cosmo0.elaborate.invalid-extern",
+              "@extern(\"c\") can only decorate top-level function declarations",
+            )
+          case None =>
+            unsupported(
+              node,
+              "cosmo0.elaborate.invalid-extern",
+              "@extern(\"c\") must decorate a top-level function declaration",
+            )
+      }
+
+    private def externDecorator(node: syntax.Node): Option[SourceExternBinding] =
+      node match
+        case Apply(Ident("extern"), args, false) =>
+          externDecoratorArgs(node, args)
+        case Ident("extern") =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.invalid-extern",
+            "extern decorators must specify an ABI, for example @extern(\"c\")",
+          )
+        case _ =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported.decorator",
+            "only @extern(\"c\") decorators are supported on top-level cosmo0 function declarations",
+          )
+
+    private def externDecoratorArgs(
+        node: syntax.Node,
+        args: List[syntax.Node],
+    ): Option[SourceExternBinding] =
+      args match
+        case StrLit(abi) :: rest if abi == TrustedExternAbi.directCAbiName =>
+          collectExternDecoratorArgs(rest).flatMap { values =>
+            if validateExternDecoratorArgs(values, node) then
+              Some(
+                SourceExternBinding(
+                  abi,
+                  values.symbol,
+                  values.include,
+                  values.supportLibrary,
+                  nodeSpan(node),
+                ),
+              )
+            else None
+          }
+        case StrLit(abi) :: _ =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported.extern-abi",
+            s"extern ABI $abi is not supported by cosmo0",
+          )
+        case Nil =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.invalid-extern",
+            "extern decorators must specify an ABI string",
+          )
+        case other :: _ =>
+          unsupported(
+            other,
+            "cosmo0.elaborate.invalid-extern",
+            "extern decorator ABI must be a string literal",
+          )
+
+    private def collectExternDecoratorArgs(args: List[syntax.Node]): Option[ExternDecoratorArgs] =
+      var values = ExternDecoratorArgs()
+      var ok = true
+
+      def setOnce(
+          node: syntax.Node,
+          key: String,
+          previous: Option[String],
+          update: String => ExternDecoratorArgs,
+          value: String,
+      ): Unit =
+        if previous.nonEmpty then
+          report(
+            node,
+            "cosmo0.elaborate.invalid-extern",
+            s"extern decorator repeats argument $key",
+          )
+          ok = false
+        else values = update(value)
+
+      args.foreach {
+        case arg @ KeyedArg(Ident("symbol"), StrLit(value)) =>
+          setOnce(
+            arg,
+            "symbol",
+            values.symbol,
+            value => values.copy(symbol = Some(value)),
+            value,
+          )
+        case arg @ KeyedArg(Ident("include"), StrLit(value)) =>
+          setOnce(
+            arg,
+            "include",
+            values.include,
+            value => values.copy(include = Some(value)),
+            value,
+          )
+        case arg @ KeyedArg(Ident("supportLibrary"), StrLit(value)) =>
+          setOnce(
+            arg,
+            "supportLibrary",
+            values.supportLibrary,
+            value => values.copy(supportLibrary = Some(value)),
+            value,
+          )
+        case arg @ KeyedArg(Ident(key), _) if Set("symbol", "include", "supportLibrary").contains(key) =>
+          report(
+            arg,
+            "cosmo0.elaborate.invalid-extern",
+            s"extern decorator argument $key must be a string literal",
+          )
+          ok = false
+        case arg @ KeyedArg(Ident(key), _) =>
+          report(
+            arg,
+            "cosmo0.elaborate.invalid-extern",
+            s"extern decorator does not support argument $key",
+          )
+          ok = false
+        case arg @ KeyedArg(_, _) =>
+          report(
+            arg,
+            "cosmo0.elaborate.invalid-extern",
+            "extern decorator argument names must be identifiers",
+          )
+          ok = false
+        case other =>
+          report(
+            other,
+            "cosmo0.elaborate.invalid-extern",
+            "extern decorator arguments after the ABI must be keyed string arguments",
+          )
+          ok = false
+      }
+
+      if ok then Some(values) else None
+
+    private def validateExternDecoratorArgs(
+        values: ExternDecoratorArgs,
+        node: syntax.Node,
+    ): Boolean =
+      val symbolOk = values.symbol.forall { value =>
+        val ok = CppQualifiedSymbol.isIdentifier(value)
+        if !ok then
+          report(
+            node,
+            "cosmo0.elaborate.invalid-extern",
+            s"extern C symbol $value is not an unqualified C identifier",
+          )
+        ok
+      }
+      val includeOk = values.include.forall { value =>
+        val ok = isIncludeSpecifier(value)
+        if !ok then
+          report(
+            node,
+            "cosmo0.elaborate.invalid-extern",
+            s"extern include $value must be written as <header> or \"header\"",
+          )
+        ok
+      }
+      val supportLibraryOk = values.supportLibrary.forall { value =>
+        val ok = isRequirementValue(value)
+        if !ok then
+          report(
+            node,
+            "cosmo0.elaborate.invalid-extern",
+            "extern supportLibrary must be a non-empty single-line string",
+          )
+        ok
+      }
+      symbolOk && includeOk && supportLibraryOk
+
+    private def isIncludeSpecifier(value: String): Boolean =
+      isRequirementValue(value) &&
+        ((value.startsWith("<") && value.endsWith(">") && value.length > 2) ||
+          (value.startsWith("\"") && value.endsWith("\"") && value.length > 2))
+
+    private def isRequirementValue(value: String): Boolean =
+      value.nonEmpty && !value.exists(ch => ch == '\n' || ch == '\r')
 
     private def importDecl(node: Import): Option[UntypedImport] =
       val span = nodeSpan(node)
@@ -159,12 +355,21 @@ final class UntypedElaborator(
             s"${constructName(other)} is not a supported cosmo0 class member",
           )
 
-    private def functionDecl(node: Def): Option[UntypedFunction] =
+    private def functionDecl(
+        node: Def,
+        externBinding: Option[SourceExternBinding] = None,
+    ): Option[UntypedFunction] =
       if hasExplicitTypeParams(node.params) then
         unsupported(
           node,
           "cosmo0.elaborate.unsupported.generic-function",
           "user-defined generic functions are outside the initial cosmo0 subset",
+        )
+      else if externBinding.nonEmpty && node.rhs.nonEmpty then
+        unsupported(
+          node,
+          "cosmo0.elaborate.invalid-extern",
+          "extern function declarations cannot define a cosmo0 body",
         )
       else
         val span = nodeSpan(node)
@@ -176,7 +381,7 @@ final class UntypedElaborator(
           expr(rhs).map(Some(_))
         }
         params.zip(returnType).zip(body).map { case ((ps, rt), b) =>
-          UntypedFunction(node.name.name, ps, rt, b, span)
+          UntypedFunction(node.name.name, ps, rt, b, span, externBinding)
         }
 
     private def valueDecl(
@@ -646,6 +851,14 @@ final class UntypedElaborator(
         code: String,
         message: String,
     ): Option[A] =
+      report(node, code, message)
+      None
+
+    private def report(
+        node: syntax.Node,
+        code: String,
+        message: String,
+    ): Unit =
       diagnostics += Diagnostic(
         Phase.Check,
         DiagnosticSeverity.Error,
@@ -653,7 +866,6 @@ final class UntypedElaborator(
         message,
         Some(nodeSpan(node)),
       )
-      None
 
     private def constructName(node: syntax.Node): String =
       node.getClass.getSimpleName.stripSuffix("$")

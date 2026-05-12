@@ -68,8 +68,7 @@ The source form `@extern("c") def name(...)` denotes a trusted direct binding to
 Example direct binding shape:
 
 ```cos
-@extern("c", symbol = "puts")
-@requires(include = "<stdio.h>")
+@extern("c", symbol: "puts", include: "<stdio.h>")
 def puts(text: CString): i32
 ```
 
@@ -85,8 +84,7 @@ The declaration is not a C macro binding and is not an arbitrary C expression. I
 Variadic C functions require an explicit variadic signature model. A future declaration such as:
 
 ```cos
-@extern("c", symbol = "printf")
-@requires(include = "<stdio.h>")
+@extern("c", symbol: "printf", include: "<stdio.h>")
 def printf(format: StaticCString, ...): i32
 ```
 

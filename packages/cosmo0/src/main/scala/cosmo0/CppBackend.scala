@@ -101,7 +101,7 @@ final class CppBackend(
       DeclEnv(declarations, byId, functions, globals, typesById, typesByName, aliasesByName)
 
     private def runtimeIncludes: List[String] =
-      List(
+      val base = List(
         "#include <cstddef>",
         "#include <cstdint>",
         "#include <cstdio>",
@@ -119,6 +119,19 @@ final class CppBackend(
         "#include <variant>",
         "#include <vector>",
       )
+      val extra = externIncludeRequirements
+        .map(header => s"#include $header")
+        .distinct
+        .sorted
+        .filterNot(base.toSet)
+      base ++ extra
+
+    private def externIncludeRequirements: List[String] =
+      module.declarations.collect { case function: LirFunction =>
+        function.externBinding.toList.flatMap(_.requirements.collect {
+          case BackendRequirement(BackendRequirementKind.Include, value) => value
+        })
+      }.flatten
 
     private def runtimePrelude: String =
       """namespace cosmo0_runtime {
@@ -600,7 +613,7 @@ final class CppBackend(
         locals: FunctionNames,
     ): List[String] =
       requirements ++= binding.requirements
-      if !supportedExternSymbols.contains(binding.symbol) then
+      if binding.abi != TrustedExternAbi.directCAbiName && !supportedExternSymbols.contains(binding.symbol) then
         missingExternRuntimeSymbol(callee, binding)
         Nil
       else

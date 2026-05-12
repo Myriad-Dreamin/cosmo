@@ -47,6 +47,7 @@ final case class TypedFunction(
     signature: CallableSignature,
     owner: Option[String],
     span: SourceSpan,
+    externBinding: Option[SourceExternBinding] = None,
 ) extends TypedDecl
     with TypedClassMember
 

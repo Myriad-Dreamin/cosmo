@@ -232,7 +232,7 @@ final class LirTypeChecker(
 
     private def checkExternFunction(function: LirFunction): Unit =
       val binding = function.externBinding.get
-      if binding.abi != TrustedExternAbi.abiName then
+      if !TrustedExternAbi.isSupportedAbiName(binding.abi) then
         error(
           "cosmo0.lir.invalid-extern-binding",
           s"${function.id} uses unsupported extern ABI ${binding.abi}",

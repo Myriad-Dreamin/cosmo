@@ -109,6 +109,49 @@ class FacadeTests extends munit.FunSuite:
     assert(somePattern.constructor.isInstanceOf[UntypedVariantConstructor])
     assertEquals(somePattern.args.length, 1)
 
+  test("elaborate preserves direct C extern metadata"):
+    val result = Cosmo0().elaborate(
+      """@extern("c", symbol: "abs", include: "<stdlib.h>")
+        |def c_abs(value: i32): i32
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
+    val binding = fn.externBinding.getOrElse(fail("missing extern metadata"))
+    assertEquals(binding.abi, TrustedExternAbi.directCAbiName)
+    assertEquals(binding.symbol, Some("abs"))
+    assertEquals(binding.include, Some("<stdlib.h>"))
+    assertEquals(binding.supportLibrary, None)
+    assertEquals(fn.body, None)
+
+  test("elaborate rejects invalid direct C extern declarations"):
+    val cases = List(
+      """@extern("c", symbol: "std::puts")
+        |def puts(value: i32): i32
+        |""".stripMargin,
+      """@extern("c")
+        |def host(value: i32): i32 = value
+        |""".stripMargin,
+      """@extern("c", include: "stdlib.h")
+        |def c_abs(value: i32): i32
+        |""".stripMargin,
+    )
+
+    cases.foreach { source =>
+      val result = Cosmo0().elaborate(source)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Unsupported)
+      assert(
+        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-extern"),
+        s"missing invalid extern diagnostic in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
   test("elaborate rejects unsupported full-language constructs deterministically"):
     val cases = List(
       "trait Display {}" -> "cosmo0.elaborate.unsupported.trait",

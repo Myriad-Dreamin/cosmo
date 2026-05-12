@@ -32,6 +32,15 @@ object BackendRequirement:
   def supportLibrary(name: String): BackendRequirement =
     BackendRequirement(BackendRequirementKind.SupportLibrary, name)
 
+final case class SourceExternBinding(
+    abi: String,
+    symbol: Option[String],
+    include: Option[String],
+    supportLibrary: Option[String],
+    span: SourceSpan,
+):
+  require(abi.nonEmpty, "source extern ABI names must be non-empty")
+
 final case class CppQualifiedSymbol(
     parts: List[String],
     absolute: Boolean = true,
@@ -74,7 +83,7 @@ object CppQualifiedSymbol:
       if value.startsWith("::") then value.drop(2) else value
     CppQualifiedSymbol(trimmed.split("::", -1).toList, absolute)
 
-  private def isIdentifier(value: String): Boolean =
+  def isIdentifier(value: String): Boolean =
     Identifier.pattern.matcher(value).matches
 
 final case class LirExternBinding(
@@ -86,6 +95,7 @@ final case class LirExternBinding(
 
 object TrustedExternAbi:
   val abiName = "cosmo0.extern.v0"
+  val directCAbiName = "c"
 
   private val printSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "print")
@@ -176,13 +186,38 @@ object TrustedExternAbi:
   def callable(name: String, span: SourceSpan): Option[CallableSignature] =
     trustedBindings.get(name).map(_.callable(span))
 
+  def isSupportedAbiName(name: String): Boolean =
+    name == abiName || name == directCAbiName
+
   def bindingForDeclaration(function: TypedFunction): Option[LirExternBinding] =
-    if function.owner.nonEmpty || function.body.nonEmpty then None
+    function.externBinding.flatMap(directCBindingForDeclaration(function, _)).orElse {
+      if function.owner.nonEmpty || function.body.nonEmpty then None
+      else
+        trustedBindings
+          .get(function.name)
+          .filter(_.accepts(function.signature))
+          .map(_.lirBinding)
+    }
+
+  private def directCBindingForDeclaration(
+      function: TypedFunction,
+      sourceBinding: SourceExternBinding,
+  ): Option[LirExternBinding] =
+    if function.owner.nonEmpty || function.body.nonEmpty || sourceBinding.abi != directCAbiName then None
     else
-      trustedBindings
-        .get(function.name)
-        .filter(_.accepts(function.signature))
-        .map(_.lirBinding)
+      val symbolName = sourceBinding.symbol.getOrElse(function.name)
+      if !CppQualifiedSymbol.isIdentifier(symbolName) then None
+      else
+        val symbol = CppQualifiedSymbol.relative(symbolName)
+        Some(
+          LirExternBinding(
+            directCAbiName,
+            symbol,
+            List(BackendRequirement.runtimeSymbol(symbol)) ++
+              sourceBinding.include.map(BackendRequirement.include) ++
+              sourceBinding.supportLibrary.map(BackendRequirement.supportLibrary),
+          ),
+        )
 
   def syntheticFunction(name: String): Option[LirFunction] =
     trustedBindings.get(name).map(_.syntheticFunction)
