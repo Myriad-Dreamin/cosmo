@@ -6,7 +6,20 @@ This file is the owner for cosmo0 type syntax and type validity. Section heading
 
 == Primitive Types
 
-Placeholder for scalar and built-in value types accepted by cosmo0, including unit, booleans, integer widths, sizes, bytes, chars, strings, and any other primitive forms admitted by future capability work.
+cosmo0 accepts the following primitive value types without requiring a standard-library declaration:
+
+- `Unit`
+- `Bool`
+- signed integer widths `i8`, `i16`, `i32`, and `i64`
+- unsigned integer widths `u8`, `u16`, `u32`, `u64`, and `usize`
+- scalar aliases `Byte` for `u8`
+- `Char`
+- `String`
+- `f32` and `f64`
+
+Integer literals default to `i32` unless an expected integer type is known from an annotation, parameter, return type, field, or comparison context. Floating literals default to `f64` unless an expected floating type is known. Boolean literals have type `Bool`, string literals have type `String`, and an empty block or unit literal has type `Unit`.
+
+Primitive type names are not an open descriptor namespace. Adding a new primitive type or scalar literal backing requires an explicit spec update in this file and a matching runtime descriptor boundary update in `runtime.typ`.
 
 == Examples
 
@@ -37,7 +50,9 @@ The accepted example uses a simple alias, concrete standard type application, an
 
 == Reference and Mutability Types
 
-Placeholder for immutable references, mutable references, receiver forms, mutable locals, mutable fields, and the type rules that govern mutation through references.
+cosmo0 supports immutable references `&T` and mutable references `&mut T`. A reference type may target a primitive, user class, simple alias, or sealed standard type application accepted by this file.
+
+Methods may receive `&self` or `&mut self`. Mutation through a reference is only valid when the reference is mutable and the selected field or standard operation is mutable. Taking an immutable reference does not make the referenced value mutable.
 
 == Type Aliases
 

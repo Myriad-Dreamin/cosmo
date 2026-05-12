@@ -1,0 +1,28 @@
+class Span {
+  val start: usize
+  val end: usize
+
+  def is_empty(&self): Bool = {
+    self.start == self.end
+  }
+
+  def len(&self): usize = {
+    if (self.end > self.start) {
+      self.end - self.start
+    } else {
+      0
+    }
+  }
+
+  def contains(&self, offset: usize): Bool = {
+    self.start <= offset and offset < self.end
+  }
+}
+
+def make_span(start: usize, end: usize): Span = {
+  Span(start, end)
+}
+
+def span_covers(span: Span, start: usize, end: usize): Bool = {
+  span.start <= start and span.end >= end
+}

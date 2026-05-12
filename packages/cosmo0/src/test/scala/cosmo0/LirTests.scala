@@ -161,6 +161,28 @@ class LirTests extends munit.FunSuite:
       )
     }
 
+  test("LIR type checker rejects ordinary runtime APIs as descriptor families"):
+    val cases = List(
+      LirDescriptorRef("Json") -> "parse",
+      LirDescriptorRef("Filesystem") -> "read_file",
+      LirDescriptorRef("Command") -> "run",
+      LirDescriptorRef("StringBuilder") -> "<init>",
+    )
+
+    cases.foreach { case (descriptor, operation) =>
+      val result = LirTypeChecker().check(rejectedDescriptorModule(descriptor, operation))
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Failed)
+      assert(
+        result.diagnostics.exists(_.code == "cosmo0.lir.invalid-descriptor"),
+        s"missing invalid descriptor diagnostic for ${descriptor.name}::$operation in ${result.diagnostics.map(_.code)}",
+      )
+    }
+
+    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("StringBuilder"))
+    assert(StandardGenericDescriptors.get("StringBuilder").isEmpty)
+
   test("LIR type checker diagnostics are deterministic and identify failing constructs"):
     val first = invalidBranchModule()
     val second = first.copy(declarations = first.declarations.reverse)
@@ -373,6 +395,37 @@ class LirTests extends munit.FunSuite:
             LirDescriptorIntrinsic(output, descriptor, name, args, Some(Lir.t(SourceType.I32)))
           case other => other
         },
+      ),
+    )
+
+  private def rejectedDescriptorModule(
+      descriptor: LirDescriptorRef,
+      operation: String,
+  ): LirModule =
+    LirModule(
+      s"rejected_${descriptor.name.toLowerCase}",
+      List(
+        Lir.function(
+          "bad",
+          Nil,
+          SourceType.Unit,
+          locals = Nil,
+          blocks = List(
+            Lir.block(
+              "entry",
+              operations = List(
+                LirDescriptorIntrinsic(
+                  None,
+                  descriptor,
+                  operation,
+                  Nil,
+                  Some(Lir.t(SourceType.Unit)),
+                ),
+              ),
+              terminator = LirReturn(None),
+            ),
+          ),
+        ),
       ),
     )
 

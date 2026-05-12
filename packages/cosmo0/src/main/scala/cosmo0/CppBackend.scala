@@ -654,7 +654,6 @@ final class CppBackend(
         case SourceType.Builtin("u64")           => "uint64_t"
         case SourceType.Builtin("usize")         => "std::size_t"
         case SourceType.Builtin("String")        => "std::string"
-        case SourceType.Builtin("StringBuilder") => "std::string"
         case SourceType.Builtin("Char")          => "char32_t"
         case SourceType.Builtin("f32")           => "float"
         case SourceType.Builtin("f64")           => "double"
@@ -752,9 +751,6 @@ final class CppBackend(
         case "String" =>
           emitStringDescriptor(name, args, locals, descriptor)
 
-        case "StringBuilder" =>
-          emitStringBuilderDescriptor(name, args, locals, descriptor)
-
         case "Vec" =>
           emitVecDescriptor(descriptor, name, args, locals)
 
@@ -842,28 +838,6 @@ final class CppBackend(
           Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("string")))
         case "ne" if args.length == 2 =>
           Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("string")))
-        case _ =>
-          unsupportedDescriptor(descriptorText(descriptor), name)
-          None
-
-    private def emitStringBuilderDescriptor(
-        name: String,
-        args: List[LirValue],
-        locals: FunctionNames,
-        descriptor: LirDescriptorRef,
-    ): Option[EmittedDescriptor] =
-      def arg(index: Int): String = renderValue(args(index), locals)
-      name match
-        case "<init>" if args.isEmpty =>
-          Some(EmittedDescriptor.Expr("std::string{}", Set("string-builder")))
-        case "append" if args.length == 2 =>
-          Some(EmittedDescriptor.Stmt(s"${arg(0)}.append(${arg(1)})", Set("string-builder")))
-        case "append_char" if args.length == 2 =>
-          Some(EmittedDescriptor.Stmt(s"${arg(0)}.push_back(static_cast<char>(${arg(1)}))", Set("string-builder")))
-        case "clear" if args.length == 1 =>
-          Some(EmittedDescriptor.Stmt(s"${arg(0)}.clear()", Set("string-builder")))
-        case "finish" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(arg(0), Set("string-builder")))
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None

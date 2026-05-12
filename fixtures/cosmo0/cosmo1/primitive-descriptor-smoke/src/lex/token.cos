@@ -1,0 +1,36 @@
+import source.span
+
+class TokenKind {
+  val tag: u8
+  val can_start_expr: Bool
+}
+
+class Token {
+  val kind: TokenKind
+  val span: Span
+  val had_leading_space: Bool
+}
+
+def token_kind_identifier(): TokenKind = {
+  TokenKind(1, true)
+}
+
+def token_kind_eof(): TokenKind = {
+  TokenKind(0, false)
+}
+
+def token_kind_is_eof(kind: TokenKind): Bool = {
+  kind.tag == 0
+}
+
+def make_token(kind: TokenKind, span: Span, had_leading_space: Bool): Token = {
+  Token(kind, span, had_leading_space)
+}
+
+def token_can_start_expr(token: Token): Bool = {
+  token.kind.can_start_expr and !token.had_leading_space
+}
+
+def token_has_span(token: Token, start: usize, end: usize): Bool = {
+  span_covers(token.span, start, end)
+}

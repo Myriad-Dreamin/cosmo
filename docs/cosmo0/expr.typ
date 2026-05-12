@@ -6,7 +6,9 @@ This file owns expression typing and expression validity for cosmo0. The heading
 
 == Literals
 
-Placeholder for accepted unit, boolean, integer, numeric-text, string, byte, char, and aggregate literal behavior.
+cosmo0 accepts unit, boolean, integer, floating, and string literals. Integer literals are typed from context when the expected type is an integer primitive such as `usize` or `u8`; otherwise they default to `i32`. Floating literals are typed from context when the expected type is `f32` or `f64`; otherwise they default to `f64`.
+
+Scalar literals lower through primitive typed values, not through ordinary runtime descriptor families.
 
 == Examples
 
@@ -40,6 +42,17 @@ Placeholder for local names, fields, methods, module-qualified names, standard A
 == Calls and Construction
 
 Placeholder for function calls, method calls, constructors, variant construction, standard API calls, and call diagnostics.
+
+Primitive scalar operations are available only through compiler-known expression forms and the primitive descriptor allowlist:
+
+- boolean negation and boolean `and`/`or`
+- numeric unary negation
+- numeric arithmetic `+`, `-`, `*`, `/`, and `%`
+- equality and inequality on matching primitive operands
+- numeric comparisons `<`, `<=`, `>`, and `>=`
+- string equality, inequality, and the currently implemented primitive string helpers
+
+Boolean branch conditions for `if`, `while`, and lowered control flow must have type `Bool`.
 
 == Assignment and Mutation
 

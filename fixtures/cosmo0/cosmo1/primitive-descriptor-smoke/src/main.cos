@@ -1,0 +1,12 @@
+import lex.token
+
+def span_token_smoke(): Bool = {
+  val span = make_span(0, 3);
+  val kind = token_kind_identifier();
+  val token = make_token(kind, span, false);
+  if (token_kind_is_eof(token.kind)) {
+    false
+  } else {
+    token_can_start_expr(token) and token_has_span(token, 0, 3)
+  }
+}
