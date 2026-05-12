@@ -1,0 +1,13 @@
+import core0.text
+import source.source
+
+def source_text_helpers_smoke(): Bool = {
+  val source = source_text_from_string("alpha\nbeta");
+  val view = source_text_view(source, 0, 5);
+
+  source.name == "<memory>" and
+    source_text_len(source) == 10 and
+    !source_text_is_empty(source) and
+    source_text_slice(source, 6, 10) == "beta" and
+    view.to_string() == "alpha"
+}

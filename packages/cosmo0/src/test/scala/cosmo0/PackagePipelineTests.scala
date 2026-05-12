@@ -172,6 +172,8 @@ class PackagePipelineTests extends munit.FunSuite:
           "core0/text.cos",
           "source/source.cos",
           "source/source_map.cos",
+          "source/source_test.cos",
+          "source/source_map_test.cos",
           "parser.cos",
           "parser_test.cos",
         ),
@@ -185,6 +187,8 @@ class PackagePipelineTests extends munit.FunSuite:
         List("parser_test"),
         List("source", "source"),
         List("source", "source_map"),
+        List("source", "source_map_test"),
+        List("source", "source_test"),
       ),
     )
 
@@ -197,7 +201,15 @@ class PackagePipelineTests extends munit.FunSuite:
     )
     assertEquals(
       checked.value.get.moduleOrder,
-      List("core0/text", "parser", "parser_test", "source/source", "source/source_map"),
+      List(
+        "core0/text",
+        "parser",
+        "parser_test",
+        "source/source",
+        "source/source_map",
+        "source/source_map_test",
+        "source/source_test",
+      ),
     )
 
     val compiled = Cosmo0().compilePackage(path)

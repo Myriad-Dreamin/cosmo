@@ -7,6 +7,8 @@
     "core0/text.cos",
     "source/source.cos",
     "source/source_map.cos",
+    "source/source_test.cos",
+    "source/source_map_test.cos",
     "parser.cos",
     "parser_test.cos"
   ]
