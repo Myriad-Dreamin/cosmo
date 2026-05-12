@@ -850,17 +850,20 @@ final class SourceTyper(
         scope: Scope,
         context: FunctionContext,
     ): ExprInfo =
-      val expected = runtimeFunctionExpected(calleeName)
-      if args.length != expected.params.length then
+      val signature = TrustedExternAbi.callable(calleeName, name.span).getOrElse(
+        CallableSignature(calleeName, Nil, SourceType.Error),
+      )
+      if args.length != signature.params.length then
         error(
           "cosmo0.type.wrong-arity",
-          s"$calleeName expects ${expected.params.length} argument(s), got ${args.length}",
+          s"$calleeName expects ${signature.params.length} argument(s), got ${args.length}",
           span,
         )
       val typedArgs = args.zipWithIndex.map { case (arg, index) =>
-        expr(arg, scope, expected.params.lift(index), context).expr
+        expr(arg, scope, signature.params.lift(index).map(_.valueType), context).expr
       }
-      typedArgs.zip(expected.params).zipWithIndex.foreach { case ((actual, paramType), index) =>
+      typedArgs.zip(signature.params).zipWithIndex.foreach { case ((actual, param), index) =>
+        val paramType = param.valueType
         if !SourceType.assignable(actual.valueType, paramType) then
           error(
             "cosmo0.type.invalid-call",
@@ -868,42 +871,20 @@ final class SourceTyper(
             args(index).span,
           )
       }
-      val params = expected.params.zip(args).map { case (paramType, raw) =>
-        CallableParam("value", paramType, raw.span)
-      }
-      val signature = CallableSignature(calleeName, params, expected.returnType)
       ExprInfo(
         TypedCall(
           TypedName(name.path, signature.functionType, false, false, name.span),
           typedArgs,
-          expected.returnType,
+          signature.returnType,
           signature,
           span,
         ),
         mutableBinding = false,
-        mutationAllowed = mutationCapability(expected.returnType),
+        mutationAllowed = mutationCapability(signature.returnType),
       )
 
     private def isRuntimeFunction(name: String): Boolean =
-      runtimeFunctionExpectedByName.contains(name)
-
-    private final case class RuntimeFunctionExpected(
-        params: List[SourceType],
-        returnType: SourceType,
-    )
-
-    private val runtimeFunctionExpectedByName: Map[String, RuntimeFunctionExpected] =
-      Map(
-        "print" -> RuntimeFunctionExpected(List(SourceType.Error), SourceType.Unit),
-        "println" -> RuntimeFunctionExpected(List(SourceType.Error), SourceType.Unit),
-        "read_file" -> RuntimeFunctionExpected(List(SourceType.String), SourceType.String),
-      )
-
-    private def runtimeFunctionExpected(name: String): RuntimeFunctionExpected =
-      runtimeFunctionExpectedByName.getOrElse(
-        name,
-        RuntimeFunctionExpected(Nil, SourceType.Error),
-      )
+      TrustedExternAbi.isTrustedSourceName(name)
 
     private def assignExpr(
         node: UntypedAssign,

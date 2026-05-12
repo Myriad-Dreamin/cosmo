@@ -62,6 +62,7 @@ final case class LirFunction(
     blocks: List[LirBlock],
     owner: Option[LirDeclId] = None,
     sourceSignature: Option[CallableSignature] = None,
+    externBinding: Option[LirExternBinding] = None,
 ) extends LirDeclaration:
   def signature: LirCallableSignature =
     LirCallableSignature(
@@ -349,6 +350,7 @@ object Lir:
       id: String = "",
       owner: Option[LirDeclId] = None,
       sourceSignature: Option[CallableSignature] = None,
+      externBinding: Option[LirExternBinding] = None,
   ): LirFunction =
     LirFunction(
       declId(stableId(id, name)),
@@ -359,6 +361,7 @@ object Lir:
       blocks,
       owner,
       sourceSignature,
+      externBinding,
     )
 
   private def stableId(value: String, fallback: String): String =
@@ -408,10 +411,13 @@ object LirDebugRenderer:
   private def renderFunction(function: LirFunction, indent: Int): String =
     val params = function.params.map(renderParam).mkString(", ")
     val owner = function.owner.fold("")(owner => s" owner $owner")
+    val extern = function.externBinding.fold("") { binding =>
+      s""" extern ${binding.abi} ${quote(binding.symbol)}"""
+    }
     val header =
       line(
         indent,
-        s"fn ${function.id} ${function.name}($params) -> ${renderType(function.returnType)}$owner {",
+        s"fn ${function.id} ${function.name}($params) -> ${renderType(function.returnType)}$owner$extern {",
       )
     val localLines =
       function.locals.sortBy(_.id.value).map(local => line(indent + 2, renderLocal(local)))

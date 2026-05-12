@@ -163,6 +163,7 @@ class LirTests extends munit.FunSuite:
 
   test("LIR type checker rejects ordinary runtime APIs as descriptor families"):
     val cases = List(
+      LirDescriptorRef("Runtime") -> "println",
       LirDescriptorRef("Json") -> "parse",
       LirDescriptorRef("Filesystem") -> "read_file",
       LirDescriptorRef("Command") -> "run",

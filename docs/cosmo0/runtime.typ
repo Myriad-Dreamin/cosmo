@@ -6,9 +6,8 @@ This file owns runtime and backend requirements behind cosmo0 source behavior. T
 
 == Primitive Descriptors
 
-Primitive descriptors are a closed implementation allowlist. They cover only compiler-essential scalar behavior and required ABI hooks:
+Primitive descriptors are a closed implementation allowlist. They cover only compiler-essential scalar behavior:
 
-- `Runtime` ABI hooks required by the current backend
 - `Bool`
 - `Char`
 - `String` scalar backing and currently implemented primitive string helpers
@@ -37,18 +36,36 @@ descriptor Vec<Token>::push(%tokens, %token) -> Unit
 Extern-backed standard API shape:
 
 ```cos
-extern "cosmo0" def fs_read_to_string(path: Path): Result<String, IoError>
+import std.io
+
+def smoke(): Unit = {
+  println("cosmo1 extern smoke")
+}
+```
+
+Possible lowered extern obligation:
+
+```text
+extern cosmo0.extern.v0 "cosmo0_runtime::println"
+runtime-symbol:cosmo0_runtime::println
+include:<cstdio>
 ```
 
 The source-facing call belongs to `std.typ` and expression/type owner files. This file owns the lowered descriptor or extern obligations needed to make that call deterministic and portable.
 
 == Extern ABI Hooks
 
-Extern ABI hooks are backend/runtime obligations used to implement standard APIs or compiler-required operations. A hook does not by itself define a source-facing standard API and does not authorize a descriptor family with the same domain name.
+Extern ABI hooks are backend/runtime obligations used to implement trusted core0/std declarations or compiler-required operations. A hook does not by itself define a source-facing standard API and does not authorize a descriptor family with the same domain name.
+
+The initial ABI name is `cosmo0.extern.v0`. A trusted extern binding records the target runtime symbol and any backend requirements such as include headers or support libraries. Backends SHALL diagnose an extern binding when the named runtime symbol is not supported by the selected backend.
+
+Extern hooks are not general user-level FFI. cosmo0 source may call the std declaration, such as `println`, but arbitrary packages may not introduce new bodyless host declarations without accepted metadata.
 
 == Backend Runtime Requirements
 
-Placeholder for runtime support emitted by the C++ backend, including helper declarations, deterministic inclusion, standard container lowering, and unsupported-runtime diagnostics.
+The C++ backend tracks runtime requirements independently from descriptor operations. Requirement records may name descriptor support, runtime symbols, include headers, or support libraries. Descriptor requirements do not create new source APIs, and extern requirements do not create descriptor families.
+
+The backend SHALL emit a diagnostic when a lowered extern binding names a missing runtime symbol. The diagnostic must occur at compile/backend time before a generated C++ artifact is treated as valid.
 
 == Determinism
 

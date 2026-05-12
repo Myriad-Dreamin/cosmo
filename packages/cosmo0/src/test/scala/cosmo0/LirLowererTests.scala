@@ -233,6 +233,37 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("descriptor Arena[Node]::alloc(%arena, %fallback) -> Id[Node]"))
     assert(rendered.contains("descriptor Arena[Node]::get(%arena, %node_id) -> &Node"))
 
+  test("lowers trusted extern std declarations to direct extern calls"):
+    val result = Cosmo0().lower(
+      """def println(value: String): Unit
+        |
+        |def smoke(): Unit = {
+        |  println("cosmo1 extern smoke")
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"lowering failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assert(rendered.contains("fn @println println(%value value: String) -> Unit extern cosmo0.extern.v0 \"cosmo0_runtime::println\""))
+    assert(rendered.contains("call @println(\"cosmo1 extern smoke\") -> Unit"))
+    assert(!rendered.contains("descriptor Runtime"))
+
+  test("lower reports missing extern metadata for untrusted bodyless declarations"):
+    val result = Cosmo0().lower("def host_call(value: String): Unit")
+
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(
+      result.diagnostics.exists(_.code == "cosmo0.lir.lower.missing-extern-binding"),
+      s"missing extern binding diagnostic in ${result.diagnostics.map(_.code)}",
+    )
+
   test("lowers primitive scalar operations, boolean branches, and references"):
     val result = Cosmo0().lower(
       """class Cell {
