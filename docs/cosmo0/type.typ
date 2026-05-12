@@ -21,6 +21,14 @@ Integer literals default to `i32` unless an expected integer type is known from 
 
 Primitive type names are not an open descriptor namespace. Adding a new primitive type or scalar literal backing requires an explicit spec update in this file and a matching runtime descriptor boundary update in `runtime.typ`.
 
+== Stage 1 Text Scalar Assumptions
+
+`String` is the owned text scalar for Stage 1 source handling. Stage 1 string offsets and lengths are measured in bytes and use `usize`; the `Byte` alias denotes the `u8` value returned by byte-oriented access.
+
+Stage 1 lexing is ASCII-oriented. `Char` exists as the scalar result for character access, but `core0.text` only commits to returning an ASCII-compatible scalar for source bytes in the initial compiler slice. Full Unicode scalar iteration, normalization, grapheme clusters, locale-sensitive case behavior, and encoding repair are outside Stage 1.
+
+`String` values are immutable source values. Slicing creates a new owned `String`, while text views such as `TextView` or source wrappers such as `SourceText` are standard API types owned by `std.typ`; they are not new primitive types and do not extend the descriptor namespace.
+
 == Examples
 
 Accepted type shapes:

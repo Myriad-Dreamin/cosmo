@@ -168,6 +168,9 @@ class LirTests extends munit.FunSuite:
       LirDescriptorRef("Filesystem") -> "read_file",
       LirDescriptorRef("Command") -> "run",
       LirDescriptorRef("StringBuilder") -> "<init>",
+      LirDescriptorRef("TextBuilder") -> "<init>",
+      LirDescriptorRef("TextView") -> "slice",
+      LirDescriptorRef("SourceText") -> "len",
     )
 
     cases.foreach { case (descriptor, operation) =>
@@ -182,7 +185,13 @@ class LirTests extends munit.FunSuite:
     }
 
     assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("StringBuilder"))
+    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("TextBuilder"))
+    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("TextView"))
+    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("SourceText"))
     assert(StandardGenericDescriptors.get("StringBuilder").isEmpty)
+    assert(StandardGenericDescriptors.get("TextBuilder").isEmpty)
+    assert(StandardGenericDescriptors.get("TextView").isEmpty)
+    assert(StandardGenericDescriptors.get("SourceText").isEmpty)
 
   test("extern C++ symbols are structured qualified names"):
     val symbol = CppQualifiedSymbol.global("cosmo0_runtime", "println")

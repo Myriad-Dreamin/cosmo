@@ -1,0 +1,18 @@
+import core0.text
+import source.source
+import source.source_map
+
+def source_map_helpers_smoke(): Bool = {
+  val source = source_text("<map>", "a\nbc\ndef");
+  val map = make_source_map(source);
+  val location = map.location(3);
+
+  map.len() == 8 and
+    source_map_clamp_offset(source, 99) == 8 and
+    map.line_start(3) == 2 and
+    map.line_end(3) == 4 and
+    map.line_text(5) == "def" and
+    location.line == 2 and
+    location.column == 2 and
+    location.offset == 3
+}

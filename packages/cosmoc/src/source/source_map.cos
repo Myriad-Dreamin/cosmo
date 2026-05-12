@@ -1,0 +1,67 @@
+import core0.text
+import source.source
+
+class SourceLocation {
+  val line: usize
+  val column: usize
+  val offset: usize
+}
+
+class SourceMap {
+  val source: SourceText
+
+  def len(&self): usize = {
+    self.source.len()
+  }
+
+  def location(&self, offset: usize): SourceLocation = {
+    val limit = source_map_clamp_offset(self.source, offset);
+    var cursor: usize = 0;
+    var line: usize = 1;
+    var column: usize = 1;
+    while (cursor < limit) {
+      if (self.source.byte_at(cursor) == 10) {
+        line = line + 1;
+        column = 1
+      } else {
+        column = column + 1
+      }
+      cursor = cursor + 1
+    }
+    SourceLocation(line, column, cursor)
+  }
+
+  def line_start(&self, offset: usize): usize = {
+    var cursor: usize = source_map_clamp_offset(self.source, offset);
+    while (cursor > 0 and self.source.byte_at(cursor - 1) != 10) {
+      cursor = cursor - 1
+    }
+    cursor
+  }
+
+  def line_end(&self, offset: usize): usize = {
+    var cursor: usize = source_map_clamp_offset(self.source, offset);
+    while (cursor < self.source.len() and self.source.byte_at(cursor) != 10) {
+      cursor = cursor + 1
+    }
+    cursor
+  }
+
+  def line_text(&self, offset: usize): String = {
+    val start = self.line_start(offset);
+    val end = self.line_end(offset);
+    self.source.slice(start, end)
+  }
+}
+
+def source_map_clamp_offset(source: SourceText, offset: usize): usize = {
+  if (offset > source.len()) {
+    source.len()
+  } else {
+    offset
+  }
+}
+
+def make_source_map(source: SourceText): SourceMap = {
+  SourceMap(source)
+}

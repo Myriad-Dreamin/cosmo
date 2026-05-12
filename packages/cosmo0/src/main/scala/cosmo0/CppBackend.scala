@@ -754,6 +754,9 @@ final class CppBackend(
         case "Bool" =>
           emitBoolDescriptor(name, args, locals, descriptor)
 
+        case "Char" =>
+          emitCharDescriptor(name, args, locals, descriptor)
+
         case "String" =>
           emitStringDescriptor(name, args, locals, descriptor)
 
@@ -816,6 +819,24 @@ final class CppBackend(
         case "or" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} || ${arg(1)})", Set("bool")))
         case "eq" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("bool")))
         case "ne" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("bool")))
+        case _ =>
+          unsupportedDescriptor(descriptorText(descriptor), name)
+          None
+
+    private def emitCharDescriptor(
+        name: String,
+        args: List[LirValue],
+        locals: FunctionNames,
+        descriptor: LirDescriptorRef,
+    ): Option[EmittedDescriptor] =
+      def arg(index: Int): String = renderValue(args(index), locals)
+      name match
+        case "eq" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("char")))
+        case "ne" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("char")))
+        case "lt" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} < ${arg(1)})", Set("char")))
+        case "le" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} <= ${arg(1)})", Set("char")))
+        case "gt" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} > ${arg(1)})", Set("char")))
+        case "ge" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} >= ${arg(1)})", Set("char")))
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None

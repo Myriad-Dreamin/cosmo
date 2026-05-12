@@ -234,6 +234,11 @@ object StandardGenericDescriptors:
         "Command",
         "Process",
         "StringBuilder",
+        "TextBuilder",
+        "TextView",
+        "TextSlice",
+        "SourceText",
+        "SourceMap",
         "BigInt",
         "BigDecimal",
       )

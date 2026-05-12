@@ -1,0 +1,24 @@
+import core0.text
+import source.source
+import source.source_map
+
+def source_text_fixture(): Bool = {
+  val source = source_text("<fixture>", "one\ntwo\n");
+  val map = make_source_map(source);
+  val view = source.view(0, 3);
+  val location = map.location(4);
+  var builder = core0_text_builder_from(source.name);
+  builder.push(":");
+  builder.push_view(view);
+  val rendered = builder.finish();
+
+  source.len() == 8 and
+    !source.is_empty() and
+    source.byte_at(0) == 111 and
+    source.char_at(0) != source.char_at(1) and
+    source.starts_with(4, "two") and
+    map.line_text(4) == "two" and
+    location.line == 2 and
+    location.column == 1 and
+    rendered == "<fixture>:one"
+}
