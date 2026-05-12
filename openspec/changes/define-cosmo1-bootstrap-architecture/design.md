@@ -26,81 +26,81 @@ The immediate design problem is to list what cosmo1 needs so cosmo0 can be built
 
 ## Decisions
 
-### Place cosmo1 in a dedicated package
+### Use the existing cosmoc package as cosmo1
 
-cosmo1 source should live in a dedicated package, tentatively:
+cosmo1 is the bootstrapped Cosmo compiler target and uses the existing `packages/cosmoc` package. New bootstrap stages should evolve that package rather than creating a separate package tree.
 
 ```text
-packages/cosmo1/
+packages/cosmoc/
   cosmo.json
   src/
 ```
 
-The package name should be distinct from the current Scala compiler and existing `packages/cosmoc` experiments. A reasonable package identity is `@cosmo/cosmo1` or `@cosmo/compiler1`; the final name can be chosen before implementation.
+The package identity remains `@cosmo/compiler`. Exploratory files may remain under `packages/cosmoc/src`, but stage metadata should select the source files that belong to a specific validation slice.
 
-Alternative considered: continue using `packages/cosmoc/src`. That keeps existing experiments nearby, but it blurs bootstrap-target code with exploratory code and makes acceptance harder to define.
+Alternative considered: create a separate package tree. That incorrectly splits the bootstrapped compiler from the existing `cosmoc` package and duplicates the compiler identity.
 
 ### Use layered compiler modules
 
 cosmo1 should be organized as a traditional compiler pipeline. Proposed files:
 
 ```text
-packages/cosmo1/src/main.cos
+packages/cosmoc/src/main.cos
 
-packages/cosmo1/src/driver/config.cos
-packages/cosmo1/src/driver/session.cos
-packages/cosmo1/src/driver/compile.cos
-packages/cosmo1/src/driver/diagnostic.cos
+packages/cosmoc/src/driver/config.cos
+packages/cosmoc/src/driver/session.cos
+packages/cosmoc/src/driver/compile.cos
+packages/cosmoc/src/driver/diagnostic.cos
 
-packages/cosmo1/src/source/source.cos
-packages/cosmo1/src/source/span.cos
-packages/cosmo1/src/source/source_map.cos
+packages/cosmoc/src/source/source.cos
+packages/cosmoc/src/source/span.cos
+packages/cosmoc/src/source/source_map.cos
 
-packages/cosmo1/src/lex/token.cos
-packages/cosmo1/src/lex/lexer.cos
+packages/cosmoc/src/lex/token.cos
+packages/cosmoc/src/lex/lexer.cos
 
-packages/cosmo1/src/syntax/ast.cos
-packages/cosmo1/src/syntax/parser.cos
-packages/cosmo1/src/syntax/json_loader.cos
-packages/cosmo1/src/syntax/pretty.cos
+packages/cosmoc/src/syntax/ast.cos
+packages/cosmoc/src/syntax/parser.cos
+packages/cosmoc/src/syntax/json_loader.cos
+packages/cosmoc/src/syntax/pretty.cos
 
-packages/cosmo1/src/package/meta.cos
-packages/cosmo1/src/package/loader.cos
-packages/cosmo1/src/package/module_graph.cos
+packages/cosmoc/src/package/meta.cos
+packages/cosmoc/src/package/loader.cos
+packages/cosmoc/src/package/module_graph.cos
 
-packages/cosmo1/src/names/symbol.cos
-packages/cosmo1/src/names/scope.cos
-packages/cosmo1/src/names/resolve.cos
+packages/cosmoc/src/names/symbol.cos
+packages/cosmoc/src/names/scope.cos
+packages/cosmoc/src/names/resolve.cos
 
-packages/cosmo1/src/types/type_expr.cos
-packages/cosmo1/src/types/ty.cos
-packages/cosmo1/src/types/env.cos
-packages/cosmo1/src/types/check.cos
-packages/cosmo1/src/types/subtype.cos
-packages/cosmo1/src/types/normalize.cos
+packages/cosmoc/src/types/type_expr.cos
+packages/cosmoc/src/types/ty.cos
+packages/cosmoc/src/types/env.cos
+packages/cosmoc/src/types/check.cos
+packages/cosmoc/src/types/subtype.cos
+packages/cosmoc/src/types/normalize.cos
 
-packages/cosmo1/src/eval/value.cos
-packages/cosmo1/src/eval/interpreter.cos
-packages/cosmo1/src/eval/builtins.cos
+packages/cosmoc/src/eval/value.cos
+packages/cosmoc/src/eval/interpreter.cos
+packages/cosmoc/src/eval/builtins.cos
 
-packages/cosmo1/src/ir/hir.cos
-packages/cosmo1/src/ir/tir.cos
-packages/cosmo1/src/ir/lower.cos
+packages/cosmoc/src/ir/hir.cos
+packages/cosmoc/src/ir/tir.cos
+packages/cosmoc/src/ir/lower.cos
 
-packages/cosmo1/src/codegen/cpp/ast.cos
-packages/cosmo1/src/codegen/cpp/emit.cos
-packages/cosmo1/src/codegen/cpp/names.cos
-packages/cosmo1/src/codegen/cpp/runtime.cos
+packages/cosmoc/src/codegen/cpp/ast.cos
+packages/cosmoc/src/codegen/cpp/emit.cos
+packages/cosmoc/src/codegen/cpp/names.cos
+packages/cosmoc/src/codegen/cpp/runtime.cos
 
-packages/cosmo1/src/link/artifact.cos
-packages/cosmo1/src/link/cmake.cos
-packages/cosmo1/src/link/command.cos
+packages/cosmoc/src/link/artifact.cos
+packages/cosmoc/src/link/cmake.cos
+packages/cosmoc/src/link/command.cos
 
-packages/cosmo1/src/cache/depfile.cos
-packages/cosmo1/src/cache/ir_cache.cos
-packages/cosmo1/src/cache/scope_json.cos
+packages/cosmoc/src/cache/depfile.cos
+packages/cosmoc/src/cache/ir_cache.cos
+packages/cosmoc/src/cache/scope_json.cos
 
-packages/cosmo1/src/tests/smoke.cos
+packages/cosmoc/src/tests/smoke.cos
 ```
 
 The `json_loader.cos` file is transitional. It allows cosmo1 to consume AST JSON from the existing Scala parser while `syntax/parser.cos` matures.
@@ -173,17 +173,17 @@ Each stage should be compilable through cosmo0.
 
 1. Accept this architecture proposal as the cosmo1 target.
 2. Extend the cosmo0/core0 descriptor work with the standard types required by the first cosmo1 stage.
-3. Create the dedicated cosmo1 package skeleton.
+3. Extend the existing `packages/cosmoc` package metadata and source layout for the first cosmo1 stage.
 4. Implement source, span, diagnostic, token, and lexer/parser smoke modules first.
 5. Add JSON AST loading to bridge from the existing Scala parser while native cosmo1 parsing matures.
 6. Grow name resolution, typing, eval, and codegen in staged milestones.
 7. Keep the Scala full compiler available until cosmo1 reaches explicit parity checkpoints.
 
-Rollback is additive: remove the cosmo1 package or exclude it from build/test targets while leaving cosmo0 and the existing Scala compiler intact.
+Rollback is additive: remove the staged `packages/cosmoc` metadata/source additions or exclude them from build/test targets while leaving cosmo0 and the existing Scala compiler intact.
 
 ## Open Questions
 
-- Should the package be named `@cosmo/cosmo1`, `@cosmo/compiler1`, or reuse `@cosmo/compiler` after migration?
+- Which `packages/cosmoc` source files should be included in each stage metadata slice?
 - Should deterministic `Map<K, V>` be the default, or should the standard library expose both `Map` and `HashMap` from the start?
 - Should `Span`, `Diagnostic`, `Symbol`, and `Arena<T>` live in core0 std or in cosmo1-owned modules?
 - How much of the current Scala parser JSON format should become a stable bridge format?

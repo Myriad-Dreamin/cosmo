@@ -111,6 +111,10 @@ private[cosmo0] final class PackagePipeline(
       pkg: Cosmo0Package,
       ordered: List[AnalyzedModule],
   ): Result[CheckedPackage] =
+    val stageDiagnostics =
+      pkg.metadata.stageProfile.toList.flatMap(profileName => StageCapabilityRegistry.validate(profileName))
+    if stageDiagnostics.nonEmpty then return Result.failure(Phase.Check, stageDiagnostics)
+
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
     val declarations = ordered.flatMap(_.publicDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
@@ -177,6 +181,8 @@ private[cosmo0] final class PackagePipeline(
     val version = requiredString(parsed, "version", metadataPath, errors)
     val sourceRoot = optionalString(parsed, "root").getOrElse("src")
     val target = optionalString(parsed, "target")
+    val stageProfile = optionalString(parsed, "stageProfile")
+    val sourceFiles = optionalStringList(parsed, "sources", metadataPath, errors)
 
     if errors.nonEmpty then
       Result.failure(Phase.Check, errors.toList)
@@ -193,10 +199,21 @@ private[cosmo0] final class PackagePipeline(
         case Some(rootDiagnostic) =>
           Result.unsupported(Phase.Check, rootDiagnostic)
         case None =>
-          Result.success(
-            Phase.Check,
-            Cosmo0PackageMetadata(name.get, version.get, sourceRoot, target),
-          )
+          validateSourceFiles(sourceFiles) match
+            case Some(sourceDiagnostic) =>
+              Result.unsupported(Phase.Check, sourceDiagnostic)
+            case None =>
+              Result.success(
+                Phase.Check,
+                Cosmo0PackageMetadata(
+                  name.get,
+                  version.get,
+                  sourceRoot,
+                  target,
+                  stageProfile,
+                  sourceFiles,
+                ),
+              )
 
   private def discoverSources(
       rootPath: String,
@@ -204,7 +221,34 @@ private[cosmo0] final class PackagePipeline(
   ): List[Cosmo0PackageModule] =
     val sourceRootPath = PackageNodePath.join(rootPath, metadata.sourceRoot)
     if !PackageNodeFs.existsSync(sourceRootPath) then Nil
-    else scanSourceDir(rootPath, metadata.sourceRoot, "")
+    else
+      metadata.sourceFiles match
+        case Some(files) =>
+          files.flatMap(relativeSourcePath =>
+            loadListedSource(rootPath, metadata.sourceRoot, relativeSourcePath),
+          )
+        case None =>
+          scanSourceDir(rootPath, metadata.sourceRoot, "")
+
+  private def loadListedSource(
+      packageRoot: String,
+      sourceRoot: String,
+      relativeSourcePath: String,
+  ): Option[Cosmo0PackageModule] =
+    val absolutePath = PackageNodePath.join(packageRoot, sourceRoot, relativeSourcePath)
+    val stat =
+      try Some(PackageNodeFs.statSync(absolutePath))
+      catch
+        case NonFatal(_) => None
+
+    stat.filter(_.isFile()).map { _ =>
+      val text = PackageNodeFs.readFileSync(absolutePath, "utf8").asInstanceOf[String]
+      val sourceName = PackageNodePath.join(packageRoot, sourceRoot, relativeSourcePath)
+      Cosmo0PackageModule(
+        modulePath(relativeSourcePath),
+        SourceFile(sourceName, text),
+      )
+    }
 
   private def scanSourceDir(
       packageRoot: String,
@@ -382,6 +426,32 @@ private[cosmo0] final class PackagePipeline(
     else if js.typeOf(value) == "string" then Some(value.asInstanceOf[String])
     else None
 
+  private def optionalStringList(
+      parsed: js.Dynamic,
+      field: String,
+      metadataPath: String,
+      errors: ListBuffer[Diagnostic],
+  ): Option[List[String]] =
+    val value = parsed.selectDynamic(field)
+    if js.isUndefined(value) || value == null then None
+    else if js.Array.isArray(value.asInstanceOf[js.Any]) then
+      val array = value.asInstanceOf[js.Array[js.Any]]
+      val values = array.toList
+      if values.forall(item => js.typeOf(item) == "string") then
+        Some(values.map(_.asInstanceOf[String]))
+      else
+        errors += diagnostic(
+          "cosmo0.package.invalid-metadata-field",
+          s"cosmo0 package metadata at $metadataPath field $field must be an array of strings",
+        )
+        None
+    else
+      errors += diagnostic(
+        "cosmo0.package.invalid-metadata-field",
+        s"cosmo0 package metadata at $metadataPath field $field must be an array of strings",
+      )
+      None
+
   private def validateSourceRoot(root: String): Option[Diagnostic] =
     val parts = root.split("[/\\\\]").toList.filter(_.nonEmpty)
     if root.trim.isEmpty then
@@ -406,6 +476,33 @@ private[cosmo0] final class PackagePipeline(
         ),
       )
     else None
+
+  private def validateSourceFiles(sourceFiles: Option[List[String]]): Option[Diagnostic] =
+    sourceFiles match
+      case Some(Nil) =>
+        Some(
+          diagnostic(
+            "cosmo0.package.unsupported-sources",
+            "cosmo0 package sources must name at least one .cos source when present",
+          ),
+        )
+      case Some(files) =>
+        files.find(invalidSourceFile).map { source =>
+          diagnostic(
+            "cosmo0.package.unsupported-sources",
+            s"cosmo0 package source entries must be relative .cos files inside the source root: $source",
+          )
+        }
+      case None =>
+        None
+
+  private def invalidSourceFile(source: String): Boolean =
+    val parts = source.split("[/\\\\]").toList.filter(_.nonEmpty)
+    source.trim.isEmpty ||
+      source.startsWith("/") ||
+      source.startsWith("\\") ||
+      !source.endsWith(".cos") ||
+      parts.exists(part => part == "." || part == "..")
 
   private def modulePath(relativeSourcePath: String): List[String] =
     relativeSourcePath

@@ -45,6 +45,17 @@ Placeholder for unsupported syntax, type, declaration, expression, control-flow,
 
 Placeholder for package ordering, runtime support emission, generated code, and diagnostic stability checks.
 
+== Capability Validation Tests
+
+Stage capability validation tests should include:
+
+- positive validation for each named profile against the default compiler capability availability;
+- negative diagnostics for missing primitive descriptors, standard capabilities, and backend extern/runtime requirements;
+- package-level tests for metadata-driven profile selection;
+- tests proving capabilities outside a selected profile do not block that stage.
+
+For `cosmo1.stage1`, missing `core0.text`, missing `core0.path-fs`, and missing primitive intrinsics must produce `cosmo0.stage.missing-capability` diagnostics. The same profile must validate without requiring `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, or `core0.big-number`.
+
 == Bug Regression Tests
 
 Placeholder for tests added with bug fixes. A regression test should capture the smallest source or model case that would fail if the bug returned.

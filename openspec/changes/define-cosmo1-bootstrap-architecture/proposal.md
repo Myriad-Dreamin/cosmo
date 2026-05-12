@@ -5,7 +5,7 @@ cosmo0 defines the small Scala-implemented core that can compile bootstrap-sensi
 ## What Changes
 
 - Define cosmo1 as the Cosmo compiler written in the cosmo0 subset.
-- Specify a proposed cosmo1 package/file layout covering driver, source management, lexer/parser, syntax, package loading, name resolution, type checking, compile-time evaluation, IR lowering, C++ code generation, linking, artifacts, and tests.
+- Specify the proposed cosmo1/cosmoc package file layout covering driver, source management, lexer/parser, syntax, package loading, name resolution, type checking, compile-time evaluation, IR lowering, C++ code generation, linking, artifacts, and tests.
 - List the standard library types cosmo1 requires from cosmo0/core0, including sealed generics such as `Vec<T>`, `Option<T>`, `Result<T, E>`, `Map<K, V>`, `Set<T>`, `Arena<T>`, `Id<T>`, `Box<T>`, and pointer/reference forms.
 - List cosmo1-owned compiler data types such as spans, diagnostics, tokens, AST nodes, symbols, scopes, type representations, compile-time values, typed IR, and C++ emission structures.
 - Define the compiler capabilities cosmo1 must eventually implement and separate them from the host-language capabilities cosmo0 must provide.
@@ -27,5 +27,5 @@ None.
 ## Impact
 
 - Adds an OpenSpec planning layer above `introduce-cosmo0-core`; this change does not implement cosmo1 and does not change existing compiler behavior.
-- Future implementation is expected to add a new cosmo1 package, cosmo0-compatible source files, core0 descriptor coverage for required standard types, and smoke tests that compile cosmo1 components through cosmo0.
+- Future implementation is expected to evolve the existing `packages/cosmoc` package with cosmo0-compatible source files, core0 descriptor coverage for required standard types, and smoke tests that compile cosmo1/cosmoc components through cosmo0.
 - The proposal intentionally keeps full Cosmo language features as data and algorithms inside cosmo1 rather than as required cosmo0 host-language features.
