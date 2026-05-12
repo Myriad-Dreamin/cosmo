@@ -1,0 +1,58 @@
+import core0.text
+
+class SourceText {
+  val name: String
+  val text: String
+
+  def len(&self): usize = {
+    core0_text_len(self.text)
+  }
+
+  def is_empty(&self): Bool = {
+    core0_text_is_empty(self.text)
+  }
+
+  def slice(&self, start: usize, end: usize): String = {
+    core0_text_slice(self.text, start, end)
+  }
+
+  def view(&self, start: usize, end: usize): TextView = {
+    core0_text_view(self.text, start, end)
+  }
+
+  def byte_at(&self, index: usize): Byte = {
+    core0_text_byte_at(self.text, index)
+  }
+
+  def char_at(&self, index: usize): Char = {
+    core0_text_char_at(self.text, index)
+  }
+
+  def starts_with(&self, offset: usize, needle: String): Bool = {
+    core0_text_starts_with(self.text, offset, needle)
+  }
+}
+
+def source_text(name: String, text: String): SourceText = {
+  SourceText(name, text)
+}
+
+def source_text_from_string(text: String): SourceText = {
+  SourceText("<memory>", text)
+}
+
+def source_text_len(source: SourceText): usize = {
+  source.len()
+}
+
+def source_text_is_empty(source: SourceText): Bool = {
+  source.is_empty()
+}
+
+def source_text_slice(source: SourceText, start: usize, end: usize): String = {
+  source.slice(start, end)
+}
+
+def source_text_view(source: SourceText, start: usize, end: usize): TextView = {
+  source.view(start, end)
+}

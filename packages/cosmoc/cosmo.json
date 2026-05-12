@@ -4,6 +4,9 @@
   "target": "cosmo0",
   "stageProfile": "cosmo1.stage1",
   "sources": [
+    "core0/text.cos",
+    "source/source.cos",
+    "source/source_map.cos",
     "parser.cos",
     "parser_test.cos"
   ]

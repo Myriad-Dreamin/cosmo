@@ -63,6 +63,66 @@ The named Stage 1 profile is `cosmo1.stage1`. It requires `core0.stage`, `core0.
 
 The validation plan for Stage 1 is tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`. Proposals that fill API signatures under these capability names must update this file and the behavior-specific owner files they affect.
 
+== `core0.text`
+
+`core0.text` is the Stage 1 standard capability for owned text, byte-indexed text views, ASCII-oriented character access, and diagnostic-oriented string construction. Source code depends on this capability and its standard declarations, not on descriptor-family names.
+
+The initial API is intentionally small and byte-oriented:
+
+```cos
+class TextView {
+  val text: String
+  val start: usize
+  val end: usize
+
+  def len(&self): usize
+  def is_empty(&self): Bool
+  def to_string(&self): String
+  def byte_at(&self, index: usize): Byte
+  def char_at(&self, index: usize): Char
+}
+
+class TextBuilder {
+  var text: String
+
+  def len(&self): usize
+  def is_empty(&self): Bool
+  def push(&mut self, value: String): Unit
+  def push_view(&mut self, value: TextView): Unit
+  def push_line(&mut self, value: String): Unit
+  def finish(&self): String
+}
+
+def core0_text_len(text: String): usize
+def core0_text_is_empty(text: String): Bool
+def core0_text_slice(text: String, start: usize, end: usize): String
+def core0_text_view(text: String, start: usize, end: usize): TextView
+def core0_text_byte_at(text: String, index: usize): Byte
+def core0_text_char_at(text: String, index: usize): Char
+def core0_text_starts_with(text: String, offset: usize, needle: String): Bool
+def core0_text_builder(): TextBuilder
+def core0_text_builder_from(text: String): TextBuilder
+```
+
+`TextView.start` and `TextView.end` are byte offsets into the owned string used to create the view. `TextView.len()` returns `end - start` when `end > start`, otherwise `0`; callers are responsible for constructing views within source bounds in Stage 1. `byte_at` returns the byte at `start + index`, and `char_at` returns the ASCII-compatible `Char` for that byte. Broader Unicode semantics require a later capability.
+
+`TextBuilder` belongs to `core0.text` because diagnostics need incremental text construction before formatting traits exist. Its first implementation may be source-compiled over immutable `String` concatenation; this does not introduce a `StringBuilder`, `TextBuilder`, `TextView`, or `SourceText` descriptor family.
+
+Cosmo1 Stage 1 source helpers are expected to wrap this capability with source-specific types:
+
+```cos
+class SourceText {
+  val name: String
+  val text: String
+}
+
+class SourceMap {
+  val source: SourceText
+}
+```
+
+Those helpers remain ordinary source modules layered on `core0.text`.
+
 == Descriptor-Backed Transition Policy
 
 Descriptor-backed implementation support is transitional unless a standard API explicitly exposes it. Source code should depend on standard capability identifiers, not on descriptor registry details.
@@ -71,7 +131,6 @@ Future descriptor/std proposals must name each changed `docs/cosmo0/` file in th
 
 == Placeholder API Areas
 
-- Text and byte-oriented source access.
 - Collections and fallible result types.
 - Diagnostics, spans, and deterministic output sinks.
 - Paths and source-file loading.

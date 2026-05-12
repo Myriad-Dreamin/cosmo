@@ -121,4 +121,6 @@ Placeholder for stable output ordering, unique runtime support emission, and det
 
 When a standard API is temporarily descriptor-backed, this file should describe only the backend/runtime obligations. Public API shape and source semantics still belong to `std.typ` and the relevant language owner file.
 
-Descriptor-backed transition support is intentionally narrow. The implementation must continue to reject descriptor families such as `Json`, `Filesystem`, `Command`, and `StringBuilder` unless a later OpenSpec change explicitly moves them into the primitive boundary.
+`core0.text` may initially lower through the already permitted primitive `String` backing operations for byte length, emptiness, slicing, ASCII-compatible character access, byte access, and concatenation. Those primitive operations are backend implementation support for the standard API described in `std.typ`; packages must validate source-facing availability through the `core0.text` capability.
+
+Text views, source text wrappers, source maps, and builders are standard/source declarations in Stage 1. They SHALL NOT be registered as runtime descriptor families. In particular, descriptor-backed transition support remains intentionally narrow: the implementation must continue to reject descriptor families such as `Json`, `Filesystem`, `Command`, `StringBuilder`, `TextBuilder`, `TextView`, `SourceText`, and `SourceMap` unless a later OpenSpec change explicitly moves one into the primitive boundary.
