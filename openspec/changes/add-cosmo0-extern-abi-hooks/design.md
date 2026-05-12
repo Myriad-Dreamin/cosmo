@@ -33,7 +33,7 @@ Backend requirement tracking should name support symbols, includes, or runtime l
 
 The `@extern("c") def name(...)` source form denotes a trusted direct C ABI binding when accepted by a std/core0 declaration. The cosmo parameter list maps positionally to the C function prototype, and the return type maps to the C result type or `Unit` for `void`. The binding metadata names a callable C symbol and any support libraries; it does not store a macro expansion, arbitrary C/C++ call expression, or header include.
 
-C header availability is explicit file-level metadata rather than a function-level extern argument because include order can matter. Source files declare headers with semicolon-terminated decorators such as `@include-c("<stdio.h>");`, and the backend emits those file-level C includes in source order.
+C header availability is explicit file-level metadata rather than a function-level extern argument because include order can matter. Source files declare headers with semicolon-terminated decorators such as `@include("stdio.h", kind = "c");` or `@include("stdio.h");` when the `.h` extension can infer `kind = "c"`. The backend emits those file-level C includes in source order.
 
 Variadic C functions such as `printf(const char *, ...)` need explicit variadic signature support. This change may document the correspondence, but implementation support for `...`, signature candidates, format-string validation, and template-like `Any` parameter families belongs in a later proposal.
 
@@ -53,7 +53,7 @@ The first extern-backed smoke can be a text sink or source-loading shim. It only
   Mitigation: document the direct C function correspondence and leave variadic/signature-candidate support to a follow-up proposal.
 
 - Risk: function-level include metadata hides important include ordering constraints.
-  Mitigation: require explicit file-level `@include-c(...);` directives and preserve source order.
+  Mitigation: require explicit file-level `@include(...);` directives and preserve source order.
 
 ## Migration Plan
 

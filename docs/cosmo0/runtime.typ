@@ -65,10 +65,11 @@ Extern hooks are not general user-level FFI. cosmo0 source may call the std decl
 
 The source form `@extern("c") def name(...)` denotes a trusted direct binding to a C ABI function. The cosmo declaration is the source-facing signature; the extern metadata records the C target symbol and ABI family. A direct C binding has positional argument correspondence: cosmo argument `0` is emitted as C argument `0`, cosmo argument `1` as C argument `1`, and so on. The return type maps to the C result type or `Unit` for `void`.
 
-C header availability is a file-level concern because include order can matter. A source file declares required C headers with semicolon-terminated file decorators:
+C header availability is a file-level concern because include order can matter. A source file declares required C headers with semicolon-terminated file decorators. The include kind can be written explicitly or inferred from a `.h` extension:
 
 ```cos
-@include-c("<stdio.h>");
+@include("stdio.h", kind = "c");
+@include("stdlib.h");
 ```
 
 The backend emits file-level C includes in source order. Direct C extern function decorators SHALL NOT carry `include` arguments.
@@ -76,7 +77,7 @@ The backend emits file-level C includes in source order. Direct C extern functio
 Example direct binding shape:
 
 ```cos
-@include-c("<stdio.h>");
+@include("stdio.h");
 @extern("c", name = "puts")
 def puts(text: CString): i32
 ```
@@ -93,7 +94,7 @@ The declaration is not a C macro binding and is not an arbitrary C expression. I
 Variadic C functions require an explicit variadic signature model. A future declaration such as:
 
 ```cos
-@include-c("<stdio.h>");
+@include("stdio.h");
 @extern("c", name = "printf")
 def printf(format: StaticCString, ...): i32
 ```

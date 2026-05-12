@@ -180,8 +180,8 @@ class CppBackendTests extends munit.FunSuite:
     val lowered = Cosmo0().lower(
       SourceFile(
         "direct_c_extern.cos",
-        """@include-c("<stdio.h>");
-          |@include-c("<stdlib.h>");
+        """@include("stdio.h");
+          |@include("stdlib.h", kind = "c");
           |@extern("c", name = "abs")
           |def c_abs(value: i32): i32
           |

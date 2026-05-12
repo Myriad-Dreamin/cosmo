@@ -129,8 +129,8 @@ class FacadeTests extends munit.FunSuite:
 
   test("elaborate preserves file-level C include directives"):
     val result = Cosmo0().elaborate(
-      """@include-c("<stdio.h>");
-        |@include-c("\"runtime/support.h\"");
+      """@include("stdio.h");
+        |@include("\"runtime/support.h\"", kind = "c");
         |def smoke(): Unit = {}
         |""".stripMargin,
     )
@@ -178,13 +178,19 @@ class FacadeTests extends munit.FunSuite:
 
   test("elaborate rejects invalid C include directives"):
     val cases = List(
-      """@include-c("<stdio.h>")
+      """@include("stdio.h")
         |def smoke(): Unit = {}
         |""".stripMargin,
-      """@include-c("stdio.h");
+      """@include("stdio");
         |def smoke(): Unit = {}
         |""".stripMargin,
-      """@include-c("<a.h>", "<b.h>");
+      """@include("stdio.h", kind = "cpp");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include("a.h", "b.h");
+        |def smoke(): Unit = {}
+        |""".stripMargin,
+      """@include-c("<stdio.h>");
         |def smoke(): Unit = {}
         |""".stripMargin,
     )
@@ -195,8 +201,9 @@ class FacadeTests extends munit.FunSuite:
       assertEquals(result.phase, Phase.Check)
       assertEquals(result.status, PhaseStatus.Unsupported)
       assert(
-        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-include-c"),
-        s"missing invalid include-c diagnostic in ${result.diagnostics.map(_.code)}",
+        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-include") ||
+          result.diagnostics.exists(_.code == "cosmo0.elaborate.unsupported.include-kind"),
+        s"missing invalid include diagnostic in ${result.diagnostics.map(_.code)}",
       )
     }
 

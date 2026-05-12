@@ -33,9 +33,15 @@ cosmo0 backends SHALL track runtime symbol, include, support-library, and descri
 
 #### Scenario: File-level C includes are emitted in source order
 
-- **WHEN** a trusted source file declares `@include-c("<a.h>");` before `@include-c("<b.h>");`
+- **WHEN** a trusted source file declares `@include("a.h");` before `@include("b.h", kind = "c");`
 - **THEN** the C++ backend emits `#include <a.h>` before `#include <b.h>`
 - **AND** both headers are recorded as include backend requirements
+
+#### Scenario: C include kind is inferred from header extension
+
+- **WHEN** a trusted source file declares `@include("stdio.h");`
+- **THEN** elaboration infers `kind = "c"` from the `.h` extension
+- **AND** the C++ backend emits `#include <stdio.h>`
 
 ### Requirement: Direct C Function Correspondence
 
@@ -43,7 +49,7 @@ Trusted `@extern("c")` declarations SHALL correspond to callable C ABI function 
 
 #### Scenario: Fixed-arity C function binding maps positionally
 
-- **WHEN** a trusted declaration is written after `@include-c("<stdio.h>");` as `@extern("c", name = "puts") def puts(text: CString): i32`
+- **WHEN** a trusted declaration is written after `@include("stdio.h");` as `@extern("c", name = "puts") def puts(text: CString): i32`
 - **THEN** the extern metadata names the C symbol `puts`
 - **AND** cosmo argument `text` is emitted as the first C function argument
 - **AND** the file-level include makes the header requirement explicit without using a function-level include argument
@@ -52,7 +58,7 @@ Trusted `@extern("c")` declarations SHALL correspond to callable C ABI function 
 
 - **WHEN** a trusted declaration is written as `@extern("c", include = "<stdio.h>") def puts(text: CString): i32`
 - **THEN** elaboration fails with an invalid extern decorator diagnostic
-- **AND** the diagnostic directs the source to use a file-level `@include-c(...);` directive
+- **AND** the diagnostic directs the source to use a file-level `@include(...);` directive
 
 #### Scenario: Variadic C function binding is deferred
 

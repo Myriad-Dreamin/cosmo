@@ -10,7 +10,7 @@
 - [x] 2.2 Track backend runtime symbols, includes, or support libraries separately from descriptors.
 - [x] 2.3 Add diagnostics for missing or unsupported extern runtime bindings.
 - [x] 2.4 Implement fixed-arity direct C extern bindings from `@extern("c")` declarations.
-- [x] 2.5 Implement file-level `@include-c(...);` directives for ordered C include emission.
+- [x] 2.5 Implement file-level `@include(...);` directives for ordered C include emission.
 
 ## 3. Cosmo1 Component
 

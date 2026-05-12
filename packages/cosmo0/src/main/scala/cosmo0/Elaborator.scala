@@ -85,8 +85,13 @@ final class UntypedElaborator(
         supportLibrary: Option[String] = None,
     )
 
+    private final case class IncludeDecoratorArgs(
+        path: String,
+        kind: Option[String] = None,
+    )
+
     private def decoratedModuleDecl(node: Decorate): Option[UntypedDecl] =
-      includeCDecorator(node.lhs) match
+      includeDecorator(node.lhs) match
         case Some(include) =>
           unwrapSemi(node.rhs) match
             case None =>
@@ -95,10 +100,10 @@ final class UntypedElaborator(
             case Some(other) =>
               unsupported(
                 other,
-                "cosmo0.elaborate.invalid-include-c",
-                "@include-c(...) must be a file-level decorator terminated by a semicolon",
+                "cosmo0.elaborate.invalid-include",
+                "@include(...) must be a file-level decorator terminated by a semicolon",
               )
-        case None if isIncludeCDecorator(node.lhs) =>
+        case None if isIncludeDecorator(node.lhs) =>
           None
         case None =>
           externDecorator(node.lhs).flatMap { binding =>
@@ -119,34 +124,103 @@ final class UntypedElaborator(
                 )
           }
 
-    private def includeCDecorator(node: syntax.Node): Option[SourceCInclude] =
+    private def includeDecorator(node: syntax.Node): Option[SourceCInclude] =
       node match
-        case Apply(Ident("include-c"), List(StrLit(header)), false) =>
-          if isIncludeSpecifier(header) then Some(SourceCInclude(header, nodeSpan(node)))
-          else
-            unsupported(
-              node,
-              "cosmo0.elaborate.invalid-include-c",
-              s"include-c header $header must be written as <header> or \"header\"",
-            )
-        case Apply(Ident("include-c"), _, false) =>
+        case Apply(Ident("include"), args, false) =>
+          includeDecoratorArgs(node, args).flatMap { values =>
+            validateIncludeKind(values, node).flatMap {
+              case "c" =>
+                cIncludeHeader(values.path, node).map(header => SourceCInclude(header, nodeSpan(node)))
+              case kind =>
+                unsupported(
+                  node,
+                  "cosmo0.elaborate.unsupported.include-kind",
+                  s"include kind $kind is not supported by cosmo0",
+                )
+            }
+          }
+        case Ident("include") =>
           unsupported(
             node,
-            "cosmo0.elaborate.invalid-include-c",
-            "@include-c(...) expects exactly one include string",
+            "cosmo0.elaborate.invalid-include",
+            "@include(...) expects an include path string",
           )
-        case Ident("include-c") =>
+        case Ident("include-c") | Apply(Ident("include-c"), _, false) =>
           unsupported(
             node,
-            "cosmo0.elaborate.invalid-include-c",
-            "@include-c(...) expects exactly one include string",
+            "cosmo0.elaborate.invalid-include",
+            "use @include(\"header.h\", kind = \"c\") instead of @include-c(...)",
           )
         case _ => None
 
-    private def isIncludeCDecorator(node: syntax.Node): Boolean =
+    private def isIncludeDecorator(node: syntax.Node): Boolean =
       node match
+        case Ident("include") | Apply(Ident("include"), _, false) => true
         case Ident("include-c") | Apply(Ident("include-c"), _, false) => true
-        case _                                                        => false
+        case _ => false
+
+    private def includeDecoratorArgs(
+        node: syntax.Node,
+        args: List[syntax.Node],
+    ): Option[IncludeDecoratorArgs] =
+      args match
+        case StrLit(path) :: rest =>
+          var kind: Option[String] = None
+          var ok = true
+
+          rest.foreach {
+            case arg @ KeyedArg(Ident("kind"), StrLit(value)) =>
+              if kind.nonEmpty then
+                report(
+                  arg,
+                  "cosmo0.elaborate.invalid-include",
+                  "include decorator repeats argument kind",
+                )
+                ok = false
+              else kind = Some(value)
+            case arg @ KeyedArg(Ident("kind"), _) =>
+              report(
+                arg,
+                "cosmo0.elaborate.invalid-include",
+                "include decorator argument kind must be a string literal",
+              )
+              ok = false
+            case arg @ KeyedArg(Ident(key), _) =>
+              report(
+                arg,
+                "cosmo0.elaborate.invalid-include",
+                s"include decorator does not support argument $key",
+              )
+              ok = false
+            case arg @ KeyedArg(_, _) =>
+              report(
+                arg,
+                "cosmo0.elaborate.invalid-include",
+                "include decorator argument names must be identifiers",
+              )
+              ok = false
+            case other =>
+              report(
+                other,
+                "cosmo0.elaborate.invalid-include",
+                "include decorator arguments after the path must be keyed arguments",
+              )
+              ok = false
+          }
+
+          if ok then Some(IncludeDecoratorArgs(path, kind)) else None
+        case Nil =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.invalid-include",
+            "@include(...) expects an include path string",
+          )
+        case other :: _ =>
+          unsupported(
+            other,
+            "cosmo0.elaborate.invalid-include",
+            "include path must be a string literal",
+          )
 
     private def externDecorator(node: syntax.Node): Option[SourceExternBinding] =
       node match
@@ -251,7 +325,7 @@ final class UntypedElaborator(
           report(
             arg,
             "cosmo0.elaborate.invalid-extern",
-            "extern decorators do not accept include; use a file-level @include-c(...) directive",
+            "extern decorators do not accept include; use a file-level @include(\"header.h\", kind = \"c\") directive",
           )
           ok = false
         case arg @ KeyedArg(Ident(key), _) if Set("name", "symbol", "supportLibrary").contains(key) =>
@@ -311,6 +385,51 @@ final class UntypedElaborator(
         ok
       }
       nameOk && supportLibraryOk
+
+    private def validateIncludeKind(
+        values: IncludeDecoratorArgs,
+        node: syntax.Node,
+    ): Option[String] =
+      if !isRequirementValue(values.path) then
+        unsupported(
+          node,
+          "cosmo0.elaborate.invalid-include",
+          "include path must be a non-empty single-line string",
+        )
+      else
+        val kind = values.kind.orElse(inferIncludeKind(values.path))
+        kind match
+          case Some(value) if isRequirementValue(value) => Some(value)
+          case Some(_) =>
+            unsupported(
+              node,
+              "cosmo0.elaborate.invalid-include",
+              "include kind must be a non-empty single-line string",
+            )
+          case None =>
+            unsupported(
+              node,
+              "cosmo0.elaborate.invalid-include",
+              "include kind could not be inferred from the path extension; specify kind = \"c\"",
+            )
+
+    private def inferIncludeKind(path: String): Option[String] =
+      val normalized = includePathForExtension(path).toLowerCase
+      if normalized.endsWith(".h") then Some("c") else None
+
+    private def includePathForExtension(path: String): String =
+      if isIncludeSpecifier(path) then path.substring(1, path.length - 1)
+      else path
+
+    private def cIncludeHeader(path: String, node: syntax.Node): Option[String] =
+      if isIncludeSpecifier(path) then Some(path)
+      else if isRequirementValue(path) then Some(s"<$path>")
+      else
+        unsupported(
+          node,
+          "cosmo0.elaborate.invalid-include",
+          "C include path must be a non-empty single-line string",
+        )
 
     private def isIncludeSpecifier(value: String): Boolean =
       isRequirementValue(value) &&
