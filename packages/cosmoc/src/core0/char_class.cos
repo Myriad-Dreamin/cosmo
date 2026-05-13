@@ -1,0 +1,35 @@
+def is_ascii_upper(byte: Byte): Bool = {
+  65 <= byte and byte <= 90
+}
+
+def is_ascii_lower(byte: Byte): Bool = {
+  97 <= byte and byte <= 122
+}
+
+def is_ascii_alpha(byte: Byte): Bool = {
+  is_ascii_upper(byte) or is_ascii_lower(byte)
+}
+
+def is_ascii_digit(byte: Byte): Bool = {
+  48 <= byte and byte <= 57
+}
+
+def is_ascii_alnum(byte: Byte): Bool = {
+  is_ascii_alpha(byte) or is_ascii_digit(byte)
+}
+
+def is_ascii_whitespace(byte: Byte): Bool = {
+  byte == 9 or byte == 10 or byte == 13 or byte == 32
+}
+
+def is_identifier_start(byte: Byte): Bool = {
+  is_ascii_alpha(byte) or byte == 95
+}
+
+def is_identifier_continue(byte: Byte): Bool = {
+  is_identifier_start(byte) or is_ascii_digit(byte)
+}
+
+def is_supported_source_byte(byte: Byte): Bool = {
+  byte <= 127
+}
