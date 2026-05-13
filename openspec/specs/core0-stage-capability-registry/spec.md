@@ -29,18 +29,8 @@ cosmo0 SHALL diagnose missing requirements from a selected stage profile during 
 
 #### Scenario: Missing std capability is diagnosed
 
-- **WHEN** the `cosmo1.stage1` profile is validated without a required std capability such as `core0.text` or `core0.path-fs`
+- **WHEN** the `cosmo1.stage1` profile is validated without a required std capability such as `core0.text-output`
 - **THEN** validation fails with a `cosmo0.stage.missing-capability` diagnostic naming the missing capability
-
-#### Scenario: Missing primitive descriptor is diagnosed
-
-- **WHEN** the `cosmo1.stage1` profile is validated without a required primitive descriptor
-- **THEN** validation fails with a `cosmo0.stage.missing-capability` diagnostic naming the missing primitive descriptor
-
-#### Scenario: Missing backend requirement is diagnosed
-
-- **WHEN** the `cosmo1.stage1` profile is validated without a required extern/backend runtime requirement
-- **THEN** validation fails with a `cosmo0.stage.missing-capability` diagnostic naming the missing backend requirement
 
 ### Requirement: Later Capabilities Do Not Block Stage 1
 
@@ -50,3 +40,4 @@ The `cosmo1.stage1` profile SHALL NOT require later-stage capabilities that are 
 
 - **WHEN** `cosmo1.stage1` is validated without `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, or `core0.big-number`
 - **THEN** validation succeeds if all Stage 1 requirements are available
+
