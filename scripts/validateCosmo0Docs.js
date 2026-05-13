@@ -53,7 +53,7 @@ const requiredSnippets = new Map([
       'Subset Boundary',
       'Conformance Overview',
       'Stage 1 Capability Profile',
-      'validate-cosmo1-stage1-through-cosmo0',
+      'validate-cosmo1-stage1-capability-profile',
     ],
   ],
   [
@@ -62,7 +62,7 @@ const requiredSnippets = new Map([
       'Capability Identifiers',
       'Stage 1 Capability Profile',
       'Future descriptor/std proposals must name',
-      'validate-cosmo1-stage1-through-cosmo0',
+      'validate-cosmo1-stage1-capability-profile',
     ],
   ],
   [
@@ -70,7 +70,7 @@ const requiredSnippets = new Map([
     [
       'Stage Validation',
       'Stage 1 Capability Profile',
-      'validate-cosmo1-stage1-through-cosmo0',
+      'validate-cosmo1-stage1-capability-profile',
     ],
   ],
   [

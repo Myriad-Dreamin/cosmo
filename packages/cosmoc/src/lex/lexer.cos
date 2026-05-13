@@ -1,33 +1,9 @@
 import driver.diagnostic
 import core0.char_class
+import lex.token
 import source.source
 import source.source_map
-
-class TokenKind {
-  case Identifier
-  case Number
-  case LeftParen
-  case RightParen
-  case LeftBrace
-  case RightBrace
-  case Comma
-  case Dot
-  case Colon
-  case Semicolon
-  case Equal
-  case Plus
-  case Minus
-  case Star
-  case Slash
-  case EndOfFile
-  case Invalid
-}
-
-class Token {
-  val kind: TokenKind
-  val text: String
-  val offset: usize
-}
+import source.span
 
 class LexerState {
   val source: SourceText
@@ -40,7 +16,7 @@ class LexerState {
   }
 
   def push_token(&mut self, kind: TokenKind, start: usize, end: usize): Unit = {
-    self.tokens.push(Token(kind, self.source.slice(start, end), start))
+    self.tokens.push(make_token(kind, self.source.slice(start, end), make_span(start, end)))
   }
 
   def advance(&mut self): Unit = {
@@ -152,7 +128,7 @@ class LexerState {
     } else if (is_ascii_digit(byte)) {
       self.scan_number()
     } else if (self.scan_punctuation()) {
-      ()
+      self.cursor = self.cursor
     } else {
       self.scan_invalid()
     }

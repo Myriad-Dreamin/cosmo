@@ -172,10 +172,15 @@ class PackagePipelineTests extends munit.FunSuite:
           "core0/text.cos",
           "core0/text_output.cos",
           "core0/path_fs.cos",
+          "core0/char_class.cos",
+          "core0/char_class_test.cos",
           "driver/config.cos",
           "driver/diagnostic.cos",
           "driver/diagnostic_test.cos",
+          "source/span.cos",
+          "lex/token.cos",
           "lex/lexer.cos",
+          "lex/lexer_test.cos",
           "source/source.cos",
           "source/source_map.cos",
           "source/source_test.cos",
@@ -188,6 +193,8 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       loaded.value.get.modules.map(_.modulePath),
       List(
+        List("core0", "char_class"),
+        List("core0", "char_class_test"),
         List("core0", "path_fs"),
         List("core0", "text"),
         List("core0", "text_output"),
@@ -195,12 +202,15 @@ class PackagePipelineTests extends munit.FunSuite:
         List("driver", "diagnostic"),
         List("driver", "diagnostic_test"),
         List("lex", "lexer"),
+        List("lex", "lexer_test"),
+        List("lex", "token"),
         List("parser"),
         List("parser_test"),
         List("source", "source"),
         List("source", "source_map"),
         List("source", "source_map_test"),
         List("source", "source_test"),
+        List("source", "span"),
       ),
     )
 
@@ -214,6 +224,8 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       checked.value.get.moduleOrder,
       List(
+        "core0/char_class",
+        "core0/char_class_test",
         "core0/path_fs",
         "core0/text",
         "core0/text_output",
@@ -222,7 +234,10 @@ class PackagePipelineTests extends munit.FunSuite:
         "source/source_map",
         "driver/diagnostic",
         "driver/diagnostic_test",
+        "source/span",
+        "lex/token",
         "lex/lexer",
+        "lex/lexer_test",
         "parser",
         "parser_test",
         "source/source_map_test",
@@ -231,14 +246,23 @@ class PackagePipelineTests extends munit.FunSuite:
     )
 
     val compiled = Cosmo0().compilePackage(path)
+    val compiledAgain = Cosmo0().compilePackage(path)
 
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
       s"cosmoc Stage 1 package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
     )
+    assert(
+      compiledAgain.isSuccess,
+      s"second cosmoc Stage 1 package compile failed with diagnostics: ${compiledAgain.diagnostics.map(d => d.code -> d.message)}",
+    )
 
     val output = compiled.value.get.output
+    val repeatedOutput = compiledAgain.value.get.output
+    assertEquals(output.source, repeatedOutput.source)
+    assertEquals(output.runtimeRequirements, repeatedOutput.runtimeRequirements)
+    assertEquals(output.backendRequirements, repeatedOutput.backendRequirements)
     assert(output.source.contains("struct TextBuilder"))
     assert(output.source.contains("struct SourceText"))
     assert(output.source.contains("struct SourceMap"))
@@ -246,7 +270,11 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("struct IoError"))
     assert(output.source.contains("struct Fs"))
     assert(output.source.contains("struct TextWriter"))
+    assert(output.source.contains("struct Span"))
     assert(output.source.contains("inline std::string core0_text_slice("))
+    assert(output.source.contains("inline bool is_identifier_start("))
+    assert(output.source.contains("inline bool token_is_eof("))
+    assert(output.source.contains("inline bool lexer_identifier_number_punctuation_smoke()"))
     assert(output.source.contains("inline std::string render_diagnostic("))
     assert(output.source.contains("inline void write_diagnostic("))
     assert(output.source.contains("inline bool diagnostic_render_smoke()"))
@@ -268,3 +296,28 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
+
+  test("cosmo1 Stage 1 negative fixtures reject unsupported full-language features"):
+    val cases = List(
+      "fixtures/cosmo0/cosmo1/stage1-negative/user-generics" ->
+        "cosmo0.elaborate.unsupported.generic-function",
+      "fixtures/cosmo0/cosmo1/stage1-negative/host-type" ->
+        "cosmo0.elaborate.unsupported.host-type",
+      "fixtures/cosmo0/cosmo1/stage1-negative/staging" ->
+        "cosmo0.elaborate.unsupported.decorator",
+      "fixtures/cosmo0/cosmo1/stage1-negative/closure" ->
+        "cosmo0.elaborate.unsupported.lambda",
+      "fixtures/cosmo0/cosmo1/stage1-negative/higher-order" ->
+        "cosmo0.elaborate.unsupported.higher-order-api",
+    )
+
+    cases.foreach { case (path, code) =>
+      val result = Cosmo0().checkPackage(path)
+
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Unsupported)
+      assert(
+        result.diagnostics.exists(_.code == code),
+        s"missing diagnostic $code in ${result.diagnostics.map(d => d.code -> d.message)}",
+      )
+    }

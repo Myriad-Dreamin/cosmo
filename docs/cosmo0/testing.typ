@@ -39,11 +39,11 @@ The positive example should compile once its owning language sections are fully 
 
 == Negative Tests
 
-Placeholder for unsupported syntax, type, declaration, expression, control-flow, runtime, and package cases that must be rejected with diagnostics.
+Unsupported syntax, type, declaration, expression, control-flow, runtime, and package cases must be rejected with diagnostics that name the unsupported feature area. Stage 1 negative fixtures cover user-defined generic declarations, host `Type`, staging decorators, lambdas and closures, and unsupported higher-order calls.
 
 == Determinism Tests
 
-Placeholder for package ordering, runtime support emission, generated code, and diagnostic stability checks.
+Package ordering, runtime support emission, generated code, and diagnostic stability checks should run through the package pipeline. The `packages/cosmoc` Stage 1 package must check and compile deterministically, including stable module order and repeated C++ backend output.
 
 == Capability Validation Tests
 
