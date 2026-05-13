@@ -9,9 +9,11 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     assert(profile.requiredPrimitiveDescriptors.contains("String"))
     assert(profile.requiredPrimitiveDescriptors.contains("usize"))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Text))
+    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0TextOutput))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0OptionResultVec))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0PathFs))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0CharClass))
+    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::print")))
     assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
 

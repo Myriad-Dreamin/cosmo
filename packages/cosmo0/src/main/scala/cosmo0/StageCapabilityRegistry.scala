@@ -62,6 +62,7 @@ object StageCapabilityRegistry:
         Core0CharClass,
       ),
       requiredBackendRequirements = Set(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::print"),
         BackendRequirement.runtimeSymbol("cosmo0_runtime::println"),
         BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file"),
         BackendRequirement.include("<cstdio>"),

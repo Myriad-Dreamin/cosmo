@@ -170,9 +170,11 @@ class PackagePipelineTests extends munit.FunSuite:
       Some(
         List(
           "core0/text.cos",
+          "core0/text_output.cos",
           "core0/path_fs.cos",
           "driver/config.cos",
           "driver/diagnostic.cos",
+          "driver/diagnostic_test.cos",
           "lex/lexer.cos",
           "source/source.cos",
           "source/source_map.cos",
@@ -188,8 +190,10 @@ class PackagePipelineTests extends munit.FunSuite:
       List(
         List("core0", "path_fs"),
         List("core0", "text"),
+        List("core0", "text_output"),
         List("driver", "config"),
         List("driver", "diagnostic"),
+        List("driver", "diagnostic_test"),
         List("lex", "lexer"),
         List("parser"),
         List("parser_test"),
@@ -212,10 +216,12 @@ class PackagePipelineTests extends munit.FunSuite:
       List(
         "core0/path_fs",
         "core0/text",
+        "core0/text_output",
         "driver/config",
         "source/source",
         "source/source_map",
         "driver/diagnostic",
+        "driver/diagnostic_test",
         "lex/lexer",
         "parser",
         "parser_test",
@@ -239,7 +245,11 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("struct Path"))
     assert(output.source.contains("struct IoError"))
     assert(output.source.contains("struct Fs"))
+    assert(output.source.contains("struct TextWriter"))
     assert(output.source.contains("inline std::string core0_text_slice("))
+    assert(output.source.contains("inline std::string render_diagnostic("))
+    assert(output.source.contains("inline void write_diagnostic("))
+    assert(output.source.contains("inline bool diagnostic_render_smoke()"))
     assert(output.source.contains("Result<std::string, IoError>"))
     assert(output.source.contains("Result<SourceText, IoError>"))
     assert(output.source.contains("core0_fs_read_to_string("))
@@ -247,10 +257,13 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("inline bool parse_source("))
     assert(output.source.contains("inline int32_t main()"))
     assert(output.source.contains("::cosmo0_runtime::read_file("))
+    assert(output.source.contains("::cosmo0_runtime::print("))
     assert(output.source.contains("::cosmo0_runtime::println("))
     assert(!output.source.contains("StringBuilder"))
+    assert(!output.source.contains("TextWriter_descriptor"))
     assert(!output.source.contains("Path_descriptor"))
     assert(!output.source.contains("Filesystem_descriptor"))
+    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::print")))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))

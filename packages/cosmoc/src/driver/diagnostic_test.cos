@@ -1,0 +1,30 @@
+import core0.text
+import core0.text_output
+import driver.diagnostic
+import source.source
+import source.source_map
+
+def diagnostic_render_smoke(): Bool = {
+  val labels = Vec[DiagnosticLabel]();
+  labels.push(DiagnosticLabel(SourceLocation(1, 3, 2), "expected expression"));
+  labels.push(DiagnosticLabel(SourceLocation(1, 7, 6), "while parsing input"));
+  val diagnostic = Diagnostic(
+    DiagnosticSeverity.Error,
+    "parser failed",
+    labels
+  );
+
+  render_diagnostic(diagnostic) == "error: parser failed\n  label: expected expression\n  label: while parsing input\n"
+}
+
+def diagnostic_output_smoke(): Unit = {
+  val labels = Vec[DiagnosticLabel]();
+  labels.push(DiagnosticLabel(SourceLocation(2, 1, 8), "configured input"));
+  val diagnostic = Diagnostic(
+    DiagnosticSeverity.Warning,
+    "using fallback",
+    labels
+  );
+
+  write_diagnostic(core0_stdout(), diagnostic)
+}
