@@ -1,4 +1,5 @@
 import core0.text
+import core0.path_fs
 import source.source
 
 def source_text_helpers_smoke(): Bool = {
@@ -10,4 +11,28 @@ def source_text_helpers_smoke(): Bool = {
     !source_text_is_empty(source) and
     source_text_slice(source, 6, 10) == "beta" and
     view.to_string() == "alpha"
+}
+
+def source_text_path_helpers_smoke(): Bool = {
+  val path = core0_path_from_string("src/main.cos");
+  val source = source_text_from_path_contents(path, "def main(): Unit = {}");
+
+  source.name == "src/main.cos" and
+    core0_path_display(path) == "src/main.cos" and
+    source_text_len(source) == 21
+}
+
+def source_text_load_path_smoke(): Bool = {
+  val path = core0_path_from_string("fixtures/cosmo0/parser/ok/parser_smoke.cos");
+  val loaded = load_source_text(path);
+
+  loaded match {
+    case Result[SourceText, IoError]::Ok(source) => {
+      source.name == "fixtures/cosmo0/parser/ok/parser_smoke.cos" and
+        !source.is_empty()
+    }
+    case Result[SourceText, IoError]::Err(error) => {
+      false
+    }
+  }
 }

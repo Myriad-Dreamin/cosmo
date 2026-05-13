@@ -1,4 +1,5 @@
 import core0.text
+import core0.path_fs
 
 class SourceText {
   val name: String
@@ -39,6 +40,18 @@ def source_text(name: String, text: String): SourceText = {
 
 def source_text_from_string(text: String): SourceText = {
   SourceText("<memory>", text)
+}
+
+def source_text_from_path_contents(path: Path, text: String): SourceText = {
+  SourceText(core0_path_display(path), text)
+}
+
+def load_source_text(path: Path): Result[SourceText, IoError] = {
+  val read = core0_fs_read_to_string(path);
+  read match {
+    case Result[String, IoError]::Ok(text) => Result[SourceText, IoError]::Ok(source_text_from_path_contents(path, text))
+    case Result[String, IoError]::Err(error) => Result[SourceText, IoError]::Err(error)
+  }
 }
 
 def source_text_len(source: SourceText): usize = {

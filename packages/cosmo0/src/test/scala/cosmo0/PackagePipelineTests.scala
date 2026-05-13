@@ -170,6 +170,8 @@ class PackagePipelineTests extends munit.FunSuite:
       Some(
         List(
           "core0/text.cos",
+          "core0/path_fs.cos",
+          "driver/config.cos",
           "driver/diagnostic.cos",
           "lex/lexer.cos",
           "source/source.cos",
@@ -184,7 +186,9 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       loaded.value.get.modules.map(_.modulePath),
       List(
+        List("core0", "path_fs"),
         List("core0", "text"),
+        List("driver", "config"),
         List("driver", "diagnostic"),
         List("lex", "lexer"),
         List("parser"),
@@ -206,7 +210,9 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       checked.value.get.moduleOrder,
       List(
+        "core0/path_fs",
         "core0/text",
+        "driver/config",
         "source/source",
         "source/source_map",
         "driver/diagnostic",
@@ -230,12 +236,21 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("struct TextBuilder"))
     assert(output.source.contains("struct SourceText"))
     assert(output.source.contains("struct SourceMap"))
+    assert(output.source.contains("struct Path"))
+    assert(output.source.contains("struct IoError"))
+    assert(output.source.contains("struct Fs"))
     assert(output.source.contains("inline std::string core0_text_slice("))
+    assert(output.source.contains("Result<std::string, IoError>"))
+    assert(output.source.contains("Result<SourceText, IoError>"))
+    assert(output.source.contains("core0_fs_read_to_string("))
+    assert(output.source.contains("load_source_text("))
     assert(output.source.contains("inline bool parse_source("))
     assert(output.source.contains("inline int32_t main()"))
     assert(output.source.contains("::cosmo0_runtime::read_file("))
     assert(output.source.contains("::cosmo0_runtime::println("))
     assert(!output.source.contains("StringBuilder"))
+    assert(!output.source.contains("Path_descriptor"))
+    assert(!output.source.contains("Filesystem_descriptor"))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))

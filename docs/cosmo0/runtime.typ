@@ -51,6 +51,14 @@ runtime-symbol:cosmo0_runtime::println
 include:<cstdio>
 ```
 
+Filesystem source-loading extern obligation:
+
+```text
+extern cosmo0.extern.v0 "::cosmo0_runtime::read_file"
+runtime-symbol:cosmo0_runtime::read_file
+include:<fstream>
+```
+
 The source-facing call belongs to `std.typ` and expression/type owner files. This file owns the lowered descriptor or extern obligations needed to make that call deterministic and portable.
 
 == Extern ABI Hooks
@@ -60,6 +68,8 @@ Extern ABI hooks are backend/runtime obligations used to implement trusted core0
 The initial ABI name is `cosmo0.extern.v0`. A trusted extern binding records the target runtime symbol as a structured C++ qualified symbol and any backend requirements such as include headers or support libraries. C++ runtime symbols that live in a namespace are emitted as absolute calls, for example `::cosmo0_runtime::println`, while backend requirement keys use the canonical symbol name `cosmo0_runtime::println`. Backends SHALL diagnose an extern binding when the named runtime symbol is not supported by the selected backend.
 
 Extern hooks are not general user-level FFI. cosmo0 source may call the std declaration, such as `println`, but arbitrary packages may not introduce new bodyless host declarations without accepted metadata.
+
+The trusted `core0.path-fs` read binding records the target symbol `::cosmo0_runtime::read_file` and the include/runtime support needed by the C++ backend. The source-facing wrapper returns the standard `Result[String, IoError]` shape owned by `std.typ`; backend failures to provide the runtime symbol are reported as missing extern runtime requirements, not as descriptor failures.
 
 == C Extern Function Correspondence
 
@@ -124,3 +134,5 @@ When a standard API is temporarily descriptor-backed, this file should describe 
 `core0.text` may initially lower through the already permitted primitive `String` backing operations for byte length, emptiness, slicing, ASCII-compatible character access, byte access, and concatenation. Those primitive operations are backend implementation support for the standard API described in `std.typ`; packages must validate source-facing availability through the `core0.text` capability.
 
 Text views, source text wrappers, source maps, and builders are standard/source declarations in Stage 1. They SHALL NOT be registered as runtime descriptor families. In particular, descriptor-backed transition support remains intentionally narrow: the implementation must continue to reject descriptor families such as `Json`, `Filesystem`, `Command`, `StringBuilder`, `TextBuilder`, `TextView`, `SourceText`, and `SourceMap` unless a later OpenSpec change explicitly moves one into the primitive boundary.
+
+`core0.path-fs` may lower trusted reads through extern runtime support, but path and filesystem concepts are not descriptor families. The implementation must continue to reject descriptor families such as `Path`, `IoError`, `Fs`, `File`, and `Filesystem`; source-facing availability is validated through the `core0.path-fs` std capability and backend extern requirements.

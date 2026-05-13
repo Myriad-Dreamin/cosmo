@@ -55,7 +55,9 @@ Capability identifiers should be named at the smallest useful boundary so Stage 
 
 The initial trusted extern-backed std surface is intentionally small. `std.io.println(value: String): Unit` may lower to the C++ runtime symbol `::cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
 
-Additional extern-backed std APIs require accepted capability text in this file plus matching runtime binding rules in `runtime.typ`. Filesystem, command execution, JSON bridges, and other host-backed facilities remain std-owned API areas; they SHALL NOT be added as descriptor families merely because their implementation needs runtime support.
+`core0.path-fs` file reading may lower to the C++ runtime symbol `::cosmo0_runtime::read_file` through `cosmo0.extern.v0`. The source-facing API remains `Fs.read_to_string(path): Result[String, IoError]`; the runtime symbol is an implementation detail.
+
+Additional extern-backed std APIs require accepted capability text in this file plus matching runtime binding rules in `runtime.typ`. Command execution, JSON bridges, and other host-backed facilities remain std-owned API areas; they SHALL NOT be added as descriptor families merely because their implementation needs runtime support.
 
 == Stage 1 Capability Profile
 
@@ -162,6 +164,49 @@ class SourceMap {
 ```
 
 Those helpers remain ordinary source modules layered on `core0.text`.
+
+== `core0.path-fs`
+
+`core0.path-fs` is the Stage 1 standard capability for path values and source-file loading. Source code depends on this capability and its standard declarations, not on descriptor-family names.
+
+The initial API is intentionally small:
+
+```cos
+class Path {
+  val text: String
+
+  def display(&self): String
+}
+
+class IoError {
+  val path: Path
+  val message: String
+}
+
+class Fs {
+  def read_to_string(path: Path): Result[String, IoError]
+}
+
+def core0_path_from_string(text: String): Path
+def core0_path_display(path: Path): String
+def core0_fs_read_to_string(path: Path): Result[String, IoError]
+```
+
+`Path.text` stores the Stage 1 source input name as an owned string. Stage 1 does not define path normalization, canonicalization, directory walking, symlink behavior, current-directory mutation, or platform-specific separator rewriting. `Path.display()` returns the stable source name used in diagnostics and `SourceText.name`.
+
+`Fs.read_to_string` is fallible. Success returns `Result[String, IoError]::Ok(contents)` with the complete file text. Failure returns `Result[String, IoError]::Err(error)` with the attempted path and a stable diagnostic-oriented message. The API must not panic or throw for ordinary missing or unreadable input files.
+
+The first implementation may be trusted and extern-backed because source loading needs host filesystem access. That does not introduce `Path`, `IoError`, `Fs`, `Filesystem`, or `File` descriptor families. Generated output writing, recursive package traversal, directory creation, command execution, and richer path manipulation require later capability updates.
+
+Cosmo1 Stage 1 source helpers are expected to wrap this capability with source-specific loading:
+
+```cos
+def load_source_text(path: Path): Result[SourceText, IoError] = {
+  Fs.read_to_string(path).map(|contents| SourceText(path.display(), contents))
+}
+```
+
+Those helpers remain ordinary source modules layered on `core0.path-fs` and `core0.text`.
 
 == Descriptor-Backed Transition Policy
 
