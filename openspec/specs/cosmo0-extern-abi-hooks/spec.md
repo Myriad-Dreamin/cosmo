@@ -25,6 +25,12 @@ cosmo0 SHALL allow only trusted core0/std declarations to attach extern ABI meta
 - **WHEN** a source declaration has no body and no trusted extern ABI metadata
 - **THEN** lowering returns a compile-phase missing-extern-binding diagnostic
 
+#### Scenario: Trusted filesystem read lowers to extern metadata
+
+- **WHEN** the trusted `core0.path-fs` declaration `Fs.read_to_string(path): Result<String, IoError>` has no cosmo0 body
+- **THEN** lowering records an extern binding using `cosmo0.extern.v0`
+- **AND** lowering emits a call to the trusted `cosmo0_runtime::read_file` filesystem runtime symbol instead of a `Filesystem` or `Path` descriptor operation
+
 ### Requirement: Backend Runtime Requirement Tracking
 
 cosmo0 backends SHALL track runtime symbol, include, support-library, and descriptor requirements as backend requirements. Runtime symbol requirements SHALL remain separate from descriptor operations.
@@ -46,6 +52,12 @@ cosmo0 backends SHALL track runtime symbol, include, support-library, and descri
 - **WHEN** a trusted source file declares `@include("stdio.h");`
 - **THEN** elaboration infers `kind = "c"` from the `.h` extension
 - **AND** the C++ backend emits `#include <stdio.h>`
+
+#### Scenario: Filesystem read records runtime requirements
+
+- **WHEN** the C++ backend emits a call to the trusted `core0.path-fs` read binding
+- **THEN** the backend records the required filesystem runtime symbol and include requirement
+- **AND** descriptor requirements remain unchanged
 
 ### Requirement: Direct C Function Correspondence
 
