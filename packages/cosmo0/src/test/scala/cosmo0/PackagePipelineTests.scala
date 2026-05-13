@@ -170,6 +170,8 @@ class PackagePipelineTests extends munit.FunSuite:
       Some(
         List(
           "core0/text.cos",
+          "driver/diagnostic.cos",
+          "lex/lexer.cos",
           "source/source.cos",
           "source/source_map.cos",
           "source/source_test.cos",
@@ -183,6 +185,8 @@ class PackagePipelineTests extends munit.FunSuite:
       loaded.value.get.modules.map(_.modulePath),
       List(
         List("core0", "text"),
+        List("driver", "diagnostic"),
+        List("lex", "lexer"),
         List("parser"),
         List("parser_test"),
         List("source", "source"),
@@ -203,10 +207,12 @@ class PackagePipelineTests extends munit.FunSuite:
       checked.value.get.moduleOrder,
       List(
         "core0/text",
-        "parser",
-        "parser_test",
         "source/source",
         "source/source_map",
+        "driver/diagnostic",
+        "lex/lexer",
+        "parser",
+        "parser_test",
         "source/source_map_test",
         "source/source_test",
       ),

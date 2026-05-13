@@ -9,6 +9,7 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     assert(profile.requiredPrimitiveDescriptors.contains("String"))
     assert(profile.requiredPrimitiveDescriptors.contains("usize"))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Text))
+    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0OptionResultVec))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0PathFs))
     assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0CharClass))
     assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
@@ -57,6 +58,17 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
       StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
 
     assertMissingCapability(diagnostics, StageCapabilityRegistry.Core0PathFs)
+
+  test("Stage 1 profile diagnoses missing core0.option-result-vec"):
+    val availability = StageCapabilityRegistry.defaultAvailability.copy(
+      stdCapabilities =
+        StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0OptionResultVec,
+    )
+
+    val diagnostics =
+      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
+
+    assertMissingCapability(diagnostics, StageCapabilityRegistry.Core0OptionResultVec)
 
   test("Stage 1 profile diagnoses missing primitive intrinsics"):
     val availability = StageCapabilityRegistry.defaultAvailability.copy(

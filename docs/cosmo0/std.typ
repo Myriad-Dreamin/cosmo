@@ -63,6 +63,46 @@ The named Stage 1 profile is `cosmo1.stage1`. It requires `core0.stage`, `core0.
 
 The validation plan for Stage 1 is tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`. Proposals that fill API signatures under these capability names must update this file and the behavior-specific owner files they affect.
 
+== `core0.option-result-vec`
+
+`core0.option-result-vec` is the Stage 1 standard capability for optional values, recoverable results, and ordered mutable buffers used by diagnostics, lexing, parsing, and other early compiler components. Source code depends on these std APIs, not on descriptor-family names.
+
+The initial API is intentionally small:
+
+```cos
+class Option[T] {
+  case Some(T)
+  case None
+
+  def is_some(&self): Bool
+  def is_none(&self): Bool
+}
+
+class Result[T, E] {
+  case Ok(T)
+  case Err(E)
+
+  def is_ok(&self): Bool
+  def is_err(&self): Bool
+}
+
+class Vec[T] {
+  def Vec[T](): Vec[T]
+  def push(&mut self, value: T): Unit
+  def get(&self, index: usize): T
+  def set(&mut self, index: usize, value: T): Unit
+  def len(&self): usize
+  def size(&self): usize
+  def is_empty(&self): Bool
+}
+```
+
+`Vec[T]` preserves insertion order. `push` appends a value, `len` and `size` return the current element count, `is_empty` is equivalent to `len() == 0`, `get` returns the element at a valid index, and `set` replaces the element at a valid index. Stage 1 callers are responsible for bounds checks before calling `get` or `set`; checked access returning `Option[T]` can be added by a later capability.
+
+`Option[T]` supports construction through `Option[T]::Some(value)` and `Option[T]::None`. `Result[T, E]` supports construction through `Result[T, E]::Ok(value)` and `Result[T, E]::Err(error)`. Matching over these variants is owned by `class.typ`.
+
+The first implementation may lower these APIs through registered descriptor intrinsics such as `descriptor Vec[Token]::push(...)`, but that lowering is a transitional implementation detail. New source-facing collection/result APIs require updates here before they are used by cosmo1 Stage 1 source.
+
 == `core0.text`
 
 `core0.text` is the Stage 1 standard capability for owned text, byte-indexed text views, ASCII-oriented character access, and diagnostic-oriented string construction. Source code depends on this capability and its standard declarations, not on descriptor-family names.
@@ -131,7 +171,6 @@ Future descriptor/std proposals must name each changed `docs/cosmo0/` file in th
 
 == Placeholder API Areas
 
-- Collections and fallible result types.
 - Diagnostics, spans, and deterministic output sinks.
 - Paths and source-file loading.
 - JSON and package metadata bridges.

@@ -304,6 +304,57 @@ class FacadeTests extends munit.FunSuite:
     }.get
     assertEquals(collect.body.map(_.valueType), Some(SourceType.Unit))
 
+  test("check accepts minimal Option Result and Vec Stage 1 APIs"):
+    val result = Cosmo0().check(
+      """class Diagnostic {
+        |  val message: String
+        |}
+        |
+        |class Token {
+        |  val text: String
+        |}
+        |
+        |class TokenBuffer {
+        |  var tokens: Vec[Token]
+        |
+        |  def push(&mut self, token: Token): Unit = {
+        |    self.tokens.push(token)
+        |  }
+        |
+        |  def replace_first(&mut self, token: Token): Unit = {
+        |    if (!self.tokens.is_empty()) {
+        |      self.tokens.set(0, token)
+        |    }
+        |  }
+        |
+        |  def current(&self): Option[Token] = {
+        |    if (self.tokens.len() == 0) {
+        |      Option[Token]::None
+        |    } else {
+        |      Option[Token]::Some(self.tokens.get(0))
+        |    }
+        |  }
+        |}
+        |
+        |def parse(buffer: &TokenBuffer): Result[Token, Diagnostic] = {
+        |  buffer.current() match {
+        |    case Option[Token]::Some(token) => {
+        |      Result[Token, Diagnostic]::Ok(token)
+        |    }
+        |    case Option[Token]::None => {
+        |      Result[Token, Diagnostic]::Err(Diagnostic("empty"))
+        |    }
+        |  }
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assert(
+      result.isSuccess,
+      s"check failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
   test("check emits typed diagnostics for representative source errors"):
     val cases = List(
       "def f(): i32 = missing" -> "cosmo0.type.unresolved-name",

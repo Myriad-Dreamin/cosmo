@@ -397,6 +397,34 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("%item = variant_payload %value.Some[0]: i32"))
     assert(rendered.contains("^match0_90_join:\n      return %tmp0"))
 
+  test("lowers minimal Result variants and Vec emptiness checks"):
+    val result = Cosmo0().lower(
+      """class Diagnostic {
+        |  val message: String
+        |}
+        |
+        |def first(items: Vec[i32]): Result[i32, Diagnostic] = {
+        |  if (items.is_empty()) {
+        |    Result[i32, Diagnostic]::Err(Diagnostic("empty"))
+        |  } else {
+        |    Result[i32, Diagnostic]::Ok(items.get(0))
+        |  }
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"lowering failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assert(rendered.contains("descriptor Vec[i32]::is_empty(%items) -> Bool"))
+    assert(rendered.contains("descriptor Vec[i32]::get(%items, 0:usize) -> i32"))
+    assert(rendered.contains("variant Result[i32, Diagnostic]::Ok"))
+    assert(rendered.contains("variant Result[i32, Diagnostic]::Err"))
+
   test("lower reports invalid structured control-flow inputs"):
     val invalidBreak = Cosmo0().lower("def bad(): Unit = { break }")
     assertEquals(invalidBreak.phase, Phase.Compile)

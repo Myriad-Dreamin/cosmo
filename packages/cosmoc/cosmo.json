@@ -5,6 +5,8 @@
   "stageProfile": "cosmo1.stage1",
   "sources": [
     "core0/text.cos",
+    "driver/diagnostic.cos",
+    "lex/lexer.cos",
     "source/source.cos",
     "source/source_map.cos",
     "source/source_test.cos",
