@@ -68,7 +68,7 @@ Detailed acceptance criteria for each behavior area belong in the owning file na
 
 cosmo0 package validation may select a named stage capability profile. A profile records the primitive descriptor support, core0 standard capabilities, and backend extern/runtime requirements that must be available before a package is accepted for that stage.
 
-The first profile is `cosmo1.stage1`. It covers the source, span, diagnostic, token, lexing, source-loading, and deterministic text-output surface needed by cosmo1's first executable compiler slice. The profile is cross-referenced by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`.
+The first profile is `cosmo1.stage1`. It covers the source, span, source-map, diagnostic, token, lexing, source-loading, character-classification, and deterministic text-output surface needed by cosmo1's first executable compiler slice. The profile is cross-referenced by the OpenSpec change `validate-cosmo1-stage1-capability-profile`.
 
 Stage 1 capability ownership is split across:
 

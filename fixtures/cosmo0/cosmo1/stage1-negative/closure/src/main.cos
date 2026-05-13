@@ -1,0 +1,5 @@
+def captures_value(): i32 = {
+  val base = 1;
+  val add = (value: i32) => value + base;
+  add(2)
+}

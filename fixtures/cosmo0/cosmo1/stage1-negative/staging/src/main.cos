@@ -1,0 +1,4 @@
+@stage
+def staged_value(): i32 = {
+  1
+}

@@ -12,6 +12,8 @@
     "driver/config.cos",
     "driver/diagnostic.cos",
     "driver/diagnostic_test.cos",
+    "source/span.cos",
+    "lex/token.cos",
     "lex/lexer.cos",
     "lex/lexer_test.cos",
     "source/source.cos",

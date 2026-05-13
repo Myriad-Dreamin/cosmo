@@ -37,17 +37,14 @@ The cosmo0 docs SHALL define a bug/spec sync policy requiring behavior-changing 
 - **THEN** the same change adds regression coverage without treating the previous implementation behavior as authoritative
 
 ### Requirement: Stage 1 Capability Profile Placeholder
-
-The cosmo0 docs SHALL include a Stage 1 capability profile placeholder for later source loading, diagnostics, token, lexing, standard API, runtime, and package validation requirements.
+The cosmo0 docs SHALL describe the concrete Stage 1 capability profile for source loading, diagnostics, tokens, lexing, standard APIs, runtime requirements, and package validation.
 
 #### Scenario: Stage 1 validation is cross-referenced
-
-- **WHEN** reviewers inspect the Stage 1 placeholder
-- **THEN** it references the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`
+- **WHEN** reviewers inspect the Stage 1 documentation
+- **THEN** it references the OpenSpec change `validate-cosmo1-stage1-capability-profile`
 
 #### Scenario: Stage 1 capability ownership is clear
-
-- **WHEN** a later proposal fills a Stage 1 capability
+- **WHEN** a later proposal fills or changes a Stage 1 capability
 - **THEN** the proposal can update the relevant owner files under `docs/cosmo0/`
 
 ### Requirement: Staged Runtime Spec Impact Validation
@@ -63,3 +60,4 @@ The repository SHALL provide lightweight validation or review guidance proving s
 
 - **WHEN** a future descriptor/std proposal changes source-facing behavior
 - **THEN** the proposal names the changed `docs/cosmo0/` files before relying on that behavior from cosmo1 source
+

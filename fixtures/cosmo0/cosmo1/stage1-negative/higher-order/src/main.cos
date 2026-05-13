@@ -1,0 +1,7 @@
+def maps_values(values: Vec[i32]): Vec[i32] = {
+  values.map(increment)
+}
+
+def increment(value: i32): i32 = {
+  value + 1
+}
