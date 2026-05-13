@@ -218,6 +218,38 @@ def core0_fs_read_to_string(path: Path): Result[String, IoError]
 
 `Fs.read_to_string` is fallible. Success returns `Result[String, IoError]::Ok(contents)` with the complete file text. Failure returns `Result[String, IoError]::Err(error)` with the attempted path and a stable diagnostic-oriented message. The API must not panic or throw for ordinary missing or unreadable input files.
 
+== `core0.char-class`
+
+`core0.char-class` is the Stage 1 standard capability for lexer-oriented ASCII character classification. Source code depends on these ordinary std functions, not on descriptor operations or parser-private character tables.
+
+The initial API is byte-oriented so it composes directly with `core0.text` byte indexing:
+
+```cos
+def is_ascii_upper(byte: Byte): Bool
+def is_ascii_lower(byte: Byte): Bool
+def is_ascii_alpha(byte: Byte): Bool
+def is_ascii_digit(byte: Byte): Bool
+def is_ascii_alnum(byte: Byte): Bool
+def is_ascii_whitespace(byte: Byte): Bool
+def is_identifier_start(byte: Byte): Bool
+def is_identifier_continue(byte: Byte): Bool
+def is_supported_source_byte(byte: Byte): Bool
+```
+
+ASCII whitespace is limited to horizontal tab, line feed, carriage return, and space. Identifier starts are `A..Z`, `a..z`, and `_`; identifier continues are identifier starts plus `0..9`. Digits are `0..9`.
+
+Stage 1 treats bytes above `127` as unsupported for lexical classification. A lexer may surface such bytes as invalid tokens or diagnostics, but these helpers must not silently classify non-ASCII bytes as identifier or whitespace characters. Unicode identifier rules require a later capability.
+
+Cosmo1 Stage 1 lexer code is expected to call these helpers directly:
+
+```cos
+if (is_identifier_start(source.byte_at(cursor))) {
+  scan_identifier()
+} else if (is_ascii_digit(source.byte_at(cursor))) {
+  scan_number()
+}
+```
+
 The first implementation may be trusted and extern-backed because source loading needs host filesystem access. That does not introduce `Path`, `IoError`, `Fs`, `Filesystem`, or `File` descriptor families. Generated output writing, recursive package traversal, directory creation, command execution, and richer path manipulation require later capability updates.
 
 Cosmo1 Stage 1 source helpers are expected to wrap this capability with source-specific loading:

@@ -1,0 +1,44 @@
+import driver.diagnostic
+import lex.lexer
+import source.source
+
+def lexer_identifier_number_punctuation_smoke(): Bool = {
+  val source = source_text_from_string("alpha_1 23,(){}");
+  val result = lex_source(source);
+
+  result match {
+    case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
+      tokens.len() == 8 and
+        tokens.get(0).kind == TokenKind.Identifier and
+        tokens.get(0).text == "alpha_1" and
+        tokens.get(1).kind == TokenKind.Number and
+        tokens.get(1).text == "23" and
+        tokens.get(2).kind == TokenKind.Comma and
+        tokens.get(3).kind == TokenKind.LeftParen and
+        tokens.get(4).kind == TokenKind.RightParen and
+        tokens.get(5).kind == TokenKind.LeftBrace and
+        tokens.get(6).kind == TokenKind.RightBrace and
+        tokens.get(7).kind == TokenKind.EndOfFile
+    }
+    case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
+      false
+    }
+  }
+}
+
+def lexer_invalid_non_ascii_smoke(): Bool = {
+  val source = source_text_from_string("a\x80");
+  val result = lex_source(source);
+
+  result match {
+    case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
+      tokens.len() == 3 and
+        tokens.get(0).kind == TokenKind.Identifier and
+        tokens.get(1).kind == TokenKind.Invalid and
+        tokens.get(2).kind == TokenKind.EndOfFile
+    }
+    case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
+      false
+    }
+  }
+}

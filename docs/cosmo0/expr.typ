@@ -10,6 +10,8 @@ cosmo0 accepts unit, boolean, integer, floating, and string literals. Integer li
 
 Scalar literals lower through primitive typed values, not through ordinary runtime descriptor families.
 
+ASCII character data used by Stage 1 lexing is read from `String` through byte-indexed `core0.text` helpers. Character classification compares `Byte` values against ASCII code ranges. `Char` values produced by `char_at` are ASCII-compatible for bytes in `0..127`; broader Unicode scalar semantics and Unicode identifier comparison are outside cosmo0 Stage 1.
+
 == Examples
 
 Accepted expression shapes:
@@ -18,6 +20,7 @@ Accepted expression shapes:
 val at_end: Bool = cursor.offset == source.len()
 val first: Option<Char> = source.get(0)
 val token = Token(TokenKind.Ident, span, "name")
+val is_name_start = is_identifier_start(source.byte_at(cursor))
 
 val tag = token.kind match {
   case TokenKind.Eof => 0

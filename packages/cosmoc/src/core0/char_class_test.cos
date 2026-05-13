@@ -1,0 +1,33 @@
+import core0.char_class
+
+def char_class_alpha_digit_smoke(): Bool = {
+  is_ascii_alpha(65) and
+    is_ascii_alpha(122) and
+    !is_ascii_alpha(48) and
+    is_ascii_digit(48) and
+    is_ascii_digit(57) and
+    !is_ascii_digit(65)
+}
+
+def char_class_whitespace_smoke(): Bool = {
+  is_ascii_whitespace(9) and
+    is_ascii_whitespace(10) and
+    is_ascii_whitespace(13) and
+    is_ascii_whitespace(32) and
+    !is_ascii_whitespace(65)
+}
+
+def char_class_identifier_smoke(): Bool = {
+  is_identifier_start(65) and
+    is_identifier_start(95) and
+    !is_identifier_start(48) and
+    is_identifier_continue(48) and
+    is_identifier_continue(95)
+}
+
+def char_class_non_ascii_smoke(): Bool = {
+  !is_supported_source_byte(128) and
+    !is_identifier_start(128) and
+    !is_identifier_continue(128) and
+    !is_ascii_whitespace(128)
+}
