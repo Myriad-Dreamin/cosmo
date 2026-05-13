@@ -58,7 +58,34 @@ Placeholder for constructor availability, construction syntax, field initializat
 
 == Variants
 
-Placeholder for enum-style case variants, variant payloads, construction, tag checks, and matching support used by the bootstrap subset.
+cosmo0 supports enum-style case variants, variant payloads, construction, tag checks, and matching support used by the bootstrap subset.
+
+Stage 1 treats `Option[T]` and `Result[T, E]` as sealed standard variants:
+
+```cos
+Option[T]::Some(value: T)
+Option[T]::None
+
+Result[T, E]::Ok(value: T)
+Result[T, E]::Err(error: E)
+```
+
+These constructors may appear as value expressions, and their variants may be matched with payload bindings:
+
+```cos
+def describe(value: Result[String, Diagnostic]): String = {
+  value match {
+    case Result[String, Diagnostic]::Ok(text) => {
+      text
+    }
+    case Result[String, Diagnostic]::Err(error) => {
+      error.message
+    }
+  }
+}
+```
+
+Payload arity and payload types must match the sealed constructor signature. `None` has no payload, `Some` has one `T` payload, and `Ok`/`Err` have one payload from their corresponding type parameter.
 
 == Imports and Visibility
 

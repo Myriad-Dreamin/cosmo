@@ -1,0 +1,50 @@
+import driver.diagnostic
+import source.source
+import source.source_map
+
+class TokenKind {
+  case Identifier
+  case Number
+  case EndOfFile
+  case Invalid
+}
+
+class Token {
+  val kind: TokenKind
+  val text: String
+  val offset: usize
+}
+
+class LexerState {
+  val source: SourceText
+  var cursor: usize
+  var tokens: Vec[Token]
+  var diagnostics: DiagnosticBag
+
+  def at_end(&self): Bool = {
+    self.cursor >= self.source.len()
+  }
+
+  def push_token(&mut self, kind: TokenKind, start: usize, end: usize): Unit = {
+    self.tokens.push(Token(kind, self.source.slice(start, end), start))
+  }
+
+  def finish(&mut self): Vec[Token] = {
+    self.push_token(TokenKind.EndOfFile, self.cursor, self.cursor);
+    self.tokens
+  }
+}
+
+def lexer_state(source: SourceText): LexerState = {
+  LexerState(source, 0, Vec[Token](), diagnostic_bag())
+}
+
+def lex_single_identifier(source: SourceText): Result[Vec[Token], Diagnostic] = {
+  val state = lexer_state(source);
+  if (source.is_empty()) {
+    Result[Vec[Token], Diagnostic]::Ok(state.finish())
+  } else {
+    state.push_token(TokenKind.Identifier, 0, source.len());
+    Result[Vec[Token], Diagnostic]::Ok(state.finish())
+  }
+}
