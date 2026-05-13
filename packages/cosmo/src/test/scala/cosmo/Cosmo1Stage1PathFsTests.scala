@@ -31,13 +31,13 @@ class Cosmo1Stage1PathFsTest extends TestBase:
       NodeFs.readFileSync("docs/cosmo0/runtime.typ", "utf8").asInstanceOf[String]
     val delta = NodeFs
       .readFileSync(
-        "openspec/changes/add-core0-path-fs/specs/core0-path-fs/spec.md",
+        "openspec/specs/core0-path-fs/spec.md",
         "utf8",
       )
       .asInstanceOf[String]
     val stageDelta = NodeFs
       .readFileSync(
-        "openspec/changes/add-core0-path-fs/specs/core0-stage-capability-registry/spec.md",
+        "openspec/specs/core0-stage-capability-registry/spec.md",
         "utf8",
       )
       .asInstanceOf[String]
