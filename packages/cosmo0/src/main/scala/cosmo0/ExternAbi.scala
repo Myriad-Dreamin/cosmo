@@ -108,6 +108,15 @@ object TrustedExternAbi:
     CppQualifiedSymbol.global("cosmo0_runtime", "println")
   private val readFileSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "read_file")
+  private val jsonParseSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "json_parse")
+  private val jsonValueType = SourceType.User("JsonValue")
+  private val jsonParseErrorType = SourceType.User("JsonParseError")
+  private val jsonValueRefType = SourceType.Ref(jsonValueType, mutable = false)
+  private val jsonValueOptionType = SourceType.Standard("Option", List(jsonValueType))
+  private val boolOptionType = SourceType.Standard("Option", List(SourceType.Bool))
+  private val stringOptionType = SourceType.Standard("Option", List(SourceType.String))
+  private val usizeOptionType = SourceType.Standard("Option", List(SourceType.Usize))
 
   private final case class TrustedBinding(
       sourceName: String,
@@ -183,7 +192,41 @@ object TrustedExternAbi:
           BackendRequirement.include("<fstream>"),
         ),
       ),
+      TrustedBinding(
+        "json_parse",
+        List(SourceType.String),
+        SourceType.Standard("Result", List(jsonValueType, jsonParseErrorType)),
+        jsonParseSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(jsonParseSymbol),
+          BackendRequirement.include("<string>"),
+        ),
+      ),
+      jsonBinding("json_is_null", List(jsonValueRefType), SourceType.Bool),
+      jsonBinding("json_as_bool", List(jsonValueRefType), boolOptionType),
+      jsonBinding("json_as_number_text", List(jsonValueRefType), stringOptionType),
+      jsonBinding("json_as_string", List(jsonValueRefType), stringOptionType),
+      jsonBinding("json_array_len", List(jsonValueRefType), usizeOptionType),
+      jsonBinding("json_array_get", List(jsonValueRefType, SourceType.Usize), jsonValueOptionType),
+      jsonBinding("json_field", List(jsonValueRefType, SourceType.String), jsonValueOptionType),
     ).map(binding => binding.sourceName -> binding).toMap
+
+  private def jsonBinding(
+      name: String,
+      params: List[SourceType],
+      returnType: SourceType,
+  ): TrustedBinding =
+    val symbol = CppQualifiedSymbol.global("cosmo0_runtime", name)
+    TrustedBinding(
+      name,
+      params,
+      returnType,
+      symbol,
+      List(
+        BackendRequirement.runtimeSymbol(symbol),
+        BackendRequirement.include("<string>"),
+      ),
+    )
 
   def isTrustedSourceName(name: String): Boolean =
     trustedBindings.contains(name)

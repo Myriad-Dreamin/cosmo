@@ -1,0 +1,27 @@
+## ADDED Requirements
+
+### Requirement: Transitional JSON Bridge
+
+cosmo0 SHALL expose `core0.json` as a source-facing standard capability for transitional JSON loading, rather than as a primitive or runtime descriptor family.
+
+#### Scenario: JSON is available through standard declarations
+
+- **WHEN** cosmo0 source uses `JsonValue`, `Json.parse`, object field access, array access, string access, boolean access, null checks, and numeric literal text access
+- **THEN** the source type-checks through the `core0.json` standard API
+- **AND** lowered output does not contain `Json` or `JsonValue` descriptor intrinsics
+
+#### Scenario: JSON parse is extern-backed
+
+- **WHEN** cosmo0 source calls `core0_json().parse(text)`
+- **THEN** lowering records a trusted `cosmo0.extern.v0` call to `::cosmo0_runtime::json_parse`
+- **AND** backend requirements include the matching runtime symbol and include support
+
+### Requirement: Syntax JSON Loader
+
+cosmo1 SHALL provide a `syntax/json_loader` source module that maps selected parser JSON into syntax arena data.
+
+#### Scenario: Loader compiles against syntax arenas
+
+- **WHEN** the loader source is compiled with `core0.json`, source spans, and syntax arena declarations
+- **THEN** the loader type-checks and lowers successfully
+- **AND** syntax nodes are allocated through the arena API rather than JSON descriptor operations

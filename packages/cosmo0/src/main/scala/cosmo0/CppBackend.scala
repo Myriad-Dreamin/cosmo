@@ -1350,6 +1350,14 @@ final class CppBackend(
         CppQualifiedSymbol.global("cosmo0_runtime", "print"),
         CppQualifiedSymbol.global("cosmo0_runtime", "println"),
         CppQualifiedSymbol.global("cosmo0_runtime", "read_file"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_parse"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_is_null"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_as_bool"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_as_number_text"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_as_string"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_array_len"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_array_get"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "json_field"),
       )
 
     private lazy val cppKeywords: Set[String] =
