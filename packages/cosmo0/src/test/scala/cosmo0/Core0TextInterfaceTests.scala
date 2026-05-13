@@ -2,6 +2,7 @@ package cosmo0
 
 class Core0TextInterfaceTests extends munit.FunSuite:
   private val core0TextPath = "packages/cosmoc/src/core0/text.cos"
+  private val core0PathFsPath = "packages/cosmoc/src/core0/path_fs.cos"
   private val sourceTextPath = "packages/cosmoc/src/source/source.cos"
   private val sourceMapPath = "packages/cosmoc/src/source/source_map.cos"
   private val sourceFixturePath = "fixtures/cosmo0/cosmo1/source-text/source_text_fixture.cos"
@@ -71,7 +72,7 @@ class Core0TextInterfaceTests extends munit.FunSuite:
 
   test("cosmo1 source text fixture uses SourceText and SourceMap helpers"):
     val source = combineSources(
-      List(core0TextPath, sourceTextPath, sourceMapPath, sourceFixturePath),
+      List(core0TextPath, core0PathFsPath, sourceTextPath, sourceMapPath, sourceFixturePath),
       "",
     )
 
@@ -94,7 +95,7 @@ class Core0TextInterfaceTests extends munit.FunSuite:
 
   test("source.source helpers expose SourceText operations without descriptor families"):
     val source = combineSources(
-      List(core0TextPath, sourceTextPath, sourceTestPath),
+      List(core0TextPath, core0PathFsPath, sourceTextPath, sourceTestPath),
       "",
     )
 
@@ -131,7 +132,7 @@ class Core0TextInterfaceTests extends munit.FunSuite:
 
   test("source.source_map helpers expose line and location APIs without descriptor families"):
     val source = combineSources(
-      List(core0TextPath, sourceTextPath, sourceMapPath, sourceMapTestPath),
+      List(core0TextPath, core0PathFsPath, sourceTextPath, sourceMapPath, sourceMapTestPath),
       "",
     )
 

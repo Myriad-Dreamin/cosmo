@@ -1,0 +1,35 @@
+import core0.path_fs
+
+class DriverConfig {
+  var inputs: Vec[Path]
+
+  def len(&self): usize = {
+    self.inputs.len()
+  }
+
+  def is_empty(&self): Bool = {
+    self.inputs.is_empty()
+  }
+
+  def add_input(&mut self, path: Path): Unit = {
+    self.inputs.push(path)
+  }
+
+  def first_input(&self): Option[Path] = {
+    if (self.inputs.is_empty()) {
+      Option[Path]::None
+    } else {
+      Option[Path]::Some(self.inputs.get(0))
+    }
+  }
+}
+
+def driver_config(): DriverConfig = {
+  DriverConfig(Vec[Path]())
+}
+
+def driver_config_with_input(text: String): DriverConfig = {
+  val config = driver_config();
+  config.add_input(core0_path_from_string(text));
+  config
+}
