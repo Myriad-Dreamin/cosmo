@@ -29,9 +29,16 @@ Minimal package metadata shape:
 Source-loading shape for a first-stage package:
 
 ```text
-src/source.cos
-src/token.cos
-src/lexer.cos
+src/core0/text.cos
+src/core0/text_output.cos
+src/core0/path_fs.cos
+src/core0/char_class.cos
+src/source/span.cos
+src/source/source.cos
+src/source/source_map.cos
+src/driver/diagnostic.cos
+src/lex/token.cos
+src/lex/lexer.cos
 ```
 
 Import shape that should resolve within the package graph:
@@ -73,8 +80,8 @@ Extern-backed smoke validation should import and call the std API it is proving.
 
 == Stage 1 Capability Profile
 
-The Stage 1 package profile is `cosmo1.stage1`. It covers source-file loading, module discovery for the first validation package, stable diagnostic inputs, text operations, and deterministic smoke output.
+The Stage 1 package profile is `cosmo1.stage1`. It covers source-file loading, module discovery for the first validation package, stable diagnostic inputs, text operations, spans, source maps, token definitions, lexing, ASCII character classification, and deterministic smoke output.
 
-The first scaffolded consumer lives at `packages/cosmoc` and selects `stageProfile: "cosmo1.stage1"`. Exact acceptance tests for the complete Stage 1 package remain tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`.
+The first scaffolded consumer lives at `packages/cosmoc` and selects `stageProfile: "cosmo1.stage1"`. Exact acceptance tests for the complete Stage 1 package are tracked by the OpenSpec change `validate-cosmo1-stage1-capability-profile`.
 
 The profile requires `core0.path-fs` for source-file loading. Later package graph traversal, recursive directory walking, generated artifact writing, and command execution remain outside this first source-loading boundary unless a later profile or capability explicitly adds them.

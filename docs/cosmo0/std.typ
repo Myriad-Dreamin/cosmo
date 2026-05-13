@@ -63,7 +63,7 @@ Additional extern-backed std APIs require accepted capability text in this file 
 
 The named Stage 1 profile is `cosmo1.stage1`. It requires `core0.stage`, `core0.text`, `core0.text-output`, `core0.option-result-vec`, `core0.path-fs`, and `core0.char-class`.
 
-The validation plan for Stage 1 is tracked by the OpenSpec change `validate-cosmo1-stage1-through-cosmo0`. Proposals that fill API signatures under these capability names must update this file and the behavior-specific owner files they affect.
+The validation plan for Stage 1 is tracked by the OpenSpec change `validate-cosmo1-stage1-capability-profile`. Proposals that fill API signatures under these capability names must update this file and the behavior-specific owner files they affect.
 
 == `core0.option-result-vec`
 

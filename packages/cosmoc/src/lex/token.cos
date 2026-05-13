@@ -1,0 +1,99 @@
+import source.span
+
+class TokenKind {
+  case Identifier
+  case Number
+  case LeftParen
+  case RightParen
+  case LeftBrace
+  case RightBrace
+  case Comma
+  case Dot
+  case Colon
+  case Semicolon
+  case Equal
+  case Plus
+  case Minus
+  case Star
+  case Slash
+  case EndOfFile
+  case Invalid
+}
+
+class Token {
+  val kind: TokenKind
+  val text: String
+  val span: Span
+}
+
+def make_token(kind: TokenKind, text: String, span: Span): Token = {
+  Token(kind, text, span)
+}
+
+def token_offset(token: Token): usize = {
+  token.span.start
+}
+
+def token_len(token: Token): usize = {
+  token.span.len()
+}
+
+def token_kind_code(kind: TokenKind): u8 = {
+  kind match {
+    case TokenKind.Identifier => {
+      1
+    }
+    case TokenKind.Number => {
+      2
+    }
+    case TokenKind.LeftParen => {
+      3
+    }
+    case TokenKind.RightParen => {
+      4
+    }
+    case TokenKind.LeftBrace => {
+      5
+    }
+    case TokenKind.RightBrace => {
+      6
+    }
+    case TokenKind.Comma => {
+      7
+    }
+    case TokenKind.Dot => {
+      8
+    }
+    case TokenKind.Colon => {
+      9
+    }
+    case TokenKind.Semicolon => {
+      10
+    }
+    case TokenKind.Equal => {
+      11
+    }
+    case TokenKind.Plus => {
+      12
+    }
+    case TokenKind.Minus => {
+      13
+    }
+    case TokenKind.Star => {
+      14
+    }
+    case TokenKind.Slash => {
+      15
+    }
+    case TokenKind.EndOfFile => {
+      16
+    }
+    case TokenKind.Invalid => {
+      17
+    }
+  }
+}
+
+def token_is_eof(token: Token): Bool = {
+  token_kind_code(token.kind) == 16
+}

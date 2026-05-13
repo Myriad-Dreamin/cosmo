@@ -1,5 +1,6 @@
 import driver.diagnostic
 import lex.lexer
+import lex.token
 import source.source
 
 def lexer_identifier_number_punctuation_smoke(): Bool = {
@@ -9,16 +10,19 @@ def lexer_identifier_number_punctuation_smoke(): Bool = {
   result match {
     case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
       tokens.len() == 8 and
-        tokens.get(0).kind == TokenKind.Identifier and
+        token_kind_code(tokens.get(0).kind) == token_kind_code(TokenKind.Identifier) and
         tokens.get(0).text == "alpha_1" and
-        tokens.get(1).kind == TokenKind.Number and
+        token_offset(tokens.get(0)) == 0 and
+        token_len(tokens.get(0)) == 7 and
+        token_kind_code(tokens.get(1).kind) == token_kind_code(TokenKind.Number) and
         tokens.get(1).text == "23" and
-        tokens.get(2).kind == TokenKind.Comma and
-        tokens.get(3).kind == TokenKind.LeftParen and
-        tokens.get(4).kind == TokenKind.RightParen and
-        tokens.get(5).kind == TokenKind.LeftBrace and
-        tokens.get(6).kind == TokenKind.RightBrace and
-        tokens.get(7).kind == TokenKind.EndOfFile
+        token_offset(tokens.get(1)) == 8 and
+        token_kind_code(tokens.get(2).kind) == token_kind_code(TokenKind.Comma) and
+        token_kind_code(tokens.get(3).kind) == token_kind_code(TokenKind.LeftParen) and
+        token_kind_code(tokens.get(4).kind) == token_kind_code(TokenKind.RightParen) and
+        token_kind_code(tokens.get(5).kind) == token_kind_code(TokenKind.LeftBrace) and
+        token_kind_code(tokens.get(6).kind) == token_kind_code(TokenKind.RightBrace) and
+        token_is_eof(tokens.get(7))
     }
     case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
       false
@@ -33,9 +37,10 @@ def lexer_invalid_non_ascii_smoke(): Bool = {
   result match {
     case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
       tokens.len() == 3 and
-        tokens.get(0).kind == TokenKind.Identifier and
-        tokens.get(1).kind == TokenKind.Invalid and
-        tokens.get(2).kind == TokenKind.EndOfFile
+        token_kind_code(tokens.get(0).kind) == token_kind_code(TokenKind.Identifier) and
+        token_kind_code(tokens.get(1).kind) == token_kind_code(TokenKind.Invalid) and
+        token_offset(tokens.get(1)) == 1 and
+        token_is_eof(tokens.get(2))
     }
     case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
       false
