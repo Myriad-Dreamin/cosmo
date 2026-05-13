@@ -108,6 +108,12 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     )
     assertEquals(StageCapabilityRegistry.validate(profile, availability), Nil)
 
+  test("core0.arena-id is registered as a later-stage std capability"):
+    assert(StageCapabilityRegistry.knownStdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
+    assert(StageCapabilityRegistry.defaultAvailability.stdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
+    assert(StageCapabilityRegistry.laterStageStdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
+    assert(!StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
+
   private def assertMissingCapability(
       diagnostics: List[Diagnostic],
       expected: String,

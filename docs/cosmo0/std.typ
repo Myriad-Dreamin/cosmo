@@ -47,7 +47,7 @@ The current Stage 1 identifiers are:
 - `core0.path-fs`: path and source-file loading surface.
 - `core0.char-class`: character classification helpers for lexing.
 
-Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities.
+Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
 
@@ -262,6 +262,45 @@ def load_source_text(path: Path): Result[SourceText, IoError] = {
 
 Those helpers remain ordinary source modules layered on `core0.path-fs` and `core0.text`.
 
+== `core0.arena-id`
+
+`core0.arena-id` is the later-stage standard capability for stable arena storage and typed handles. Source code depends on the `Arena[T]` and `Id[T]` standard APIs, not on descriptor-family names.
+
+The initial API is intentionally small:
+
+```cos
+class Id[T]
+
+class Arena[T] {
+  def Arena[T](): Arena[T]
+  def alloc(&mut self, value: T): Id[T]
+  def get(&self, id: Id[T]): &T
+  def get_mut(&mut self, id: Id[T]): &mut T
+  def len(&self): usize
+  def size(&self): usize
+}
+```
+
+`Arena[T].alloc` appends a value and returns an `Id[T]` that is valid for the same arena item type. `get` returns an immutable reference to the stored value, while `get_mut` requires a mutable arena receiver and returns a mutable reference. `len` and `size` return the number of allocated items. Removal, iteration, numeric ID conversion, cross-arena validation, and serialization are outside the initial capability.
+
+`Id[T]` is phantom typed. Its runtime representation may be an integer-like index, but source typing must preserve the item type so `Id[Expr]` cannot be used where `Id[Ty]` is required.
+
+Cosmo1 syntax AST source is expected to define aliases over these IDs:
+
+```cos
+type ExprId = Id[SyntaxExpr]
+
+class SyntaxArenas {
+  var exprs: Arena[SyntaxExpr]
+
+  def alloc_expr(&mut self, expr: SyntaxExpr): ExprId = {
+    self.exprs.alloc(expr)
+  }
+}
+```
+
+The first implementation may lower these APIs through registered descriptor intrinsics such as `descriptor Arena[Expr]::alloc(...)`, but that lowering is a transitional implementation detail. General map/set storage, garbage collection, serialization, and broader ownership models require later capability updates.
+
 == Descriptor-Backed Transition Policy
 
 Descriptor-backed implementation support is transitional unless a standard API explicitly exposes it. Source code should depend on standard capability identifiers, not on descriptor registry details.
@@ -274,5 +313,4 @@ Future descriptor/std proposals must name each changed `docs/cosmo0/` file in th
 - Paths and source-file loading.
 - JSON and package metadata bridges.
 - Numeric literal preservation and later big-number support.
-- Arena and identifier helpers.
 - Command execution and build integration for later stages.

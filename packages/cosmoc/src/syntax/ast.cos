@@ -1,0 +1,49 @@
+import source.span
+
+type ExprId = Id[SyntaxExpr]
+type TypeExprId = Id[SyntaxType]
+
+class SyntaxExpr {
+  case Missing(Span)
+  case Name(String, Span)
+  case Call(ExprId, Vec[ExprId], Span)
+}
+
+class SyntaxType {
+  case Name(String, Span)
+}
+
+class SyntaxArenas {
+  var exprs: Arena[SyntaxExpr]
+  var types: Arena[SyntaxType]
+
+  def alloc_expr(&mut self, expr: SyntaxExpr): ExprId = {
+    self.exprs.alloc(expr)
+  }
+
+  def expr(&self, id: ExprId): &SyntaxExpr = {
+    self.exprs.get(id)
+  }
+
+  def expr_mut(&mut self, id: ExprId): &mut SyntaxExpr = {
+    self.exprs.get_mut(id)
+  }
+
+  def alloc_type(&mut self, typ: SyntaxType): TypeExprId = {
+    self.types.alloc(typ)
+  }
+
+  def expr_len(&self): usize = {
+    self.exprs.len()
+  }
+}
+
+def syntax_arenas(): SyntaxArenas = {
+  SyntaxArenas(Arena[SyntaxExpr](), Arena[SyntaxType]())
+}
+
+def syntax_ast_arena_smoke(): Bool = {
+  val arenas = syntax_arenas();
+  val id = arenas.alloc_expr(SyntaxExpr.Name("main", make_span(0, 4)));
+  arenas.expr_len() == 1
+}

@@ -38,6 +38,16 @@ object StageCapabilityRegistry:
       Core0BigNumber,
     )
 
+  val knownStdCapabilities: Set[String] =
+    Set(
+      Core0Stage,
+      Core0Text,
+      Core0TextOutput,
+      Core0OptionResultVec,
+      Core0PathFs,
+      Core0CharClass,
+    ) ++ laterStageStdCapabilities
+
   private val stage1PrimitiveDescriptors: Set[String] =
     Set(
       "Unit",
@@ -76,7 +86,7 @@ object StageCapabilityRegistry:
   val defaultAvailability: StageCapabilityAvailability =
     StageCapabilityAvailability(
       primitiveDescriptors = StandardGenericDescriptors.Boundary.primitiveRuntimeDescriptorNames + "Unit",
-      stdCapabilities = stage1Profile.requiredStdCapabilities,
+      stdCapabilities = knownStdCapabilities,
       backendRequirements = stage1Profile.requiredBackendRequirements,
     )
 

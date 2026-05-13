@@ -68,15 +68,17 @@ Placeholder for simple type aliases and the limits on alias expansion. User-defi
 
 == Standard Type Application
 
-cosmo0 accepts sealed standard type application for registered core0 standard constructors named by `std.typ`. Stage 1 includes `Option[T]`, `Result[T, E]`, and `Vec[T]` for optional values, recoverable results, and ordered mutable buffers.
+cosmo0 accepts sealed standard type application for registered core0 standard constructors named by `std.typ`. Stage 1 includes `Option[T]`, `Result[T, E]`, and `Vec[T]` for optional values, recoverable results, and ordered mutable buffers. Later-stage source may use `Arena[T]` and `Id[T]` when the `core0.arena-id` capability is available.
 
 Standard type application is source-facing behavior. Temporary descriptor-backed lowering may implement it, but descriptor names do not become public type syntax unless this file or `std.typ` says so.
 
-`Option[T]` has exactly one type argument. `Result[T, E]` has exactly two type arguments. `Vec[T]` has exactly one type argument. Each argument must itself be a valid cosmo0 type, including primitives, user classes, simple aliases, references, and nested sealed standard applications.
+`Option[T]` has exactly one type argument. `Result[T, E]` has exactly two type arguments. `Vec[T]` has exactly one type argument. `Arena[T]` has exactly one type argument and stores values of that item type. `Id[T]` has exactly one type argument and is a phantom-typed handle for values allocated in `Arena[T]`. Each argument must itself be a valid cosmo0 type, including primitives, user classes, simple aliases, references, and nested sealed standard applications.
 
-The Stage 1 spelling for standard type application in source is the parser-supported compile-time application form, for example `Option[Token]`, `Result[ExprId, Diagnostic]`, and `Vec[Token]`. Standard type constructors are not first-class runtime values.
+The Stage 1 spelling for standard type application in source is the parser-supported compile-time application form, for example `Option[Token]`, `Result[ExprId, Diagnostic]`, and `Vec[Token]`. The same spelling is used for later arena types, for example `Arena[Expr]` and `Id[Expr]`. Standard type constructors are not first-class runtime values.
 
-User declarations cannot add new type parameters to classes or functions and cannot define new generic type constructors. A user-defined declaration named `Option`, `Result`, or `Vec` does not replace the registered core0 standard constructor.
+User declarations cannot add new type parameters to classes or functions and cannot define new generic type constructors. A user-defined declaration named `Option`, `Result`, `Vec`, `Arena`, or `Id` does not replace the registered core0 standard constructor.
+
+`Id[T]` is source-level distinct for each `T`. An `Id[Expr]` is not assignable to `Id[Ty]`, cannot be passed to `Arena[Ty].get`, and cannot be used with any arena whose item type is not `Expr`. The initial source API keeps the numeric representation opaque; serialization helpers can be added by a later capability.
 
 == Rejected Type Forms
 
