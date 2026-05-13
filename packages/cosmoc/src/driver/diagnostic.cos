@@ -1,0 +1,47 @@
+import source.source
+import source.source_map
+
+class DiagnosticSeverity {
+  case Note
+  case Warning
+  case Error
+}
+
+class DiagnosticLabel {
+  val span: SourceLocation
+  val message: String
+}
+
+class Diagnostic {
+  val severity: DiagnosticSeverity
+  val message: String
+  val labels: Vec[DiagnosticLabel]
+}
+
+class DiagnosticBag {
+  var items: Vec[Diagnostic]
+
+  def len(&self): usize = {
+    self.items.len()
+  }
+
+  def is_empty(&self): Bool = {
+    self.items.is_empty()
+  }
+
+  def push(&mut self, diagnostic: Diagnostic): Unit = {
+    self.items.push(diagnostic)
+  }
+
+  def first(&self): Option[Diagnostic] = {
+    if (self.items.is_empty()) {
+      Option[Diagnostic]::None
+    } else {
+      Option[Diagnostic]::Some(self.items.get(0))
+    }
+  }
+}
+
+def diagnostic_bag(): DiagnosticBag = {
+  DiagnosticBag(Vec[Diagnostic]())
+}
