@@ -1,0 +1,25 @@
+def print(value: String): Unit
+
+def println(value: String): Unit
+
+class TextWriter {
+  def write(&self, value: String): Unit = {
+    print(value)
+  }
+
+  def write_line(&self, value: String): Unit = {
+    println(value)
+  }
+}
+
+def core0_stdout(): TextWriter = {
+  TextWriter()
+}
+
+def core0_stdout_write(value: String): Unit = {
+  core0_stdout().write(value)
+}
+
+def core0_stdout_write_line(value: String): Unit = {
+  core0_stdout().write_line(value)
+}

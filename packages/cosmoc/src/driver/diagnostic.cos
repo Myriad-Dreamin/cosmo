@@ -1,3 +1,5 @@
+import core0.text
+import core0.text_output
 import source.source
 import source.source_map
 
@@ -44,4 +46,40 @@ class DiagnosticBag {
 
 def diagnostic_bag(): DiagnosticBag = {
   DiagnosticBag(Vec[Diagnostic]())
+}
+
+def diagnostic_severity_text(severity: DiagnosticSeverity): String = {
+  severity match {
+    case DiagnosticSeverity.Note => {
+      "note"
+    }
+    case DiagnosticSeverity.Warning => {
+      "warning"
+    }
+    case DiagnosticSeverity.Error => {
+      "error"
+    }
+  }
+}
+
+def render_diagnostic(diagnostic: Diagnostic): String = {
+  var builder = core0_text_builder();
+  builder.push(diagnostic_severity_text(diagnostic.severity));
+  builder.push(": ");
+  builder.push_line(diagnostic.message);
+
+  for (label in diagnostic.labels) {
+    builder.push("  label: ");
+    builder.push_line(label.message)
+  }
+
+  builder.finish()
+}
+
+def write_diagnostic(writer: TextWriter, diagnostic: Diagnostic): Unit = {
+  writer.write(render_diagnostic(diagnostic))
+}
+
+def write_diagnostic_to_stdout(diagnostic: Diagnostic): Unit = {
+  write_diagnostic(core0_stdout(), diagnostic)
 }
