@@ -1,10 +1,24 @@
 import driver.diagnostic
+import core0.char_class
 import source.source
 import source.source_map
 
 class TokenKind {
   case Identifier
   case Number
+  case LeftParen
+  case RightParen
+  case LeftBrace
+  case RightBrace
+  case Comma
+  case Dot
+  case Colon
+  case Semicolon
+  case Equal
+  case Plus
+  case Minus
+  case Star
+  case Slash
   case EndOfFile
   case Invalid
 }
@@ -29,6 +43,121 @@ class LexerState {
     self.tokens.push(Token(kind, self.source.slice(start, end), start))
   }
 
+  def advance(&mut self): Unit = {
+    self.cursor = self.cursor + 1
+  }
+
+  def current_byte(&self): Byte = {
+    self.source.byte_at(self.cursor)
+  }
+
+  def scan_identifier(&mut self): Unit = {
+    val start = self.cursor;
+    self.advance();
+    while (!self.at_end() and is_identifier_continue(self.current_byte())) {
+      self.advance()
+    }
+    self.push_token(TokenKind.Identifier, start, self.cursor)
+  }
+
+  def scan_number(&mut self): Unit = {
+    val start = self.cursor;
+    self.advance();
+    while (!self.at_end() and is_ascii_digit(self.current_byte())) {
+      self.advance()
+    }
+    self.push_token(TokenKind.Number, start, self.cursor)
+  }
+
+  def skip_whitespace(&mut self): Unit = {
+    while (!self.at_end() and is_ascii_whitespace(self.current_byte())) {
+      self.advance()
+    }
+  }
+
+  def scan_punctuation(&mut self): Bool = {
+    val start = self.cursor;
+    val byte = self.current_byte();
+
+    if (byte == 40) {
+      self.advance();
+      self.push_token(TokenKind.LeftParen, start, self.cursor);
+      true
+    } else if (byte == 41) {
+      self.advance();
+      self.push_token(TokenKind.RightParen, start, self.cursor);
+      true
+    } else if (byte == 123) {
+      self.advance();
+      self.push_token(TokenKind.LeftBrace, start, self.cursor);
+      true
+    } else if (byte == 125) {
+      self.advance();
+      self.push_token(TokenKind.RightBrace, start, self.cursor);
+      true
+    } else if (byte == 44) {
+      self.advance();
+      self.push_token(TokenKind.Comma, start, self.cursor);
+      true
+    } else if (byte == 46) {
+      self.advance();
+      self.push_token(TokenKind.Dot, start, self.cursor);
+      true
+    } else if (byte == 58) {
+      self.advance();
+      self.push_token(TokenKind.Colon, start, self.cursor);
+      true
+    } else if (byte == 59) {
+      self.advance();
+      self.push_token(TokenKind.Semicolon, start, self.cursor);
+      true
+    } else if (byte == 61) {
+      self.advance();
+      self.push_token(TokenKind.Equal, start, self.cursor);
+      true
+    } else if (byte == 43) {
+      self.advance();
+      self.push_token(TokenKind.Plus, start, self.cursor);
+      true
+    } else if (byte == 45) {
+      self.advance();
+      self.push_token(TokenKind.Minus, start, self.cursor);
+      true
+    } else if (byte == 42) {
+      self.advance();
+      self.push_token(TokenKind.Star, start, self.cursor);
+      true
+    } else if (byte == 47) {
+      self.advance();
+      self.push_token(TokenKind.Slash, start, self.cursor);
+      true
+    } else {
+      false
+    }
+  }
+
+  def scan_invalid(&mut self): Unit = {
+    val start = self.cursor;
+    self.advance();
+    self.push_token(TokenKind.Invalid, start, self.cursor)
+  }
+
+  def scan_token(&mut self): Unit = {
+    val byte = self.current_byte();
+
+    if (is_ascii_whitespace(byte)) {
+      self.skip_whitespace()
+    } else if (is_identifier_start(byte)) {
+      self.scan_identifier()
+    } else if (is_ascii_digit(byte)) {
+      self.scan_number()
+    } else if (self.scan_punctuation()) {
+      ()
+    } else {
+      self.scan_invalid()
+    }
+  }
+
   def finish(&mut self): Vec[Token] = {
     self.push_token(TokenKind.EndOfFile, self.cursor, self.cursor);
     self.tokens
@@ -37,6 +166,14 @@ class LexerState {
 
 def lexer_state(source: SourceText): LexerState = {
   LexerState(source, 0, Vec[Token](), diagnostic_bag())
+}
+
+def lex_source(source: SourceText): Result[Vec[Token], Diagnostic] = {
+  val state = lexer_state(source);
+  while (!state.at_end()) {
+    state.scan_token()
+  }
+  Result[Vec[Token], Diagnostic]::Ok(state.finish())
 }
 
 def lex_single_identifier(source: SourceText): Result[Vec[Token], Diagnostic] = {
