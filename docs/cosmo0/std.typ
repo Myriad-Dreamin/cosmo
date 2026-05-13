@@ -53,7 +53,7 @@ Capability identifiers should be named at the smallest useful boundary so Stage 
 
 == Extern-Backed APIs
 
-The initial trusted extern-backed std surface is intentionally small. `std.io.println(value: String): Unit` may lower to the C++ runtime symbol `::cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
+The initial trusted extern-backed std surface is intentionally small. `core0.text-output` exposes `TextWriter` plus stdout helpers over `print(value: String): Unit` and `println(value: String): Unit`; these may lower to the C++ runtime symbols `::cosmo0_runtime::print` and `::cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
 
 `core0.path-fs` file reading may lower to the C++ runtime symbol `::cosmo0_runtime::read_file` through `cosmo0.extern.v0`. The source-facing API remains `Fs.read_to_string(path): Result[String, IoError]`; the runtime symbol is an implementation detail.
 
@@ -164,6 +164,28 @@ class SourceMap {
 ```
 
 Those helpers remain ordinary source modules layered on `core0.text`.
+
+== `core0.text-output`
+
+`core0.text-output` is the Stage 1 standard capability for deterministic text sinks used by smoke programs and cosmo1 diagnostics. Source code depends on this capability and its standard declarations, not on descriptor-family names.
+
+The initial API is intentionally small:
+
+```cos
+def print(value: String): Unit
+def println(value: String): Unit
+
+class TextWriter {
+  def write(&self, value: String): Unit
+  def write_line(&self, value: String): Unit
+}
+
+def core0_stdout(): TextWriter
+def core0_stdout_write(value: String): Unit
+def core0_stdout_write_line(value: String): Unit
+```
+
+The first implementation may be trusted and extern-backed because host output is outside pure cosmo0 source. This does not introduce a `TextWriter`, `Stdout`, `Stderr`, `Output`, or `Console` descriptor family. Diagnostic formatting is owned by cosmo1 driver code, while this capability only owns the sink boundary.
 
 == `core0.path-fs`
 
