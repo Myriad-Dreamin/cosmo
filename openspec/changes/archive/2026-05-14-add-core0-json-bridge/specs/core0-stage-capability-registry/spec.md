@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Later-Stage Capabilities
+### Requirement: Later Capabilities Do Not Block Stage 1
 
 The stage capability registry SHALL distinguish Stage 1 requirements from later-stage standard capabilities.
 
