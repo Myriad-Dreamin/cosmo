@@ -1,0 +1,11 @@
+def core0_map_contains_string(values: Map[String, String], key: String): Bool = {
+  values.contains_key(key)
+}
+
+def core0_map_get_string(values: Map[String, String], key: String): Option[String] = {
+  values.get(key)
+}
+
+def core0_set_contains_string(values: Set[String], value: String): Bool = {
+  values.contains(value)
+}
