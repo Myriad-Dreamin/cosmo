@@ -44,6 +44,10 @@ final case class IntLit(value: BigInt) extends Node
 final case class FloatLit(value: BigDecimal) extends Node
 // String Literal
 final case class StrLit(value: Str) extends Node
+// ASCII byte Literal
+final case class AsciiLit(value: Str) extends Node
+// Unicode scalar Literal
+final case class RuneLit(value: Str) extends Node
 // todo: Param Literal, remove me
 final case class ParamsLit(values: List[Param]) extends Node
 // Argument Literal (Named and Nameless Tuples)

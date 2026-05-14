@@ -34,6 +34,7 @@ object SourceType:
   val String: SourceType = Builtin("String")
   val Char: SourceType = Builtin("Char")
   val Byte: SourceType = Builtin("u8")
+  val Rune: SourceType = Builtin("u32")
   val F64: SourceType = Builtin("f64")
 
   val scalarTypes: Map[String, SourceType] =
@@ -47,7 +48,7 @@ object SourceType:
       "i64" -> Builtin("i64"),
       "u8" -> Byte,
       "u16" -> Builtin("u16"),
-      "u32" -> Builtin("u32"),
+      "u32" -> Rune,
       "u64" -> Builtin("u64"),
       "usize" -> Usize,
       "Byte" -> Byte,
@@ -436,7 +437,7 @@ object StandardGenericDescriptors:
       SourceType.Builtin("i64"),
       SourceType.Byte,
       SourceType.Builtin("u16"),
-      SourceType.Builtin("u32"),
+      SourceType.Rune,
       SourceType.Builtin("u64"),
       SourceType.Usize,
       SourceType.Builtin("f32"),

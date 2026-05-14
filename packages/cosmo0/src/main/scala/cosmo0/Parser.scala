@@ -12,22 +12,42 @@ implicit class SoftErr[$: P](p: => P[Unit]) {
 }
 
 object Parser {
-  private val unescapeStrPattern = "(\\\\[\\\\tfrn\\\"])".r
-
   private def unescapeStr(s: String): String =
-    unescapeStrPattern.replaceAllIn(
-      s,
-      m =>
-        m.group(1) match {
-          case "\\\"" => "\""
-          case "\\\\" => "\\"
-          case "\\n"  => "\n"
-          case "\\t"  => "\t"
-          case "\\r"  => "\r"
-          case "\\f"  => "\f"
-          case other  => other
-        },
-    )
+    val out = StringBuilder()
+    var index = 0
+    while index < s.length do
+      val ch = s.charAt(index)
+      if ch == '\\' && index + 1 < s.length then
+        s.charAt(index + 1) match
+          case '"' =>
+            out.append('"')
+            index += 2
+          case '\\' =>
+            out.append('\\')
+            index += 2
+          case 'n' =>
+            out.append('\n')
+            index += 2
+          case 't' =>
+            out.append('\t')
+            index += 2
+          case 'r' =>
+            out.append('\r')
+            index += 2
+          case 'f' =>
+            out.append('\f')
+            index += 2
+          case 'x' if index + 3 < s.length && s.substring(index + 2, index + 4).forall(Character.digit(_, 16) >= 0) =>
+            out.append(Integer.parseInt(s.substring(index + 2, index + 4), 16).toChar)
+            index += 4
+          case other =>
+            out.append('\\')
+            out.append(other)
+            index += 2
+      else
+        out.append(ch)
+        index += 1
+    out.toString
 
   // Entry point
   def root[$: P]: P[Block] =
@@ -38,6 +58,8 @@ object Parser {
     (P(word("true") | word("false"))).!.map(v => BoolLit(v == "true"))
   def numberLit[$: P] = P(float.map(FloatLit.apply) | int.map(IntLit.apply))
   def stringLit[$: P] = P(longStr | shortStr).map(StrLit.apply)
+  def asciiLit[$: P] = P("a" ~ &("\"") ~ (longStr | shortStr)).map(AsciiLit.apply)
+  def runeLit[$: P] = P("c" ~ &("\"") ~ (longStr | shortStr)).map(RuneLit.apply)
   def tmplLit[$: P] = P(tmplPath ~ &("\"") ~ tmplLitStr).map(TmplApply(_, _)).m
   def todoLit[$: P] = P("???").map(_ => TodoLit)
 
@@ -120,7 +142,7 @@ object Parser {
   def decoratorFactor[$: P]: P[Node] =
     P(decoratorPrimaryExpr.flatMapX(factorR))
   def decoratorPrimaryExpr[$: P] =
-    P(tmplLit | decoratorIdent | parens | paramsLit | literal | braces).m
+    P(literal | tmplLit | decoratorIdent | parens | paramsLit | braces).m
   def decoratorIdent[$: P] =
     P(id ~ ("-" ~/ id).rep).map { case (head, tail) =>
       Ident((head +: tail.toList).mkString("-"))
@@ -138,7 +160,7 @@ object Parser {
       defItem | valItem | varItem | typeItem | classItems | importItem,
     )
   def primaryExpr[$: P] =
-    P(tmplLit | ident | parens | paramsLit | literal | braces).m
+    P(literal | tmplLit | ident | parens | paramsLit | braces).m
   def factor[$: P]: P[Node] = P(unary | primaryExpr.flatMapX(factorR))
 
   // Braces/Args/Params
@@ -201,7 +223,7 @@ object Parser {
   def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
 
   // Expressions
-  def literal[$: P] = P(numberLit | booleanLit | stringLit | todoLit).m
+  def literal[$: P] = P(asciiLit | runeLit | numberLit | booleanLit | stringLit | todoLit).m
   def ident[$: P] = id.map(Ident.apply).m
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)

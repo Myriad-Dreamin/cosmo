@@ -1,25 +1,128 @@
 import source.span
 
+type ModuleId = Id[SyntaxModule]
+type DeclId = Id[SyntaxDecl]
+type MemberId = Id[SyntaxMember]
+type ParamId = Id[SyntaxParam]
 type ExprId = Id[SyntaxExpr]
 type TypeExprId = Id[SyntaxType]
 
+class SyntaxModule {
+  val declarations: Vec[DeclId]
+  val span: Span
+}
+
+class SyntaxDecl {
+  case AEmpty
+  case Unsupported(String, Span)
+  case Import(String, Span)
+  case Class(String, Vec[MemberId], Span)
+  case Function(String, Vec[ParamId], TypeExprId, ExprId, Span)
+  case TypeAlias(String, TypeExprId, Span)
+  case Value(String, Bool, TypeExprId, ExprId, Span)
+}
+
+class SyntaxMember {
+  case AEmpty
+  case Unsupported(String, Span)
+  case Field(String, Bool, TypeExprId, Span)
+  case Method(String, Vec[ParamId], TypeExprId, ExprId, Span)
+  case TypeAlias(String, TypeExprId, Span)
+  case Variant(String, Vec[TypeExprId], Span)
+}
+
+class SyntaxParam {
+  case AEmpty
+  case Self(Bool, Span)
+  case Named(String, TypeExprId, ExprId, Span)
+}
+
 class SyntaxExpr {
+  case AEmpty
   case Missing(Span)
   case Name(String, Span)
   case NumericLiteral(String, Span)
+  case StringLiteral(String, Span)
+  case AsciiLiteral(String, Span)
+  case RuneLiteral(String, Span)
+  case BoolLiteral(Bool, Span)
+  case Block(Vec[ExprId], Span)
+  case Local(String, Bool, TypeExprId, ExprId, Span)
+  case Assign(ExprId, ExprId, Span)
   case Call(ExprId, Vec[ExprId], Span)
+  case Select(ExprId, String, Span)
+  case Binary(String, ExprId, ExprId, Span)
+  case Unary(String, ExprId, Span)
+  case If(ExprId, ExprId, ExprId, Span)
+  case While(ExprId, ExprId, Span)
+  case Return(ExprId, Span)
 }
 
 class SyntaxType {
+  case AEmpty
+  case Missing(Span)
   case Name(String, Span)
+  case Generic(TypeExprId, Vec[TypeExprId], Span)
+  case Ref(Bool, TypeExprId, Span)
 }
 
 class SyntaxArenas {
+  var modules: Arena[SyntaxModule]
+  var decls: Arena[SyntaxDecl]
+  var members: Arena[SyntaxMember]
+  var params: Arena[SyntaxParam]
   var exprs: Arena[SyntaxExpr]
   var types: Arena[SyntaxType]
 
+  def alloc_module(&mut self, value: SyntaxModule): ModuleId = {
+    var modules = self.modules;
+    val id = modules.alloc(value);
+    self.modules = modules;
+    id
+  }
+
+  def module_ref(&self, id: ModuleId): &SyntaxModule = {
+    self.modules.get(id)
+  }
+
+  def alloc_decl(&mut self, decl: SyntaxDecl): DeclId = {
+    var decls = self.decls;
+    val id = decls.alloc(decl);
+    self.decls = decls;
+    id
+  }
+
+  def decl(&self, id: DeclId): &SyntaxDecl = {
+    self.decls.get(id)
+  }
+
+  def alloc_member(&mut self, member: SyntaxMember): MemberId = {
+    var members = self.members;
+    val id = members.alloc(member);
+    self.members = members;
+    id
+  }
+
+  def member(&self, id: MemberId): &SyntaxMember = {
+    self.members.get(id)
+  }
+
+  def alloc_param(&mut self, param: SyntaxParam): ParamId = {
+    var params = self.params;
+    val id = params.alloc(param);
+    self.params = params;
+    id
+  }
+
+  def param(&self, id: ParamId): &SyntaxParam = {
+    self.params.get(id)
+  }
+
   def alloc_expr(&mut self, expr: SyntaxExpr): ExprId = {
-    self.exprs.alloc(expr)
+    var exprs = self.exprs;
+    val id = exprs.alloc(expr);
+    self.exprs = exprs;
+    id
   }
 
   def expr(&self, id: ExprId): &SyntaxExpr = {
@@ -31,16 +134,50 @@ class SyntaxArenas {
   }
 
   def alloc_type(&mut self, typ: SyntaxType): TypeExprId = {
-    self.types.alloc(typ)
+    var types = self.types;
+    val id = types.alloc(typ);
+    self.types = types;
+    id
+  }
+
+  def module_len(&self): usize = {
+    self.modules.len()
+  }
+
+  def decl_len(&self): usize = {
+    self.decls.len()
+  }
+
+  def member_len(&self): usize = {
+    self.members.len()
+  }
+
+  def param_len(&self): usize = {
+    self.params.len()
   }
 
   def expr_len(&self): usize = {
     self.exprs.len()
   }
+
+  def type_len(&self): usize = {
+    self.types.len()
+  }
+
+  def module_decl_len(&self, id: ModuleId): usize = {
+    self.modules.get(id).declarations.len()
+  }
 }
 
 def syntax_arenas(): SyntaxArenas = {
-  SyntaxArenas(Arena[SyntaxExpr](), Arena[SyntaxType]())
+  SyntaxArenas(
+    Arena[SyntaxModule](),
+    Arena[SyntaxDecl](),
+    Arena[SyntaxMember](),
+    Arena[SyntaxParam](),
+    Arena[SyntaxExpr](),
+    Arena[SyntaxType]()
+  )
 }
 
 def syntax_ast_arena_smoke(): Bool = {
@@ -53,4 +190,15 @@ def syntax_numeric_literal_ast_smoke(): Bool = {
   val arenas = syntax_arenas();
   val id = arenas.alloc_expr(SyntaxExpr.NumericLiteral("999999999999999999999999999999", make_span(0, 30)));
   arenas.expr_len() == 1
+}
+
+def syntax_declaration_ast_smoke(): Bool = {
+  val arenas = syntax_arenas();
+  val typ = arenas.alloc_type(SyntaxType.Name("i32", make_span(12, 15)));
+  val missing = arenas.alloc_expr(SyntaxExpr.Missing(make_span(0, 0)));
+  val decl = arenas.alloc_decl(SyntaxDecl.Value("answer", false, typ, missing, make_span(0, 15)));
+  val decls = Vec[DeclId]();
+  decls.push(decl);
+  val root = arenas.alloc_module(SyntaxModule(decls, make_span(0, 15)));
+  arenas.module_len() == 1 and arenas.module_decl_len(root) == 1 and arenas.decl_len() == 1
 }

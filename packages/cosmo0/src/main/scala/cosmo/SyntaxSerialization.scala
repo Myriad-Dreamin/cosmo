@@ -56,6 +56,10 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(s""" "float", "value": "$value"}""")
     case StrLit(value) =>
       buf.append(s""" "string", "value": "$value"}""")
+    case AsciiLit(value) =>
+      buf.append(s""" "ascii", "value": "$value"}""")
+    case RuneLit(value) =>
+      buf.append(s""" "rune", "value": "$value"}""")
     case ParamsLit(values) =>
       buf.append(""" "params", "values": [""")
       j(values, buf)

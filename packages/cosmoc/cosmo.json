@@ -20,6 +20,7 @@
     "source/source_map.cos",
     "source/source_test.cos",
     "source/source_map_test.cos",
+    "syntax/ast.cos",
     "parser.cos",
     "parser_test.cos"
   ]

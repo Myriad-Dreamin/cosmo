@@ -185,6 +185,7 @@ class PackagePipelineTests extends munit.FunSuite:
           "source/source_map.cos",
           "source/source_test.cos",
           "source/source_map_test.cos",
+          "syntax/ast.cos",
           "parser.cos",
           "parser_test.cos",
         ),
@@ -211,6 +212,7 @@ class PackagePipelineTests extends munit.FunSuite:
         List("source", "source_map_test"),
         List("source", "source_test"),
         List("source", "span"),
+        List("syntax", "ast"),
       ),
     )
 
@@ -238,6 +240,7 @@ class PackagePipelineTests extends munit.FunSuite:
         "lex/token",
         "lex/lexer",
         "lex/lexer_test",
+        "syntax/ast",
         "parser",
         "parser_test",
         "source/source_map_test",
@@ -266,6 +269,8 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("struct TextBuilder"))
     assert(output.source.contains("struct SourceText"))
     assert(output.source.contains("struct SourceMap"))
+    assert(output.source.contains("struct SyntaxModule"))
+    assert(output.source.contains("struct SyntaxDecl"))
     assert(output.source.contains("struct Path"))
     assert(output.source.contains("struct IoError"))
     assert(output.source.contains("struct Fs"))
@@ -282,6 +287,7 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("Result<SourceText, IoError>"))
     assert(output.source.contains("core0_fs_read_to_string("))
     assert(output.source.contains("load_source_text("))
+    assert(output.source.contains("inline SyntaxParserResult parse_source_ast("))
     assert(output.source.contains("inline bool parse_source("))
     assert(output.source.contains("inline int32_t main()"))
     assert(output.source.contains("::cosmo0_runtime::read_file("))

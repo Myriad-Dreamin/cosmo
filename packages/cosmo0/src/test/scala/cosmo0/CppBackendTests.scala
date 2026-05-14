@@ -7,6 +7,8 @@ class CppBackendTests extends munit.FunSuite:
   private val tokenType = SourceType.User("Token")
   private val optionTokenType = SourceType.Standard("Option", List(tokenType))
   private val stringVecType = SourceType.Standard("Vec", List(SourceType.String))
+  private val spanSourcePath = "packages/cosmoc/src/source/span.cos"
+  private val syntaxAstSourcePath = "packages/cosmoc/src/syntax/ast.cos"
 
   test("backend rejects structurally invalid LIR at the compile boundary"):
     val result = CppBackend().emit(
@@ -263,7 +265,7 @@ class CppBackendTests extends munit.FunSuite:
     val result = Cosmo0().compile(
       SourceFile(
         ParserFixtureManifest.parserSourcePath,
-        ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+        combineParserLibrarySources(),
       ),
     )
 
@@ -273,8 +275,11 @@ class CppBackendTests extends munit.FunSuite:
       s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
     )
     val output = result.value.get.output
+    assert(output.contains("struct SyntaxModule"))
+    assert(output.contains("struct SyntaxParserResult"))
     assert(output.contains("struct ParserToken"))
     assert(output.contains("inline std::size_t source_len(std::string source)"))
+    assert(output.contains("inline SyntaxParserResult parse_source_ast(std::string source)"))
     assert(output.contains("inline bool parse_source(std::string source)"))
     assert(!output.contains("int main()"))
     assertCxxAccepts(output)
@@ -393,11 +398,20 @@ class CppBackendTests extends munit.FunSuite:
       SourceFile(
         ParserFixtureManifest.parserTestSourcePath,
         List(
+          ParserFixtureManifest.readFile(spanSourcePath),
+          ParserFixtureManifest.readFile(syntaxAstSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
         ).mkString("\n"),
       ),
     )
+
+  private def combineParserLibrarySources(): String =
+    List(
+      ParserFixtureManifest.readFile(spanSourcePath),
+      ParserFixtureManifest.readFile(syntaxAstSourcePath),
+      ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+    ).mkString("\n")
 
   private def assertCxxAccepts(source: String): Unit =
     val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo0 backend acceptance test"))

@@ -1,0 +1,3 @@
+def unsupported_lambda(): Unit = {
+  val f = (value) => value
+}
