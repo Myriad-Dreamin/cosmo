@@ -1356,7 +1356,9 @@ final class SourceTyper(
                   s"$name expects ${descriptor.arity} type argument(s), got ${args.length}",
                   span,
                 )
-              SourceType.Standard(name, args.map(resolveType(_, owner, seenAliases)))
+              val resolvedArgs = args.map(resolveType(_, owner, seenAliases))
+              validateStandardTypeApplication(name, resolvedArgs, span)
+              SourceType.Standard(name, resolvedArgs)
             case None =>
               error(
                 "cosmo0.type.unknown-type",
@@ -1366,6 +1368,38 @@ final class SourceTyper(
               SourceType.Error
         case UntypedRefType(target, mutable, _) =>
           SourceType.Ref(resolveType(target, owner, seenAliases), mutable)
+
+    private def validateStandardTypeApplication(
+        name: String,
+        args: List[SourceType],
+        span: SourceSpan,
+    ): Unit =
+      name match
+        case "Map" if args.length == 2 =>
+          validateMapSetKey(args.head, "Map", span)
+        case "Set" if args.length == 1 =>
+          validateMapSetKey(args.head, "Set", span)
+        case _ =>
+
+    private def validateMapSetKey(
+        keyType: SourceType,
+        owner: String,
+        span: SourceSpan,
+    ): Unit =
+      if !isSupportedMapSetKey(keyType) then
+        error(
+          "cosmo0.type.unsupported-map-key",
+          s"$owner key type ${keyType.display} is not supported by core0.map-set; use String, a primitive integer, or Id[T]",
+          span,
+        )
+
+    private def isSupportedMapSetKey(valueType: SourceType): Boolean =
+      SourceType.dealias(valueType) match
+        case SourceType.String => true
+        case SourceType.Builtin("i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize") =>
+          true
+        case SourceType.Standard("Id", _ :: Nil) => true
+        case _                                   => false
 
     private def canPass(actual: ExprInfo, expected: SourceType): Boolean =
       SourceType.dealias(expected) match

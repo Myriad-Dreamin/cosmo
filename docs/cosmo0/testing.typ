@@ -45,6 +45,8 @@ Unsupported syntax, type, declaration, expression, control-flow, runtime, and pa
 
 Package ordering, runtime support emission, generated code, and diagnostic stability checks should run through the package pipeline. The `packages/cosmoc` Stage 1 package must check and compile deterministically, including stable module order and repeated C++ backend output.
 
+Deterministic collection tests must cover both source-level behavior and generated backend shape. For `core0.map-set`, tests should prove insertion, lookup, containment, and repeated iteration order for `Map[K, V]` and `Set[K]`; they should also reject unsupported key types with `cosmo0.type.unsupported-map-key`. Cosmo1 package graph, symbol, and scope tests should use the same collections so output-affecting name data does not depend on insertion order.
+
 == Capability Validation Tests
 
 Stage capability validation tests should include:

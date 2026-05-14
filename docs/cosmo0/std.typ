@@ -47,7 +47,7 @@ The current Stage 1 identifiers are:
 - `core0.path-fs`: path and source-file loading surface.
 - `core0.char-class`: character classification helpers for lexing.
 
-Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data.
+Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data. `core0.map-set` is the standard capability for deterministic keyed collections used by later package graph, symbol, scope, and resolve data.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
 
@@ -104,6 +104,42 @@ class Vec[T] {
 `Option[T]` supports construction through `Option[T]::Some(value)` and `Option[T]::None`. `Result[T, E]` supports construction through `Result[T, E]::Ok(value)` and `Result[T, E]::Err(error)`. Matching over these variants is owned by `class.typ`.
 
 The first implementation may lower these APIs through registered descriptor intrinsics such as `descriptor Vec[Token]::push(...)`, but that lowering is a transitional implementation detail. New source-facing collection/result APIs require updates here before they are used by cosmo1 Stage 1 source.
+
+== `core0.map-set`
+
+`core0.map-set` is a later-stage standard capability for deterministic keyed collections used by package graphs, symbol tables, scopes, and other output-affecting compiler state. The public API names are `Map[K, V]` and `Set[T]`; they are deterministic by contract rather than exposing separate unordered and ordered variants.
+
+The initial API is intentionally small:
+
+```cos
+class Map[K, V] {
+  def Map[K, V](): Map[K, V]
+  def get(&self, key: K): Option[V]
+  def insert(&mut self, key: K, value: V): Option[V]
+  def contains(&self, key: K): Bool
+  def contains_key(&self, key: K): Bool
+  def len(&self): usize
+  def size(&self): usize
+  def is_empty(&self): Bool
+}
+
+class Set[T] {
+  def Set[T](): Set[T]
+  def insert(&mut self, value: T): Unit
+  def contains(&self, value: T): Bool
+  def len(&self): usize
+  def size(&self): usize
+  def is_empty(&self): Bool
+}
+```
+
+`Map[K, V].insert` stores `value` for `key` and returns the previous value as `Option[V]`. `Map[K, V].get` returns `Option[V]` so callers can distinguish missing keys from stored values. `contains` and `contains_key` are equivalent for `Map`. `Set[T].insert` is idempotent for an already-present value.
+
+Iteration is deterministic. Iterating a `Map[K, V]` yields keys in key-sorted order. Iterating a `Set[T]` yields values in key-sorted order. This ordering rule exists so diagnostics, package traversal, generated source, and snapshots do not depend on insertion order or host hash table behavior.
+
+Until ordering and hashing traits exist, map keys and set item types are restricted to `String`, primitive integer types, and `Id[T]`. Symbol-indexed compiler data should use a concrete symbol representation that aliases or wraps one of those supported key types. Unsupported key types must be rejected during type checking rather than deferred to backend code generation.
+
+The first implementation may lower these APIs through descriptor intrinsics and ordered backend containers, but `Map` and `Set` remain source-facing standard APIs owned by this capability. `core0.map-set` is a known later-stage capability and must not be required by the `cosmo1.stage1` profile.
 
 == `core0.text`
 

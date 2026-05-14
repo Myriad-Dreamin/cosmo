@@ -1,0 +1,29 @@
+import names.symbol
+
+type ModuleId = Id[Module]
+
+class Module {
+  val name: Symbol
+}
+
+class ModuleGraph {
+  var modules: Map[Symbol, ModuleId]
+  var roots: Set[Symbol]
+
+  def add_root(&mut self, name: Symbol, id: ModuleId): Option[ModuleId] = {
+    self.roots.insert(name);
+    self.modules.insert(name, id)
+  }
+
+  def has_module(&self, name: Symbol): Bool = {
+    self.modules.contains_key(name)
+  }
+
+  def module_id(&self, name: Symbol): Option[ModuleId] = {
+    self.modules.get(name)
+  }
+}
+
+def empty_module_graph(): ModuleGraph = {
+  ModuleGraph(Map[Symbol, ModuleId](), Set[Symbol]())
+}

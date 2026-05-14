@@ -1,0 +1,9 @@
+type Symbol = String
+
+def symbol_from_string(text: String): Symbol = {
+  text
+}
+
+def symbol_text(symbol: Symbol): String = {
+  symbol
+}
