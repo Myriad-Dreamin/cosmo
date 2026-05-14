@@ -117,64 +117,70 @@ def load_cosmo1_package_metadata_json(text: String): Result[Cosmo1PackageMetadat
 }
 
 def load_cosmo1_package_metadata_value(value: JsonValue): Result[Cosmo1PackageMetadata, PackageMetadataError] = {
-  val name_result = json_required_string(value, "name");
-  name_result match {
-    case Result[String, PackageMetadataError]::Ok(name) => {
-      val version_result = json_required_string(value, "version");
-      version_result match {
-        case Result[String, PackageMetadataError]::Ok(version) => {
-          val target_result = json_optional_string(value, "target");
-          target_result match {
-            case Result[Option[String], PackageMetadataError]::Ok(target) => {
-              val root_result = json_optional_string(value, "root");
-              root_result match {
-                case Result[Option[String], PackageMetadataError]::Ok(maybe_root) => {
-                  val stage_result = json_optional_string(value, "stageProfile");
-                  stage_result match {
-                    case Result[Option[String], PackageMetadataError]::Ok(stage_profile) => {
-                      val source_result = json_source_list(value);
-                      source_result match {
-                        case Result[Vec[String], PackageMetadataError]::Ok(sources) => {
-                          Result[Cosmo1PackageMetadata, PackageMetadataError]::Ok(
-                            Cosmo1PackageMetadata(
-                              name,
-                              version,
-                              target,
-                              package_source_root_or_default(maybe_root),
-                              stage_profile,
-                              sources
-                            )
-                          )
-                        }
-                        case Result[Vec[String], PackageMetadataError]::Err(error) => {
-                          Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
-                        }
-                      }
-                    }
-                    case Result[Option[String], PackageMetadataError]::Err(error) => {
-                      Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
-                    }
-                  }
-                }
-                case Result[Option[String], PackageMetadataError]::Err(error) => {
-                  Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
-                }
-              }
-            }
-            case Result[Option[String], PackageMetadataError]::Err(error) => {
-              Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
-            }
-          }
-        }
-        case Result[String, PackageMetadataError]::Err(error) => {
-          Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
-        }
-      }
+  val name = json_required_string(value, "name") match {
+    case Result[String, PackageMetadataError]::Ok(text) => {
+      text
     }
     case Result[String, PackageMetadataError]::Err(error) => {
-      Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
     }
-  }
+  };
+
+  val version = json_required_string(value, "version") match {
+    case Result[String, PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[String, PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val target = json_optional_string(value, "target") match {
+    case Result[Option[String], PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[Option[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val root = json_optional_string(value, "root") match {
+    case Result[Option[String], PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[Option[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val stage_profile = json_optional_string(value, "stageProfile") match {
+    case Result[Option[String], PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[Option[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val sources = json_source_list(value) match {
+    case Result[Vec[String], PackageMetadataError]::Ok(items) => {
+      items
+    }
+    case Result[Vec[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  Result[Cosmo1PackageMetadata, PackageMetadataError]::Ok(
+    Cosmo1PackageMetadata(
+      name,
+      version,
+      target,
+      package_source_root_or_default(root),
+      stage_profile,
+      sources
+    )
+  )
 }
 
 def package_source_root_or_default(value: Option[String]): String = {
@@ -192,17 +198,7 @@ def json_required_string(value: JsonValue, field: String): Result[String, Packag
   val maybe_field = value.field(field);
   maybe_field match {
     case Option[JsonValue]::Some(field_value) => {
-      val maybe_text = field_value.as_string();
-      maybe_text match {
-        case Option[String]::Some(text) => {
-          Result[String, PackageMetadataError]::Ok(text)
-        }
-        case Option[String]::None => {
-          Result[String, PackageMetadataError]::Err(
-            package_metadata_error("cosmo1.package.invalid-metadata-field", field.concat(" must be a string"))
-          )
-        }
-      }
+      json_string_value(field_value, field.concat(" must be a string"))
     }
     case Option[JsonValue]::None => {
       Result[String, PackageMetadataError]::Err(
@@ -216,17 +212,7 @@ def json_optional_string(value: JsonValue, field: String): Result[Option[String]
   val maybe_field = value.field(field);
   maybe_field match {
     case Option[JsonValue]::Some(field_value) => {
-      val maybe_text = field_value.as_string();
-      maybe_text match {
-        case Option[String]::Some(text) => {
-          Result[Option[String], PackageMetadataError]::Ok(Option[String]::Some(text))
-        }
-        case Option[String]::None => {
-          Result[Option[String], PackageMetadataError]::Err(
-            package_metadata_error("cosmo1.package.invalid-metadata-field", field.concat(" must be a string"))
-          )
-        }
-      }
+      json_optional_string_value(field_value, field.concat(" must be a string"))
     }
     case Option[JsonValue]::None => {
       Result[Option[String], PackageMetadataError]::Ok(Option[String]::None)
@@ -238,61 +224,98 @@ def json_source_list(value: JsonValue): Result[Vec[String], PackageMetadataError
   val maybe_sources = value.field("sources");
   maybe_sources match {
     case Option[JsonValue]::Some(source_value) => {
-      val maybe_len = source_value.array_len();
-      maybe_len match {
-        case Option[usize]::Some(len) => {
-          val sources = Vec[String]();
-          var index: usize = 0;
-          while (index < len) {
-            val item = source_value.array_get(index);
-            item match {
-              case Option[JsonValue]::Some(item_value) => {
-                val maybe_text = item_value.as_string();
-                maybe_text match {
-                  case Option[String]::Some(text) => {
-                    if (!is_valid_package_source_path(text)) {
-                      return Result[Vec[String], PackageMetadataError]::Err(
-                        package_metadata_error(
-                          "cosmo1.package.invalid-source",
-                          "source entries must be relative .cos paths inside the source root"
-                        )
-                      )
-                    }
-                    sources.push(text)
-                  }
-                  case Option[String]::None => {
-                    return Result[Vec[String], PackageMetadataError]::Err(
-                      package_metadata_error("cosmo1.package.invalid-metadata-field", "sources must contain strings")
-                    )
-                  }
-                }
-              }
-              case Option[JsonValue]::None => {
-                return Result[Vec[String], PackageMetadataError]::Err(
-                  package_metadata_error("cosmo1.package.invalid-metadata-field", "sources array item is missing")
-                )
-              }
-            }
-            index = index + 1;
-          }
-          if (sources.is_empty()) {
-            Result[Vec[String], PackageMetadataError]::Err(
-              package_metadata_error("cosmo1.package.no-sources", "sources must list at least one .cos file")
-            )
-          } else {
-            Result[Vec[String], PackageMetadataError]::Ok(sources)
-          }
-        }
-        case Option[usize]::None => {
-          Result[Vec[String], PackageMetadataError]::Err(
-            package_metadata_error("cosmo1.package.invalid-metadata-field", "sources must be an array")
-          )
-        }
-      }
+      json_source_array(source_value)
     }
     case Option[JsonValue]::None => {
       Result[Vec[String], PackageMetadataError]::Err(
         package_metadata_error("cosmo1.package.missing-metadata-field", "sources is required")
+      )
+    }
+  }
+}
+
+def json_string_value(value: JsonValue, message: String): Result[String, PackageMetadataError] = {
+  val maybe_text = value.as_string();
+  maybe_text match {
+    case Option[String]::Some(text) => {
+      Result[String, PackageMetadataError]::Ok(text)
+    }
+    case Option[String]::None => {
+      Result[String, PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata-field", message)
+      )
+    }
+  }
+}
+
+def json_optional_string_value(value: JsonValue, message: String): Result[Option[String], PackageMetadataError] = {
+  val text_result = json_string_value(value, message);
+  text_result match {
+    case Result[String, PackageMetadataError]::Ok(text) => {
+      Result[Option[String], PackageMetadataError]::Ok(Option[String]::Some(text))
+    }
+    case Result[String, PackageMetadataError]::Err(error) => {
+      Result[Option[String], PackageMetadataError]::Err(error)
+    }
+  }
+}
+
+def json_source_array(value: JsonValue): Result[Vec[String], PackageMetadataError] = {
+  val maybe_len = value.array_len();
+  maybe_len match {
+    case Option[usize]::Some(len) => {
+      json_source_array_items(value, len)
+    }
+    case Option[usize]::None => {
+      Result[Vec[String], PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata-field", "sources must be an array")
+      )
+    }
+  }
+}
+
+def json_source_array_items(value: JsonValue, len: usize): Result[Vec[String], PackageMetadataError] = {
+  val sources = Vec[String]();
+  var index: usize = 0;
+  while (index < len) {
+    val item_result = json_source_array_item(value, index);
+    item_result match {
+      case Result[String, PackageMetadataError]::Ok(text) => {
+        if (!is_valid_package_source_path(text)) {
+          return Result[Vec[String], PackageMetadataError]::Err(
+            package_metadata_error(
+              "cosmo1.package.invalid-source",
+              "source entries must be relative .cos paths inside the source root"
+            )
+          )
+        }
+        sources.push(text)
+      }
+      case Result[String, PackageMetadataError]::Err(error) => {
+        return Result[Vec[String], PackageMetadataError]::Err(error)
+      }
+    }
+    index = index + 1;
+  }
+
+  if (sources.is_empty()) {
+    Result[Vec[String], PackageMetadataError]::Err(
+      package_metadata_error("cosmo1.package.no-sources", "sources must list at least one .cos file")
+    )
+  } else {
+    Result[Vec[String], PackageMetadataError]::Ok(sources)
+  }
+}
+
+def json_source_array_item(value: JsonValue, index: usize): Result[String, PackageMetadataError] = {
+  val maybe_item = value.array_get(index);
+  maybe_item match {
+    case Option[JsonValue]::Some(item) => {
+      json_string_value(item, "sources must contain strings")
+    }
+    case Option[JsonValue]::None => {
+      Result[String, PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata-field", "sources array item is missing")
       )
     }
   }
