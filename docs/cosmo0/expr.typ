@@ -10,6 +10,10 @@ cosmo0 accepts unit, boolean, integer, floating, and string literals. Integer li
 
 Scalar literals lower through primitive typed values, not through ordinary runtime descriptor families.
 
+Numeric literal lexing and parser-facing data preserve the source text before any primitive conversion. The preserved text includes radix prefixes, digit separators, fractional parts, and exponent spelling exactly as accepted by the lexer. Stage 1 may validate lexical shape, but it must not reject a numeric token because its value is outside `i64`, `u64`, `f64`, or another primitive range. Range checks, rounding checks, and exact arithmetic belong to the later type-checking or evaluation stage that has the required numeric capability.
+
+Primitive parsing is allowed only when the expected primitive type is known and conversion can report overflow or precision loss as a normal diagnostic. A token such as `99999999999999999999999999999999999999999999999999` remains available as raw text to the parser and later literal AST even when no arbitrary-precision implementation is present.
+
 ASCII character data used by Stage 1 lexing is read from `String` through byte-indexed `core0.text` helpers. Character classification compares `Byte` values against ASCII code ranges. `Char` values produced by `char_at` are ASCII-compatible for bytes in `0..127`; broader Unicode scalar semantics and Unicode identifier comparison are outside cosmo0 Stage 1.
 
 == Examples
@@ -20,6 +24,7 @@ Accepted expression shapes:
 val at_end: Bool = cursor.offset == source.len()
 val first: Option<Char> = source.get(0)
 val token = Token(TokenKind.Ident, span, "name")
+val huge = NumericLiteral("99999999999999999999999999999999999999999999999999", span)
 val is_name_start = is_identifier_start(source.byte_at(cursor))
 
 val tag = token.kind match {
