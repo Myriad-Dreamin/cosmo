@@ -108,8 +108,14 @@ object TrustedExternAbi:
     CppQualifiedSymbol.global("cosmo0_runtime", "println")
   private val readFileSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "read_file")
+  private val commandRunSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "command_run")
   private val jsonParseSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "json_parse")
+  private val commandType = SourceType.User("Command")
+  private val commandResultType = SourceType.User("CommandResult")
+  private val commandErrorType = SourceType.User("CommandError")
+  private val commandRefType = SourceType.Ref(commandType, mutable = false)
   private val jsonValueType = SourceType.User("JsonValue")
   private val jsonParseErrorType = SourceType.User("JsonParseError")
   private val jsonValueRefType = SourceType.Ref(jsonValueType, mutable = false)
@@ -201,6 +207,18 @@ object TrustedExternAbi:
           BackendRequirement.runtimeSymbol(jsonParseSymbol),
           BackendRequirement.include("<nlohmann/json.hpp>"),
           BackendRequirement.include("<string>"),
+        ),
+      ),
+      TrustedBinding(
+        "command_run",
+        List(commandRefType),
+        SourceType.Standard("Result", List(commandResultType, commandErrorType)),
+        commandRunSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(commandRunSymbol),
+          BackendRequirement.include("<cstdlib>"),
+          BackendRequirement.include("<string>"),
+          BackendRequirement.include("<vector>"),
         ),
       ),
       jsonBinding("json_is_null", List(jsonValueRefType), SourceType.Bool),

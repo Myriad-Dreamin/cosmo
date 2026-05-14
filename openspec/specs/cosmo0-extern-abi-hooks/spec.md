@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the trusted extern ABI hooks that let core0/std declarations bind to backend runtime symbols, direct fixed-arity C functions, ordered file-level C includes, and extern-backed smoke validation without expanding descriptor families.
-
 ## Requirements
 ### Requirement: Trusted Extern ABI Metadata
 
@@ -30,6 +29,19 @@ cosmo0 SHALL allow only trusted core0/std declarations to attach extern ABI meta
 - **WHEN** the trusted `core0.path-fs` declaration `Fs.read_to_string(path): Result<String, IoError>` has no cosmo0 body
 - **THEN** lowering records an extern binding using `cosmo0.extern.v0`
 - **AND** lowering emits a call to the trusted `cosmo0_runtime::read_file` filesystem runtime symbol instead of a `Filesystem` or `Path` descriptor operation
+
+#### Scenario: Command run binding is trusted std
+
+- **WHEN** the trusted `core0.command` declaration `command_run(command: &Command): Result[CommandResult, CommandError]` has no cosmo0 body
+- **THEN** cosmo0 attaches `cosmo0.extern.v0` metadata for `::cosmo0_runtime::command_run`
+- **AND** the binding is accepted only as repository-owned core0/std API metadata
+- **AND** arbitrary packages cannot introduce new bodyless command execution declarations
+
+#### Scenario: Command binding emits runtime requirements
+
+- **WHEN** the C++ backend emits a call to the trusted `core0.command` run binding
+- **THEN** it records the runtime symbol `cosmo0_runtime::command_run`
+- **AND** it records the process runtime include and support requirements required by the selected backend
 
 ### Requirement: Backend Runtime Requirement Tracking
 

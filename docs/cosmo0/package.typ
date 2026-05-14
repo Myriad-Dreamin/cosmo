@@ -85,3 +85,9 @@ The Stage 1 package profile is `cosmo1.stage1`. It covers source-file loading, m
 The first scaffolded consumer lives at `packages/cosmoc` and selects `stageProfile: "cosmo1.stage1"`. Exact acceptance tests for the complete Stage 1 package are tracked by the OpenSpec change `validate-cosmo1-stage1-capability-profile`.
 
 The profile requires `core0.path-fs` for source-file loading. Later package graph traversal, recursive directory walking, generated artifact writing, and command execution remain outside this first source-loading boundary unless a later profile or capability explicitly adds them.
+
+== Later Build, Link, And Run Profiles
+
+Later profiles that orchestrate external tools may require `core0.command`. That capability covers structured command construction, explicit argument and environment data, optional working directory selection, and captured exit status, stdout, and stderr. A package or profile that needs compiler, linker, test-runner, or other external process execution must request `core0.command` explicitly.
+
+The `cosmo1.stage1` profile must continue to validate when `core0.command` is unavailable. Missing command support is only diagnosed for a later profile or package check that explicitly requires it, using `cosmo0.stage.missing-capability` for `core0.command`.
