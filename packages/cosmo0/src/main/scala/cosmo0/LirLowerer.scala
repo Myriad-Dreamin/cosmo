@@ -442,6 +442,8 @@ final class LirLowerer(
           case "-" => Some("neg")
           case _   => None
       opName match
+        case None if value.op == "*" =>
+          lowerExpr(value.expr).map(arg => LirDerefValue(arg, Lir.t(value.valueType)))
         case Some(name) =>
           lowerExpr(value.expr).flatMap { arg =>
             descriptorRefForValue(arg.valueType.source, name) match
