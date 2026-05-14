@@ -1,9 +1,35 @@
 type Symbol = String
 
+class SymbolInterner {
+  var symbols: Map[String, Symbol]
+
+  def intern(&mut self, text: String): Symbol = {
+    val existing = self.symbols.get(text);
+    existing match {
+      case Option[Symbol]::Some(symbol) => {
+        symbol
+      }
+      case Option[Symbol]::None => {
+        val symbol = symbol_from_string(text);
+        self.symbols.insert(text, symbol);
+        symbol
+      }
+    }
+  }
+
+  def len(&self): usize = {
+    self.symbols.len()
+  }
+}
+
 def symbol_from_string(text: String): Symbol = {
   text
 }
 
 def symbol_text(symbol: Symbol): String = {
   symbol
+}
+
+def symbol_interner(): SymbolInterner = {
+  SymbolInterner(Map[String, Symbol]())
 }

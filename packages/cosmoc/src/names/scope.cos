@@ -1,12 +1,52 @@
 import names.symbol
+import source.span
 
 type DefId = Id[Definition]
+type ScopeId = Id[Scope]
+
+class DefinitionKind {
+  case Prelude
+  case Module
+  case Class
+  case Function
+  case Value
+  case TypeAlias
+  case Field
+  case Method
+  case Variant
+  case Parameter
+  case Local
+  case Self
+}
+
+class ScopeKind {
+  case Prelude
+  case Module
+  case Class
+  case Function
+  case Block
+}
 
 class Definition {
   val name: Symbol
+  val kind: DefinitionKind
+  val span: Span
+  val owner: Option[DefId]
+}
+
+class DefineResult {
+  val id: DefId
+  val duplicate: Option[DefId]
+
+  def is_duplicate(&self): Bool = {
+    self.duplicate.is_some()
+  }
 }
 
 class Scope {
+  val kind: ScopeKind
+  val parent: Option[ScopeId]
+  val owner: Option[DefId]
   var definitions: Map[Symbol, DefId]
   var exported: Set[Symbol]
 
@@ -24,6 +64,123 @@ class Scope {
   }
 }
 
+class NameEnvironment {
+  var definitions: Arena[Definition]
+  var scopes: Arena[Scope]
+
+  def add_scope(&mut self, kind: ScopeKind, parent: Option[ScopeId], owner: Option[DefId]): ScopeId = {
+    var scopes = self.scopes;
+    val id = scopes.alloc(Scope(kind, parent, owner, Map[Symbol, DefId](), Set[Symbol]()));
+    self.scopes = scopes;
+    id
+  }
+
+  def define(
+    &mut self,
+    scope_id: ScopeId,
+    name: Symbol,
+    kind: DefinitionKind,
+    span: Span,
+    owner: Option[DefId]
+  ): DefineResult = {
+    var definitions = self.definitions;
+    val id = definitions.alloc(Definition(name, kind, span, owner));
+    self.definitions = definitions;
+
+    val duplicate = self.resolve_local(scope_id, name);
+    if (duplicate.is_none()) {
+      val scope = self.scopes.get_mut(scope_id);
+      scope.define(name, id);
+    }
+    DefineResult(id, duplicate)
+  }
+
+  def resolve_local(&self, scope_id: ScopeId, name: Symbol): Option[DefId] = {
+    self.scopes.get(scope_id).resolve(name)
+  }
+
+  def resolve(&self, scope_id: ScopeId, name: Symbol): Option[DefId] = {
+    var current = Option[ScopeId]::Some(scope_id);
+    while (current.is_some()) {
+      current match {
+        case Option[ScopeId]::Some(id) => {
+          val scope = self.scopes.get(id);
+          val found = scope.resolve(name);
+          if (found.is_some()) {
+            return found
+          }
+          current = scope.parent
+        }
+        case Option[ScopeId]::None => {
+          current = Option[ScopeId]::None
+        }
+      }
+    }
+    Option[DefId]::None
+  }
+
+  def definition(&self, id: DefId): Definition = {
+    *self.definitions.get(id)
+  }
+
+  def scope(&self, id: ScopeId): Scope = {
+    *self.scopes.get(id)
+  }
+
+  def definition_len(&self): usize = {
+    self.definitions.len()
+  }
+
+  def scope_len(&self): usize = {
+    self.scopes.len()
+  }
+}
+
 def empty_scope(): Scope = {
-  Scope(Map[Symbol, DefId](), Set[Symbol]())
+  Scope(ScopeKind.Block, Option[ScopeId]::None, Option[DefId]::None, Map[Symbol, DefId](), Set[Symbol]())
+}
+
+def name_environment(): NameEnvironment = {
+  NameEnvironment(Arena[Definition](), Arena[Scope]())
+}
+
+def definition_kind_is_class(kind: DefinitionKind): Bool = {
+  kind match {
+    case DefinitionKind.Class => {
+      true
+    }
+    case DefinitionKind.Prelude => {
+      false
+    }
+    case DefinitionKind.Module => {
+      false
+    }
+    case DefinitionKind.Function => {
+      false
+    }
+    case DefinitionKind.Value => {
+      false
+    }
+    case DefinitionKind.TypeAlias => {
+      false
+    }
+    case DefinitionKind.Field => {
+      false
+    }
+    case DefinitionKind.Method => {
+      false
+    }
+    case DefinitionKind.Variant => {
+      false
+    }
+    case DefinitionKind.Parameter => {
+      false
+    }
+    case DefinitionKind.Local => {
+      false
+    }
+    case DefinitionKind.Self => {
+      false
+    }
+  }
 }
