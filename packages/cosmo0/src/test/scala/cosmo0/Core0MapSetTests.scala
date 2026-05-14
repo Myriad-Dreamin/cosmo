@@ -3,6 +3,9 @@ package cosmo0
 class Core0MapSetTests extends munit.FunSuite:
   private val core0MapSetPath = "packages/cosmoc/src/core0/map_set.cos"
   private val core0MapSetTestPath = "packages/cosmoc/src/core0/map_set_test.cos"
+  private val core0JsonPath = "packages/cosmoc/src/core0/json.cos"
+  private val spanPath = "packages/cosmoc/src/source/span.cos"
+  private val astPath = "packages/cosmoc/src/syntax/ast.cos"
   private val symbolPath = "packages/cosmoc/src/names/symbol.cos"
   private val scopePath = "packages/cosmoc/src/names/scope.cos"
   private val moduleGraphPath = "packages/cosmoc/src/package/module_graph.cos"
@@ -93,7 +96,7 @@ class Core0MapSetTests extends munit.FunSuite:
 
   test("cosmo1 module graph and name scope compile with deterministic maps and sets"):
     val source = combineSources(
-      List(symbolPath, scopePath, moduleGraphPath, moduleGraphTestPath),
+      List(core0JsonPath, spanPath, astPath, symbolPath, scopePath, moduleGraphPath, moduleGraphTestPath),
       "",
     )
 
@@ -108,6 +111,8 @@ class Core0MapSetTests extends munit.FunSuite:
     assert(output.contains("std::map<std::string, std::size_t>"))
     assert(output.contains("std::set<std::string>"))
     assert(output.contains("inline bool module_graph_test_uses_deterministic_maps()"))
+    assert(output.contains("inline bool module_graph_test_loads_explicit_sources()"))
+    assert(output.contains("inline bool module_graph_test_orders_dependencies_first()"))
 
   test("core0.map-set capability is later-stage std metadata, not a Stage 1 requirement"):
     val profile = StageCapabilityProfile(

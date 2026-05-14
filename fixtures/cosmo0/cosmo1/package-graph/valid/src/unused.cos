@@ -1,0 +1,3 @@
+def unused_value(): i32 = {
+  99
+}
