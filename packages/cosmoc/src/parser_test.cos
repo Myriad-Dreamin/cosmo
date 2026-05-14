@@ -12,7 +12,7 @@ def is_manifest_data_line(line: String): Bool = {
   if (line.is_empty()) {
     false
   } else {
-    line.byte_at(0) != 35
+    line.byte_at(0) != a"#"
   }
 }
 
@@ -21,7 +21,7 @@ def trim_trailing_cr(line: String): String = {
     line
   } else {
     val last = line.len() - 1;
-    if (line.byte_at(last) == 13) {
+    if (line.byte_at(last) == a"\r") {
       line.slice(0, last)
     } else {
       line
@@ -33,7 +33,7 @@ def field_count(line: String): usize = {
   var count: usize = 1;
   var offset: usize = 0;
   while (offset < line.len()) {
-    if (line.byte_at(offset) == 124) {
+    if (line.byte_at(offset) == a"|") {
       count = count + 1
     }
     offset = offset + 1
@@ -46,7 +46,7 @@ def field_at(line: String, index: usize): String = {
   var start: usize = 0;
   var offset: usize = 0;
   while (offset < line.len()) {
-    if (line.byte_at(offset) == 124) {
+    if (line.byte_at(offset) == a"|") {
       if (field_index == index) {
         return line.slice(start, offset)
       } else {
@@ -68,7 +68,7 @@ def parse_manifest(manifest: String): Vec[String] = {
   var start: usize = 0;
   var offset: usize = 0;
   while (offset < manifest.len()) {
-    if (manifest.byte_at(offset) == 10) {
+    if (manifest.byte_at(offset) == a"\n") {
       val line = trim_trailing_cr(manifest.slice(start, offset));
       if (is_manifest_data_line(line)) {
         fixtures.push(line)

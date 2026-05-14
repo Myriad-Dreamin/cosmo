@@ -17,6 +17,8 @@ class ParserAstFixture {
 type ParserAstAlias = ParserAstFixture
 
 val parser_ast_value = 1
+val parser_ast_ascii = a"("
+val parser_ast_rune = c"("
 
 def parser_ast_top(source: String): Bool = {
   val fixture = ParserAstFixture(source);

@@ -707,6 +707,10 @@ final class UntypedElaborator(
           Some(UntypedFloatLiteral(value, nodeSpan(node)))
         case Some(StrLit(value)) =>
           Some(UntypedStringLiteral(value, nodeSpan(node)))
+        case Some(AsciiLit(value)) =>
+          Some(UntypedAsciiLiteral(value, nodeSpan(node)))
+        case Some(RuneLit(value)) =>
+          Some(UntypedRuneLiteral(value, nodeSpan(node)))
         case Some(Select(lhs, rhs, false)) =>
           expr(lhs).map(receiver => UntypedSelect(receiver, rhs.name, nodeSpan(node)))
         case Some(Select(lhs, rhs, true)) =>
@@ -894,6 +898,10 @@ final class UntypedElaborator(
           Some(UntypedFloatLiteral(value, nodeSpan(node)))
         case StrLit(value) =>
           Some(UntypedStringLiteral(value, nodeSpan(node)))
+        case AsciiLit(value) =>
+          Some(UntypedAsciiLiteral(value, nodeSpan(node)))
+        case RuneLit(value) =>
+          Some(UntypedRuneLiteral(value, nodeSpan(node)))
         case Apply(callee, args, false) =>
           val constructor = expr(callee)
           val argPatterns = args.map(pattern)

@@ -43,6 +43,8 @@ class SyntaxExpr {
   case Name(String, Span)
   case NumericLiteral(String, Span)
   case StringLiteral(String, Span)
+  case AsciiLiteral(String, Span)
+  case RuneLiteral(String, Span)
   case BoolLiteral(Bool, Span)
   case Block(Vec[ExprId], Span)
   case Local(String, Bool, TypeExprId, ExprId, Span)

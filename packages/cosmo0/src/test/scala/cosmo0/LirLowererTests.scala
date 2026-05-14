@@ -335,6 +335,28 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("descriptor Bool::and("))
     assert(rendered.contains("descriptor Bool::or("))
 
+  test("lowers ascii and rune literals to u8 and u32 integer values"):
+    val result = Cosmo0().lower(
+      """def ascii_left_paren(): u8 = {
+        |  a"("
+        |}
+        |
+        |def rune_left_paren(): u32 = {
+        |  c"("
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"lowering failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assert(rendered.contains("40:u8"))
+    assert(rendered.contains("40:u32"))
+
   test("lowers map and set for loops through deterministic descriptor iteration"):
     val result = Cosmo0().lower(
       """def walk(values: Map[String, i32], seen: Set[String]): Unit = {
