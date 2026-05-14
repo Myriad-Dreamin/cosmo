@@ -281,6 +281,8 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("inline std::size_t source_len(std::string source)"))
     assert(output.contains("inline SyntaxParserResult parse_source_ast(std::string source)"))
     assert(output.contains("inline bool parse_source(std::string source)"))
+    assert(output.contains("inline std::string syntax_debug_module("))
+    assert(output.contains("inline bool parser_result_required_spans_ok("))
     assert(!output.contains("int main()"))
     assertCxxAccepts(output)
 
@@ -296,6 +298,7 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("int main()"))
     assert(output.contains("cosmo0_runtime::read_file"))
     assert(output.contains("parse_source"))
+    assert(output.contains("parser_debug_render_is_deterministic"))
     assertCxxAccepts(output)
 
   test("parser_test executable passes the shared parser fixture manifest"):

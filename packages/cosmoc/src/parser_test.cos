@@ -1,4 +1,5 @@
 import parser;
+import syntax.ast;
 
 def parser_fixture_manifest_path(): String = {
   "fixtures/cosmo0/parser/manifest.tsv"
@@ -145,7 +146,11 @@ def run_ast_fixture(fixture: String): Bool = {
   val source = read_file(field_at(fixture, 1));
   val result = parse_source_ast(source);
   if (field_at(fixture, 2) == "ok") {
-    result.is_ok() and result.has_syntax() and result.declaration_len() > 0 and result.expr_len() > 0
+    result.is_ok() and
+      result.has_syntax() and
+      result.declaration_len() > 0 and
+      result.expr_len() > 0 and
+      result.required_spans_ok()
   } else {
     if (result.is_ok()) {
       false
@@ -157,6 +162,20 @@ def run_ast_fixture(fixture: String): Bool = {
         result.first_diagnostic_code() == expected_code
       }
     }
+  }
+}
+
+def parser_debug_render_is_deterministic(): Bool = {
+  val source = "val answer: i32 = 42";
+  val expected = "Module\nDecl Value answer\nType Name i32\nExpr NumericLiteral 42\n";
+  val first = parse_source_ast(source);
+  val second = parse_source_ast(source);
+  if (!first.is_ok() or !second.is_ok()) {
+    false
+  } else {
+    val first_debug = first.debug_syntax();
+    val second_debug = second.debug_syntax();
+    first_debug == expected and first_debug == second_debug
   }
 }
 
@@ -184,6 +203,10 @@ def main(): i32 = {
       println(field_at(fixture, 0));
       return 1
     }
+  }
+  if (!parser_debug_render_is_deterministic()) {
+    println("parser_debug_render_is_deterministic");
+    return 1
   }
   0
 }

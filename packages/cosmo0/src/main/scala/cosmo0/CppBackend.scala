@@ -758,6 +758,8 @@ final class CppBackend(
           names.globalName(id)
         case LirFunctionRef(id, _) =>
           names.functionName(id)
+        case LirDerefValue(value, _) =>
+          s"(*${renderValue(value, locals)})"
 
     private def defaultValue(valueType: LirTypeRef): String =
       SourceType.dealias(valueType.source) match

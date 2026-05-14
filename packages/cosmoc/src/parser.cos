@@ -44,6 +44,14 @@ class SyntaxParserResult {
   def has_syntax(&self): Bool = {
     self.declaration_len() > 0
   }
+
+  def debug_syntax(&self): String = {
+    self.arenas.debug_module(self.root)
+  }
+
+  def required_spans_ok(&self): Bool = {
+    self.arenas.required_spans_ok(self.root)
+  }
 }
 
 class SyntaxParsedName {
@@ -1751,4 +1759,12 @@ def parser_result_expr_len(result: SyntaxParserResult): usize = {
 
 def parser_result_diagnostic_len(result: SyntaxParserResult): usize = {
   result.diagnostic_len()
+}
+
+def parser_result_debug_syntax(result: SyntaxParserResult): String = {
+  result.debug_syntax()
+}
+
+def parser_result_required_spans_ok(result: SyntaxParserResult): Bool = {
+  result.required_spans_ok()
 }

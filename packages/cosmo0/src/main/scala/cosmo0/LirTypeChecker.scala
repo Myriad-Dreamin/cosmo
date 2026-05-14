@@ -925,6 +925,21 @@ final class LirTypeChecker(
                 s"${env.function.id} references unknown function $id",
               )
 
+        case LirDerefValue(inner, valueType) =>
+          checkValue(inner, env, defined)
+          SourceType.dealias(inner.valueType.source) match
+            case SourceType.Ref(target, _) =>
+              if !sameSourceType(target, valueType.source) then
+                error(
+                  "cosmo0.lir.assignment-mismatch",
+                  s"${env.function.id} dereferences ${inner.valueType.display} as ${valueType.display}",
+                )
+            case other =>
+              error(
+                "cosmo0.lir.assignment-mismatch",
+                s"${env.function.id} cannot dereference non-reference value ${other.display}",
+              )
+
     private def checkModuleValue(value: LirValue, declarations: DeclEnv): Unit =
       value match
         case LirGlobalRef(id, valueType) =>
@@ -943,6 +958,8 @@ final class LirTypeChecker(
                 s"function reference $id has signature ${signatureDisplay(signature)}, expected ${signatureDisplay(function.signature)}",
               )
           }
+        case LirDerefValue(inner, _) =>
+          checkModuleValue(inner, declarations)
         case _ =>
 
     private def defineOutput(
@@ -1128,6 +1145,8 @@ final class LirTypeChecker(
             env.locals.get(id).exists(info => info.mutable || info.mutationAllowed)
           case LirGlobalRef(id, _) =>
             env.declarations.globals.get(id).exists(global => global.mutable || global.mutationAllowed)
+          case LirDerefValue(inner, _) =>
+            SourceType.refMutable(inner.valueType.source).contains(true)
           case _                   => false
         )
 
@@ -1177,6 +1196,7 @@ final class LirTypeChecker(
         case LirLocalRef(id, _)    => id.toString
         case LirGlobalRef(id, _)   => id.toString
         case LirFunctionRef(id, _) => id.toString
+        case LirDerefValue(inner, _) => s"*${valueDescription(inner)}"
         case _                     => value.valueType.display
 
     private def signatureDisplay(signature: LirCallableSignature): String =
