@@ -309,7 +309,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -329,6 +329,65 @@ class CppBackendTests extends munit.FunSuite:
       s"parser_test fixture run failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
     )
 
+  test("core0 json_test executable passes through nlohmann runtime bridge"):
+    val lowered = Cosmo0().lower(
+      SourceFile(
+        "packages/cosmoc/src/core0/json_test.cos",
+        List(
+          ParserFixtureManifest.readFile("packages/cosmoc/src/core0/json.cos"),
+          ParserFixtureManifest.readFile("packages/cosmoc/src/core0/json_test.cos"),
+        ).mkString("\n"),
+      ),
+    )
+
+    assert(
+      lowered.isSuccess,
+      s"json_test lower failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val result = CppBackend().emit(lowered.value.get.lir)
+    assert(
+      result.isSuccess,
+      s"json_test C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.source
+    assert(output.contains("nlohmann::json"))
+    assertCxxAccepts(output)
+
+    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for json_test execution test"))
+    TestNodeFs.mkdirSync("target/cosmo0-cpp-tests", js.Dynamic.literal("recursive" -> true))
+    val sourcePath = "target/cosmo0-cpp-tests/json_test.cpp"
+    val executablePath = "target/cosmo0-cpp-tests/json_test"
+    val entry =
+      s"""
+         |int main() {
+         |  return ${result.value.get.namespace.mkString("::")}::json_test_smoke() &&
+         |    ${result.value.get.namespace.mkString("::")}::json_test_rejects_invalid() ? 0 : 1;
+         |}
+         |""".stripMargin
+    TestNodeFs.writeFileSync(sourcePath, output + entry)
+
+    val compile = NodeSpawnSync(
+      compiler,
+      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", sourcePath, "-o", executablePath),
+      js.Dynamic.literal(encoding = "utf8"),
+    )
+    assertEquals(
+      compile.status.toOption,
+      Some(0),
+      s"C++ compiler rejected json_test executable output with ${compiler}\n${compile.stderr.getOrElse("")}",
+    )
+
+    val run = NodeSpawnSync(
+      executablePath,
+      js.Array(),
+      js.Dynamic.literal(encoding = "utf8"),
+    )
+    assertEquals(
+      run.status.toOption,
+      Some(0),
+      s"json_test fixture run failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+    )
+
   private def compileParserTestProgram(): Result[CompiledModule] =
     Cosmo0().compile(
       SourceFile(
@@ -344,7 +403,7 @@ class CppBackendTests extends munit.FunSuite:
     val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo0 backend acceptance test"))
     val result = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-fsyntax-only", "-x", "c++", "-"),
+      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", "-fsyntax-only", "-x", "c++", "-"),
       js.Dynamic.literal(input = source, encoding = "utf8"),
     )
     assertEquals(

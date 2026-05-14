@@ -185,9 +185,13 @@ class LirTests extends munit.FunSuite:
     }
 
     assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("StringBuilder"))
+    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("Json"))
+    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("JsonValue"))
     assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("TextBuilder"))
     assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("TextView"))
     assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("SourceText"))
+    assert(StandardGenericDescriptors.get("Json").isEmpty)
+    assert(StandardGenericDescriptors.get("JsonValue").isEmpty)
     assert(StandardGenericDescriptors.get("StringBuilder").isEmpty)
     assert(StandardGenericDescriptors.get("TextBuilder").isEmpty)
     assert(StandardGenericDescriptors.get("TextView").isEmpty)

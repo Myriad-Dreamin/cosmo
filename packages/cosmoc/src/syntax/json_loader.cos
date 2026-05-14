@@ -1,0 +1,114 @@
+import core0.json
+import source.span
+import syntax.ast
+
+class SyntaxJsonLoadError {
+  val message: String
+}
+
+class SyntaxJsonLoadResult {
+  val arenas: SyntaxArenas
+  val root: ExprId
+}
+
+def syntax_json_error(message: String): SyntaxJsonLoadError = {
+  SyntaxJsonLoadError(message)
+}
+
+def syntax_json_load(text: String): Result[SyntaxJsonLoadResult, SyntaxJsonLoadError] = {
+  val parsed = core0_json().parse(text);
+  parsed match {
+    case Result[JsonValue, JsonParseError]::Ok(value) => {
+      var arenas = syntax_arenas();
+      val root = arenas.alloc_expr(SyntaxExpr.Missing(make_span(0, 0)));
+      Result[SyntaxJsonLoadResult, SyntaxJsonLoadError]::Ok(SyntaxJsonLoadResult(arenas, root))
+    }
+    case Result[JsonValue, JsonParseError]::Err(error) => {
+      Result[SyntaxJsonLoadResult, SyntaxJsonLoadError]::Err(SyntaxJsonLoadError(error.message))
+    }
+  }
+}
+
+def syntax_json_load_expr(arenas: &mut SyntaxArenas, value: JsonValue): Result[ExprId, SyntaxJsonLoadError] = {
+  val maybe_kind = value.field("kind");
+  maybe_kind match {
+    case Option[JsonValue]::Some(kind_value) => {
+      val maybe_kind_text = kind_value.as_string();
+      maybe_kind_text match {
+        case Option[String]::Some(kind) => {
+          syntax_json_load_kind(arenas, value, kind)
+        }
+        case Option[String]::None => {
+          Result[ExprId, SyntaxJsonLoadError]::Err(syntax_json_error("syntax JSON kind must be a string"))
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      Result[ExprId, SyntaxJsonLoadError]::Err(syntax_json_error("syntax JSON node is missing kind"))
+    }
+  }
+}
+
+def syntax_json_load_kind(
+  arenas: &mut SyntaxArenas,
+  value: JsonValue,
+  kind: String
+): Result[ExprId, SyntaxJsonLoadError] = {
+  if (kind == "ident") {
+    syntax_json_load_ident(arenas, value)
+  } else {
+    if (kind == "block") {
+      syntax_json_load_block(arenas, value)
+    } else {
+      if (kind == "apply") {
+        syntax_json_load_apply(arenas, value)
+      } else {
+        Result[ExprId, SyntaxJsonLoadError]::Ok(arenas.alloc_expr(SyntaxExpr.Missing(make_span(0, 0))))
+      }
+    }
+  }
+}
+
+def syntax_json_load_ident(arenas: &mut SyntaxArenas, value: JsonValue): Result[ExprId, SyntaxJsonLoadError] = {
+  val maybe_name = value.field("name");
+  maybe_name match {
+    case Option[JsonValue]::Some(name_value) => {
+      val maybe_name_text = name_value.as_string();
+      maybe_name_text match {
+        case Option[String]::Some(name) => {
+          Result[ExprId, SyntaxJsonLoadError]::Ok(arenas.alloc_expr(SyntaxExpr.Name(name, make_span(0, 0))))
+        }
+        case Option[String]::None => {
+          Result[ExprId, SyntaxJsonLoadError]::Err(syntax_json_error("syntax JSON ident name must be a string"))
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      Result[ExprId, SyntaxJsonLoadError]::Err(syntax_json_error("syntax JSON ident is missing name"))
+    }
+  }
+}
+
+def syntax_json_load_block(arenas: &mut SyntaxArenas, value: JsonValue): Result[ExprId, SyntaxJsonLoadError] = {
+  Result[ExprId, SyntaxJsonLoadError]::Ok(arenas.alloc_expr(SyntaxExpr.Missing(make_span(0, 0))))
+}
+
+def syntax_json_load_apply(arenas: &mut SyntaxArenas, value: JsonValue): Result[ExprId, SyntaxJsonLoadError] = {
+  val maybe_lhs = value.field("lhs");
+  maybe_lhs match {
+    case Option[JsonValue]::Some(lhs_value) => {
+      val lhs = syntax_json_load_expr(arenas, lhs_value);
+      lhs match {
+        case Result[ExprId, SyntaxJsonLoadError]::Ok(lhs_id) => {
+          Result[ExprId, SyntaxJsonLoadError]::Ok(arenas.alloc_expr(SyntaxExpr.Call(lhs_id, Vec[ExprId](), make_span(0, 0))))
+        }
+        case Result[ExprId, SyntaxJsonLoadError]::Err(error) => {
+          Result[ExprId, SyntaxJsonLoadError]::Err(error)
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      Result[ExprId, SyntaxJsonLoadError]::Err(syntax_json_error("syntax JSON apply is missing lhs"))
+    }
+  }
+}

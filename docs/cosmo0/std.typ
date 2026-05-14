@@ -47,7 +47,7 @@ The current Stage 1 identifiers are:
 - `core0.path-fs`: path and source-file loading surface.
 - `core0.char-class`: character classification helpers for lexing.
 
-Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data.
+Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
 
@@ -217,6 +217,50 @@ def core0_fs_read_to_string(path: Path): Result[String, IoError]
 `Path.text` stores the Stage 1 source input name as an owned string. Stage 1 does not define path normalization, canonicalization, directory walking, symlink behavior, current-directory mutation, or platform-specific separator rewriting. `Path.display()` returns the stable source name used in diagnostics and `SourceText.name`.
 
 `Fs.read_to_string` is fallible. Success returns `Result[String, IoError]::Ok(contents)` with the complete file text. Failure returns `Result[String, IoError]::Err(error)` with the attempted path and a stable diagnostic-oriented message. The API must not panic or throw for ordinary missing or unreadable input files.
+
+== `core0.json`
+
+`core0.json` is a later-stage standard capability for transitional JSON loading. It exists so cosmo1 can consume selected parser JSON and package/cache metadata before native source parsing and metadata readers are self-hosted. Source code depends on this standard API, not on descriptor-family names such as `Json` or `JsonValue`.
+
+The initial API is intentionally small:
+
+```cos
+class JsonParseError {
+  val message: String
+}
+
+class JsonValue {
+  val handle: String
+
+  def is_null(&self): Bool
+  def as_bool(&self): Option[Bool]
+  def as_number_text(&self): Option[String]
+  def as_string(&self): Option[String]
+  def array_len(&self): Option[usize]
+  def array_get(&self, index: usize): Option[JsonValue]
+  def field(&self, key: String): Option[JsonValue]
+}
+
+class Json {
+  def parse(&self, text: String): Result[JsonValue, JsonParseError]
+}
+
+def core0_json(): Json
+def json_parse(text: String): Result[JsonValue, JsonParseError]
+def json_is_null(value: &JsonValue): Bool
+def json_as_bool(value: &JsonValue): Option[Bool]
+def json_as_number_text(value: &JsonValue): Option[String]
+def json_as_string(value: &JsonValue): Option[String]
+def json_array_len(value: &JsonValue): Option[usize]
+def json_array_get(value: &JsonValue, index: usize): Option[JsonValue]
+def json_field(value: &JsonValue, key: String): Option[JsonValue]
+```
+
+Object and array accessors are fallible and return `Option` so syntax loaders can turn malformed input into diagnostics. Numbers expose their original JSON literal text through `as_number_text`; exact numeric conversion and arbitrary-precision arithmetic belong to later numeric capabilities.
+
+The source-facing parser entry point is `core0_json().parse(text)`. The bodyless `json_parse` declaration is a trusted extern-backed std hook used to implement that entry point; ordinary packages should not treat it as a general host FFI surface.
+
+`core0.json` is not part of the `cosmo1.stage1` profile. Stage 1 validation must continue to pass without this capability, and missing `core0.json` diagnostics are only required for later profiles or packages that explicitly ask for the JSON bridge.
 
 == `core0.char-class`
 
