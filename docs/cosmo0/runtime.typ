@@ -70,6 +70,7 @@ JSON parsing bridge extern obligation:
 ```text
 extern cosmo0.extern.v0 "::cosmo0_runtime::json_parse"
 runtime-symbol:cosmo0_runtime::json_parse
+include:<nlohmann/json.hpp>
 include:<string>
 ```
 
@@ -87,7 +88,7 @@ The trusted `core0.text-output` bindings record the target symbols `::cosmo0_run
 
 The trusted `core0.path-fs` read binding records the target symbol `::cosmo0_runtime::read_file` and the include/runtime support needed by the C++ backend. The source-facing wrapper returns the standard `Result[String, IoError]` shape owned by `std.typ`; backend failures to provide the runtime symbol are reported as missing extern runtime requirements, not as descriptor failures.
 
-The trusted `core0.json` parse binding records the target symbol `::cosmo0_runtime::json_parse` and the include/runtime support needed by the C++ backend. The source-facing wrapper returns `Result[JsonValue, JsonParseError]` as owned by `std.typ`. The runtime hook is a transitional bridge for selected JSON inputs; it does not authorize `Json`, `JsonValue`, object, array, or parser-AST descriptor families.
+The trusted `core0.json` parse binding records the target symbol `::cosmo0_runtime::json_parse` and the include/runtime support needed by the C++ backend. The C++ runtime implementation uses `nlohmann::json` behind opaque `JsonValue` handles. The source-facing wrapper returns `Result[JsonValue, JsonParseError]` as owned by `std.typ`. The runtime hook is a transitional bridge for selected JSON inputs; it does not authorize `Json`, `JsonValue`, object, array, or parser-AST descriptor families.
 
 == C Extern Function Correspondence
 

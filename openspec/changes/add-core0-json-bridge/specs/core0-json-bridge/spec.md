@@ -14,7 +14,13 @@ cosmo0 SHALL expose `core0.json` as a source-facing standard capability for tran
 
 - **WHEN** cosmo0 source calls `core0_json().parse(text)`
 - **THEN** lowering records a trusted `cosmo0.extern.v0` call to `::cosmo0_runtime::json_parse`
-- **AND** backend requirements include the matching runtime symbol and include support
+- **AND** backend requirements include the matching runtime symbol and `nlohmann::json` include support
+
+#### Scenario: JSON source smoke tests execute through nlohmann
+
+- **WHEN** `packages/cosmoc/src/core0/json_test.cos` is compiled and executed through the C++ backend
+- **THEN** valid JSON object, array, string, boolean, null, and number accessors return the expected values
+- **AND** invalid JSON returns a parse error result
 
 ### Requirement: Syntax JSON Loader
 

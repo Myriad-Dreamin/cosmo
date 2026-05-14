@@ -2,6 +2,7 @@ package cosmo0
 
 class Core0JsonBridgeTests extends munit.FunSuite:
   private val core0JsonPath = "packages/cosmoc/src/core0/json.cos"
+  private val core0JsonTestPath = "packages/cosmoc/src/core0/json_test.cos"
   private val spanPath = "packages/cosmoc/src/source/span.cos"
   private val astPath = "packages/cosmoc/src/syntax/ast.cos"
   private val loaderPath = "packages/cosmoc/src/syntax/json_loader.cos"
@@ -79,6 +80,23 @@ class Core0JsonBridgeTests extends munit.FunSuite:
       s"core0.json parse C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
     )
     assert(compiled.value.get.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::json_parse")))
+    assert(compiled.value.get.backendRequirements.contains(BackendRequirement.include("<nlohmann/json.hpp>")))
+
+  test("core0.json source tests compile through the nlohmann-backed bridge"):
+    val source = combineSources(List(core0JsonPath, core0JsonTestPath), "")
+
+    val compiled = Cosmo0().compile(SourceFile(core0JsonTestPath, source))
+
+    assertEquals(compiled.phase, Phase.Compile)
+    assert(
+      compiled.isSuccess,
+      s"core0.json source test compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = compiled.value.get.output
+    assert(output.contains("nlohmann::json"))
+    assert(output.contains("json_parse<JsonValue, JsonParseError>"))
+    assert(output.contains("inline bool json_test_smoke()"))
+    assert(output.contains("inline bool json_test_rejects_invalid()"))
 
   test("cosmo1 syntax JSON loader compiles selected parser JSON mapping into syntax arenas"):
     val source = combineSources(

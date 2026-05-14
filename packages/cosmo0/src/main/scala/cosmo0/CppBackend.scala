@@ -111,6 +111,7 @@ final class CppBackend(
         "#include <fstream>",
         "#include <iterator>",
         "#include <map>",
+        "#include <nlohmann/json.hpp>",
         "#include <optional>",
         "#include <set>",
         "#include <sstream>",
@@ -230,6 +231,98 @@ final class CppBackend(
         |  bool is_err() const { return !ok; }
         |  int32_t tag() const { return ok ? 1 : 0; }
         |};
+        |
+        |inline std::vector<nlohmann::json> &json_values() {
+        |  static std::vector<nlohmann::json> values;
+        |  return values;
+        |}
+        |
+        |inline std::string json_store(nlohmann::json value) {
+        |  auto &values = json_values();
+        |  values.push_back(std::move(value));
+        |  return std::to_string(values.size() - 1);
+        |}
+        |
+        |template <typename JsonValue>
+        |inline const nlohmann::json &json_ref(const JsonValue *value) {
+        |  if (value == nullptr) {
+        |    error_exit("cosmo0.runtime.json", "null JsonValue reference");
+        |  }
+        |  auto index = static_cast<std::size_t>(std::stoull(value->handle));
+        |  auto &values = json_values();
+        |  if (index >= values.size()) {
+        |    error_exit("cosmo0.runtime.json", "invalid JsonValue handle");
+        |  }
+        |  return values.at(index);
+        |}
+        |
+        |template <typename JsonValue, typename JsonParseError>
+        |inline Result<JsonValue, JsonParseError> json_parse(const std::string &text) {
+        |  try {
+        |    return Result<JsonValue, JsonParseError>::Ok(JsonValue(json_store(nlohmann::json::parse(text))));
+        |  } catch (const nlohmann::json::exception &error) {
+        |    return Result<JsonValue, JsonParseError>::Err(JsonParseError(std::string(error.what())));
+        |  }
+        |}
+        |
+        |template <typename JsonValue>
+        |inline bool json_is_null(const JsonValue *value) {
+        |  return json_ref(value).is_null();
+        |}
+        |
+        |template <typename JsonValue>
+        |inline std::optional<bool> json_as_bool(const JsonValue *value) {
+        |  const auto &json = json_ref(value);
+        |  if (!json.is_boolean()) {
+        |    return std::optional<bool>{};
+        |  }
+        |  return json.template get<bool>();
+        |}
+        |
+        |template <typename JsonValue>
+        |inline std::optional<std::string> json_as_number_text(const JsonValue *value) {
+        |  const auto &json = json_ref(value);
+        |  if (!json.is_number()) {
+        |    return std::optional<std::string>{};
+        |  }
+        |  return json.dump();
+        |}
+        |
+        |template <typename JsonValue>
+        |inline std::optional<std::string> json_as_string(const JsonValue *value) {
+        |  const auto &json = json_ref(value);
+        |  if (!json.is_string()) {
+        |    return std::optional<std::string>{};
+        |  }
+        |  return json.template get<std::string>();
+        |}
+        |
+        |template <typename JsonValue>
+        |inline std::optional<std::size_t> json_array_len(const JsonValue *value) {
+        |  const auto &json = json_ref(value);
+        |  if (!json.is_array()) {
+        |    return std::optional<std::size_t>{};
+        |  }
+        |  return json.size();
+        |}
+        |
+        |template <typename JsonValue>
+        |inline std::optional<JsonValue> json_array_get(const JsonValue *value, std::size_t index) {
+        |  const auto &json = json_ref(value);
+        |  if (!json.is_array() || index >= json.size()) {
+        |    return std::optional<JsonValue>{};
+        |  }
+        |  return JsonValue(json_store(json.at(index)));
+        |}
+        |
+        |template <typename JsonValue>
+        |inline std::optional<JsonValue> json_field(const JsonValue *value, const std::string &key) {
+        |  const auto &json = json_ref(value);
+        |  if (!json.is_object() || !json.contains(key)) {
+        |    return std::optional<JsonValue>{};
+        |  }
+        |  return JsonValue(json_store(json.at(key)));
+        |}
         |
         |template <typename T>
         |struct Arena {
@@ -608,8 +701,25 @@ final class CppBackend(
         missingExternRuntimeSymbol(callee, binding)
         Nil
       else
-        val invocation = s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
+        val invocation =
+          if binding.symbol == CppQualifiedSymbol.global("cosmo0_runtime", "json_parse") then
+            jsonParseInvocation(callee, binding, args, locals)
+          else s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
         assignOrStatement(output, invocation, locals)
+
+    private def jsonParseInvocation(
+        callee: LirDeclId,
+        binding: LirExternBinding,
+        args: List[LirValue],
+        locals: FunctionNames,
+    ): String =
+      val templateArgs =
+        env.functions.get(callee).map(_.returnType.source) match
+          case Some(SourceType.Standard("Result", ok :: err :: Nil)) =>
+            s"<${valueTypeName(ok)}, ${valueTypeName(err)}>"
+          case _ =>
+            ""
+      s"${binding.symbol.cppName}$templateArgs(${args.map(renderValue(_, locals)).mkString(", ")})"
 
     private def renderPlace(place: LirPlace, locals: FunctionNames): String =
       place match

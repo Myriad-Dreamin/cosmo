@@ -199,6 +199,7 @@ object TrustedExternAbi:
         jsonParseSymbol,
         List(
           BackendRequirement.runtimeSymbol(jsonParseSymbol),
+          BackendRequirement.include("<nlohmann/json.hpp>"),
           BackendRequirement.include("<string>"),
         ),
       ),
@@ -224,6 +225,7 @@ object TrustedExternAbi:
       symbol,
       List(
         BackendRequirement.runtimeSymbol(symbol),
+        BackendRequirement.include("<nlohmann/json.hpp>"),
         BackendRequirement.include("<string>"),
       ),
     )
