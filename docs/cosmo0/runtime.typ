@@ -65,6 +65,16 @@ runtime-symbol:cosmo0_runtime::read_file
 include:<fstream>
 ```
 
+Command execution extern obligation:
+
+```text
+extern cosmo0.extern.v0 "::cosmo0_runtime::command_run"
+runtime-symbol:cosmo0_runtime::command_run
+include:<cstdlib>
+include:<string>
+include:<vector>
+```
+
 JSON parsing bridge extern obligation:
 
 ```text
@@ -89,6 +99,8 @@ The trusted `core0.text-output` bindings record the target symbols `::cosmo0_run
 The trusted `core0.path-fs` read binding records the target symbol `::cosmo0_runtime::read_file` and the include/runtime support needed by the C++ backend. The source-facing wrapper returns the standard `Result[String, IoError]` shape owned by `std.typ`; backend failures to provide the runtime symbol are reported as missing extern runtime requirements, not as descriptor failures.
 
 The trusted `core0.json` parse binding records the target symbol `::cosmo0_runtime::json_parse` and the include/runtime support needed by the C++ backend. The C++ runtime implementation uses `nlohmann::json` behind opaque `JsonValue` handles. The source-facing wrapper returns `Result[JsonValue, JsonParseError]` as owned by `std.typ`. The runtime hook is a transitional bridge for selected JSON inputs; it does not authorize `Json`, `JsonValue`, object, array, or parser-AST descriptor families.
+
+The trusted `core0.command` run binding records the target symbol `::cosmo0_runtime::command_run` and the include/runtime support needed by the C++ backend. The source-facing wrapper returns `Result[CommandResult, CommandError]` as owned by `std.typ`. The runtime hook accepts structured executable, argument, environment, and working-directory data; it does not authorize shell-string execution or a `Command`, `Process`, `Shell`, `ExitStatus`, `Stdout`, or `Stderr` descriptor family.
 
 == C Extern Function Correspondence
 
@@ -159,5 +171,7 @@ Text views, source text wrappers, source maps, and builders are standard/source 
 `core0.path-fs` may lower trusted reads through extern runtime support, but path and filesystem concepts are not descriptor families. The implementation must continue to reject descriptor families such as `Path`, `IoError`, `Fs`, `File`, and `Filesystem`; source-facing availability is validated through the `core0.path-fs` std capability and backend extern requirements.
 
 `core0.json` may lower trusted parsing through extern runtime support, but JSON concepts are not descriptor families. The implementation must continue to reject descriptor families such as `Json`, `JsonValue`, `JsonObject`, and `JsonArray`; source-facing availability is validated through the `core0.json` std capability and backend extern requirements.
+
+`core0.command` may lower trusted command execution through extern runtime support, but process concepts are not descriptor families. The implementation must continue to reject descriptor families such as `Command`, `CommandResult`, `CommandError`, `Process`, `Shell`, `ExitStatus`, `Stdout`, and `Stderr`; source-facing availability is validated through the `core0.command` std capability and backend extern requirements.
 
 `core0.arena-id` may lower through the existing temporary `Arena<T>` and `Id<T>` standard generic descriptor compatibility. The runtime representation may store arena elements in an ordered buffer and represent `Id<T>` as an index-sized value, but the public numeric representation remains opaque. The backend must preserve source-level item typing before lowering so an `Id<Expr>` cannot be used with `Arena<Ty>`. This compatibility does not authorize unrelated ownership or allocation descriptor families such as `Allocator`, `Pool`, `Gc`, `Handle`, or `StablePtr`.

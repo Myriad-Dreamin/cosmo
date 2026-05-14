@@ -1,0 +1,36 @@
+import core0.command
+import core0.path_fs
+import driver.config
+
+class LinkCommandPlan {
+  val command: Command
+  val output: Path
+}
+
+def link_command_plan(executable: Path, output: Path): LinkCommandPlan = {
+  val command = core0_command(executable);
+  command.arg("-o");
+  command.arg(core0_path_display(output));
+  LinkCommandPlan(command, output)
+}
+
+def link_command_add_object(plan: &mut LinkCommandPlan, object_path: Path): Unit = {
+  plan.command.arg(core0_path_display(object_path))
+}
+
+def driver_link_smoke_command(config: DriverConfig): Option[Command] = {
+  val input = config.first_input();
+  input match {
+    case Option[Path]::Some(path) => {
+      val plan = link_command_plan(
+        core0_path_from_string("c++"),
+        core0_path_from_string("a.out")
+      );
+      plan.command.arg(core0_path_display(path));
+      Option[Command]::Some(plan.command)
+    }
+    case Option[Path]::None => {
+      Option[Command]::None
+    }
+  }
+}

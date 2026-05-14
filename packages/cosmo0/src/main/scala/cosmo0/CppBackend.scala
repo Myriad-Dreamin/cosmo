@@ -1460,6 +1460,7 @@ final class CppBackend(
         CppQualifiedSymbol.global("cosmo0_runtime", "print"),
         CppQualifiedSymbol.global("cosmo0_runtime", "println"),
         CppQualifiedSymbol.global("cosmo0_runtime", "read_file"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "command_run"),
         CppQualifiedSymbol.global("cosmo0_runtime", "json_parse"),
         CppQualifiedSymbol.global("cosmo0_runtime", "json_is_null"),
         CppQualifiedSymbol.global("cosmo0_runtime", "json_as_bool"),
