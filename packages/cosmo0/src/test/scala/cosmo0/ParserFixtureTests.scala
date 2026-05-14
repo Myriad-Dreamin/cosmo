@@ -44,5 +44,25 @@ class ParserFixtureTests extends munit.FunSuite:
       parserTestSource.contains(s""""${ParserFixtureManifest.manifestPath}""""),
       s"parser_test.cos must reference ${ParserFixtureManifest.manifestPath}",
     )
+    assert(
+      parserTestSource.contains(s""""${ParserFixtureManifest.astManifestPath}""""),
+      s"parser_test.cos must reference ${ParserFixtureManifest.astManifestPath}",
+    )
+
+  test("native parser AST fixture manifest is well formed and points at existing fixtures"):
+    val fixtures = ParserFixtureManifest.loadAst()
+
+    assert(fixtures.nonEmpty, "native parser AST fixture manifest must list at least one fixture")
+    assertEquals(fixtures.map(_.id).distinct.length, fixtures.length)
+    assert(
+      fixtures.exists(_.expectedStatus == ParserFixtureManifest.ExpectedStatus.Ok),
+      "native parser AST fixture manifest must include an accepted fixture",
+    )
+    assert(
+      fixtures.exists(_.expectedStatus == ParserFixtureManifest.ExpectedStatus.Error),
+      "native parser AST fixture manifest must include a rejected fixture",
+    )
+    fixtures.foreach: fixture =>
+      assert(ParserFixtureManifest.exists(fixture.path), s"missing parser AST fixture ${fixture.path}")
 
 end ParserFixtureTests

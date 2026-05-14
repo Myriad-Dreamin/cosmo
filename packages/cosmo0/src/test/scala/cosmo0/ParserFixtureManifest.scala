@@ -17,6 +17,9 @@ object ParserFixtureManifest:
   val manifestPath: String =
     "fixtures/cosmo0/parser/manifest.tsv"
 
+  val astManifestPath: String =
+    "fixtures/cosmo0/parser/ast_manifest.tsv"
+
   val parserSourcePath: String =
     "packages/cosmoc/src/parser.cos"
 
@@ -24,7 +27,13 @@ object ParserFixtureManifest:
     "packages/cosmoc/src/parser_test.cos"
 
   def load(): List[Fixture] =
-    readFile(manifestPath)
+    loadFrom(manifestPath)
+
+  def loadAst(): List[Fixture] =
+    loadFrom(astManifestPath)
+
+  private def loadFrom(path: String): List[Fixture] =
+    readFile(path)
       .split("\n")
       .toList
       .map(_.stripSuffix("\r"))
