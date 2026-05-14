@@ -1,0 +1,24 @@
+class ParserAstFixture {
+  val text: String
+
+  def parse(&mut self): Bool = {
+    var offset: usize = 0;
+    while (offset < self.text.len()) {
+      if (self.text.byte_at(offset) == 32) {
+        offset = offset + 1
+      } else {
+        return true
+      }
+    }
+    false
+  }
+}
+
+type ParserAstAlias = ParserAstFixture
+
+val parser_ast_value = 1
+
+def parser_ast_top(source: String): Bool = {
+  val fixture = ParserAstFixture(source);
+  fixture.parse()
+}

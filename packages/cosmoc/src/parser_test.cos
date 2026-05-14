@@ -4,6 +4,10 @@ def parser_fixture_manifest_path(): String = {
   "fixtures/cosmo0/parser/manifest.tsv"
 }
 
+def parser_ast_fixture_manifest_path(): String = {
+  "fixtures/cosmo0/parser/ast_manifest.tsv"
+}
+
 def is_manifest_data_line(line: String): Bool = {
   if (line.is_empty()) {
     false
@@ -137,6 +141,25 @@ def run_fixture(fixture: String): Bool = {
   }
 }
 
+def run_ast_fixture(fixture: String): Bool = {
+  val source = read_file(field_at(fixture, 1));
+  val result = parse_source_ast(source);
+  if (field_at(fixture, 2) == "ok") {
+    result.is_ok() and result.has_syntax() and result.declaration_len() > 0 and result.expr_len() > 0
+  } else {
+    if (result.is_ok()) {
+      false
+    } else {
+      val expected_code = field_at(fixture, 3);
+      if (expected_code.is_empty()) {
+        true
+      } else {
+        result.first_diagnostic_code() == expected_code
+      }
+    }
+  }
+}
+
 def main(): i32 = {
   val manifest = read_file(parser_fixture_manifest_path());
   val fixtures = parse_manifest(manifest);
@@ -146,6 +169,18 @@ def main(): i32 = {
   }
   for (fixture in fixtures) {
     if (!run_fixture(fixture)) {
+      println(field_at(fixture, 0));
+      return 1
+    }
+  }
+  val ast_manifest = read_file(parser_ast_fixture_manifest_path());
+  val ast_fixtures = parse_manifest(ast_manifest);
+  if (!manifest_is_well_formed(ast_fixtures)) {
+    println("parser AST fixture manifest is not well formed");
+    return 1
+  }
+  for (fixture in ast_fixtures) {
+    if (!run_ast_fixture(fixture)) {
       println(field_at(fixture, 0));
       return 1
     }
