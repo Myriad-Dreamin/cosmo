@@ -47,7 +47,7 @@ The current Stage 1 identifiers are:
 - `core0.path-fs`: path and source-file loading surface.
 - `core0.char-class`: character classification helpers for lexing.
 
-Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data. `core0.map-set` is the standard capability for deterministic keyed collections used by later package graph, symbol, scope, and resolve data. `core0.big-number` is the standard capability for arbitrary-precision integer and decimal parsing, constants, and arithmetic used after raw literal text has been preserved by Stage 1.
+Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.command` is the standard capability for structured external process construction and execution used by later build, link, and run orchestration. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data. `core0.map-set` is the standard capability for deterministic keyed collections used by later package graph, symbol, scope, and resolve data. `core0.big-number` is the standard capability for arbitrary-precision integer and decimal parsing, constants, and arithmetic used after raw literal text has been preserved by Stage 1.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
 
@@ -56,6 +56,8 @@ Capability identifiers should be named at the smallest useful boundary so Stage 
 The initial trusted extern-backed std surface is intentionally small. `core0.text-output` exposes `TextWriter` plus stdout helpers over `print(value: String): Unit` and `println(value: String): Unit`; these may lower to the C++ runtime symbols `::cosmo0_runtime::print` and `::cosmo0_runtime::println` through `cosmo0.extern.v0`. This proves the API path for deterministic smoke output without adding filesystem or command execution to the first extern smoke.
 
 `core0.path-fs` file reading may lower to the C++ runtime symbol `::cosmo0_runtime::read_file` through `cosmo0.extern.v0`. The source-facing API remains `Fs.read_to_string(path): Result[String, IoError]`; the runtime symbol is an implementation detail.
+
+`core0.command` command execution may lower to the C++ runtime symbol `::cosmo0_runtime::command_run` through `cosmo0.extern.v0`. The source-facing API remains structured around executable path, arguments, environment entries, working directory, exit status, stdout, and stderr; shell command strings are not part of the initial standard surface.
 
 Additional extern-backed std APIs require accepted capability text in this file plus matching runtime binding rules in `runtime.typ`. Command execution, JSON bridges, and other host-backed facilities remain std-owned API areas; they SHALL NOT be added as descriptor families merely because their implementation needs runtime support.
 
@@ -297,6 +299,55 @@ Object and array accessors are fallible and return `Option` so syntax loaders ca
 The source-facing parser entry point is `core0_json().parse(text)`. The bodyless `json_parse` declaration is a trusted extern-backed std hook used to implement that entry point; ordinary packages should not treat it as a general host FFI surface.
 
 `core0.json` is not part of the `cosmo1.stage1` profile. Stage 1 validation must continue to pass without this capability, and missing `core0.json` diagnostics are only required for later profiles or packages that explicitly ask for the JSON bridge.
+
+== `core0.command`
+
+`core0.command` is a later-stage standard capability for external process construction and execution used by compiler driver, backend, linker, and smoke-test orchestration. Source code depends on this standard API, not on descriptor-family names such as `Command`, `Process`, or `Shell`.
+
+The initial API is intentionally structured and avoids shell strings:
+
+```cos
+class CommandEnv {
+  val key: String
+  val value: String
+}
+
+class CommandResult {
+  val exit_status: i32
+  val stdout: String
+  val stderr: String
+
+  def success(&self): Bool
+}
+
+class CommandError {
+  val message: String
+}
+
+class Command {
+  val executable: Path
+  var args: Vec[String]
+  var env: Vec[CommandEnv]
+  var cwd: Option[Path]
+
+  def arg(&mut self, value: String): Unit
+  def env_var(&mut self, key: String, value: String): Unit
+  def current_dir(&mut self, path: Path): Unit
+  def run(&self): Result[CommandResult, CommandError]
+}
+
+def core0_command(executable: Path): Command
+def core0_command_arg(command: &mut Command, value: String): Unit
+def core0_command_env(command: &mut Command, key: String, value: String): Unit
+def core0_command_current_dir(command: &mut Command, path: Path): Unit
+def command_run(command: &Command): Result[CommandResult, CommandError]
+```
+
+`Command.executable` is a `Path` so callers use the same stable path display rules as source loading. `args` preserves insertion order and represents exact process arguments without shell interpolation. `env` stores explicit environment overrides as key/value pairs. `cwd` is optional; `Option[Path]::None` means the runtime uses the package or host working directory selected by the driver.
+
+`Command.run()` is fallible. A launched process returns `Result[CommandResult, CommandError]::Ok(result)` even when `exit_status` is non-zero, so callers can inspect stdout and stderr before deciding how to report the failure. Launch failures, missing executables, or runtime binding failures return `Err(CommandError)`.
+
+`core0.command` is not part of the `cosmo1.stage1` profile. Missing command execution support must not block Stage 1 source loading, tokenization, diagnostics, lexer tests, parser smoke tests, or package validation. Later build, link, and run profiles that require external tools must explicitly require `core0.command` and report `cosmo0.stage.missing-capability` when it is unavailable.
 
 == `core0.char-class`
 
