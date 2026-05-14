@@ -31,19 +31,19 @@ class Cosmo1LaterCommandTest extends TestBase:
     val pkg = NodeFs.readFileSync("docs/cosmo0/package.typ", "utf8").asInstanceOf[String]
     val delta = NodeFs
       .readFileSync(
-        "openspec/changes/add-core0-command/specs/core0-command/spec.md",
+        "openspec/specs/core0-command/spec.md",
         "utf8",
       )
       .asInstanceOf[String]
     val externDelta = NodeFs
       .readFileSync(
-        "openspec/changes/add-core0-command/specs/cosmo0-extern-abi-hooks/spec.md",
+        "openspec/specs/cosmo0-extern-abi-hooks/spec.md",
         "utf8",
       )
       .asInstanceOf[String]
     val stageDelta = NodeFs
       .readFileSync(
-        "openspec/changes/add-core0-command/specs/core0-stage-capability-registry/spec.md",
+        "openspec/specs/core0-stage-capability-registry/spec.md",
         "utf8",
       )
       .asInstanceOf[String]

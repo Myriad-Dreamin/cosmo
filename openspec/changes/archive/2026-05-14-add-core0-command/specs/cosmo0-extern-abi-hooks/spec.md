@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Trusted Core0 Std Extern Bindings
+### Requirement: Trusted Extern ABI Metadata
 
 cosmo0 SHALL allow only trusted core0/std declarations to attach extern ABI metadata. Extern metadata SHALL name the ABI, target runtime symbol, and backend requirements without adding a descriptor family for the same runtime domain. C++ extern target symbols SHALL be represented as structured qualified symbols rather than arbitrary C++ call expressions.
 
