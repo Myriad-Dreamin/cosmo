@@ -81,8 +81,12 @@ class SyntaxArenas {
     id
   }
 
-  def module_ref(&self, id: ModuleId): &SyntaxModule = {
-    self.modules.get(id)
+  def module_ref(&self, id: ModuleId): SyntaxModule = {
+    *self.modules.get(id)
+  }
+
+  def module_value(&self, id: ModuleId): SyntaxModule = {
+    self.module_ref(id)
   }
 
   def alloc_decl(&mut self, decl: SyntaxDecl): DeclId = {
@@ -92,8 +96,12 @@ class SyntaxArenas {
     id
   }
 
-  def decl(&self, id: DeclId): &SyntaxDecl = {
-    self.decls.get(id)
+  def decl(&self, id: DeclId): SyntaxDecl = {
+    *self.decls.get(id)
+  }
+
+  def decl_value(&self, id: DeclId): SyntaxDecl = {
+    self.decl(id)
   }
 
   def alloc_member(&mut self, member: SyntaxMember): MemberId = {
@@ -103,8 +111,12 @@ class SyntaxArenas {
     id
   }
 
-  def member(&self, id: MemberId): &SyntaxMember = {
-    self.members.get(id)
+  def member(&self, id: MemberId): SyntaxMember = {
+    *self.members.get(id)
+  }
+
+  def member_value(&self, id: MemberId): SyntaxMember = {
+    self.member(id)
   }
 
   def alloc_param(&mut self, param: SyntaxParam): ParamId = {
@@ -114,8 +126,12 @@ class SyntaxArenas {
     id
   }
 
-  def param(&self, id: ParamId): &SyntaxParam = {
-    self.params.get(id)
+  def param(&self, id: ParamId): SyntaxParam = {
+    *self.params.get(id)
+  }
+
+  def param_value(&self, id: ParamId): SyntaxParam = {
+    self.param(id)
   }
 
   def alloc_expr(&mut self, expr: SyntaxExpr): ExprId = {
@@ -125,8 +141,12 @@ class SyntaxArenas {
     id
   }
 
-  def expr(&self, id: ExprId): &SyntaxExpr = {
-    self.exprs.get(id)
+  def expr(&self, id: ExprId): SyntaxExpr = {
+    *self.exprs.get(id)
+  }
+
+  def expr_value(&self, id: ExprId): SyntaxExpr = {
+    self.expr(id)
   }
 
   def expr_mut(&mut self, id: ExprId): &mut SyntaxExpr = {
@@ -138,6 +158,196 @@ class SyntaxArenas {
     val id = types.alloc(typ);
     self.types = types;
     id
+  }
+
+  def type_expr(&self, id: TypeExprId): SyntaxType = {
+    *self.types.get(id)
+  }
+
+  def type_value(&self, id: TypeExprId): SyntaxType = {
+    self.type_expr(id)
+  }
+
+  def type_expr_mut(&mut self, id: TypeExprId): &mut SyntaxType = {
+    self.types.get_mut(id)
+  }
+
+  def make_module(&mut self, declarations: Vec[DeclId], span: Span): ModuleId = {
+    self.alloc_module(SyntaxModule(declarations, span))
+  }
+
+  def make_unsupported_decl(&mut self, text: String, span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.Unsupported(text, span))
+  }
+
+  def make_import_decl(&mut self, path: String, span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.Import(path, span))
+  }
+
+  def make_class_decl(&mut self, name: String, members: Vec[MemberId], span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.Class(name, members, span))
+  }
+
+  def make_function_decl(
+    &mut self,
+    name: String,
+    params: Vec[ParamId],
+    return_type: TypeExprId,
+    body: ExprId,
+    span: Span
+  ): DeclId = {
+    self.alloc_decl(SyntaxDecl.Function(name, params, return_type, body, span))
+  }
+
+  def make_type_alias_decl(&mut self, name: String, typ: TypeExprId, span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.TypeAlias(name, typ, span))
+  }
+
+  def make_value_decl(&mut self, name: String, mutable: Bool, typ: TypeExprId, init: ExprId, span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.Value(name, mutable, typ, init, span))
+  }
+
+  def make_unsupported_member(&mut self, text: String, span: Span): MemberId = {
+    self.alloc_member(SyntaxMember.Unsupported(text, span))
+  }
+
+  def make_field_member(&mut self, name: String, mutable: Bool, typ: TypeExprId, span: Span): MemberId = {
+    self.alloc_member(SyntaxMember.Field(name, mutable, typ, span))
+  }
+
+  def make_method_member(
+    &mut self,
+    name: String,
+    params: Vec[ParamId],
+    return_type: TypeExprId,
+    body: ExprId,
+    span: Span
+  ): MemberId = {
+    self.alloc_member(SyntaxMember.Method(name, params, return_type, body, span))
+  }
+
+  def make_member_type_alias(&mut self, name: String, typ: TypeExprId, span: Span): MemberId = {
+    self.alloc_member(SyntaxMember.TypeAlias(name, typ, span))
+  }
+
+  def make_variant_member(&mut self, name: String, fields: Vec[TypeExprId], span: Span): MemberId = {
+    self.alloc_member(SyntaxMember.Variant(name, fields, span))
+  }
+
+  def make_self_param(&mut self, mutable: Bool, span: Span): ParamId = {
+    self.alloc_param(SyntaxParam.Self(mutable, span))
+  }
+
+  def make_named_param(&mut self, name: String, typ: TypeExprId, default_value: ExprId, span: Span): ParamId = {
+    self.alloc_param(SyntaxParam.Named(name, typ, default_value, span))
+  }
+
+  def make_missing_expr(&mut self, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Missing(span))
+  }
+
+  def make_name_expr(&mut self, name: String, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Name(name, span))
+  }
+
+  def make_numeric_literal_expr(&mut self, value: String, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.NumericLiteral(value, span))
+  }
+
+  def make_string_literal_expr(&mut self, value: String, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.StringLiteral(value, span))
+  }
+
+  def make_ascii_literal_expr(&mut self, value: String, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.AsciiLiteral(value, span))
+  }
+
+  def make_rune_literal_expr(&mut self, value: String, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.RuneLiteral(value, span))
+  }
+
+  def make_bool_literal_expr(&mut self, value: Bool, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.BoolLiteral(value, span))
+  }
+
+  def make_block_expr(&mut self, items: Vec[ExprId], span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Block(items, span))
+  }
+
+  def make_local_expr(&mut self, name: String, mutable: Bool, typ: TypeExprId, init: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Local(name, mutable, typ, init, span))
+  }
+
+  def make_assign_expr(&mut self, target: ExprId, value: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Assign(target, value, span))
+  }
+
+  def make_call_expr(&mut self, callee: ExprId, args: Vec[ExprId], span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Call(callee, args, span))
+  }
+
+  def make_select_expr(&mut self, receiver: ExprId, field: String, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Select(receiver, field, span))
+  }
+
+  def make_binary_expr(&mut self, op: String, left: ExprId, right: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Binary(op, left, right, span))
+  }
+
+  def make_unary_expr(&mut self, op: String, value: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Unary(op, value, span))
+  }
+
+  def make_if_expr(&mut self, condition: ExprId, then_body: ExprId, else_body: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.If(condition, then_body, else_body, span))
+  }
+
+  def make_while_expr(&mut self, condition: ExprId, body: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.While(condition, body, span))
+  }
+
+  def make_return_expr(&mut self, value: ExprId, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Return(value, span))
+  }
+
+  def make_missing_type(&mut self, span: Span): TypeExprId = {
+    self.alloc_type(SyntaxType.Missing(span))
+  }
+
+  def make_name_type(&mut self, name: String, span: Span): TypeExprId = {
+    self.alloc_type(SyntaxType.Name(name, span))
+  }
+
+  def make_generic_type(&mut self, base: TypeExprId, args: Vec[TypeExprId], span: Span): TypeExprId = {
+    self.alloc_type(SyntaxType.Generic(base, args, span))
+  }
+
+  def make_ref_type(&mut self, mutable: Bool, inner: TypeExprId, span: Span): TypeExprId = {
+    self.alloc_type(SyntaxType.Ref(mutable, inner, span))
+  }
+
+  def module_span(&self, id: ModuleId): Span = {
+    self.modules.get(id).span
+  }
+
+  def decl_span(&self, id: DeclId): Span = {
+    syntax_decl_span(self.decl_value(id))
+  }
+
+  def member_span(&self, id: MemberId): Span = {
+    syntax_member_span(self.member_value(id))
+  }
+
+  def param_span(&self, id: ParamId): Span = {
+    syntax_param_span(self.param_value(id))
+  }
+
+  def expr_span(&self, id: ExprId): Span = {
+    syntax_expr_span(self.expr_value(id))
+  }
+
+  def type_span(&self, id: TypeExprId): Span = {
+    syntax_type_span(self.type_value(id))
   }
 
   def module_len(&self): usize = {
@@ -167,6 +377,632 @@ class SyntaxArenas {
   def module_decl_len(&self, id: ModuleId): usize = {
     self.modules.get(id).declarations.len()
   }
+
+  def debug_module(&self, id: ModuleId): String = {
+    syntax_debug_module(self, id)
+  }
+
+  def required_spans_ok(&self, id: ModuleId): Bool = {
+    syntax_module_required_spans_ok(self, id)
+  }
+}
+
+def syntax_decl_span(decl: SyntaxDecl): Span = {
+  decl match {
+    case SyntaxDecl.AEmpty => {
+      make_span(0, 0)
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      span
+    }
+    case SyntaxDecl.Import(path, span) => {
+      span
+    }
+    case SyntaxDecl.Class(name, members, span) => {
+      span
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      span
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      span
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      span
+    }
+  }
+}
+
+def syntax_member_span(member: SyntaxMember): Span = {
+  member match {
+    case SyntaxMember.AEmpty => {
+      make_span(0, 0)
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      span
+    }
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      span
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      span
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      span
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      span
+    }
+  }
+}
+
+def syntax_param_span(param: SyntaxParam): Span = {
+  param match {
+    case SyntaxParam.AEmpty => {
+      make_span(0, 0)
+    }
+    case SyntaxParam.Self(mutable, span) => {
+      span
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      span
+    }
+  }
+}
+
+def syntax_expr_span(expr: SyntaxExpr): Span = {
+  expr match {
+    case SyntaxExpr.AEmpty => {
+      make_span(0, 0)
+    }
+    case SyntaxExpr.Missing(span) => {
+      span
+    }
+    case SyntaxExpr.Name(name, span) => {
+      span
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      span
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      span
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      span
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      span
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      span
+    }
+    case SyntaxExpr.Block(items, span) => {
+      span
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      span
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      span
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      span
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      span
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      span
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      span
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      span
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      span
+    }
+    case SyntaxExpr.Return(value, span) => {
+      span
+    }
+  }
+}
+
+def syntax_type_span(typ: SyntaxType): Span = {
+  typ match {
+    case SyntaxType.AEmpty => {
+      make_span(0, 0)
+    }
+    case SyntaxType.Missing(span) => {
+      span
+    }
+    case SyntaxType.Name(name, span) => {
+      span
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      span
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      span
+    }
+  }
+}
+
+def syntax_diagnostic_span_for_decl(arenas: &SyntaxArenas, id: DeclId): Span = {
+  arenas.decl_span(id)
+}
+
+def syntax_diagnostic_span_for_member(arenas: &SyntaxArenas, id: MemberId): Span = {
+  arenas.member_span(id)
+}
+
+def syntax_diagnostic_span_for_param(arenas: &SyntaxArenas, id: ParamId): Span = {
+  arenas.param_span(id)
+}
+
+def syntax_diagnostic_span_for_expr(arenas: &SyntaxArenas, id: ExprId): Span = {
+  arenas.expr_span(id)
+}
+
+def syntax_diagnostic_span_for_type(arenas: &SyntaxArenas, id: TypeExprId): Span = {
+  arenas.type_span(id)
+}
+
+def syntax_debug_module(arenas: &SyntaxArenas, id: ModuleId): String = {
+  val root_module = arenas.module_value(id);
+  var text = "Module\n";
+  for (decl in root_module.declarations) {
+    text = text.concat(syntax_debug_decl(arenas, decl))
+  }
+  text
+}
+
+def syntax_debug_decl(arenas: &SyntaxArenas, id: DeclId): String = {
+  syntax_debug_decl_node(arenas, arenas.decl_value(id))
+}
+
+def syntax_debug_decl_node(arenas: &SyntaxArenas, decl: SyntaxDecl): String = {
+  decl match {
+    case SyntaxDecl.AEmpty => {
+      "Decl AEmpty\n"
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      "Decl Unsupported ".concat(text).concat("\n")
+    }
+    case SyntaxDecl.Import(path, span) => {
+      "Decl Import ".concat(path).concat("\n")
+    }
+    case SyntaxDecl.Class(name, members, span) => {
+      "Decl Class ".concat(name).concat("\n").concat(syntax_debug_members(arenas, members))
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      "Decl Function ".concat(name).concat("\n")
+        .concat(syntax_debug_params(arenas, params))
+        .concat(syntax_debug_type(arenas, return_type))
+        .concat(syntax_debug_expr(arenas, body))
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      "Decl TypeAlias ".concat(name).concat("\n").concat(syntax_debug_type(arenas, typ))
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      "Decl Value ".concat(name).concat("\n")
+        .concat(syntax_debug_type(arenas, typ))
+        .concat(syntax_debug_expr(arenas, init))
+    }
+  }
+}
+
+def syntax_debug_members(arenas: &SyntaxArenas, members: Vec[MemberId]): String = {
+  var text = "";
+  for (member in members) {
+    text = text.concat(syntax_debug_member(arenas, member))
+  }
+  text
+}
+
+def syntax_debug_member(arenas: &SyntaxArenas, id: MemberId): String = {
+  syntax_debug_member_node(arenas, arenas.member_value(id))
+}
+
+def syntax_debug_member_node(arenas: &SyntaxArenas, member: SyntaxMember): String = {
+  member match {
+    case SyntaxMember.AEmpty => {
+      "Member AEmpty\n"
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      "Member Unsupported ".concat(text).concat("\n")
+    }
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      "Member Field ".concat(name).concat("\n").concat(syntax_debug_type(arenas, typ))
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      "Member Method ".concat(name).concat("\n")
+        .concat(syntax_debug_params(arenas, params))
+        .concat(syntax_debug_type(arenas, return_type))
+        .concat(syntax_debug_expr(arenas, body))
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      "Member TypeAlias ".concat(name).concat("\n").concat(syntax_debug_type(arenas, typ))
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      "Member Variant ".concat(name).concat("\n").concat(syntax_debug_types(arenas, fields))
+    }
+  }
+}
+
+def syntax_debug_params(arenas: &SyntaxArenas, params: Vec[ParamId]): String = {
+  var text = "";
+  for (param in params) {
+    text = text.concat(syntax_debug_param(arenas, param))
+  }
+  text
+}
+
+def syntax_debug_param(arenas: &SyntaxArenas, id: ParamId): String = {
+  syntax_debug_param_node(arenas, arenas.param_value(id))
+}
+
+def syntax_debug_param_node(arenas: &SyntaxArenas, param: SyntaxParam): String = {
+  param match {
+    case SyntaxParam.AEmpty => {
+      "Param AEmpty\n"
+    }
+    case SyntaxParam.Self(mutable, span) => {
+      if (mutable) {
+        "Param Self mut\n"
+      } else {
+        "Param Self\n"
+      }
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      "Param Named ".concat(name).concat("\n")
+        .concat(syntax_debug_type(arenas, typ))
+        .concat(syntax_debug_expr(arenas, default_value))
+    }
+  }
+}
+
+def syntax_debug_types(arenas: &SyntaxArenas, types: Vec[TypeExprId]): String = {
+  var text = "";
+  for (typ in types) {
+    text = text.concat(syntax_debug_type(arenas, typ))
+  }
+  text
+}
+
+def syntax_debug_type(arenas: &SyntaxArenas, id: TypeExprId): String = {
+  syntax_debug_type_node(arenas, arenas.type_value(id))
+}
+
+def syntax_debug_type_node(arenas: &SyntaxArenas, typ: SyntaxType): String = {
+  typ match {
+    case SyntaxType.AEmpty => {
+      "Type AEmpty\n"
+    }
+    case SyntaxType.Missing(span) => {
+      "Type Missing\n"
+    }
+    case SyntaxType.Name(name, span) => {
+      "Type Name ".concat(name).concat("\n")
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      "Type Generic\n".concat(syntax_debug_type(arenas, base)).concat(syntax_debug_types(arenas, args))
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      if (mutable) {
+        "Type Ref mut\n".concat(syntax_debug_type(arenas, inner))
+      } else {
+        "Type Ref\n".concat(syntax_debug_type(arenas, inner))
+      }
+    }
+  }
+}
+
+def syntax_debug_exprs(arenas: &SyntaxArenas, exprs: Vec[ExprId]): String = {
+  var text = "";
+  for (expr in exprs) {
+    text = text.concat(syntax_debug_expr(arenas, expr))
+  }
+  text
+}
+
+def syntax_debug_expr(arenas: &SyntaxArenas, id: ExprId): String = {
+  syntax_debug_expr_node(arenas, arenas.expr_value(id))
+}
+
+def syntax_debug_expr_node(arenas: &SyntaxArenas, expr: SyntaxExpr): String = {
+  expr match {
+    case SyntaxExpr.AEmpty => {
+      "Expr AEmpty\n"
+    }
+    case SyntaxExpr.Missing(span) => {
+      "Expr Missing\n"
+    }
+    case SyntaxExpr.Name(name, span) => {
+      "Expr Name ".concat(name).concat("\n")
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      "Expr NumericLiteral ".concat(value).concat("\n")
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      "Expr StringLiteral ".concat(value).concat("\n")
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      "Expr AsciiLiteral ".concat(value).concat("\n")
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      "Expr RuneLiteral ".concat(value).concat("\n")
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      if (value) {
+        "Expr BoolLiteral true\n"
+      } else {
+        "Expr BoolLiteral false\n"
+      }
+    }
+    case SyntaxExpr.Block(items, span) => {
+      "Expr Block\n".concat(syntax_debug_exprs(arenas, items))
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      "Expr Local ".concat(name).concat("\n")
+        .concat(syntax_debug_type(arenas, typ))
+        .concat(syntax_debug_expr(arenas, init))
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      "Expr Assign\n".concat(syntax_debug_expr(arenas, target)).concat(syntax_debug_expr(arenas, value))
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      "Expr Call\n".concat(syntax_debug_expr(arenas, callee)).concat(syntax_debug_exprs(arenas, args))
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      "Expr Select ".concat(field).concat("\n").concat(syntax_debug_expr(arenas, receiver))
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      "Expr Binary ".concat(op).concat("\n")
+        .concat(syntax_debug_expr(arenas, left))
+        .concat(syntax_debug_expr(arenas, right))
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      "Expr Unary ".concat(op).concat("\n").concat(syntax_debug_expr(arenas, value))
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      "Expr If\n"
+        .concat(syntax_debug_expr(arenas, condition))
+        .concat(syntax_debug_expr(arenas, then_body))
+        .concat(syntax_debug_expr(arenas, else_body))
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      "Expr While\n".concat(syntax_debug_expr(arenas, condition)).concat(syntax_debug_expr(arenas, body))
+    }
+    case SyntaxExpr.Return(value, span) => {
+      "Expr Return\n".concat(syntax_debug_expr(arenas, value))
+    }
+  }
+}
+
+def syntax_module_required_spans_ok(arenas: &SyntaxArenas, id: ModuleId): Bool = {
+  val root_module = arenas.module_value(id);
+  if (root_module.span.is_empty()) {
+    false
+  } else {
+    for (decl in root_module.declarations) {
+      if (!syntax_decl_required_spans_ok(arenas, decl)) {
+        return false
+      }
+    }
+    true
+  }
+}
+
+def syntax_decl_required_spans_ok(arenas: &SyntaxArenas, id: DeclId): Bool = {
+  val decl = arenas.decl_value(id);
+  if (syntax_decl_span(decl).is_empty()) {
+    false
+  } else {
+    syntax_decl_children_spans_ok(arenas, decl)
+  }
+}
+
+def syntax_decl_children_spans_ok(arenas: &SyntaxArenas, decl: SyntaxDecl): Bool = {
+  decl match {
+    case SyntaxDecl.AEmpty => {
+      false
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      true
+    }
+    case SyntaxDecl.Import(path, span) => {
+      true
+    }
+    case SyntaxDecl.Class(name, members, span) => {
+      for (member in members) {
+        if (!syntax_member_required_spans_ok(arenas, member)) {
+          return false
+        }
+      }
+      true
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      syntax_params_required_spans_ok(arenas, params) and
+        syntax_type_required_spans_ok(arenas, return_type) and
+        syntax_expr_required_spans_ok(arenas, body)
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      syntax_type_required_spans_ok(arenas, typ)
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      syntax_type_required_spans_ok(arenas, typ) and syntax_expr_required_spans_ok(arenas, init)
+    }
+  }
+}
+
+def syntax_member_required_spans_ok(arenas: &SyntaxArenas, id: MemberId): Bool = {
+  val member = arenas.member_value(id);
+  if (syntax_member_span(member).is_empty()) {
+    false
+  } else {
+    syntax_member_children_spans_ok(arenas, member)
+  }
+}
+
+def syntax_member_children_spans_ok(arenas: &SyntaxArenas, member: SyntaxMember): Bool = {
+  member match {
+    case SyntaxMember.AEmpty => {
+      false
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      true
+    }
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      syntax_type_required_spans_ok(arenas, typ)
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      syntax_params_required_spans_ok(arenas, params) and
+        syntax_type_required_spans_ok(arenas, return_type) and
+        syntax_expr_required_spans_ok(arenas, body)
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      syntax_type_required_spans_ok(arenas, typ)
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      syntax_types_required_spans_ok(arenas, fields)
+    }
+  }
+}
+
+def syntax_params_required_spans_ok(arenas: &SyntaxArenas, params: Vec[ParamId]): Bool = {
+  for (param in params) {
+    if (!syntax_param_required_spans_ok(arenas, param)) {
+      return false
+    }
+  }
+  true
+}
+
+def syntax_param_required_spans_ok(arenas: &SyntaxArenas, id: ParamId): Bool = {
+  val param = arenas.param_value(id);
+  if (syntax_param_span(param).is_empty()) {
+    false
+  } else {
+    syntax_param_children_spans_ok(arenas, param)
+  }
+}
+
+def syntax_param_children_spans_ok(arenas: &SyntaxArenas, param: SyntaxParam): Bool = {
+  param match {
+    case SyntaxParam.AEmpty => {
+      false
+    }
+    case SyntaxParam.Self(mutable, span) => {
+      true
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      syntax_type_required_spans_ok(arenas, typ) and syntax_expr_required_spans_ok(arenas, default_value)
+    }
+  }
+}
+
+def syntax_types_required_spans_ok(arenas: &SyntaxArenas, types: Vec[TypeExprId]): Bool = {
+  for (typ in types) {
+    if (!syntax_type_required_spans_ok(arenas, typ)) {
+      return false
+    }
+  }
+  true
+}
+
+def syntax_type_required_spans_ok(arenas: &SyntaxArenas, id: TypeExprId): Bool = {
+  val typ = arenas.type_value(id);
+  typ match {
+    case SyntaxType.Missing(span) => {
+      true
+    }
+    case SyntaxType.AEmpty => {
+      false
+    }
+    case SyntaxType.Name(name, span) => {
+      !span.is_empty()
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      !span.is_empty() and syntax_type_required_spans_ok(arenas, base) and syntax_types_required_spans_ok(arenas, args)
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      !span.is_empty() and syntax_type_required_spans_ok(arenas, inner)
+    }
+  }
+}
+
+def syntax_expr_required_spans_ok(arenas: &SyntaxArenas, id: ExprId): Bool = {
+  val expr = arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Missing(span) => {
+      true
+    }
+    case SyntaxExpr.AEmpty => {
+      false
+    }
+    case SyntaxExpr.Name(name, span) => {
+      !span.is_empty()
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      !span.is_empty()
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      !span.is_empty()
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      !span.is_empty()
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      !span.is_empty()
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      !span.is_empty()
+    }
+    case SyntaxExpr.Block(items, span) => {
+      !span.is_empty() and syntax_exprs_required_spans_ok(arenas, items)
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      !span.is_empty() and syntax_type_required_spans_ok(arenas, typ) and syntax_expr_required_spans_ok(arenas, init)
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, target) and syntax_expr_required_spans_ok(arenas, value)
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, callee) and syntax_exprs_required_spans_ok(arenas, args)
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, receiver)
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, left) and syntax_expr_required_spans_ok(arenas, right)
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, value)
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      !span.is_empty() and
+        syntax_expr_required_spans_ok(arenas, condition) and
+        syntax_expr_required_spans_ok(arenas, then_body) and
+        syntax_expr_required_spans_ok(arenas, else_body)
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, condition) and syntax_expr_required_spans_ok(arenas, body)
+    }
+    case SyntaxExpr.Return(value, span) => {
+      !span.is_empty() and syntax_expr_required_spans_ok(arenas, value)
+    }
+  }
+}
+
+def syntax_exprs_required_spans_ok(arenas: &SyntaxArenas, exprs: Vec[ExprId]): Bool = {
+  for (expr in exprs) {
+    if (!syntax_expr_required_spans_ok(arenas, expr)) {
+      return false
+    }
+  }
+  true
 }
 
 def syntax_arenas(): SyntaxArenas = {
