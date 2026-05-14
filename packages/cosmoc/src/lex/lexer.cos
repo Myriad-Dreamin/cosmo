@@ -27,6 +27,51 @@ class LexerState {
     self.source.byte_at(self.cursor)
   }
 
+  def peek_byte(&self, offset: usize): Byte = {
+    val index = self.cursor + offset;
+    if (index >= self.source.len()) {
+      0
+    } else {
+      self.source.byte_at(index)
+    }
+  }
+
+  def is_ascii_hex_digit_byte(&self, byte: Byte): Bool = {
+    is_ascii_digit(byte) or (byte >= 65 and byte <= 70) or (byte >= 97 and byte <= 102)
+  }
+
+  def is_number_separator(&self, byte: Byte): Bool = {
+    byte == 95
+  }
+
+  def scan_decimal_digits_and_separators(&mut self): Unit = {
+    while (!self.at_end() and (is_ascii_digit(self.current_byte()) or self.is_number_separator(self.current_byte()))) {
+      self.advance()
+    }
+  }
+
+  def scan_hex_digits_and_separators(&mut self): Unit = {
+    while (!self.at_end() and (self.is_ascii_hex_digit_byte(self.current_byte()) or self.is_number_separator(self.current_byte()))) {
+      self.advance()
+    }
+  }
+
+  def scan_radix_digits_and_separators(&mut self): Unit = {
+    while (!self.at_end() and (is_ascii_alnum(self.current_byte()) or self.is_number_separator(self.current_byte()))) {
+      self.advance()
+    }
+  }
+
+  def scan_exponent_suffix(&mut self): Unit = {
+    if (!self.at_end() and (self.current_byte() == 101 or self.current_byte() == 69)) {
+      self.advance();
+      if (!self.at_end() and (self.current_byte() == 43 or self.current_byte() == 45)) {
+        self.advance()
+      }
+      self.scan_decimal_digits_and_separators()
+    }
+  }
+
   def scan_identifier(&mut self): Unit = {
     val start = self.cursor;
     self.advance();
@@ -39,9 +84,31 @@ class LexerState {
   def scan_number(&mut self): Unit = {
     val start = self.cursor;
     self.advance();
-    while (!self.at_end() and is_ascii_digit(self.current_byte())) {
-      self.advance()
+
+    if (self.source.slice(start, self.cursor) == "0" and !self.at_end()) {
+      if (self.current_byte() == 120 or self.current_byte() == 88) {
+        self.advance();
+        self.scan_hex_digits_and_separators()
+      } else if (self.current_byte() == 98 or self.current_byte() == 66 or self.current_byte() == 111 or self.current_byte() == 79) {
+        self.advance();
+        self.scan_radix_digits_and_separators()
+      } else {
+        self.scan_decimal_digits_and_separators();
+        if (!self.at_end() and self.current_byte() == 46 and is_ascii_digit(self.peek_byte(1))) {
+          self.advance();
+          self.scan_decimal_digits_and_separators()
+        }
+        self.scan_exponent_suffix()
+      }
+    } else {
+      self.scan_decimal_digits_and_separators();
+      if (!self.at_end() and self.current_byte() == 46 and is_ascii_digit(self.peek_byte(1))) {
+        self.advance();
+        self.scan_decimal_digits_and_separators()
+      }
+      self.scan_exponent_suffix()
     }
+
     self.push_token(TokenKind.Number, start, self.cursor)
   }
 

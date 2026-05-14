@@ -38,6 +38,14 @@ def token_len(token: Token): usize = {
   token.span.len()
 }
 
+def token_raw_text(token: Token): String = {
+  token.text
+}
+
+def token_numeric_text(token: Token): String = {
+  token.text
+}
+
 def token_kind_code(kind: TokenKind): u8 = {
   kind match {
     case TokenKind.Identifier => {
