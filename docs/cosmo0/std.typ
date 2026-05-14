@@ -47,7 +47,7 @@ The current Stage 1 identifiers are:
 - `core0.path-fs`: path and source-file loading surface.
 - `core0.char-class`: character classification helpers for lexing.
 
-Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data. `core0.map-set` is the standard capability for deterministic keyed collections used by later package graph, symbol, scope, and resolve data.
+Later-stage identifiers include `core0.json`, `core0.command`, `core0.arena-id`, `core0.map-set`, and `core0.big-number`. The `cosmo1.stage1` profile does not require those later capabilities. `core0.json` is a transitional standard bridge for loading parser JSON and later metadata while native cosmo1 parsing matures. `core0.arena-id` is the standard capability for typed arena storage and phantom typed IDs used by later cosmo1 syntax, type, name, and IR data. `core0.map-set` is the standard capability for deterministic keyed collections used by later package graph, symbol, scope, and resolve data. `core0.big-number` is the standard capability for arbitrary-precision integer and decimal parsing, constants, and arithmetic used after raw literal text has been preserved by Stage 1.
 
 Capability identifiers should be named at the smallest useful boundary so Stage 1 can depend on a narrow set without inheriting later compiler features.
 
@@ -380,6 +380,33 @@ class SyntaxArenas {
 ```
 
 The first implementation may lower these APIs through registered descriptor intrinsics such as `descriptor Arena[Expr]::alloc(...)`, but that lowering is a transitional implementation detail. General map/set storage, garbage collection, serialization, and broader ownership models require later capability updates.
+
+== `core0.big-number`
+
+`core0.big-number` is a later-stage standard capability for arbitrary-precision numeric parsing and arithmetic. Stage 1 lexer and parser-facing data preserve numeric literal text without depending on this capability.
+
+The initial API shape is intentionally small and parser-oriented:
+
+```cos
+class BigInt
+class BigDecimal
+
+class NumericParseError {
+  val text: String
+  val message: String
+}
+
+def parse_big_int(text: String): Result[BigInt, NumericParseError]
+def parse_big_decimal(text: String): Result[BigDecimal, NumericParseError]
+def big_int_to_string(value: BigInt): String
+def big_decimal_to_string(value: BigDecimal): String
+```
+
+`parse_big_int` and `parse_big_decimal` consume the raw numeric token text preserved by the lexer. They may accept radix prefixes, separators, signs, fractional parts, or exponent notation only according to the later capability's accepted grammar. They must report malformed text, overflow into requested primitive types, and precision-losing conversions as diagnostics-friendly `Result` values rather than requiring Stage 1 to pre-parse into host numeric values.
+
+`BigInt` and `BigDecimal` are source-facing standard API types, not primitive types and not descriptor families. A backend may implement them through trusted runtime support, source modules, or extern hooks introduced by a later accepted proposal, but descriptor registry entries named `BigInt`, `BigDecimal`, or `core0.big-number` are outside the primitive descriptor boundary owned by `runtime.typ`.
+
+`core0.big-number` is not part of the `cosmo1.stage1` profile. Missing arbitrary-precision support must not block Stage 1 source loading, tokenization, lexing tests, parser smoke tests, or package validation.
 
 == Descriptor-Backed Transition Policy
 

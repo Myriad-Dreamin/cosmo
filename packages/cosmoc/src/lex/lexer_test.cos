@@ -47,3 +47,59 @@ def lexer_invalid_non_ascii_smoke(): Bool = {
     }
   }
 }
+
+def lexer_large_integer_literal_preserves_raw_text(): Bool = {
+  val source = source_text_from_string("99999999999999999999999999999999999999999999999999");
+  val result = lex_source(source);
+
+  result match {
+    case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
+      tokens.len() == 2 and
+        token_kind_code(tokens.get(0).kind) == token_kind_code(TokenKind.Number) and
+        token_numeric_text(tokens.get(0)) == "99999999999999999999999999999999999999999999999999" and
+        token_len(tokens.get(0)) == 50 and
+        token_is_eof(tokens.get(1))
+    }
+    case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
+      false
+    }
+  }
+}
+
+def lexer_radix_and_separator_literals_preserve_raw_text(): Bool = {
+  val source = source_text_from_string("0xFFFF_FFFF 0b1010_0101 0o755");
+  val result = lex_source(source);
+
+  result match {
+    case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
+      tokens.len() == 4 and
+        token_kind_code(tokens.get(0).kind) == token_kind_code(TokenKind.Number) and
+        token_numeric_text(tokens.get(0)) == "0xFFFF_FFFF" and
+        token_kind_code(tokens.get(1).kind) == token_kind_code(TokenKind.Number) and
+        token_numeric_text(tokens.get(1)) == "0b1010_0101" and
+        token_kind_code(tokens.get(2).kind) == token_kind_code(TokenKind.Number) and
+        token_numeric_text(tokens.get(2)) == "0o755" and
+        token_is_eof(tokens.get(3))
+    }
+    case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
+      false
+    }
+  }
+}
+
+def lexer_floating_literal_preserves_raw_text(): Bool = {
+  val source = source_text_from_string("1_234.567_890e+123");
+  val result = lex_source(source);
+
+  result match {
+    case Result[Vec[Token], Diagnostic]::Ok(tokens) => {
+      tokens.len() == 2 and
+        token_kind_code(tokens.get(0).kind) == token_kind_code(TokenKind.Number) and
+        token_numeric_text(tokens.get(0)) == "1_234.567_890e+123" and
+        token_is_eof(tokens.get(1))
+    }
+    case Result[Vec[Token], Diagnostic]::Err(diagnostic) => {
+      false
+    }
+  }
+}

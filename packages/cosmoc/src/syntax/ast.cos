@@ -6,6 +6,7 @@ type TypeExprId = Id[SyntaxType]
 class SyntaxExpr {
   case Missing(Span)
   case Name(String, Span)
+  case NumericLiteral(String, Span)
   case Call(ExprId, Vec[ExprId], Span)
 }
 
@@ -45,5 +46,11 @@ def syntax_arenas(): SyntaxArenas = {
 def syntax_ast_arena_smoke(): Bool = {
   val arenas = syntax_arenas();
   val id = arenas.alloc_expr(SyntaxExpr.Name("main", make_span(0, 4)));
+  arenas.expr_len() == 1
+}
+
+def syntax_numeric_literal_ast_smoke(): Bool = {
+  val arenas = syntax_arenas();
+  val id = arenas.alloc_expr(SyntaxExpr.NumericLiteral("999999999999999999999999999999", make_span(0, 30)));
   arenas.expr_len() == 1
 }
