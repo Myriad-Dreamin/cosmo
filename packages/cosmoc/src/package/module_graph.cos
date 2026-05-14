@@ -384,34 +384,40 @@ def module_key_from_import_path(path: String): Symbol = {
 def import_edges_from_syntax_module(arenas: SyntaxArenas, id: ModuleId): Vec[Symbol] = {
   val syntax_module = arenas.module_value(id);
   val imports = Vec[Symbol]();
-  var ignored = false;
   for (decl_id in syntax_module.declarations) {
     val decl = arenas.decl_value(decl_id);
-    decl match {
-      case SyntaxDecl.Import(path, span) => {
-        imports.push(module_key_from_import_path(path))
-      }
-      case SyntaxDecl.AEmpty => {
-        ignored = ignored
-      }
-      case SyntaxDecl.Unsupported(text, span) => {
-        ignored = ignored
-      }
-      case SyntaxDecl.Class(name, members, span) => {
-        ignored = ignored
-      }
-      case SyntaxDecl.Function(name, params, return_type, body, span) => {
-        ignored = ignored
-      }
-      case SyntaxDecl.TypeAlias(name, typ, span) => {
-        ignored = ignored
-      }
-      case SyntaxDecl.Value(name, mutable, typ, init, span) => {
-        ignored = ignored
-      }
+    val path = import_path_or_empty(decl);
+    if (!path.is_empty()) {
+      imports.push(module_key_from_import_path(path))
     }
   }
   imports
+}
+
+def import_path_or_empty(decl: SyntaxDecl): String = {
+  decl match {
+    case SyntaxDecl.Import(path, span) => {
+      path
+    }
+    case SyntaxDecl.AEmpty => {
+      ""
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      ""
+    }
+    case SyntaxDecl.Class(name, members, span) => {
+      ""
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      ""
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      ""
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      ""
+    }
+  }
 }
 
 def plan_package_modules(arenas: SyntaxArenas, modules: Vec[PackageSyntaxModule]): ModuleGraphPlan = {
