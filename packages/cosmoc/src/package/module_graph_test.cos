@@ -1,0 +1,9 @@
+import package.module_graph
+
+def module_graph_test_uses_deterministic_maps(): Bool = {
+  var arena = Arena[Module]();
+  val id = arena.alloc(Module(symbol_from_string("main")));
+  var graph = empty_module_graph();
+  val previous = graph.add_root(symbol_from_string("main"), id);
+  previous.is_none() and graph.has_module(symbol_from_string("main")) and graph.module_id(symbol_from_string("main")).is_some()
+}

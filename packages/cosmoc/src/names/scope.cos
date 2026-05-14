@@ -1,0 +1,29 @@
+import names.symbol
+
+type DefId = Id[Definition]
+
+class Definition {
+  val name: Symbol
+}
+
+class Scope {
+  var definitions: Map[Symbol, DefId]
+  var exported: Set[Symbol]
+
+  def define(&mut self, name: Symbol, id: DefId): Option[DefId] = {
+    self.exported.insert(name);
+    self.definitions.insert(name, id)
+  }
+
+  def contains(&self, name: Symbol): Bool = {
+    self.definitions.contains_key(name)
+  }
+
+  def resolve(&self, name: Symbol): Option[DefId] = {
+    self.definitions.get(name)
+  }
+}
+
+def empty_scope(): Scope = {
+  Scope(Map[Symbol, DefId](), Set[Symbol]())
+}

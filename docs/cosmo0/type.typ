@@ -72,13 +72,15 @@ cosmo0 accepts sealed standard type application for registered core0 standard co
 
 Standard type application is source-facing behavior. Temporary descriptor-backed lowering may implement it, but descriptor names do not become public type syntax unless this file or `std.typ` says so.
 
-`Option[T]` has exactly one type argument. `Result[T, E]` has exactly two type arguments. `Vec[T]` has exactly one type argument. `Arena[T]` has exactly one type argument and stores values of that item type. `Id[T]` has exactly one type argument and is a phantom-typed handle for values allocated in `Arena[T]`. Each argument must itself be a valid cosmo0 type, including primitives, user classes, simple aliases, references, and nested sealed standard applications.
+`Option[T]` has exactly one type argument. `Result[T, E]` has exactly two type arguments. `Vec[T]` has exactly one type argument. `Arena[T]` has exactly one type argument and stores values of that item type. `Id[T]` has exactly one type argument and is a phantom-typed handle for values allocated in `Arena[T]`. Later-stage `Map[K, V]` has exactly two type arguments and `Set[T]` has exactly one type argument. Each argument must itself be a valid cosmo0 type, including primitives, user classes, simple aliases, references, and nested sealed standard applications, subject to collection-specific restrictions.
 
-The Stage 1 spelling for standard type application in source is the parser-supported compile-time application form, for example `Option[Token]`, `Result[ExprId, Diagnostic]`, and `Vec[Token]`. The same spelling is used for later arena types, for example `Arena[Expr]` and `Id[Expr]`. Standard type constructors are not first-class runtime values.
+The Stage 1 spelling for standard type application in source is the parser-supported compile-time application form, for example `Option[Token]`, `Result[ExprId, Diagnostic]`, and `Vec[Token]`. The same spelling is used for later arena and deterministic collection types, for example `Arena[Expr]`, `Id[Expr]`, `Map[Symbol, DefId]`, and `Set[Symbol]`. Standard type constructors are not first-class runtime values.
 
 User declarations cannot add new type parameters to classes or functions and cannot define new generic type constructors. A user-defined declaration named `Option`, `Result`, `Vec`, `Arena`, or `Id` does not replace the registered core0 standard constructor.
 
 `Id[T]` is source-level distinct for each `T`. An `Id[Expr]` is not assignable to `Id[Ty]`, cannot be passed to `Arena[Ty].get`, and cannot be used with any arena whose item type is not `Expr`. The initial source API keeps the numeric representation opaque; serialization helpers can be added by a later capability.
+
+`Map[K, V]` and `Set[T]` restrict their key position until trait-based ordering or hashing exists. `K` for `Map[K, V]` and `T` for `Set[T]` must resolve to `String`, a primitive integer type, or `Id[U]`. Aliases are checked after expansion, so a symbol alias such as `type Symbol = String` is valid as a key. User classes, references, floating-point values, booleans, and nested collections are not valid keys for the initial deterministic collection capability and must produce `cosmo0.type.unsupported-map-key`.
 
 == Rejected Type Forms
 
