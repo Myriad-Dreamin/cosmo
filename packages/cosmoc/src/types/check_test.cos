@@ -1,0 +1,240 @@
+import source.span
+import syntax.ast
+import types.check
+import types.model
+
+def type_is_primitive(types: TypeStore, id: TypeId, expected: String): Bool = {
+  val value = types.type_value(id);
+  value match {
+    case CosmoType.Primitive(name) => {
+      name == expected
+    }
+    case CosmoType.User(name) => {
+      false
+    }
+    case CosmoType.Function(params, return_type) => {
+      false
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def typed_expr_has_primitive(result: ExpressionCheckResult, expr: ExprId, expected: String): Bool = {
+  val maybe_typed = result.typed_exprs.get(expr);
+  maybe_typed match {
+    case Option[TypedExpr]::Some(typed) => {
+      var types = result.types;
+      type_is_primitive(types, typed.typ, expected)
+    }
+    case Option[TypedExpr]::None => {
+      false
+    }
+  }
+}
+
+def typed_expr_has_display(result: ExpressionCheckResult, expr: ExprId, expected: String): Bool = {
+  val maybe_typed = result.typed_exprs.get(expr);
+  maybe_typed match {
+    case Option[TypedExpr]::Some(typed) => {
+      var types = result.types;
+      expression_type_display(types, typed.typ) == expected
+    }
+    case Option[TypedExpr]::None => {
+      false
+    }
+  }
+}
+
+def diagnostic_has_mismatch(result: ExpressionCheckResult, index: usize, expected: String, actual: String): Bool = {
+  if (index >= result.diagnostics.len()) {
+    return false
+  }
+
+  val diagnostic = result.diagnostics.get(index);
+  var types = result.types;
+  diagnostic.code == "cosmo1.type.mismatch" and
+    expression_diagnostic_expected_text(types, diagnostic) == expected and
+    expression_diagnostic_actual_text(types, diagnostic) == actual
+}
+
+def basic_expression_checker_types_supported_expressions(): Bool = {
+  var arenas = syntax_arenas();
+
+  val input_type = arenas.make_name_type("i32", make_span(12, 15));
+  val input_default = arenas.make_missing_expr(make_span(0, 0));
+  val input_param = arenas.make_named_param("input", input_type, input_default, make_span(0, 15));
+  val params = Vec[ParamId]();
+  params.push(input_param);
+
+  val outer_type = arenas.make_name_type("i32", make_span(20, 23));
+  val input_name = arenas.make_name_expr("input", make_span(26, 31));
+  val outer_local = arenas.make_local_expr("outer", false, outer_type, input_name, make_span(16, 32));
+
+  val counter_type = arenas.make_name_type("i32", make_span(40, 43));
+  val counter_init = arenas.make_numeric_literal_expr("1", make_span(46, 47));
+  val counter_local = arenas.make_local_expr("counter", true, counter_type, counter_init, make_span(34, 47));
+
+  val counter_name_target = arenas.make_name_expr("counter", make_span(50, 57));
+  val counter_name_value = arenas.make_name_expr("counter", make_span(60, 67));
+  val add_one = arenas.make_numeric_literal_expr("1", make_span(70, 71));
+  val plus = arenas.make_binary_expr("+", counter_name_value, add_one, make_span(60, 71));
+  val assign = arenas.make_assign_expr(counter_name_target, plus, make_span(50, 71));
+
+  val inner_type = arenas.make_name_type("i32", make_span(78, 81));
+  val outer_name = arenas.make_name_expr("outer", make_span(84, 89));
+  val inner_local = arenas.make_local_expr("inner", false, inner_type, outer_name, make_span(72, 89));
+  val inner_name = arenas.make_name_expr("inner", make_span(92, 97));
+  val nested_items = Vec[ExprId]();
+  nested_items.push(inner_local);
+  nested_items.push(inner_name);
+  val nested_block = arenas.make_block_expr(nested_items, make_span(72, 99));
+
+  val text_type = arenas.make_name_type("String", make_span(104, 110));
+  val text_init = arenas.make_string_literal_expr("ok", make_span(113, 117));
+  val text_local = arenas.make_local_expr("text", false, text_type, text_init, make_span(100, 117));
+
+  val counter_name_compare = arenas.make_name_expr("counter", make_span(120, 127));
+  val ten = arenas.make_numeric_literal_expr("10", make_span(130, 132));
+  val compare = arenas.make_binary_expr("<", counter_name_compare, ten, make_span(120, 132));
+  val false_lit = arenas.make_bool_literal_expr(false, make_span(136, 141));
+  val equals = arenas.make_binary_expr("==", compare, false_lit, make_span(120, 141));
+  val flag_type = arenas.make_name_type("Bool", make_span(144, 148));
+  val flag_local = arenas.make_local_expr("flag", false, flag_type, equals, make_span(142, 149));
+
+  val counter_name_return = arenas.make_name_expr("counter", make_span(152, 159));
+  val items = Vec[ExprId]();
+  items.push(outer_local);
+  items.push(counter_local);
+  items.push(assign);
+  items.push(nested_block);
+  items.push(text_local);
+  items.push(flag_local);
+  items.push(counter_name_return);
+  val body = arenas.make_block_expr(items, make_span(16, 160));
+  val return_type = arenas.make_name_type("i32", make_span(162, 165));
+  val decl = arenas.make_function_decl("main", params, return_type, body, make_span(0, 165));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 165));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  checked.is_ok() and
+    typed_expr_has_primitive(checked, input_name, "i32") and
+    typed_expr_has_primitive(checked, counter_init, "i32") and
+    typed_expr_has_primitive(checked, add_one, "i32") and
+    typed_expr_has_primitive(checked, plus, "i32") and
+    typed_expr_has_primitive(checked, assign, "Unit") and
+    typed_expr_has_primitive(checked, nested_block, "i32") and
+    typed_expr_has_primitive(checked, text_init, "String") and
+    typed_expr_has_primitive(checked, compare, "Bool") and
+    typed_expr_has_primitive(checked, equals, "Bool") and
+    typed_expr_has_primitive(checked, body, "i32")
+}
+
+def basic_expression_checker_rejects_immutable_assignment(): Bool = {
+  var arenas = syntax_arenas();
+
+  val local_type = arenas.make_name_type("i32", make_span(10, 13));
+  val local_init = arenas.make_numeric_literal_expr("1", make_span(16, 17));
+  val local = arenas.make_local_expr("count", false, local_type, local_init, make_span(0, 17));
+  val target = arenas.make_name_expr("count", make_span(20, 25));
+  val value = arenas.make_numeric_literal_expr("2", make_span(28, 29));
+  val assign = arenas.make_assign_expr(target, value, make_span(20, 29));
+  val items = Vec[ExprId]();
+  items.push(local);
+  items.push(assign);
+  val body = arenas.make_block_expr(items, make_span(0, 29));
+  val return_type = arenas.make_name_type("Unit", make_span(31, 35));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 35));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 35));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and
+    checked.first_diagnostic_code() == "cosmo1.type.immutable-assignment" and
+    typed_expr_has_primitive(checked, assign, "Unit")
+}
+
+def basic_expression_checker_reports_assignment_mismatch(): Bool = {
+  var arenas = syntax_arenas();
+
+  val local_type = arenas.make_name_type("i32", make_span(10, 13));
+  val local_init = arenas.make_numeric_literal_expr("1", make_span(16, 17));
+  val local = arenas.make_local_expr("count", true, local_type, local_init, make_span(0, 17));
+  val target = arenas.make_name_expr("count", make_span(20, 25));
+  val value = arenas.make_bool_literal_expr(false, make_span(28, 33));
+  val assign = arenas.make_assign_expr(target, value, make_span(20, 33));
+  val items = Vec[ExprId]();
+  items.push(local);
+  items.push(assign);
+  val body = arenas.make_block_expr(items, make_span(0, 33));
+  val return_type = arenas.make_name_type("Unit", make_span(35, 39));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 39));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 39));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and diagnostic_has_mismatch(checked, 0, "i32", "Bool")
+}
+
+def basic_expression_checker_reports_return_mismatch(): Bool = {
+  var arenas = syntax_arenas();
+
+  val value = arenas.make_bool_literal_expr(false, make_span(18, 23));
+  val ret = arenas.make_return_expr(value, make_span(11, 23));
+  val return_type = arenas.make_name_type("i32", make_span(7, 10));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, ret, make_span(0, 23));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 23));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and
+    diagnostic_has_mismatch(checked, 0, "i32", "Bool") and
+    typed_expr_has_display(checked, ret, "never")
+}
+
+def basic_expression_checker_rejects_invalid_binary_operands(): Bool = {
+  var arenas = syntax_arenas();
+
+  val left = arenas.make_numeric_literal_expr("1", make_span(12, 13));
+  val right = arenas.make_bool_literal_expr(false, make_span(16, 21));
+  val body = arenas.make_binary_expr("+", left, right, make_span(12, 21));
+  val return_type = arenas.make_name_type("i32", make_span(7, 10));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 21));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 21));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.invalid-binary-op"
+}
+
+def main(): i32 = {
+  if (!basic_expression_checker_types_supported_expressions()) {
+    return 1
+  }
+  if (!basic_expression_checker_rejects_immutable_assignment()) {
+    return 1
+  }
+  if (!basic_expression_checker_reports_assignment_mismatch()) {
+    return 1
+  }
+  if (!basic_expression_checker_reports_return_mismatch()) {
+    return 1
+  }
+  if (!basic_expression_checker_rejects_invalid_binary_operands()) {
+    return 1
+  }
+  0
+}
