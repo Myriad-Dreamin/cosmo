@@ -23,6 +23,8 @@
     "syntax/ast.cos",
     "types/model.cos",
     "types/model_test.cos",
+    "types/declaration_resolution.cos",
+    "types/declaration_resolution_test.cos",
     "parser.cos",
     "parser_test.cos"
   ]

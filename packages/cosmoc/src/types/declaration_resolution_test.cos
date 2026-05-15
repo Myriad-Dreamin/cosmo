@@ -1,0 +1,360 @@
+import source.span
+import syntax.ast
+import types.declaration_resolution
+import types.model
+
+def type_is_primitive(types: TypeStore, id: TypeId, expected: String): Bool = {
+  val value = types.type_value(id);
+  value match {
+    case CosmoType.Primitive(name) => {
+      name == expected
+    }
+    case CosmoType.User(name) => {
+      false
+    }
+    case CosmoType.Function(params, return_type) => {
+      false
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_is_user(types: TypeStore, id: TypeId, expected: String): Bool = {
+  val value = types.type_value(id);
+  value match {
+    case CosmoType.User(name) => {
+      name == expected
+    }
+    case CosmoType.Primitive(name) => {
+      false
+    }
+    case CosmoType.Function(params, return_type) => {
+      false
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_is_receiver(types: TypeStore, id: TypeId, mutable: Bool, expected_inner: String): Bool = {
+  val value = types.type_value(id);
+  value match {
+    case CosmoType.Reference(actual_mutable, inner) => {
+      actual_mutable == mutable and type_is_user(types, inner, expected_inner)
+    }
+    case CosmoType.Primitive(name) => {
+      false
+    }
+    case CosmoType.User(name) => {
+      false
+    }
+    case CosmoType.Function(params, return_type) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def declaration_resolution_test_records_parser_state_and_helpers(): Bool = {
+  var arenas = syntax_arenas();
+
+  val parser_token_members = Vec[MemberId]();
+  val parser_token = arenas.make_class_decl("ParserToken", parser_token_members, make_span(0, 18));
+
+  val offset_type = arenas.make_name_type("usize", make_span(34, 39));
+  val offset_field = arenas.make_field_member("offset", false, offset_type, make_span(22, 39));
+
+  val source_type = arenas.make_name_type("String", make_span(54, 60));
+  val source_field = arenas.make_field_member("source", false, source_type, make_span(42, 60));
+
+  val checkpoints_inner = arenas.make_name_type("usize", make_span(81, 86));
+  val checkpoints_base = arenas.make_name_type("Vec", make_span(77, 80));
+  val checkpoint_args = Vec[TypeExprId]();
+  checkpoint_args.push(checkpoints_inner);
+  val checkpoints_type = arenas.make_generic_type(checkpoints_base, checkpoint_args, make_span(77, 87));
+  val checkpoints_field = arenas.make_field_member("checkpoints", false, checkpoints_type, make_span(64, 87));
+
+  val self_param = arenas.make_self_param(false, make_span(102, 107));
+  val method_params = Vec[ParamId]();
+  method_params.push(self_param);
+  val current_byte_return = arenas.make_name_type("u8", make_span(110, 112));
+  val current_byte_body = arenas.make_missing_expr(make_span(115, 115));
+  val current_byte = arenas.make_method_member("current_byte", method_params, current_byte_return, current_byte_body, make_span(88, 115));
+
+  val mut_self_param = arenas.make_self_param(true, make_span(131, 140));
+  val advance_params = Vec[ParamId]();
+  advance_params.push(mut_self_param);
+  val advance_return = arenas.make_name_type("Unit", make_span(143, 147));
+  val advance_body = arenas.make_missing_expr(make_span(150, 150));
+  val advance = arenas.make_method_member("advance", advance_params, advance_return, advance_body, make_span(117, 150));
+
+  val members = Vec[MemberId]();
+  members.push(offset_field);
+  members.push(source_field);
+  members.push(checkpoints_field);
+  members.push(current_byte);
+  members.push(advance);
+  val parser_state = arenas.make_class_decl("ParserState", members, make_span(20, 152));
+
+  val alias_target = arenas.make_name_type("usize", make_span(170, 175));
+  val cursor_alias = arenas.make_type_alias_decl("Cursor", alias_target, make_span(156, 175));
+
+  val parser_tokens_base = arenas.make_name_type("Vec", make_span(195, 198));
+  val parser_tokens_arg = arenas.make_name_type("ParserToken", make_span(199, 210));
+  val parser_tokens_args = Vec[TypeExprId]();
+  parser_tokens_args.push(parser_tokens_arg);
+  val parser_tokens_target = arenas.make_generic_type(parser_tokens_base, parser_tokens_args, make_span(195, 211));
+  val parser_tokens_alias = arenas.make_type_alias_decl("ParserTokens", parser_tokens_target, make_span(177, 211));
+
+  val source_param_type = arenas.make_name_type("String", make_span(232, 238));
+  val source_param_default = arenas.make_missing_expr(make_span(0, 0));
+  val source_param = arenas.make_named_param("source", source_param_type, source_param_default, make_span(224, 238));
+  val parser_state_params = Vec[ParamId]();
+  parser_state_params.push(source_param);
+  val parser_state_return = arenas.make_name_type("ParserState", make_span(241, 252));
+  val parser_state_body = arenas.make_missing_expr(make_span(255, 255));
+  val parser_state_fn = arenas.make_function_decl("parser_state", parser_state_params, parser_state_return, parser_state_body, make_span(212, 255));
+
+  val source_len_param_type = arenas.make_name_type("String", make_span(273, 279));
+  val source_len_param_default = arenas.make_missing_expr(make_span(0, 0));
+  val source_len_param = arenas.make_named_param("source", source_len_param_type, source_len_param_default, make_span(265, 279));
+  val source_len_params = Vec[ParamId]();
+  source_len_params.push(source_len_param);
+  val source_len_return = arenas.make_name_type("Cursor", make_span(282, 288));
+  val source_len_body = arenas.make_missing_expr(make_span(291, 291));
+  val source_len_fn = arenas.make_function_decl("source_len", source_len_params, source_len_return, source_len_body, make_span(257, 291));
+
+  val parser_tokens_return = arenas.make_name_type("ParserTokens", make_span(307, 319));
+  val parser_tokens_body = arenas.make_missing_expr(make_span(322, 322));
+  val parser_tokens_fn = arenas.make_function_decl("empty_tokens", Vec[ParamId](), parser_tokens_return, parser_tokens_body, make_span(293, 322));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(parser_token);
+  declarations.push(parser_state);
+  declarations.push(cursor_alias);
+  declarations.push(parser_tokens_alias);
+  declarations.push(parser_state_fn);
+  declarations.push(source_len_fn);
+  declarations.push(parser_tokens_fn);
+  val root = arenas.make_module(declarations, make_span(0, 322));
+
+  val resolved = resolve_module_declarations(arenas, root);
+  if (!resolved.is_ok()) {
+    return false
+  }
+  var types = resolved.types;
+  if (!resolved.class_signatures.contains_key(parser_state)) {
+    return false
+  }
+  if (!resolved.field_signatures.contains_key(offset_field)) {
+    return false
+  }
+  if (!resolved.field_signatures.contains_key(checkpoints_field)) {
+    return false
+  }
+  if (!resolved.method_signatures.contains_key(current_byte)) {
+    return false
+  }
+  if (!resolved.function_signatures.contains_key(parser_state_fn)) {
+    return false
+  }
+
+  val offset_signature = resolved.field_signatures.get(offset_field);
+  offset_signature match {
+    case Option[FieldSignature]::Some(field) => {
+      if (!type_is_primitive(types, field.typ, "usize")) {
+        return false
+      }
+    }
+    case Option[FieldSignature]::None => {
+      return false
+    }
+  }
+
+  val checkpoints_signature = resolved.field_signatures.get(checkpoints_field);
+  checkpoints_signature match {
+    case Option[FieldSignature]::Some(field) => {
+      if (!type_is_user(types, field.typ, "Vec[usize]")) {
+        return false
+      }
+    }
+    case Option[FieldSignature]::None => {
+      return false
+    }
+  }
+
+  val current_byte_signature = resolved.method_signatures.get(current_byte);
+  current_byte_signature match {
+    case Option[CallableSignature]::Some(signature) => {
+      if (!type_is_primitive(types, signature.return_type, "u8")) {
+        return false
+      }
+      signature.receiver match {
+        case Option[ParamId]::Some(receiver_id) => {
+          val receiver_signature = resolved.param_signatures.get(receiver_id);
+          receiver_signature match {
+            case Option[ParameterSignature]::Some(receiver) => {
+              if (!type_is_receiver(types, receiver.typ, false, "ParserState")) {
+                return false
+              }
+            }
+            case Option[ParameterSignature]::None => {
+              return false
+            }
+          }
+        }
+        case Option[ParamId]::None => {
+          return false
+        }
+      }
+    }
+    case Option[CallableSignature]::None => {
+      return false
+    }
+  }
+
+  val advance_signature = resolved.method_signatures.get(advance);
+  advance_signature match {
+    case Option[CallableSignature]::Some(signature) => {
+      signature.receiver match {
+        case Option[ParamId]::Some(receiver_id) => {
+          val receiver_signature = resolved.param_signatures.get(receiver_id);
+          receiver_signature match {
+            case Option[ParameterSignature]::Some(receiver) => {
+              if (!type_is_receiver(types, receiver.typ, true, "ParserState")) {
+                return false
+              }
+            }
+            case Option[ParameterSignature]::None => {
+              return false
+            }
+          }
+        }
+        case Option[ParamId]::None => {
+          return false
+        }
+      }
+    }
+    case Option[CallableSignature]::None => {
+      return false
+    }
+  }
+
+  val parser_state_signature = resolved.function_signatures.get(parser_state_fn);
+  parser_state_signature match {
+    case Option[CallableSignature]::Some(signature) => {
+      if (!type_is_user(types, signature.return_type, "ParserState")) {
+        return false
+      }
+    }
+    case Option[CallableSignature]::None => {
+      return false
+    }
+  }
+
+  val source_len_signature = resolved.function_signatures.get(source_len_fn);
+  source_len_signature match {
+    case Option[CallableSignature]::Some(signature) => {
+      if (!type_is_primitive(types, signature.return_type, "usize")) {
+        return false
+      }
+    }
+    case Option[CallableSignature]::None => {
+      return false
+    }
+  }
+
+  val empty_tokens_signature = resolved.function_signatures.get(parser_tokens_fn);
+  empty_tokens_signature match {
+    case Option[CallableSignature]::Some(signature) => {
+      if (!type_is_user(types, signature.return_type, "Vec[ParserToken]")) {
+        return false
+      }
+    }
+    case Option[CallableSignature]::None => {
+      return false
+    }
+  }
+
+  resolved.alias_signatures.len() >= 2 and resolved.type_expr_types.len() >= 10
+}
+
+def declaration_resolution_test_reports_unknown_type(): Bool = {
+  var arenas = syntax_arenas();
+  val bad_type = arenas.make_name_type("MissingType", make_span(10, 21));
+  val body = arenas.make_missing_expr(make_span(0, 0));
+  val decl = arenas.make_value_decl("bad", false, bad_type, body, make_span(0, 21));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 21));
+
+  val resolved = resolve_module_declarations(arenas, root);
+  !resolved.is_ok() and resolved.first_diagnostic_code() == "cosmo1.type.unknown-type"
+}
+
+def declaration_resolution_test_reports_alias_cycle(): Bool = {
+  var arenas = syntax_arenas();
+  val right = arenas.make_name_type("Right", make_span(13, 18));
+  val left = arenas.make_type_alias_decl("Left", right, make_span(0, 18));
+  val left_name = arenas.make_name_type("Left", make_span(31, 35));
+  val right_alias = arenas.make_type_alias_decl("Right", left_name, make_span(19, 35));
+  val declarations = Vec[DeclId]();
+  declarations.push(left);
+  declarations.push(right_alias);
+  val root = arenas.make_module(declarations, make_span(0, 35));
+
+  val resolved = resolve_module_declarations(arenas, root);
+  !resolved.is_ok() and resolved.first_diagnostic_code() == "cosmo1.type.alias-cycle"
+}
+
+def declaration_resolution_test_rejects_invalid_receiver(): Bool = {
+  var arenas = syntax_arenas();
+  val receiver = arenas.make_self_param(false, make_span(9, 14));
+  val params = Vec[ParamId]();
+  params.push(receiver);
+  val return_type = arenas.make_name_type("Unit", make_span(17, 21));
+  val body = arenas.make_missing_expr(make_span(0, 0));
+  val decl = arenas.make_function_decl("bad", params, return_type, body, make_span(0, 21));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 21));
+
+  val resolved = resolve_module_declarations(arenas, root);
+  !resolved.is_ok() and resolved.first_diagnostic_code() == "cosmo1.type.invalid-receiver"
+}
+
+def main(): i32 = {
+  if (!declaration_resolution_test_records_parser_state_and_helpers()) {
+    return 1
+  }
+  if (!declaration_resolution_test_reports_unknown_type()) {
+    return 1
+  }
+  if (!declaration_resolution_test_reports_alias_cycle()) {
+    return 1
+  }
+  if (!declaration_resolution_test_rejects_invalid_receiver()) {
+    return 1
+  }
+  0
+}
