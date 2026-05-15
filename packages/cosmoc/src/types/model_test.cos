@@ -1,0 +1,66 @@
+import source.span
+import types.model
+
+def type_model_primitive_smoke(): Bool = {
+  var types = type_store();
+  val unit_type = types.alloc_primitive("Unit");
+  val bool_type = types.alloc_primitive("Bool");
+  val unit_copy = types.alloc_primitive("Unit");
+
+  type_equals(types, unit_type, unit_copy) and
+    !type_equals(types, unit_type, bool_type) and
+    type_display(types, unit_type) == "Unit"
+}
+
+def type_model_user_and_reference_smoke(): Bool = {
+  var types = type_store();
+  val parser_state = types.alloc_user("ParserState");
+  val parser_ref = types.alloc_reference(false, parser_state);
+  val parser_mut_ref = types.alloc_reference(true, parser_state);
+
+  type_display(types, parser_state) == "ParserState" and
+    type_display(types, parser_ref) == "&ParserState" and
+    type_display(types, parser_mut_ref) == "&mut ParserState" and
+    !type_equals(types, parser_ref, parser_mut_ref)
+}
+
+def type_model_function_smoke(): Bool = {
+  var types = type_store();
+  val parser_state = types.alloc_user("ParserState");
+  val state_ref = types.alloc_reference(false, parser_state);
+  val unit_type = types.alloc_primitive("Unit");
+  val bool_type = types.alloc_primitive("Bool");
+
+  val first_params = Vec[TypeId]();
+  first_params.push(state_ref);
+  first_params.push(unit_type);
+  val first = types.alloc_function(first_params, bool_type);
+
+  val second_params = Vec[TypeId]();
+  second_params.push(types.alloc_reference(false, types.alloc_user("ParserState")));
+  second_params.push(types.alloc_primitive("Unit"));
+  val second = types.alloc_function(second_params, types.alloc_primitive("Bool"));
+
+  val swapped_params = Vec[TypeId]();
+  swapped_params.push(unit_type);
+  swapped_params.push(state_ref);
+  val swapped = types.alloc_function(swapped_params, bool_type);
+
+  type_display(types, first) == "fn(&ParserState, Unit) -> Bool" and
+    type_equals(types, first, second) and
+    !type_equals(types, first, swapped)
+}
+
+def type_model_special_and_diagnostic_smoke(): Bool = {
+  var types = type_store();
+  val never_type = types.alloc_never();
+  val error_type = types.alloc_error();
+  val unit_type = types.alloc_primitive("Unit");
+  val diagnostic = type_mismatch_diagnostic(make_span(4, 9), unit_type, never_type);
+
+  type_display(types, never_type) == "never" and
+    type_display(types, error_type) == "<error>" and
+    type_diagnostic_expected_text(types, diagnostic) == "Unit" and
+    type_diagnostic_actual_text(types, diagnostic) == "never" and
+    render_type_diagnostic(types, diagnostic) == "type mismatch: expected Unit but found never"
+}

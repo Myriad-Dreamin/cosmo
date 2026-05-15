@@ -21,6 +21,8 @@
     "source/source_test.cos",
     "source/source_map_test.cos",
     "syntax/ast.cos",
+    "types/model.cos",
+    "types/model_test.cos",
     "parser.cos",
     "parser_test.cos"
   ]
