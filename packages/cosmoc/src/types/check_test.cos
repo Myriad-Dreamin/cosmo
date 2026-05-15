@@ -220,6 +220,168 @@ def basic_expression_checker_rejects_invalid_binary_operands(): Bool = {
   !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.invalid-binary-op"
 }
 
+def member_call_checker_types_parser_state_patterns(): Bool = {
+  var arenas = syntax_arenas();
+
+  val usize_type = arenas.make_name_type("usize", make_span(10, 15));
+  val string_type = arenas.make_name_type("String", make_span(16, 22));
+  val u8_type = arenas.make_name_type("u8", make_span(23, 25));
+  val bool_type = arenas.make_name_type("Bool", make_span(26, 30));
+  val unit_type = arenas.make_name_type("Unit", make_span(31, 35));
+
+  val offset_field = arenas.make_field_member("offset", true, usize_type, make_span(40, 52));
+  val source_field = arenas.make_field_member("source", false, string_type, make_span(53, 70));
+
+  val current_self = arenas.make_self_param(false, make_span(80, 85));
+  val current_self_source = arenas.make_name_expr("self", make_span(90, 94));
+  val current_source = arenas.make_select_expr(current_self_source, "source", make_span(90, 101));
+  val current_self_offset = arenas.make_name_expr("self", make_span(110, 114));
+  val current_offset = arenas.make_select_expr(current_self_offset, "offset", make_span(110, 121));
+  val byte_args = Vec[ExprId]();
+  byte_args.push(current_offset);
+  val byte_at = arenas.make_select_expr(current_source, "byte_at", make_span(90, 109));
+  val current_body = arenas.make_call_expr(byte_at, byte_args, make_span(90, 122));
+  val current_params = Vec[ParamId]();
+  current_params.push(current_self);
+  val current_method = arenas.make_method_member("current_byte", current_params, u8_type, current_body, make_span(75, 123));
+
+  val advance_self = arenas.make_self_param(true, make_span(130, 139));
+  val advance_target_self = arenas.make_name_expr("self", make_span(145, 149));
+  val advance_target = arenas.make_select_expr(advance_target_self, "offset", make_span(145, 156));
+  val advance_value_self = arenas.make_name_expr("self", make_span(159, 163));
+  val advance_value_offset = arenas.make_select_expr(advance_value_self, "offset", make_span(159, 170));
+  val one = arenas.make_numeric_literal_expr("1", make_span(173, 174));
+  val advance_plus = arenas.make_binary_expr("+", advance_value_offset, one, make_span(159, 174));
+  val advance_body = arenas.make_assign_expr(advance_target, advance_plus, make_span(145, 174));
+  val advance_params = Vec[ParamId]();
+  advance_params.push(advance_self);
+  val advance_method = arenas.make_method_member("advance", advance_params, unit_type, advance_body, make_span(125, 175));
+
+  val parser_self = arenas.make_self_param(true, make_span(180, 189));
+  val start_self = arenas.make_name_expr("self", make_span(200, 204));
+  val start_offset = arenas.make_select_expr(start_self, "offset", make_span(200, 211));
+  val start_local = arenas.make_local_expr("start", false, usize_type, start_offset, make_span(190, 211));
+
+  val current_receiver = arenas.make_name_expr("self", make_span(220, 224));
+  val current_select = arenas.make_select_expr(current_receiver, "current_byte", make_span(220, 237));
+  val current_call = arenas.make_call_expr(current_select, Vec[ExprId](), make_span(220, 239));
+  val byte_local = arenas.make_local_expr("byte", false, u8_type, current_call, make_span(212, 239));
+
+  val source_self = arenas.make_name_expr("self", make_span(250, 254));
+  val source_select = arenas.make_select_expr(source_self, "source", make_span(250, 261));
+  val start_name = arenas.make_name_expr("start", make_span(268, 273));
+  val len_self = arenas.make_name_expr("self", make_span(275, 279));
+  val len_source = arenas.make_select_expr(len_self, "source", make_span(275, 286));
+  val len_select = arenas.make_select_expr(len_source, "len", make_span(275, 290));
+  val len_call = arenas.make_call_expr(len_select, Vec[ExprId](), make_span(275, 292));
+  val slice_args = Vec[ExprId]();
+  slice_args.push(start_name);
+  slice_args.push(len_call);
+  val slice_select = arenas.make_select_expr(source_select, "slice", make_span(250, 267));
+  val slice_call = arenas.make_call_expr(slice_select, slice_args, make_span(250, 293));
+  val text_local = arenas.make_local_expr("text", false, string_type, slice_call, make_span(240, 293));
+
+  val assign_target_self = arenas.make_name_expr("self", make_span(300, 304));
+  val assign_target = arenas.make_select_expr(assign_target_self, "offset", make_span(300, 311));
+  val start_value = arenas.make_name_expr("start", make_span(314, 319));
+  val assign_one = arenas.make_numeric_literal_expr("1", make_span(322, 323));
+  val assign_value = arenas.make_binary_expr("+", start_value, assign_one, make_span(314, 323));
+  val assign_offset = arenas.make_assign_expr(assign_target, assign_value, make_span(300, 323));
+
+  val helper_name = arenas.make_name_expr("is_space", make_span(330, 338));
+  val byte_name = arenas.make_name_expr("byte", make_span(339, 343));
+  val helper_args = Vec[ExprId]();
+  helper_args.push(byte_name);
+  val helper_call = arenas.make_call_expr(helper_name, helper_args, make_span(330, 344));
+  val text_name = arenas.make_name_expr("text", make_span(349, 353));
+  val text_len_select = arenas.make_select_expr(text_name, "len", make_span(349, 357));
+  val text_len = arenas.make_call_expr(text_len_select, Vec[ExprId](), make_span(349, 359));
+  val zero = arenas.make_numeric_literal_expr("0", make_span(362, 363));
+  val non_empty = arenas.make_binary_expr(">", text_len, zero, make_span(349, 363));
+  val result = arenas.make_binary_expr("and", helper_call, non_empty, make_span(330, 363));
+
+  val parser_items = Vec[ExprId]();
+  parser_items.push(start_local);
+  parser_items.push(byte_local);
+  parser_items.push(text_local);
+  parser_items.push(assign_offset);
+  parser_items.push(result);
+  val parser_body = arenas.make_block_expr(parser_items, make_span(190, 365));
+  val parser_params = Vec[ParamId]();
+  parser_params.push(parser_self);
+  val parser_method = arenas.make_method_member("member_patterns", parser_params, bool_type, parser_body, make_span(180, 365));
+
+  val members = Vec[MemberId]();
+  members.push(offset_field);
+  members.push(source_field);
+  members.push(current_method);
+  members.push(advance_method);
+  members.push(parser_method);
+  val parser_class = arenas.make_class_decl("ParserState", members, make_span(40, 366));
+
+  val helper_param_type = arenas.make_name_type("u8", make_span(370, 372));
+  val helper_default = arenas.make_missing_expr(make_span(0, 0));
+  val helper_param = arenas.make_named_param("byte", helper_param_type, helper_default, make_span(367, 372));
+  val helper_params = Vec[ParamId]();
+  helper_params.push(helper_param);
+  val helper_body = arenas.make_bool_literal_expr(true, make_span(380, 384));
+  val helper_decl = arenas.make_function_decl("is_space", helper_params, bool_type, helper_body, make_span(367, 384));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(parser_class);
+  declarations.push(helper_decl);
+  val root = arenas.make_module(declarations, make_span(40, 384));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  checked.is_ok() and
+    typed_expr_has_primitive(checked, start_offset, "usize") and
+    typed_expr_has_primitive(checked, current_call, "u8") and
+    typed_expr_has_primitive(checked, slice_call, "String") and
+    typed_expr_has_primitive(checked, assign_offset, "Unit") and
+    typed_expr_has_primitive(checked, helper_call, "Bool") and
+    typed_expr_has_primitive(checked, result, "Bool")
+}
+
+def member_call_checker_rejects_immutable_self_mutation(): Bool = {
+  var arenas = syntax_arenas();
+
+  val usize_type = arenas.make_name_type("usize", make_span(10, 15));
+  val unit_type = arenas.make_name_type("Unit", make_span(16, 20));
+  val value_field = arenas.make_field_member("value", true, usize_type, make_span(25, 40));
+
+  val bump_self = arenas.make_self_param(true, make_span(45, 54));
+  val bump_target_self = arenas.make_name_expr("self", make_span(60, 64));
+  val bump_target = arenas.make_select_expr(bump_target_self, "value", make_span(60, 70));
+  val bump_value_self = arenas.make_name_expr("self", make_span(73, 77));
+  val bump_value_field = arenas.make_select_expr(bump_value_self, "value", make_span(73, 83));
+  val one = arenas.make_numeric_literal_expr("1", make_span(86, 87));
+  val bump_next = arenas.make_binary_expr("+", bump_value_field, one, make_span(73, 87));
+  val bump_body = arenas.make_assign_expr(bump_target, bump_next, make_span(60, 87));
+  val bump_params = Vec[ParamId]();
+  bump_params.push(bump_self);
+  val bump_method = arenas.make_method_member("bump", bump_params, unit_type, bump_body, make_span(45, 88));
+
+  val bad_self = arenas.make_self_param(false, make_span(95, 100));
+  val bad_receiver = arenas.make_name_expr("self", make_span(105, 109));
+  val bad_select = arenas.make_select_expr(bad_receiver, "bump", make_span(105, 114));
+  val bad_body = arenas.make_call_expr(bad_select, Vec[ExprId](), make_span(105, 116));
+  val bad_params = Vec[ParamId]();
+  bad_params.push(bad_self);
+  val bad_method = arenas.make_method_member("bad", bad_params, unit_type, bad_body, make_span(95, 117));
+
+  val members = Vec[MemberId]();
+  members.push(value_field);
+  members.push(bump_method);
+  members.push(bad_method);
+  val counter_class = arenas.make_class_decl("Counter", members, make_span(25, 118));
+  val declarations = Vec[DeclId]();
+  declarations.push(counter_class);
+  val root = arenas.make_module(declarations, make_span(25, 118));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.immutable-receiver"
+}
+
 def main(): i32 = {
   if (!basic_expression_checker_types_supported_expressions()) {
     return 1
@@ -234,6 +396,12 @@ def main(): i32 = {
     return 1
   }
   if (!basic_expression_checker_rejects_invalid_binary_operands()) {
+    return 1
+  }
+  if (!member_call_checker_types_parser_state_patterns()) {
+    return 1
+  }
+  if (!member_call_checker_rejects_immutable_self_mutation()) {
     return 1
   }
   0
