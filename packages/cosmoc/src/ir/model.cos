@@ -1,0 +1,765 @@
+import types.model
+
+class IrDeclId {
+  val value: String
+}
+
+class IrLocalId {
+  val value: String
+}
+
+class IrBlockId {
+  val value: String
+}
+
+class IrModule {
+  val name: String
+  val declarations: Vec[IrDeclaration]
+}
+
+class IrDeclaration {
+  case Function(IrFunction)
+}
+
+class IrFunction {
+  val id: IrDeclId
+  val name: String
+  val params: Vec[IrParam]
+  val return_type: TypeId
+  val locals: Vec[IrLocal]
+  val blocks: Vec[IrBlock]
+  val owner: Option[IrDeclId]
+}
+
+class IrParam {
+  val id: IrLocalId
+  val name: String
+  val typ: TypeId
+}
+
+class IrLocal {
+  val id: IrLocalId
+  val name: String
+  val typ: TypeId
+  val mutable: Bool
+}
+
+class IrBlock {
+  val id: IrBlockId
+  val operations: Vec[IrOperation]
+  val terminator: IrTerminator
+}
+
+class IrFunctionSignature {
+  val params: Vec[TypeId]
+  val return_type: TypeId
+}
+
+class IrValue {
+  case Unit(TypeId)
+  case BoolLiteral(Bool, TypeId)
+  case StringLiteral(String, TypeId)
+  case NumericLiteral(String, TypeId)
+  case Local(IrLocalId, TypeId)
+  case Function(IrDeclId, IrFunctionSignature)
+}
+
+class IrOperation {
+  case InitLocal(IrLocalId, IrValue)
+  case Assign(IrLocalId, IrValue)
+  case DirectCall(Option[IrLocalId], IrDeclId, Vec[IrValue], IrFunctionSignature)
+}
+
+class IrTerminator {
+  case Return(Option[IrValue])
+  case Branch(IrBlockId)
+  case CondBranch(IrValue, IrBlockId, IrBlockId)
+  case Unreachable(String)
+}
+
+class IrDiagnostic {
+  val code: String
+  val message: String
+}
+
+class IrVerifyResult {
+  val diagnostics: Vec[IrDiagnostic]
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def first_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      return ""
+    }
+    self.diagnostics.get(0).code
+  }
+}
+
+class IrFunctionEnv {
+  val defined: Vec[IrLocalId]
+}
+
+def ir_decl_id(value: String): IrDeclId = {
+  IrDeclId(value)
+}
+
+def ir_local_id(value: String): IrLocalId = {
+  IrLocalId(value)
+}
+
+def ir_block_id(value: String): IrBlockId = {
+  IrBlockId(value)
+}
+
+def ir_signature(params: Vec[TypeId], return_type: TypeId): IrFunctionSignature = {
+  IrFunctionSignature(params, return_type)
+}
+
+def ir_value_type(value: IrValue): TypeId = {
+  value match {
+    case IrValue.Unit(typ) => {
+      typ
+    }
+    case IrValue.BoolLiteral(value, typ) => {
+      typ
+    }
+    case IrValue.StringLiteral(value, typ) => {
+      typ
+    }
+    case IrValue.NumericLiteral(value, typ) => {
+      typ
+    }
+    case IrValue.Local(id, typ) => {
+      typ
+    }
+    case IrValue.Function(id, signature) => {
+      signature.return_type
+    }
+  }
+}
+
+def verify_ir_module(types: TypeStore, ir_module: IrModule): IrVerifyResult = {
+  val diagnostics = Vec[IrDiagnostic]();
+  verify_duplicate_declarations(ir_module, diagnostics);
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Function(fn_value) => {
+        verify_ir_function(types, ir_module, fn_value, diagnostics)
+      }
+    }
+  }
+  IrVerifyResult(diagnostics)
+}
+
+def verify_duplicate_declarations(ir_module: IrModule, diagnostics: Vec[IrDiagnostic]): Unit = {
+  var index: usize = 0;
+  while (index < ir_module.declarations.len()) {
+    val current = declaration_id(ir_module.declarations.get(index));
+    var next = index + 1;
+    while (next < ir_module.declarations.len()) {
+      val other = declaration_id(ir_module.declarations.get(next));
+      if (current.value == other.value) {
+        ir_error(diagnostics, "cosmo1.ir.duplicate-declaration", "duplicate declaration ".concat(current.value))
+      }
+      next = next + 1
+    }
+    index = index + 1
+  }
+}
+
+def declaration_id(declaration: IrDeclaration): IrDeclId = {
+  declaration match {
+    case IrDeclaration.Function(fn_value) => {
+      fn_value.id
+    }
+  }
+}
+
+def verify_ir_function(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  if (fn_value.blocks.is_empty()) {
+    ir_error(diagnostics, "cosmo1.ir.missing-block", "fn_value ".concat(fn_value.id.value).concat(" has no blocks"));
+  } else {
+    verify_duplicate_params(fn_value, diagnostics);
+    verify_duplicate_locals(fn_value, diagnostics);
+    verify_duplicate_blocks(fn_value, diagnostics);
+    verify_branch_targets(fn_value, diagnostics);
+
+    for (block in fn_value.blocks) {
+      verify_ir_block(types, ir_module, fn_value, block, diagnostics)
+    }
+  }
+}
+
+def verify_duplicate_params(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+  var index: usize = 0;
+  while (index < fn_value.params.len()) {
+    val current = fn_value.params.get(index).id;
+    var next = index + 1;
+    while (next < fn_value.params.len()) {
+      val other = fn_value.params.get(next).id;
+      if (current.value == other.value) {
+        ir_error(diagnostics, "cosmo1.ir.duplicate-local", "duplicate parameter ".concat(current.value))
+      }
+      next = next + 1
+    }
+    index = index + 1
+  }
+}
+
+def verify_duplicate_locals(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+  var index: usize = 0;
+  while (index < fn_value.locals.len()) {
+    val current = fn_value.locals.get(index).id;
+    if (function_has_param(fn_value, current)) {
+      ir_error(diagnostics, "cosmo1.ir.duplicate-local", "local duplicates parameter ".concat(current.value))
+    }
+    var next = index + 1;
+    while (next < fn_value.locals.len()) {
+      val other = fn_value.locals.get(next).id;
+      if (current.value == other.value) {
+        ir_error(diagnostics, "cosmo1.ir.duplicate-local", "duplicate local ".concat(current.value))
+      }
+      next = next + 1
+    }
+    index = index + 1
+  }
+}
+
+def verify_duplicate_blocks(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+  var index: usize = 0;
+  while (index < fn_value.blocks.len()) {
+    val current = fn_value.blocks.get(index).id;
+    var next = index + 1;
+    while (next < fn_value.blocks.len()) {
+      val other = fn_value.blocks.get(next).id;
+      if (current.value == other.value) {
+        ir_error(diagnostics, "cosmo1.ir.duplicate-block", "duplicate block ".concat(current.value))
+      }
+      next = next + 1
+    }
+    index = index + 1
+  }
+}
+
+def verify_branch_targets(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+  for (block in fn_value.blocks) {
+    block.terminator match {
+      case IrTerminator.Return(value) => {
+      }
+      case IrTerminator.Branch(target) => {
+        verify_block_target(fn_value, target, diagnostics)
+      }
+      case IrTerminator.CondBranch(condition, true_target, false_target) => {
+        verify_block_target(fn_value, true_target, diagnostics);
+        verify_block_target(fn_value, false_target, diagnostics)
+      }
+      case IrTerminator.Unreachable(reason) => {
+      }
+    }
+  }
+}
+
+def verify_block_target(fn_value: IrFunction, target: IrBlockId, diagnostics: Vec[IrDiagnostic]): Unit = {
+  if (!function_has_block(fn_value, target)) {
+    ir_error(diagnostics, "cosmo1.ir.invalid-branch", "missing block ".concat(target.value))
+  }
+}
+
+def verify_ir_block(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  block: IrBlock,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  val env = initial_function_env(fn_value);
+  for (operation in block.operations) {
+    verify_ir_operation(types, ir_module, fn_value, env, operation, diagnostics)
+  }
+  verify_ir_terminator(types, fn_value, env, block.terminator, diagnostics)
+}
+
+def initial_function_env(fn_value: IrFunction): IrFunctionEnv = {
+  val defined = Vec[IrLocalId]();
+  for (param in fn_value.params) {
+    defined.push(param.id)
+  }
+  IrFunctionEnv(defined)
+}
+
+def verify_ir_operation(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  operation: IrOperation,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  operation match {
+    case IrOperation.InitLocal(target, value) => {
+      verify_value(types, fn_value, env, value, diagnostics);
+      verify_defined_local_type(types, fn_value, target, ir_value_type(value), diagnostics);
+      define_local(env, target)
+    }
+    case IrOperation.Assign(target, value) => {
+      verify_value(types, fn_value, env, value, diagnostics);
+      verify_defined_local_type(types, fn_value, target, ir_value_type(value), diagnostics);
+      define_local(env, target)
+    }
+    case IrOperation.DirectCall(output, callee, args, signature) => {
+      verify_call(types, ir_module, fn_value, env, output, callee, args, signature, diagnostics)
+    }
+  }
+}
+
+def verify_call(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  output: Option[IrLocalId],
+  callee: IrDeclId,
+  args: Vec[IrValue],
+  signature: IrFunctionSignature,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  verify_function_callee(ir_module, callee, signature, diagnostics);
+  if (args.len() != signature.params.len()) {
+    ir_error(diagnostics, "cosmo1.ir.invalid-call", "call arity mismatch for ".concat(callee.value))
+  }
+
+  var index: usize = 0;
+  while (index < args.len() and index < signature.params.len()) {
+    val arg = args.get(index);
+    verify_value(types, fn_value, env, arg, diagnostics);
+    if (!ir_type_equals(types, ir_value_type(arg), signature.params.get(index))) {
+      ir_error(diagnostics, "cosmo1.ir.invalid-call", "call argument type mismatch for ".concat(callee.value))
+    }
+    index = index + 1
+  }
+
+  output match {
+    case Option[IrLocalId]::Some(target) => {
+      verify_defined_local_type(types, fn_value, target, signature.return_type, diagnostics);
+      define_local(env, target)
+    }
+    case Option[IrLocalId]::None => {
+      if (!is_unit_type(types, signature.return_type)) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-call", "non-unit call result is not captured for ".concat(callee.value))
+      }
+    }
+  }
+}
+
+def verify_function_callee(
+  ir_module: IrModule,
+  callee: IrDeclId,
+  signature: IrFunctionSignature,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  val maybe_function = find_function(ir_module, callee);
+  maybe_function match {
+    case Option[IrFunction]::Some(fn_value) => {
+      if (fn_value.params.len() != signature.params.len()) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-call", "callee signature arity mismatch for ".concat(callee.value))
+      }
+    }
+    case Option[IrFunction]::None => {
+      ir_error(diagnostics, "cosmo1.ir.invalid-call", "unknown callee ".concat(callee.value))
+    }
+  }
+}
+
+def verify_ir_terminator(
+  types: TypeStore,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  terminator: IrTerminator,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  terminator match {
+    case IrTerminator.Return(value) => {
+      verify_return(types, fn_value, env, value, diagnostics)
+    }
+    case IrTerminator.Branch(target) => {
+    }
+    case IrTerminator.CondBranch(condition, true_target, false_target) => {
+      verify_value(types, fn_value, env, condition, diagnostics);
+      if (ir_type_display(types, ir_value_type(condition)) != "Bool") {
+        ir_error(diagnostics, "cosmo1.ir.invalid-branch", "conditional branch requires Bool")
+      }
+    }
+    case IrTerminator.Unreachable(reason) => {
+    }
+  }
+}
+
+def verify_return(
+  types: TypeStore,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  value: Option[IrValue],
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  value match {
+    case Option[IrValue]::Some(actual) => {
+      verify_value(types, fn_value, env, actual, diagnostics);
+      if (!ir_type_equals(types, fn_value.return_type, ir_value_type(actual))) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-return", "return type mismatch in ".concat(fn_value.id.value))
+      }
+    }
+    case Option[IrValue]::None => {
+      if (!is_unit_type(types, fn_value.return_type)) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-return", "missing return value in ".concat(fn_value.id.value))
+      }
+    }
+  }
+}
+
+def verify_value(
+  types: TypeStore,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  value: IrValue,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  value match {
+    case IrValue.Unit(typ) => {
+    }
+    case IrValue.BoolLiteral(value, typ) => {
+    }
+    case IrValue.StringLiteral(value, typ) => {
+    }
+    case IrValue.NumericLiteral(value, typ) => {
+    }
+    case IrValue.Local(id, typ) => {
+      if (!function_has_local_or_param(fn_value, id)) {
+        ir_error(diagnostics, "cosmo1.ir.unknown-local", "unknown local ".concat(id.value));
+      }
+      if (!local_is_defined(env, id)) {
+        ir_error(diagnostics, "cosmo1.ir.use-before-definition", "local used before definition ".concat(id.value))
+      }
+      verify_defined_local_type(types, fn_value, id, typ, diagnostics)
+    }
+    case IrValue.Function(id, signature) => {
+    }
+  }
+}
+
+def verify_defined_local_type(
+  types: TypeStore,
+  fn_value: IrFunction,
+  id: IrLocalId,
+  actual: TypeId,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  val maybe_expected = find_local_type(fn_value, id);
+  maybe_expected match {
+    case Option[TypeId]::Some(expected) => {
+      if (!ir_type_equals(types, expected, actual)) {
+        ir_error(diagnostics, "cosmo1.ir.local-type-mismatch", "local type mismatch for ".concat(id.value))
+      }
+    }
+    case Option[TypeId]::None => {
+      ir_error(diagnostics, "cosmo1.ir.unknown-local", "unknown local ".concat(id.value))
+    }
+  }
+}
+
+def find_function(ir_module: IrModule, id: IrDeclId): Option[IrFunction] = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Function(fn_value) => {
+        if (fn_value.id.value == id.value) {
+          return Option[IrFunction]::Some(fn_value)
+        }
+      }
+    }
+  }
+  Option[IrFunction]::None
+}
+
+def find_local_type(fn_value: IrFunction, id: IrLocalId): Option[TypeId] = {
+  for (param in fn_value.params) {
+    if (param.id.value == id.value) {
+      return Option[TypeId]::Some(param.typ)
+    }
+  }
+  for (local in fn_value.locals) {
+    if (local.id.value == id.value) {
+      return Option[TypeId]::Some(local.typ)
+    }
+  }
+  Option[TypeId]::None
+}
+
+def function_has_param(fn_value: IrFunction, id: IrLocalId): Bool = {
+  for (param in fn_value.params) {
+    if (param.id.value == id.value) {
+      return true
+    }
+  }
+  false
+}
+
+def function_has_local_or_param(fn_value: IrFunction, id: IrLocalId): Bool = {
+  val local_type = find_local_type(fn_value, id);
+  local_type match {
+    case Option[TypeId]::Some(value) => {
+      true
+    }
+    case Option[TypeId]::None => {
+      false
+    }
+  }
+}
+
+def function_has_block(fn_value: IrFunction, id: IrBlockId): Bool = {
+  for (block in fn_value.blocks) {
+    if (block.id.value == id.value) {
+      return true
+    }
+  }
+  false
+}
+
+def local_is_defined(env: IrFunctionEnv, id: IrLocalId): Bool = {
+  for (defined_id in env.defined) {
+    if (defined_id.value == id.value) {
+      return true
+    }
+  }
+  false
+}
+
+def define_local(env: IrFunctionEnv, id: IrLocalId): Unit = {
+  if (!local_is_defined(env, id)) {
+    env.defined.push(id)
+  }
+}
+
+def is_unit_type(types: TypeStore, id: TypeId): Bool = {
+  ir_type_display(types, id) == "Unit"
+}
+
+def ir_error(diagnostics: Vec[IrDiagnostic], code: String, message: String): Unit = {
+  diagnostics.push(IrDiagnostic(code, message))
+}
+
+def ir_type_equals(types: TypeStore, left: TypeId, right: TypeId): Bool = {
+  ir_type_display(types, left) == ir_type_display(types, right)
+}
+
+def ir_type_display(types: TypeStore, id: TypeId): String = {
+  ir_type_node_display(types, types.type_value(id))
+}
+
+def ir_type_node_display(types: TypeStore, value: CosmoType): String = {
+  value match {
+    case CosmoType.Primitive(name) => {
+      name
+    }
+    case CosmoType.User(name) => {
+      name
+    }
+    case CosmoType.Function(params, return_type) => {
+      "fn(".concat(ir_type_display_list(types, params)).concat(") -> ").concat(ir_type_display(types, return_type))
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      if (mutable) {
+        "&mut ".concat(ir_type_display(types, inner))
+      } else {
+        "&".concat(ir_type_display(types, inner))
+      }
+    }
+    case CosmoType.Never => {
+      "never"
+    }
+    case CosmoType.Error => {
+      "<error>"
+    }
+  }
+}
+
+def ir_type_display_list(types: TypeStore, items: Vec[TypeId]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < items.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(ir_type_display(types, items.get(index)));
+    index = index + 1
+  }
+  text
+}
+
+def render_ir_module(types: TypeStore, ir_module: IrModule): String = {
+  var text = "module ".concat(ir_module.name).concat(" {\n");
+  for (declaration in ir_module.declarations) {
+    text = text.concat(render_ir_declaration(types, declaration)).concat("\n")
+  }
+  text.concat("}")
+}
+
+def render_ir_declaration(types: TypeStore, declaration: IrDeclaration): String = {
+  declaration match {
+    case IrDeclaration.Function(fn_value) => {
+      render_ir_function(types, fn_value)
+    }
+  }
+}
+
+def render_ir_function(types: TypeStore, fn_value: IrFunction): String = {
+  var text = "  fn @".concat(fn_value.id.value).concat(" ").concat(fn_value.name).concat("(");
+  text = text.concat(render_ir_params(types, fn_value.params));
+  text = text.concat(") -> ").concat(ir_type_display(types, fn_value.return_type));
+  fn_value.owner match {
+    case Option[IrDeclId]::Some(owner) => {
+      text = text.concat(" owner @").concat(owner.value)
+    }
+    case Option[IrDeclId]::None => {
+    }
+  }
+  text = text.concat(" {\n");
+  for (local in fn_value.locals) {
+    text = text.concat("    local %").concat(local.id.value).concat(" ").concat(local.name).concat(": ");
+    text = text.concat(ir_type_display(types, local.typ));
+    if (local.mutable) {
+      text = text.concat(" mut")
+    }
+    text = text.concat("\n")
+  }
+  for (block in fn_value.blocks) {
+    text = text.concat(render_ir_block(types, block))
+  }
+  text.concat("  }")
+}
+
+def render_ir_params(types: TypeStore, params: Vec[IrParam]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < params.len()) {
+    val param = params.get(index);
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat("%").concat(param.id.value).concat(" ").concat(param.name).concat(": ");
+    text = text.concat(ir_type_display(types, param.typ));
+    index = index + 1
+  }
+  text
+}
+
+def render_ir_block(types: TypeStore, block: IrBlock): String = {
+  var text = "    ^".concat(block.id.value).concat(":\n");
+  for (operation in block.operations) {
+    text = text.concat("      ").concat(render_ir_operation(types, operation)).concat("\n")
+  }
+  text.concat("      ").concat(render_ir_terminator(types, block.terminator)).concat("\n")
+}
+
+def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
+  operation match {
+    case IrOperation.InitLocal(target, value) => {
+      "%".concat(target.value).concat(" = init ").concat(render_ir_value(types, value))
+    }
+    case IrOperation.Assign(target, value) => {
+      "assign %".concat(target.value).concat(" = ").concat(render_ir_value(types, value))
+    }
+    case IrOperation.DirectCall(output, callee, args, signature) => {
+      render_ir_call(types, output, callee, args, signature)
+    }
+  }
+}
+
+def render_ir_call(
+  types: TypeStore,
+  output: Option[IrLocalId],
+  callee: IrDeclId,
+  args: Vec[IrValue],
+  signature: IrFunctionSignature
+): String = {
+  var text = "";
+  output match {
+    case Option[IrLocalId]::Some(target) => {
+      text = text.concat("%").concat(target.value).concat(" = ")
+    }
+    case Option[IrLocalId]::None => {
+    }
+  }
+  text = text.concat("call @").concat(callee.value).concat("(");
+  text = text.concat(render_ir_args(types, args)).concat(") -> ");
+  text.concat(ir_type_display(types, signature.return_type))
+}
+
+def render_ir_terminator(types: TypeStore, terminator: IrTerminator): String = {
+  terminator match {
+    case IrTerminator.Return(value) => {
+      value match {
+        case Option[IrValue]::Some(actual) => {
+          "return ".concat(render_ir_value(types, actual))
+        }
+        case Option[IrValue]::None => {
+          "return"
+        }
+      }
+    }
+    case IrTerminator.Branch(target) => {
+      "branch ^".concat(target.value)
+    }
+    case IrTerminator.CondBranch(condition, true_target, false_target) => {
+      "cond_branch ".concat(render_ir_value(types, condition)).concat(" ? ^").concat(true_target.value).concat(" : ^").concat(false_target.value)
+    }
+    case IrTerminator.Unreachable(reason) => {
+      "unreachable ".concat(reason)
+    }
+  }
+}
+
+def render_ir_args(types: TypeStore, args: Vec[IrValue]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < args.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(render_ir_value(types, args.get(index)));
+    index = index + 1
+  }
+  text
+}
+
+def render_ir_value(types: TypeStore, value: IrValue): String = {
+  value match {
+    case IrValue.Unit(typ) => {
+      "()"
+    }
+    case IrValue.BoolLiteral(value, typ) => {
+      if (value) {
+        "true"
+      } else {
+        "false"
+      }
+    }
+    case IrValue.StringLiteral(value, typ) => {
+      "\"".concat(value).concat("\"")
+    }
+    case IrValue.NumericLiteral(value, typ) => {
+      value.concat(":").concat(ir_type_display(types, typ))
+    }
+    case IrValue.Local(id, typ) => {
+      "%".concat(id.value)
+    }
+    case IrValue.Function(id, signature) => {
+      "fn @".concat(id.value)
+    }
+  }
+}
