@@ -320,6 +320,7 @@ def verify_ir_block(
   diagnostics: Vec[IrDiagnostic]
 ): Unit = {
   val env = initial_function_env(fn_value);
+  define_function_operation_outputs(fn_value, env);
   for (operation in block.operations) {
     verify_ir_operation(types, ir_module, fn_value, env, operation, diagnostics)
   }
@@ -332,6 +333,49 @@ def initial_function_env(fn_value: IrFunction): IrFunctionEnv = {
     defined.push(param.id)
   }
   IrFunctionEnv(defined)
+}
+
+def define_function_operation_outputs(fn_value: IrFunction, env: IrFunctionEnv): Unit = {
+  for (block in fn_value.blocks) {
+    for (operation in block.operations) {
+      define_operation_output(operation, env)
+    }
+  }
+}
+
+def define_operation_output(operation: IrOperation, env: IrFunctionEnv): Unit = {
+  operation match {
+    case IrOperation.InitLocal(target, value) => {
+      define_local(env, target)
+    }
+    case IrOperation.Assign(target, value) => {
+      define_local(env, target)
+    }
+    case IrOperation.DirectCall(output, callee, args, signature) => {
+      define_optional_local(env, output)
+    }
+    case IrOperation.IntrinsicCall(output, name, args, signature) => {
+      define_optional_local(env, output)
+    }
+    case IrOperation.FieldGet(output, receiver, field, result_type) => {
+      define_local(env, output)
+    }
+    case IrOperation.FieldSet(receiver, field, value) => {
+    }
+    case IrOperation.Binary(output, op, left, right, result_type) => {
+      define_local(env, output)
+    }
+  }
+}
+
+def define_optional_local(env: IrFunctionEnv, output: Option[IrLocalId]): Unit = {
+  output match {
+    case Option[IrLocalId]::Some(target) => {
+      define_local(env, target)
+    }
+    case Option[IrLocalId]::None => {
+    }
+  }
 }
 
 def verify_ir_operation(

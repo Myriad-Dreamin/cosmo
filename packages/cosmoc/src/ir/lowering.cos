@@ -137,10 +137,13 @@ class IrDeclarationLowerer {
       params,
       Vec[IrLocal](),
       Vec[IrOperation](),
+      Vec[IrBlock](),
+      ir_block_id("entry"),
       Map[DefId, IrLocalId](),
       0,
+      0,
       false,
-      Option[IrValue]::None
+      Option[IrTerminator]::None
     );
     val lowered_body = builder.lower_body(body);
     IrFunction(
@@ -242,10 +245,13 @@ class IrFunctionBodyBuilder {
   val params: Vec[IrParam]
   var locals: Vec[IrLocal]
   var operations: Vec[IrOperation]
+  var blocks: Vec[IrBlock]
+  var current_label: IrBlockId
   var local_defs: Map[DefId, IrLocalId]
   var temp_index: usize
+  var label_index: usize
   var terminated: Bool
-  var return_value: Option[IrValue]
+  var terminator: Option[IrTerminator]
 
   def lower_body(&mut self, body: ExprId): IrLoweredFunctionBody = {
     self.bind_params();
@@ -257,9 +263,8 @@ class IrFunctionBodyBuilder {
         self.terminate_return(maybe_value)
       }
 
-      val blocks = Vec[IrBlock]();
-      blocks.push(IrBlock(ir_block_id("entry"), self.operations, self.current_terminator()));
-      IrLoweredFunctionBody(self.locals, blocks)
+      self.finish_current_block();
+      IrLoweredFunctionBody(self.locals, self.blocks)
     }
   }
 
@@ -341,10 +346,10 @@ class IrFunctionBodyBuilder {
         self.lower_select(receiver, field, typed.typ)
       }
       case TypedExprKind.If(condition, then_body, else_body) => {
-        Option[IrValue]::None
+        self.lower_if(condition, then_body, else_body, typed.typ)
       }
       case TypedExprKind.While(condition, body) => {
-        Option[IrValue]::None
+        self.lower_while(condition, body, typed.typ)
       }
       case TypedExprKind.Error => {
         Option[IrValue]::None
@@ -614,6 +619,13 @@ class IrFunctionBodyBuilder {
   }
 
   def lower_binary(&mut self, op: String, left: ExprId, right: ExprId, typ: TypeId): Option[IrValue] = {
+    if (op == "and") {
+      return self.lower_short_circuit_and(left, right, typ)
+    }
+    if (op == "or") {
+      return self.lower_short_circuit_or(left, right, typ)
+    }
+
     val maybe_left = self.lower_expr(left);
     val maybe_right = self.lower_expr(right);
     maybe_left match {
@@ -633,6 +645,206 @@ class IrFunctionBodyBuilder {
         Option[IrValue]::None
       }
     }
+  }
+
+  def lower_if(&mut self, condition: ExprId, then_body: ExprId, else_body: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_condition = self.lower_expr(condition);
+    maybe_condition match {
+      case Option[IrValue]::None => {
+        return Option[IrValue]::None
+      }
+      case Option[IrValue]::Some(condition_value) => {
+        val then_label = self.next_block_id("if_then");
+        val else_label = self.next_block_id("if_else");
+        val join_label = self.next_block_id("if_join");
+        val output = self.join_output(typ);
+
+        self.terminate_cond_branch(condition_value, then_label, else_label);
+        self.finish_current_block();
+
+        self.start_block(then_label);
+        val then_result = self.lower_expr(then_body);
+        val then_falls_through = self.finish_structured_branch(output, then_result, join_label);
+
+        self.start_block(else_label);
+        val else_result = self.lower_expr(else_body);
+        val else_falls_through = self.finish_structured_branch(output, else_result, join_label);
+
+        if (then_falls_through or else_falls_through) {
+          self.start_block(join_label);
+          return self.structured_result(output, typ)
+        }
+        self.start_block(join_label);
+        self.terminate_unreachable("unreachable after if");
+        return Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_while(&mut self, condition: ExprId, body: ExprId, typ: TypeId): Option[IrValue] = {
+    val condition_label = self.next_block_id("while_cond");
+    val body_label = self.next_block_id("while_body");
+    val exit_label = self.next_block_id("while_exit");
+
+    self.terminate_branch(condition_label);
+    self.finish_current_block();
+
+    self.start_block(condition_label);
+    val maybe_condition = self.lower_expr(condition);
+    maybe_condition match {
+      case Option[IrValue]::Some(condition_value) => {
+        self.terminate_cond_branch(condition_value, body_label, exit_label)
+      }
+      case Option[IrValue]::None => {
+        self.terminate_unreachable("missing while condition")
+      }
+    }
+    self.finish_current_block();
+
+    self.start_block(body_label);
+    val ignored = self.lower_expr(body);
+    if (!self.terminated) {
+      self.terminate_branch(condition_label)
+    }
+    self.finish_current_block();
+
+    self.start_block(exit_label);
+    Option[IrValue]::Some(IrValue.Unit(typ))
+  }
+
+  def lower_short_circuit_and(&mut self, left: ExprId, right: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_left = self.lower_expr(left);
+    maybe_left match {
+      case Option[IrValue]::None => {
+        return Option[IrValue]::None
+      }
+      case Option[IrValue]::Some(left_value) => {
+        val rhs_label = self.next_block_id("and_rhs");
+        val false_label = self.next_block_id("and_false");
+        val join_label = self.next_block_id("and_join");
+        val output = self.declare_temp(typ);
+
+        self.terminate_cond_branch(left_value, rhs_label, false_label);
+        self.finish_current_block();
+
+        self.start_block(rhs_label);
+        val maybe_right = self.lower_expr(right);
+        maybe_right match {
+          case Option[IrValue]::Some(right_value) => {
+            self.operations.push(IrOperation.Assign(output.id, right_value))
+          }
+          case Option[IrValue]::None => {
+          }
+        }
+        if (!self.terminated) {
+          self.terminate_branch(join_label)
+        }
+        self.finish_current_block();
+
+        self.start_block(false_label);
+        self.operations.push(IrOperation.Assign(output.id, IrValue.BoolLiteral(false, typ)));
+        self.terminate_branch(join_label);
+        self.finish_current_block();
+
+        self.start_block(join_label);
+        return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+      }
+    }
+  }
+
+  def lower_short_circuit_or(&mut self, left: ExprId, right: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_left = self.lower_expr(left);
+    maybe_left match {
+      case Option[IrValue]::None => {
+        return Option[IrValue]::None
+      }
+      case Option[IrValue]::Some(left_value) => {
+        val true_label = self.next_block_id("or_true");
+        val rhs_label = self.next_block_id("or_rhs");
+        val join_label = self.next_block_id("or_join");
+        val output = self.declare_temp(typ);
+
+        self.terminate_cond_branch(left_value, true_label, rhs_label);
+        self.finish_current_block();
+
+        self.start_block(true_label);
+        self.operations.push(IrOperation.Assign(output.id, IrValue.BoolLiteral(true, typ)));
+        self.terminate_branch(join_label);
+        self.finish_current_block();
+
+        self.start_block(rhs_label);
+        val maybe_right = self.lower_expr(right);
+        maybe_right match {
+          case Option[IrValue]::Some(right_value) => {
+            self.operations.push(IrOperation.Assign(output.id, right_value))
+          }
+          case Option[IrValue]::None => {
+          }
+        }
+        if (!self.terminated) {
+          self.terminate_branch(join_label)
+        }
+        self.finish_current_block();
+
+        self.start_block(join_label);
+        return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+      }
+    }
+  }
+
+  def join_output(&mut self, typ: TypeId): Option[IrLocalId] = {
+    if (ir_type_display(self.checked.types, typ) == "Unit") {
+      return Option[IrLocalId]::None
+    }
+    if (ir_type_display(self.checked.types, typ) == "never") {
+      return Option[IrLocalId]::None
+    }
+    val temp = self.declare_temp(typ);
+    Option[IrLocalId]::Some(temp.id)
+  }
+
+  def structured_result(&self, output: Option[IrLocalId], typ: TypeId): Option[IrValue] = {
+    output match {
+      case Option[IrLocalId]::Some(local_id) => {
+        Option[IrValue]::Some(IrValue.Local(local_id, typ))
+      }
+      case Option[IrLocalId]::None => {
+        Option[IrValue]::Some(IrValue.Unit(typ))
+      }
+    }
+  }
+
+  def finish_structured_branch(
+    &mut self,
+    output: Option[IrLocalId],
+    result: Option[IrValue],
+    join_label: IrBlockId
+  ): Bool = {
+    if (self.terminated) {
+      self.finish_current_block();
+      return false
+    }
+
+    output match {
+      case Option[IrLocalId]::Some(local_id) => {
+        result match {
+          case Option[IrValue]::Some(value) => {
+            self.operations.push(IrOperation.Assign(local_id, value))
+          }
+          case Option[IrValue]::None => {
+            self.terminate_unreachable("missing branch value");
+            self.finish_current_block();
+            return false
+          }
+        }
+      }
+      case Option[IrLocalId]::None => {
+      }
+    }
+
+    self.terminate_branch(join_label);
+    self.finish_current_block();
+    true
   }
 
   def prepend_arg(&self, first: IrValue, rest: Vec[IrValue]): Vec[IrValue] = {
@@ -812,14 +1024,53 @@ class IrFunctionBodyBuilder {
 
   def terminate_return(&mut self, value: Option[IrValue]): Unit = {
     self.terminated = true;
-    self.return_value = value
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.Return(value))
   }
 
-  def current_terminator(&self): IrTerminator = {
-    if (!self.terminated) {
-      return IrTerminator.Return(Option[IrValue]::None)
+  def terminate_branch(&mut self, target: IrBlockId): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.Branch(target))
+  }
+
+  def terminate_cond_branch(&mut self, condition: IrValue, true_target: IrBlockId, false_target: IrBlockId): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.CondBranch(condition, true_target, false_target))
+  }
+
+  def terminate_unreachable(&mut self, reason: String): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.Unreachable(reason))
+  }
+
+  def current_terminator_value(&self): IrTerminator = {
+    self.terminator match {
+      case Option[IrTerminator]::Some(value) => {
+        value
+      }
+      case Option[IrTerminator]::None => {
+        IrTerminator.Return(Option[IrValue]::None)
+      }
     }
-    IrTerminator.Return(self.return_value)
+  }
+
+  def finish_current_block(&mut self): Unit = {
+    self.blocks.push(IrBlock(self.current_label, self.operations, self.current_terminator_value()));
+    self.operations = Vec[IrOperation]();
+    self.terminated = false;
+    self.terminator = Option[IrTerminator]::None
+  }
+
+  def start_block(&mut self, label: IrBlockId): Unit = {
+    self.current_label = label;
+    self.operations = Vec[IrOperation]();
+    self.terminated = false;
+    self.terminator = Option[IrTerminator]::None
+  }
+
+  def next_block_id(&mut self, prefix: String): IrBlockId = {
+    val label = prefix.concat("_").concat(ir_ordinal_text(self.label_index));
+    self.label_index = self.label_index + 1;
+    ir_block_id(label)
   }
 
   def local_type(&self, id: ExprId): TypeId = {
@@ -990,47 +1241,46 @@ class IrFunctionBodyBuilder {
 }
 
 def ir_ordinal_text(value: usize): String = {
-  if (value == 0) {
-    "0"
-  } else {
-    if (value == 1) {
-      "1"
-    } else {
-      if (value == 2) {
-        "2"
-      } else {
-        if (value == 3) {
-          "3"
-        } else {
-          if (value == 4) {
-            "4"
-          } else {
-            if (value == 5) {
-              "5"
-            } else {
-              if (value == 6) {
-                "6"
-              } else {
-                if (value == 7) {
-                  "7"
-                } else {
-                  if (value == 8) {
-                    "8"
-                  } else {
-                    if (value == 9) {
-                      "9"
-                    } else {
-                      "many"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+  if (value < 10) {
+    return ir_digit_text(value)
   }
+  if (value < 100) {
+    val tens = value / 10;
+    val ones = value % 10;
+    return ir_digit_text(tens).concat(ir_digit_text(ones))
+  }
+  "many".concat(ir_digit_text(value % 10))
+}
+
+def ir_digit_text(value: usize): String = {
+  if (value == 0) {
+    return "0"
+  }
+  if (value == 1) {
+    return "1"
+  }
+  if (value == 2) {
+    return "2"
+  }
+  if (value == 3) {
+    return "3"
+  }
+  if (value == 4) {
+    return "4"
+  }
+  if (value == 5) {
+    return "5"
+  }
+  if (value == 6) {
+    return "6"
+  }
+  if (value == 7) {
+    return "7"
+  }
+  if (value == 8) {
+    return "8"
+  }
+  "9"
 }
 
 def lower_module_declarations(

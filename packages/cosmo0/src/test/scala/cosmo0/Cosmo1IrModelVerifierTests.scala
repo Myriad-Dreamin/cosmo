@@ -3,6 +3,7 @@ package cosmo0
 class Cosmo1IrModelVerifierTests extends munit.FunSuite:
   private val spanPath = "packages/cosmoc/src/source/span.cos"
   private val astPath = "packages/cosmoc/src/syntax/ast.cos"
+  private val parserPath = "packages/cosmoc/src/parser.cos"
   private val symbolPath = "packages/cosmoc/src/names/symbol.cos"
   private val scopePath = "packages/cosmoc/src/names/scope.cos"
   private val resolutionPath = "packages/cosmoc/src/names/resolution.cos"
@@ -18,6 +19,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
       List(
         spanPath,
         astPath,
+        parserPath,
         symbolPath,
         scopePath,
         resolutionPath,
@@ -38,6 +40,8 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     )
     val output = compiled.value.get.output
     assert(output.contains("struct IrModule"))
+    assert(output.contains("struct SyntaxParserResult"))
+    assert(output.contains("inline SyntaxParserResult parse_source_ast("))
     assert(output.contains("struct IrTypeDecl"))
     assert(output.contains("struct IrField"))
     assert(output.contains("struct IrFunction"))
@@ -58,6 +62,8 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assert(output.contains("inline bool ir_declaration_lowerer_records_parser_state_and_helpers()"))
     assert(output.contains("inline bool ir_basic_expression_lowerer_accepts_simple_parser_source()"))
     assert(output.contains("inline bool ir_member_intrinsic_lowerer_accepts_parser_state_methods()"))
+    assert(output.contains("inline bool ir_control_flow_lowerer_accepts_parser_style_flow()"))
+    assert(output.contains("int main()"))
 
   private def combineSources(paths: List[String]): String =
     paths.map(readCosmoSource).mkString("\n")

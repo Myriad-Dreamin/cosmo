@@ -280,6 +280,122 @@ def ir_member_intrinsic_lowerer_accepts_parser_state_methods(): Bool = {
     ir_lowered_function_has_call(ir_module, "ParserState.skip_one", "ParserState.advance")
 }
 
+def ir_control_flow_lowerer_accepts_parser_style_flow(): Bool = {
+  var arenas = syntax_arenas();
+  val bool_type = arenas.make_name_type("Bool", make_span(0, 4));
+  val i32_type = arenas.make_name_type("i32", make_span(5, 8));
+
+  val flag_default = arenas.make_missing_expr(make_span(0, 0));
+  val flag_param = arenas.make_named_param("flag", bool_type, flag_default, make_span(9, 13));
+  val other_default = arenas.make_missing_expr(make_span(0, 0));
+  val other_param = arenas.make_named_param("other", bool_type, other_default, make_span(14, 19));
+  val params = Vec[ParamId]();
+  params.push(flag_param);
+  params.push(other_param);
+
+  val count_init = arenas.make_numeric_literal_expr("0", make_span(20, 21));
+  val count_local = arenas.make_local_expr("count", true, i32_type, count_init, make_span(20, 35));
+
+  val cond_left = arenas.make_name_expr("flag", make_span(36, 40));
+  val cond_right = arenas.make_name_expr("other", make_span(45, 50));
+  val while_condition = arenas.make_binary_expr("and", cond_left, cond_right, make_span(36, 50));
+
+  val if_condition = arenas.make_name_expr("other", make_span(60, 65));
+  val then_value = arenas.make_bool_literal_expr(true, make_span(75, 79));
+  val then_return = arenas.make_return_expr(then_value, make_span(68, 79));
+  val then_items = Vec[ExprId]();
+  then_items.push(then_return);
+  val then_body = arenas.make_block_expr(then_items, make_span(68, 81));
+
+  val target = arenas.make_name_expr("count", make_span(90, 95));
+  val current = arenas.make_name_expr("count", make_span(98, 103));
+  val one = arenas.make_numeric_literal_expr("1", make_span(106, 107));
+  val next = arenas.make_binary_expr("+", current, one, make_span(98, 107));
+  val assign = arenas.make_assign_expr(target, next, make_span(90, 107));
+  val else_items = Vec[ExprId]();
+  else_items.push(assign);
+  val else_body = arenas.make_block_expr(else_items, make_span(90, 109));
+  val nested_if = arenas.make_if_expr(if_condition, then_body, else_body, make_span(55, 109));
+
+  val while_items = Vec[ExprId]();
+  while_items.push(nested_if);
+  val while_body = arenas.make_block_expr(while_items, make_span(55, 110));
+  val loop_expr = arenas.make_while_expr(while_condition, while_body, make_span(36, 110));
+
+  val return_left = arenas.make_name_expr("flag", make_span(118, 122));
+  val return_right = arenas.make_name_expr("other", make_span(126, 131));
+  val return_value = arenas.make_binary_expr("or", return_left, return_right, make_span(118, 131));
+  val final_return = arenas.make_return_expr(return_value, make_span(111, 131));
+
+  val items = Vec[ExprId]();
+  items.push(count_local);
+  items.push(loop_expr);
+  items.push(final_return);
+  val body = arenas.make_block_expr(items, make_span(20, 132));
+  val decl = arenas.make_function_decl("parser_flow", params, bool_type, body, make_span(0, 132));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 132));
+
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  val checked = check_module_basic_expressions_with_resolution(arenas, root, names, resolved);
+  if (!names.is_ok() or !resolved.is_ok() or !checked.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+
+  val first_render = render_ir_module(checked.types, ir_module);
+  val second_render = render_ir_module(checked.types, ir_module);
+  first_render == second_render and
+    first_render != "" and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "while_cond_0") and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "while_body_1") and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "if_then_6") and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "or_join_11") and
+    ir_lowered_function_has_cond_branch(ir_module, "parser_flow") and
+    ir_lowered_function_has_returning_block(ir_module, "parser_flow")
+}
+
+def main(): i32 = {
+  if (!ir_verifier_accepts_valid_function()) {
+    return 1
+  }
+  if (!ir_verifier_rejects_missing_block()) {
+    return 1
+  }
+  if (!ir_verifier_rejects_use_before_definition()) {
+    return 1
+  }
+  if (!ir_verifier_rejects_invalid_call_shape()) {
+    return 1
+  }
+  if (!ir_verifier_rejects_return_type_mismatch()) {
+    return 1
+  }
+  if (!ir_debug_renderer_is_deterministic()) {
+    return 1
+  }
+  if (!ir_declaration_lowerer_records_parser_state_and_helpers()) {
+    return 1
+  }
+  if (!ir_basic_expression_lowerer_accepts_simple_parser_source()) {
+    return 1
+  }
+  if (!ir_member_intrinsic_lowerer_accepts_parser_state_methods()) {
+    return 1
+  }
+  if (!ir_control_flow_lowerer_accepts_parser_style_flow()) {
+    return 1
+  }
+  0
+}
+
 def valid_ir_fixture(): IrFixture = {
   var types = type_store();
   val unit_type = types.alloc_primitive("Unit");
@@ -699,6 +815,73 @@ def ir_lowered_function_has_call(ir_module: IrModule, id: String, callee_id: Str
             }
             case IrOperation.Binary(output, op, left, right, result_type) => {
             }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_block(ir_module: IrModule, id: String, block_id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        if (block.id.value == block_id) {
+          return true
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_cond_branch(ir_module: IrModule, id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        block.terminator match {
+          case IrTerminator.CondBranch(condition, true_target, false_target) => {
+            return true
+          }
+          case IrTerminator.Return(value) => {
+          }
+          case IrTerminator.Branch(target) => {
+          }
+          case IrTerminator.Unreachable(reason) => {
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_returning_block(ir_module: IrModule, id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        block.terminator match {
+          case IrTerminator.Return(value) => {
+            return true
+          }
+          case IrTerminator.Branch(target) => {
+          }
+          case IrTerminator.CondBranch(condition, true_target, false_target) => {
+          }
+          case IrTerminator.Unreachable(reason) => {
           }
         }
       }
