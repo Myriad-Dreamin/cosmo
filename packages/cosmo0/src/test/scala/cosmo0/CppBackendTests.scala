@@ -286,6 +286,22 @@ class CppBackendTests extends munit.FunSuite:
     assert(!output.contains("int main()"))
     assertCxxAccepts(output)
 
+  test("Cosmo0 compile emits byte-for-byte stable C++ for parser.cos"):
+    val source = SourceFile(ParserFixtureManifest.parserSourcePath, combineParserLibrarySources())
+    val first = Cosmo0().compile(source)
+    val second = Cosmo0().compile(source)
+
+    assert(
+      first.isSuccess,
+      s"first parser.cos compile failed with diagnostics: ${first.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assert(
+      second.isSuccess,
+      s"second parser.cos compile failed with diagnostics: ${second.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(first.value.get.output, second.value.get.output)
+    assertCxxAccepts(first.value.get.output)
+
   test("Cosmo0 compile emits executable C++ for parser_test linked with parser.cos"):
     val result = compileParserTestProgram()
 
