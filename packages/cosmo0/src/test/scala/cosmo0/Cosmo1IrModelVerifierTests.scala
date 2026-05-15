@@ -8,6 +8,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
   private val resolutionPath = "packages/cosmoc/src/names/resolution.cos"
   private val modelPath = "packages/cosmoc/src/types/model.cos"
   private val declarationResolutionPath = "packages/cosmoc/src/types/declaration_resolution.cos"
+  private val typeCheckPath = "packages/cosmoc/src/types/check.cos"
   private val irModelPath = "packages/cosmoc/src/ir/model.cos"
   private val irLoweringPath = "packages/cosmoc/src/ir/lowering.cos"
   private val irVerifierTestPath = "packages/cosmoc/src/ir/verifier_test.cos"
@@ -22,6 +23,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
         resolutionPath,
         modelPath,
         declarationResolutionPath,
+        typeCheckPath,
         irModelPath,
         irLoweringPath,
         irVerifierTestPath,
@@ -32,7 +34,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"cosmo1 IR verifier compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmo1 IR verifier compile failed with diagnostics: ${compiled.diagnostics.map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
     )
     val output = compiled.value.get.output
     assert(output.contains("struct IrModule"))
@@ -54,6 +56,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assert(output.contains("inline bool ir_verifier_rejects_return_type_mismatch()"))
     assert(output.contains("inline bool ir_debug_renderer_is_deterministic()"))
     assert(output.contains("inline bool ir_declaration_lowerer_records_parser_state_and_helpers()"))
+    assert(output.contains("inline bool ir_basic_expression_lowerer_accepts_simple_parser_source()"))
 
   private def combineSources(paths: List[String]): String =
     paths.map(readCosmoSource).mkString("\n")

@@ -3,6 +3,7 @@ import ir.model
 import names.resolution
 import source.span
 import syntax.ast
+import types.check
 import types.declaration_resolution
 import types.model
 
@@ -129,6 +130,74 @@ def ir_declaration_lowerer_records_parser_state_and_helpers(): Bool = {
     declaration_fixture_has_method(ir_module, "ParserState.advance", "self") and
     declaration_fixture_has_function(ir_module, "parser_state") and
     declaration_fixture_has_function(ir_module, "parse_source")
+}
+
+def ir_basic_expression_lowerer_accepts_simple_parser_source(): Bool = {
+  var arenas = syntax_arenas();
+  val i32_type = arenas.make_name_type("i32", make_span(0, 3));
+  val bool_type = arenas.make_name_type("Bool", make_span(4, 8));
+
+  val value_default = arenas.make_missing_expr(make_span(0, 0));
+  val value_param = arenas.make_named_param("value", i32_type, value_default, make_span(9, 14));
+  val add_params = Vec[ParamId]();
+  add_params.push(value_param);
+  val value_name = arenas.make_name_expr("value", make_span(15, 20));
+  val one_literal = arenas.make_numeric_literal_expr("1", make_span(23, 24));
+  val plus_one = arenas.make_binary_expr("+", value_name, one_literal, make_span(15, 24));
+  val next_local = arenas.make_local_expr("next", false, i32_type, plus_one, make_span(25, 45));
+  val next_name = arenas.make_name_expr("next", make_span(53, 57));
+  val next_return = arenas.make_return_expr(next_name, make_span(46, 57));
+  val add_items = Vec[ExprId]();
+  add_items.push(next_local);
+  add_items.push(next_return);
+  val add_body = arenas.make_block_expr(add_items, make_span(15, 58));
+  val add_one = arenas.make_function_decl("add_one", add_params, i32_type, add_body, make_span(0, 58));
+
+  val add_name = arenas.make_name_expr("add_one", make_span(59, 66));
+  val call_args = Vec[ExprId]();
+  call_args.push(arenas.make_numeric_literal_expr("1", make_span(67, 68)));
+  val add_call = arenas.make_call_expr(add_name, call_args, make_span(59, 69));
+  val total_local = arenas.make_local_expr("total", true, i32_type, add_call, make_span(70, 96));
+  val total_target = arenas.make_name_expr("total", make_span(97, 102));
+  val total_left = arenas.make_name_expr("total", make_span(105, 110));
+  val second_literal = arenas.make_numeric_literal_expr("1", make_span(113, 114));
+  val total_plus = arenas.make_binary_expr("+", total_left, second_literal, make_span(105, 114));
+  val total_assign = arenas.make_assign_expr(total_target, total_plus, make_span(97, 114));
+  val return_total = arenas.make_name_expr("total", make_span(123, 128));
+  val three_literal = arenas.make_numeric_literal_expr("3", make_span(132, 133));
+  val equals_three = arenas.make_binary_expr("==", return_total, three_literal, make_span(123, 133));
+  val main_return = arenas.make_return_expr(equals_three, make_span(116, 133));
+  val main_items = Vec[ExprId]();
+  main_items.push(total_local);
+  main_items.push(total_assign);
+  main_items.push(main_return);
+  val main_body = arenas.make_block_expr(main_items, make_span(59, 134));
+  val main_params = Vec[ParamId]();
+  val main_fn = arenas.make_function_decl("main", main_params, bool_type, main_body, make_span(59, 134));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(add_one);
+  declarations.push(main_fn);
+  val root = arenas.make_module(declarations, make_span(0, 134));
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  val checked = check_module_basic_expressions_with_resolution(arenas, root, names, resolved);
+  if (!names.is_ok() or !resolved.is_ok() or !checked.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+  val first_render = render_ir_module(checked.types, ir_module);
+  val second_render = render_ir_module(checked.types, ir_module);
+  first_render == second_render and
+    first_render != "" and
+    ir_lowered_function_has_local(ir_module, "add_one", "next") and
+    ir_lowered_function_has_local(ir_module, "main", "tmp0") and
+    ir_lowered_function_has_operation_count(ir_module, "main", 5)
 }
 
 def valid_ir_fixture(): IrFixture = {
@@ -387,4 +456,36 @@ def declaration_fixture_has_function(ir_module: IrModule, id: String): Bool = {
     }
   }
   false
+}
+
+def ir_lowered_function_has_local(ir_module: IrModule, id: String, local_name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (local in fn_value.locals) {
+        if (local.name == local_name) {
+          return true
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_operation_count(ir_module: IrModule, id: String, count: usize): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      if (fn_value.blocks.is_empty()) {
+        return false
+      }
+      fn_value.blocks.get(0).operations.len() == count
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
 }
