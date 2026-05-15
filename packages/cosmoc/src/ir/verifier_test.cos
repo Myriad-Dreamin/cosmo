@@ -1,0 +1,976 @@
+import ir.lowering
+import ir.model
+import names.resolution
+import source.span
+import syntax.ast
+import types.check
+import types.declaration_resolution
+import types.model
+
+class IrFixture {
+  val types: TypeStore
+  val ir_module: IrModule
+}
+
+def ir_verifier_accepts_valid_function(): Bool = {
+  val fixture = valid_ir_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  result.is_ok()
+}
+
+def ir_verifier_rejects_missing_block(): Bool = {
+  val fixture = invalid_branch_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.invalid-branch"
+}
+
+def ir_verifier_rejects_use_before_definition(): Bool = {
+  val fixture = use_before_definition_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.use-before-definition"
+}
+
+def ir_verifier_rejects_invalid_call_shape(): Bool = {
+  val fixture = invalid_call_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.invalid-call"
+}
+
+def ir_verifier_rejects_return_type_mismatch(): Bool = {
+  val fixture = return_mismatch_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.invalid-return"
+}
+
+def ir_debug_renderer_is_deterministic(): Bool = {
+  val fixture = valid_ir_fixture();
+  var types = fixture.types;
+  val first = render_ir_module(types, fixture.ir_module);
+  val second = render_ir_module(types, fixture.ir_module);
+  first == second and first != ""
+}
+
+def ir_declaration_lowerer_records_parser_state_and_helpers(): Bool = {
+  var arenas = syntax_arenas();
+  val offset_type = arenas.make_name_type("usize", make_span(0, 5));
+  val offset_field = arenas.make_field_member("offset", false, offset_type, make_span(0, 5));
+  val source_type = arenas.make_name_type("String", make_span(6, 12));
+  val source_field = arenas.make_field_member("source", false, source_type, make_span(6, 12));
+
+  val current_self = arenas.make_self_param(false, make_span(13, 18));
+  val current_params = Vec[ParamId]();
+  current_params.push(current_self);
+  val current_return = arenas.make_name_type("u8", make_span(19, 21));
+  val current_body = arenas.make_missing_expr(make_span(22, 22));
+  val current_byte = arenas.make_method_member("current_byte", current_params, current_return, current_body, make_span(13, 22));
+
+  val advance_self = arenas.make_self_param(true, make_span(23, 32));
+  val advance_params = Vec[ParamId]();
+  advance_params.push(advance_self);
+  val advance_return = arenas.make_name_type("Unit", make_span(33, 37));
+  val advance_body = arenas.make_missing_expr(make_span(38, 38));
+  val advance = arenas.make_method_member("advance", advance_params, advance_return, advance_body, make_span(23, 38));
+
+  val members = Vec[MemberId]();
+  members.push(offset_field);
+  members.push(source_field);
+  members.push(current_byte);
+  members.push(advance);
+  val parser_state = arenas.make_class_decl("ParserState", members, make_span(0, 38));
+
+  val source_param_type = arenas.make_name_type("String", make_span(39, 45));
+  val source_param_default = arenas.make_missing_expr(make_span(0, 0));
+  val source_param = arenas.make_named_param("source", source_param_type, source_param_default, make_span(39, 45));
+  val parser_state_params = Vec[ParamId]();
+  parser_state_params.push(source_param);
+  val parser_state_return = arenas.make_name_type("ParserState", make_span(46, 57));
+  val parser_state_body = arenas.make_missing_expr(make_span(58, 58));
+  val parser_state_fn = arenas.make_function_decl("parser_state", parser_state_params, parser_state_return, parser_state_body, make_span(39, 58));
+
+  val parse_source_param_type = arenas.make_name_type("String", make_span(59, 65));
+  val parse_source_param_default = arenas.make_missing_expr(make_span(0, 0));
+  val parse_source_param = arenas.make_named_param("source", parse_source_param_type, parse_source_param_default, make_span(59, 65));
+  val parse_source_params = Vec[ParamId]();
+  parse_source_params.push(parse_source_param);
+  val parse_source_return = arenas.make_name_type("Bool", make_span(66, 70));
+  val parse_source_body = arenas.make_missing_expr(make_span(71, 71));
+  val parse_source_fn = arenas.make_function_decl("parse_source", parse_source_params, parse_source_return, parse_source_body, make_span(59, 71));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(parser_state);
+  declarations.push(parser_state_fn);
+  declarations.push(parse_source_fn);
+  val root = arenas.make_module(declarations, make_span(0, 71));
+
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  if (!resolved.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(resolved.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+  if (ir_module.declarations.len() != 5) {
+    return false
+  }
+  if (!declaration_fixture_has_stable_order(ir_module)) {
+    return false
+  }
+
+  declaration_fixture_has_parser_state(resolved.types, ir_module) and
+    declaration_fixture_has_method(ir_module, "ParserState.current_byte", "self") and
+    declaration_fixture_has_method(ir_module, "ParserState.advance", "self") and
+    declaration_fixture_has_function(ir_module, "parser_state") and
+    declaration_fixture_has_function(ir_module, "parse_source")
+}
+
+def ir_basic_expression_lowerer_accepts_simple_parser_source(): Bool = {
+  var arenas = syntax_arenas();
+  val i32_type = arenas.make_name_type("i32", make_span(0, 3));
+  val bool_type = arenas.make_name_type("Bool", make_span(4, 8));
+
+  val value_default = arenas.make_missing_expr(make_span(0, 0));
+  val value_param = arenas.make_named_param("value", i32_type, value_default, make_span(9, 14));
+  val add_params = Vec[ParamId]();
+  add_params.push(value_param);
+  val value_name = arenas.make_name_expr("value", make_span(15, 20));
+  val one_literal = arenas.make_numeric_literal_expr("1", make_span(23, 24));
+  val plus_one = arenas.make_binary_expr("+", value_name, one_literal, make_span(15, 24));
+  val next_local = arenas.make_local_expr("next", false, i32_type, plus_one, make_span(25, 45));
+  val next_name = arenas.make_name_expr("next", make_span(53, 57));
+  val next_return = arenas.make_return_expr(next_name, make_span(46, 57));
+  val add_items = Vec[ExprId]();
+  add_items.push(next_local);
+  add_items.push(next_return);
+  val add_body = arenas.make_block_expr(add_items, make_span(15, 58));
+  val add_one = arenas.make_function_decl("add_one", add_params, i32_type, add_body, make_span(0, 58));
+
+  val add_name = arenas.make_name_expr("add_one", make_span(59, 66));
+  val call_args = Vec[ExprId]();
+  call_args.push(arenas.make_numeric_literal_expr("1", make_span(67, 68)));
+  val add_call = arenas.make_call_expr(add_name, call_args, make_span(59, 69));
+  val total_local = arenas.make_local_expr("total", true, i32_type, add_call, make_span(70, 96));
+  val total_target = arenas.make_name_expr("total", make_span(97, 102));
+  val total_left = arenas.make_name_expr("total", make_span(105, 110));
+  val second_literal = arenas.make_numeric_literal_expr("1", make_span(113, 114));
+  val total_plus = arenas.make_binary_expr("+", total_left, second_literal, make_span(105, 114));
+  val total_assign = arenas.make_assign_expr(total_target, total_plus, make_span(97, 114));
+  val return_total = arenas.make_name_expr("total", make_span(123, 128));
+  val three_literal = arenas.make_numeric_literal_expr("3", make_span(132, 133));
+  val equals_three = arenas.make_binary_expr("==", return_total, three_literal, make_span(123, 133));
+  val main_return = arenas.make_return_expr(equals_three, make_span(116, 133));
+  val main_items = Vec[ExprId]();
+  main_items.push(total_local);
+  main_items.push(total_assign);
+  main_items.push(main_return);
+  val main_body = arenas.make_block_expr(main_items, make_span(59, 134));
+  val main_params = Vec[ParamId]();
+  val main_fn = arenas.make_function_decl("main", main_params, bool_type, main_body, make_span(59, 134));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(add_one);
+  declarations.push(main_fn);
+  val root = arenas.make_module(declarations, make_span(0, 134));
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  val checked = check_module_basic_expressions_with_resolution(arenas, root, names, resolved);
+  if (!names.is_ok() or !resolved.is_ok() or !checked.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+  val first_render = render_ir_module(checked.types, ir_module);
+  val second_render = render_ir_module(checked.types, ir_module);
+  first_render == second_render and
+    first_render != "" and
+    ir_lowered_function_has_local(ir_module, "add_one", "next") and
+    ir_lowered_function_has_local(ir_module, "main", "tmp0") and
+    ir_lowered_function_has_operation_count(ir_module, "main", 5)
+}
+
+def ir_member_intrinsic_lowerer_accepts_parser_state_methods(): Bool = {
+  var arenas = syntax_arenas();
+  val usize_type = arenas.make_name_type("usize", make_span(0, 5));
+  val u8_type = arenas.make_name_type("u8", make_span(6, 8));
+  val string_type = arenas.make_name_type("String", make_span(9, 15));
+  val unit_type = arenas.make_name_type("Unit", make_span(16, 20));
+
+  val offset_field = arenas.make_field_member("offset", true, usize_type, make_span(21, 27));
+  val source_field = arenas.make_field_member("source", false, string_type, make_span(28, 34));
+
+  val current_self = arenas.make_self_param(false, make_span(35, 39));
+  val current_params = Vec[ParamId]();
+  current_params.push(current_self);
+  val current_source_self = arenas.make_name_expr("self", make_span(40, 44));
+  val current_source = arenas.make_select_expr(current_source_self, "source", make_span(40, 51));
+  val byte_at_select = arenas.make_select_expr(current_source, "byte_at", make_span(40, 59));
+  val current_offset_self = arenas.make_name_expr("self", make_span(60, 64));
+  val current_offset = arenas.make_select_expr(current_offset_self, "offset", make_span(60, 71));
+  val byte_at_args = Vec[ExprId]();
+  byte_at_args.push(current_offset);
+  val byte_at_call = arenas.make_call_expr(byte_at_select, byte_at_args, make_span(40, 72));
+  val current_byte = arenas.make_method_member("current_byte", current_params, u8_type, byte_at_call, make_span(35, 72));
+
+  val advance_self = arenas.make_self_param(true, make_span(73, 82));
+  val advance_params = Vec[ParamId]();
+  advance_params.push(advance_self);
+  val advance_target_self = arenas.make_name_expr("self", make_span(83, 87));
+  val advance_target = arenas.make_select_expr(advance_target_self, "offset", make_span(83, 94));
+  val advance_left_self = arenas.make_name_expr("self", make_span(97, 101));
+  val advance_left = arenas.make_select_expr(advance_left_self, "offset", make_span(97, 108));
+  val one = arenas.make_numeric_literal_expr("1", make_span(111, 112));
+  val next_offset = arenas.make_binary_expr("+", advance_left, one, make_span(97, 112));
+  val offset_assign = arenas.make_assign_expr(advance_target, next_offset, make_span(83, 112));
+  val advance_items = Vec[ExprId]();
+  advance_items.push(offset_assign);
+  val advance_body = arenas.make_block_expr(advance_items, make_span(83, 113));
+  val advance = arenas.make_method_member("advance", advance_params, unit_type, advance_body, make_span(73, 113));
+
+  val skip_self = arenas.make_self_param(true, make_span(114, 123));
+  val skip_params = Vec[ParamId]();
+  skip_params.push(skip_self);
+  val skip_call_self = arenas.make_name_expr("self", make_span(124, 128));
+  val skip_select = arenas.make_select_expr(skip_call_self, "advance", make_span(124, 136));
+  val skip_call = arenas.make_call_expr(skip_select, Vec[ExprId](), make_span(124, 138));
+  val skip_one = arenas.make_method_member("skip_one", skip_params, unit_type, skip_call, make_span(114, 138));
+
+  val members = Vec[MemberId]();
+  members.push(offset_field);
+  members.push(source_field);
+  members.push(current_byte);
+  members.push(advance);
+  members.push(skip_one);
+  val parser_state = arenas.make_class_decl("ParserState", members, make_span(0, 138));
+  val declarations = Vec[DeclId]();
+  declarations.push(parser_state);
+  val root = arenas.make_module(declarations, make_span(0, 138));
+
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  val checked = check_module_basic_expressions_with_resolution(arenas, root, names, resolved);
+  if (!names.is_ok() or !resolved.is_ok() or !checked.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+
+  ir_lowered_function_has_operation_count(ir_module, "ParserState.current_byte", 3) and
+    ir_lowered_function_has_operation_count(ir_module, "ParserState.advance", 3) and
+    ir_lowered_function_has_operation_count(ir_module, "ParserState.skip_one", 1) and
+    ir_lowered_function_has_intrinsic(ir_module, "ParserState.current_byte", "string.byte_at") and
+    ir_lowered_function_has_field_get(ir_module, "ParserState.current_byte", "source") and
+    ir_lowered_function_has_field_get(ir_module, "ParserState.current_byte", "offset") and
+    ir_lowered_function_has_field_set(ir_module, "ParserState.advance", "offset") and
+    ir_lowered_function_has_call(ir_module, "ParserState.skip_one", "ParserState.advance")
+}
+
+def ir_control_flow_lowerer_accepts_parser_style_flow(): Bool = {
+  var arenas = syntax_arenas();
+  val bool_type = arenas.make_name_type("Bool", make_span(0, 4));
+  val i32_type = arenas.make_name_type("i32", make_span(5, 8));
+
+  val flag_default = arenas.make_missing_expr(make_span(0, 0));
+  val flag_param = arenas.make_named_param("flag", bool_type, flag_default, make_span(9, 13));
+  val other_default = arenas.make_missing_expr(make_span(0, 0));
+  val other_param = arenas.make_named_param("other", bool_type, other_default, make_span(14, 19));
+  val params = Vec[ParamId]();
+  params.push(flag_param);
+  params.push(other_param);
+
+  val count_init = arenas.make_numeric_literal_expr("0", make_span(20, 21));
+  val count_local = arenas.make_local_expr("count", true, i32_type, count_init, make_span(20, 35));
+
+  val cond_left = arenas.make_name_expr("flag", make_span(36, 40));
+  val cond_right = arenas.make_name_expr("other", make_span(45, 50));
+  val while_condition = arenas.make_binary_expr("and", cond_left, cond_right, make_span(36, 50));
+
+  val if_condition = arenas.make_name_expr("other", make_span(60, 65));
+  val then_value = arenas.make_bool_literal_expr(true, make_span(75, 79));
+  val then_return = arenas.make_return_expr(then_value, make_span(68, 79));
+  val then_items = Vec[ExprId]();
+  then_items.push(then_return);
+  val then_body = arenas.make_block_expr(then_items, make_span(68, 81));
+
+  val target = arenas.make_name_expr("count", make_span(90, 95));
+  val current = arenas.make_name_expr("count", make_span(98, 103));
+  val one = arenas.make_numeric_literal_expr("1", make_span(106, 107));
+  val next = arenas.make_binary_expr("+", current, one, make_span(98, 107));
+  val assign = arenas.make_assign_expr(target, next, make_span(90, 107));
+  val else_items = Vec[ExprId]();
+  else_items.push(assign);
+  val else_body = arenas.make_block_expr(else_items, make_span(90, 109));
+  val nested_if = arenas.make_if_expr(if_condition, then_body, else_body, make_span(55, 109));
+
+  val while_items = Vec[ExprId]();
+  while_items.push(nested_if);
+  val while_body = arenas.make_block_expr(while_items, make_span(55, 110));
+  val loop_expr = arenas.make_while_expr(while_condition, while_body, make_span(36, 110));
+
+  val return_left = arenas.make_name_expr("flag", make_span(118, 122));
+  val return_right = arenas.make_name_expr("other", make_span(126, 131));
+  val return_value = arenas.make_binary_expr("or", return_left, return_right, make_span(118, 131));
+  val final_return = arenas.make_return_expr(return_value, make_span(111, 131));
+
+  val items = Vec[ExprId]();
+  items.push(count_local);
+  items.push(loop_expr);
+  items.push(final_return);
+  val body = arenas.make_block_expr(items, make_span(20, 132));
+  val decl = arenas.make_function_decl("parser_flow", params, bool_type, body, make_span(0, 132));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 132));
+
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  val checked = check_module_basic_expressions_with_resolution(arenas, root, names, resolved);
+  if (!names.is_ok() or !resolved.is_ok() or !checked.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+
+  val first_render = render_ir_module(checked.types, ir_module);
+  val second_render = render_ir_module(checked.types, ir_module);
+  first_render == second_render and
+    first_render != "" and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "while_cond_0") and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "while_body_1") and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "if_then_6") and
+    ir_lowered_function_has_block(ir_module, "parser_flow", "or_join_11") and
+    ir_lowered_function_has_cond_branch(ir_module, "parser_flow") and
+    ir_lowered_function_has_returning_block(ir_module, "parser_flow")
+}
+
+def ir_self_compile_parser_source_runs(): Bool = {
+  val source = read_file("packages/cosmoc/src/source/span.cos")
+    .concat("\n")
+    .concat(read_file("packages/cosmoc/src/syntax/ast.cos"))
+    .concat("\n")
+    .concat(read_file("packages/cosmoc/src/parser.cos"));
+  val parsed = parse_source_ast(source);
+  if (!parsed.is_ok()) {
+    println(parsed.first_diagnostic_code());
+    return false
+  }
+
+  val names = resolve_module_names(parsed.arenas, parsed.root);
+  val resolved = resolve_module_declarations_with_names(parsed.arenas, parsed.root, names);
+  val checked = check_module_basic_expressions_with_resolution(parsed.arenas, parsed.root, names, resolved);
+  if (!names.is_ok()) {
+    println(names.first_diagnostic_code());
+    return false
+  }
+  if (!resolved.is_ok()) {
+    println(resolved.first_diagnostic_code());
+    return false
+  }
+  if (!checked.is_ok()) {
+    println(checked.first_diagnostic_code());
+    println(checked.first_diagnostic_message());
+    return false
+  }
+
+  val ir_module = lower_module_declarations(parsed.arenas, parsed.root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    println(verified.first_code());
+    return false
+  }
+
+  val first_render = render_ir_module(checked.types, ir_module);
+  val second_render = render_ir_module(checked.types, ir_module);
+  first_render == second_render and
+    first_render != "" and
+    ir_declaration_has_type(ir_module, "Span") and
+    ir_declaration_has_type(ir_module, "SyntaxParserResult") and
+    ir_lowered_function_has_call(ir_module, "parse_source_ast", "SyntaxParser.finish")
+}
+
+def main(): i32 = {
+  if (!ir_verifier_accepts_valid_function()) {
+    println("ir_verifier_accepts_valid_function");
+    return 1
+  }
+  if (!ir_verifier_rejects_missing_block()) {
+    println("ir_verifier_rejects_missing_block");
+    return 1
+  }
+  if (!ir_verifier_rejects_use_before_definition()) {
+    println("ir_verifier_rejects_use_before_definition");
+    return 1
+  }
+  if (!ir_verifier_rejects_invalid_call_shape()) {
+    println("ir_verifier_rejects_invalid_call_shape");
+    return 1
+  }
+  if (!ir_verifier_rejects_return_type_mismatch()) {
+    println("ir_verifier_rejects_return_type_mismatch");
+    return 1
+  }
+  if (!ir_debug_renderer_is_deterministic()) {
+    println("ir_debug_renderer_is_deterministic");
+    return 1
+  }
+  if (!ir_declaration_lowerer_records_parser_state_and_helpers()) {
+    println("ir_declaration_lowerer_records_parser_state_and_helpers");
+    return 1
+  }
+  if (!ir_basic_expression_lowerer_accepts_simple_parser_source()) {
+    println("ir_basic_expression_lowerer_accepts_simple_parser_source");
+    return 1
+  }
+  if (!ir_member_intrinsic_lowerer_accepts_parser_state_methods()) {
+    println("ir_member_intrinsic_lowerer_accepts_parser_state_methods");
+    return 1
+  }
+  if (!ir_control_flow_lowerer_accepts_parser_style_flow()) {
+    println("ir_control_flow_lowerer_accepts_parser_style_flow");
+    return 1
+  }
+  if (!ir_self_compile_parser_source_runs()) {
+    println("ir_self_compile_parser_source_runs");
+    return 1
+  }
+  0
+}
+
+def valid_ir_fixture(): IrFixture = {
+  var types = type_store();
+  val unit_type = types.alloc_primitive("Unit");
+  val bool_type = types.alloc_primitive("Bool");
+  val i32_type = types.alloc_primitive("i32");
+
+  val identity_param_types = Vec[TypeId]();
+  identity_param_types.push(i32_type);
+  val identity_signature = ir_signature(identity_param_types, i32_type);
+  val identity_params = Vec[IrParam]();
+  identity_params.push(IrParam(ir_local_id("value"), "value", i32_type));
+  val identity_blocks = Vec[IrBlock]();
+  identity_blocks.push(IrBlock(
+    ir_block_id("entry"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.Local(ir_local_id("value"), i32_type)))
+  ));
+  val identity = IrFunction(
+    ir_decl_id("identity"),
+    "identity",
+    identity_params,
+    i32_type,
+    Vec[IrLocal](),
+    identity_blocks,
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
+  );
+
+  val main_params = Vec[IrParam]();
+  val main_locals = Vec[IrLocal]();
+  main_locals.push(IrLocal(ir_local_id("tmp0"), "tmp0", i32_type, false));
+  val args = Vec[IrValue]();
+  args.push(IrValue.NumericLiteral("1", i32_type));
+  val operations = Vec[IrOperation]();
+  operations.push(IrOperation.DirectCall(
+    Option[IrLocalId]::Some(ir_local_id("tmp0")),
+    ir_decl_id("identity"),
+    args,
+    identity_signature
+  ));
+  val main_blocks = Vec[IrBlock]();
+  main_blocks.push(IrBlock(
+    ir_block_id("entry"),
+    operations,
+    IrTerminator.CondBranch(
+      IrValue.BoolLiteral(true, bool_type),
+      ir_block_id("exit"),
+      ir_block_id("trap")
+    )
+  ));
+  main_blocks.push(IrBlock(
+    ir_block_id("exit"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.NumericLiteral("1", i32_type)))
+  ));
+  main_blocks.push(IrBlock(
+    ir_block_id("trap"),
+    Vec[IrOperation](),
+    IrTerminator.Unreachable("fixture")
+  ));
+  val main = IrFunction(
+    ir_decl_id("main"),
+    "main",
+    main_params,
+    i32_type,
+    main_locals,
+    main_blocks,
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
+  );
+
+  val declarations = Vec[IrDeclaration]();
+  declarations.push(IrDeclaration.Function(identity));
+  declarations.push(IrDeclaration.Function(main));
+  IrFixture(types, IrModule("fixture", declarations))
+}
+
+def invalid_branch_fixture(): IrFixture = {
+  var types = type_store();
+  val unit_type = types.alloc_primitive("Unit");
+  val declarations = Vec[IrDeclaration]();
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(ir_block_id("entry"), Vec[IrOperation](), IrTerminator.Branch(ir_block_id("missing"))));
+  val fn_value = IrFunction(
+    ir_decl_id("bad_branch"),
+    "bad_branch",
+    Vec[IrParam](),
+    unit_type,
+    Vec[IrLocal](),
+    blocks,
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
+  );
+  declarations.push(IrDeclaration.Function(fn_value));
+  IrFixture(types, IrModule("bad_branch", declarations))
+}
+
+def use_before_definition_fixture(): IrFixture = {
+  var types = type_store();
+  val i32_type = types.alloc_primitive("i32");
+  val locals = Vec[IrLocal]();
+  locals.push(IrLocal(ir_local_id("tmp0"), "tmp0", i32_type, false));
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(
+    ir_block_id("entry"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.Local(ir_local_id("tmp0"), i32_type)))
+  ));
+  val fn_value = IrFunction(
+    ir_decl_id("bad_use"),
+    "bad_use",
+    Vec[IrParam](),
+    i32_type,
+    locals,
+    blocks,
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
+  );
+  val declarations = Vec[IrDeclaration]();
+  declarations.push(IrDeclaration.Function(fn_value));
+  IrFixture(types, IrModule("bad_use", declarations))
+}
+
+def invalid_call_fixture(): IrFixture = {
+  val fixture = valid_ir_fixture();
+  var types = fixture.types;
+  val i32_type = types.alloc_primitive("i32");
+  val args = Vec[IrValue]();
+  args.push(IrValue.NumericLiteral("1", i32_type));
+  args.push(IrValue.NumericLiteral("2", i32_type));
+  val param_types = Vec[TypeId]();
+  param_types.push(i32_type);
+  val operations = Vec[IrOperation]();
+  operations.push(IrOperation.DirectCall(
+    Option[IrLocalId]::Some(ir_local_id("tmp0")),
+    ir_decl_id("identity"),
+    args,
+    ir_signature(param_types, i32_type)
+  ));
+  val locals = Vec[IrLocal]();
+  locals.push(IrLocal(ir_local_id("tmp0"), "tmp0", i32_type, false));
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(
+    ir_block_id("entry"),
+    operations,
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.Local(ir_local_id("tmp0"), i32_type)))
+  ));
+  val bad = IrFunction(
+    ir_decl_id("bad_call"),
+    "bad_call",
+    Vec[IrParam](),
+    i32_type,
+    locals,
+    blocks,
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
+  );
+  val declarations = fixture.ir_module.declarations;
+  declarations.push(IrDeclaration.Function(bad));
+  IrFixture(types, IrModule("bad_call", declarations))
+}
+
+def return_mismatch_fixture(): IrFixture = {
+  var types = type_store();
+  val bool_type = types.alloc_primitive("Bool");
+  val i32_type = types.alloc_primitive("i32");
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(
+    ir_block_id("entry"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.BoolLiteral(false, bool_type)))
+  ));
+  val fn_value = IrFunction(
+    ir_decl_id("bad_return"),
+    "bad_return",
+    Vec[IrParam](),
+    i32_type,
+    Vec[IrLocal](),
+    blocks,
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
+  );
+  val declarations = Vec[IrDeclaration]();
+  declarations.push(IrDeclaration.Function(fn_value));
+  IrFixture(types, IrModule("bad_return", declarations))
+}
+
+def declaration_fixture_has_parser_state(types: TypeStore, ir_module: IrModule): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        if (type_decl.id.value == "ParserState" and type_decl.name == "ParserState") {
+          return declaration_fixture_has_field(types, type_decl, "offset", "usize") and
+            declaration_fixture_has_field(types, type_decl, "source", "String")
+        }
+      }
+      case IrDeclaration.Function(fn_value) => {
+      }
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_stable_order(ir_module: IrModule): Bool = {
+  declaration_id(ir_module.declarations.get(0)).value == "ParserState" and
+    declaration_id(ir_module.declarations.get(1)).value == "ParserState.current_byte" and
+    declaration_id(ir_module.declarations.get(2)).value == "ParserState.advance" and
+    declaration_id(ir_module.declarations.get(3)).value == "parser_state" and
+    declaration_id(ir_module.declarations.get(4)).value == "parse_source"
+}
+
+def ir_declaration_has_type(ir_module: IrModule, id: String): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        if (type_decl.id.value == id) {
+          return true
+        }
+      }
+      case IrDeclaration.Function(fn_value) => {
+      }
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_field(types: TypeStore, type_decl: IrTypeDecl, name: String, expected_type: String): Bool = {
+  for (field in type_decl.fields) {
+    if (field.name == name and ir_type_display(types, field.typ) == expected_type) {
+      return true
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_method(ir_module: IrModule, id: String, receiver: String): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Function(fn_value) => {
+        if (fn_value.id.value == id and fn_value.owner.is_some()) {
+          fn_value.receiver match {
+            case Option[IrLocalId]::Some(receiver_id) => {
+              if (receiver_id.value == receiver) {
+                return true
+              }
+            }
+            case Option[IrLocalId]::None => {
+            }
+          }
+        }
+      }
+      case IrDeclaration.Type(type_decl) => {
+      }
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_function(ir_module: IrModule, id: String): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Function(fn_value) => {
+        if (fn_value.id.value == id and fn_value.owner.is_none() and fn_value.receiver.is_none()) {
+          return true
+        }
+      }
+      case IrDeclaration.Type(type_decl) => {
+      }
+    }
+  }
+  false
+}
+
+def ir_lowered_function_has_local(ir_module: IrModule, id: String, local_name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (local in fn_value.locals) {
+        if (local.name == local_name) {
+          return true
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_operation_count(ir_module: IrModule, id: String, count: usize): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      if (fn_value.blocks.is_empty()) {
+        return false
+      }
+      fn_value.blocks.get(0).operations.len() == count
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_intrinsic(ir_module: IrModule, id: String, name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+              if (intrinsic_name == name) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.ConstructType(output, owner, fields) => {
+            }
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+            }
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+            }
+            case IrOperation.FieldSet(receiver, field, value) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_field_get(ir_module: IrModule, id: String, name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+              if (field == name) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.ConstructType(output, owner, fields) => {
+            }
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+            }
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+            }
+            case IrOperation.FieldSet(receiver, field, value) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_field_set(ir_module: IrModule, id: String, name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.FieldSet(receiver, field, value) => {
+              if (field == name) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.ConstructType(output, owner, fields) => {
+            }
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+            }
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+            }
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_call(ir_module: IrModule, id: String, callee_id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+              if (callee.value == callee_id) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.ConstructType(output, owner, fields) => {
+            }
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+            }
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+            }
+            case IrOperation.FieldSet(receiver, field, value) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_block(ir_module: IrModule, id: String, block_id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        if (block.id.value == block_id) {
+          return true
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_cond_branch(ir_module: IrModule, id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        block.terminator match {
+          case IrTerminator.CondBranch(condition, true_target, false_target) => {
+            return true
+          }
+          case IrTerminator.Return(value) => {
+          }
+          case IrTerminator.Branch(target) => {
+          }
+          case IrTerminator.Unreachable(reason) => {
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_returning_block(ir_module: IrModule, id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        block.terminator match {
+          case IrTerminator.Return(value) => {
+            return true
+          }
+          case IrTerminator.Branch(target) => {
+          }
+          case IrTerminator.CondBranch(condition, true_target, false_target) => {
+          }
+          case IrTerminator.Unreachable(reason) => {
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}

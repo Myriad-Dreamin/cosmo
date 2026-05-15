@@ -1,0 +1,5 @@
+import b
+
+def a_value(): i32 = {
+  1
+}

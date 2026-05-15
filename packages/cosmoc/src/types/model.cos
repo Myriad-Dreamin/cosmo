@@ -1,0 +1,354 @@
+import source.span
+
+type TypeId = Id[CosmoType]
+
+class CosmoType {
+  case Primitive(String)
+  case User(String)
+  case Function(Vec[TypeId], TypeId)
+  case Reference(Bool, TypeId)
+  case Never
+  case Error
+}
+
+class TypeMismatch {
+  val expected: TypeId
+  val actual: TypeId
+}
+
+class TypeDiagnostic {
+  val code: String
+  val message: String
+  val span: Span
+  val mismatch: Option[TypeMismatch]
+}
+
+class TypeStore {
+  var items: Arena[CosmoType]
+
+  def alloc(&mut self, value: CosmoType): TypeId = {
+    var items = self.items;
+    val id = items.alloc(value);
+    self.items = items;
+    id
+  }
+
+  def type_value(&self, id: TypeId): CosmoType = {
+    *self.items.get(id)
+  }
+
+  def len(&self): usize = {
+    self.items.len()
+  }
+
+  def alloc_primitive(&mut self, name: String): TypeId = {
+    self.alloc(CosmoType.Primitive(name))
+  }
+
+  def alloc_user(&mut self, name: String): TypeId = {
+    self.alloc(CosmoType.User(name))
+  }
+
+  def alloc_function(&mut self, params: Vec[TypeId], return_type: TypeId): TypeId = {
+    self.alloc(CosmoType.Function(params, return_type))
+  }
+
+  def alloc_reference(&mut self, mutable: Bool, inner: TypeId): TypeId = {
+    self.alloc(CosmoType.Reference(mutable, inner))
+  }
+
+  def alloc_never(&mut self): TypeId = {
+    self.alloc(CosmoType.Never)
+  }
+
+  def alloc_error(&mut self): TypeId = {
+    self.alloc(CosmoType.Error)
+  }
+}
+
+def type_store(): TypeStore = {
+  TypeStore(Arena[CosmoType]())
+}
+
+def type_equals(types: &TypeStore, left: TypeId, right: TypeId): Bool = {
+  type_nodes_equal(types, types.type_value(left), types.type_value(right))
+}
+
+def type_nodes_equal(types: &TypeStore, left: CosmoType, right: CosmoType): Bool = {
+  left match {
+    case CosmoType.Primitive(left_name) => {
+      type_equals_primitive(left_name, right)
+    }
+    case CosmoType.User(left_name) => {
+      type_equals_user(left_name, right)
+    }
+    case CosmoType.Function(left_params, left_return) => {
+      type_equals_function(types, left_params, left_return, right)
+    }
+    case CosmoType.Reference(left_mutable, left_inner) => {
+      type_equals_reference(types, left_mutable, left_inner, right)
+    }
+    case CosmoType.Never => {
+      type_is_never(right)
+    }
+    case CosmoType.Error => {
+      type_is_error(right)
+    }
+  }
+}
+
+def type_equals_primitive(left_name: String, right: CosmoType): Bool = {
+  right match {
+    case CosmoType.Primitive(right_name) => {
+      left_name == right_name
+    }
+    case CosmoType.User(right_name) => {
+      false
+    }
+    case CosmoType.Function(right_params, right_return) => {
+      false
+    }
+    case CosmoType.Reference(right_mutable, right_inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_equals_user(left_name: String, right: CosmoType): Bool = {
+  right match {
+    case CosmoType.Primitive(right_name) => {
+      false
+    }
+    case CosmoType.User(right_name) => {
+      left_name == right_name
+    }
+    case CosmoType.Function(right_params, right_return) => {
+      false
+    }
+    case CosmoType.Reference(right_mutable, right_inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_equals_function(types: &TypeStore, left_params: Vec[TypeId], left_return: TypeId, right: CosmoType): Bool = {
+  right match {
+    case CosmoType.Primitive(right_name) => {
+      false
+    }
+    case CosmoType.User(right_name) => {
+      false
+    }
+    case CosmoType.Function(right_params, right_return) => {
+      type_id_lists_equal(types, left_params, right_params) and type_equals(types, left_return, right_return)
+    }
+    case CosmoType.Reference(right_mutable, right_inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_equals_reference(types: &TypeStore, left_mutable: Bool, left_inner: TypeId, right: CosmoType): Bool = {
+  right match {
+    case CosmoType.Primitive(right_name) => {
+      false
+    }
+    case CosmoType.User(right_name) => {
+      false
+    }
+    case CosmoType.Function(right_params, right_return) => {
+      false
+    }
+    case CosmoType.Reference(right_mutable, right_inner) => {
+      left_mutable == right_mutable and type_equals(types, left_inner, right_inner)
+    }
+    case CosmoType.Never => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_id_lists_equal(types: &TypeStore, left: Vec[TypeId], right: Vec[TypeId]): Bool = {
+  if (left.len() != right.len()) {
+    return false
+  }
+
+  var index: usize = 0;
+  while (index < left.len()) {
+    if (!type_equals(types, left.get(index), right.get(index))) {
+      return false
+    }
+    index = index + 1
+  }
+
+  true
+}
+
+def type_is_never(value: CosmoType): Bool = {
+  value match {
+    case CosmoType.Never => {
+      true
+    }
+    case CosmoType.Primitive(name) => {
+      false
+    }
+    case CosmoType.User(name) => {
+      false
+    }
+    case CosmoType.Function(params, return_type) => {
+      false
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      false
+    }
+    case CosmoType.Error => {
+      false
+    }
+  }
+}
+
+def type_is_error(value: CosmoType): Bool = {
+  value match {
+    case CosmoType.Error => {
+      true
+    }
+    case CosmoType.Primitive(name) => {
+      false
+    }
+    case CosmoType.User(name) => {
+      false
+    }
+    case CosmoType.Function(params, return_type) => {
+      false
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      false
+    }
+    case CosmoType.Never => {
+      false
+    }
+  }
+}
+
+def type_display(types: &TypeStore, id: TypeId): String = {
+  type_node_display(types, types.type_value(id))
+}
+
+def type_node_display(types: &TypeStore, value: CosmoType): String = {
+  value match {
+    case CosmoType.Primitive(name) => {
+      name
+    }
+    case CosmoType.User(name) => {
+      name
+    }
+    case CosmoType.Function(params, return_type) => {
+      type_display_function(types, params, return_type)
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      type_display_reference(types, mutable, inner)
+    }
+    case CosmoType.Never => {
+      "never"
+    }
+    case CosmoType.Error => {
+      "<error>"
+    }
+  }
+}
+
+def type_display_function(types: &TypeStore, params: Vec[TypeId], return_type: TypeId): String = {
+  "fn(".concat(type_display_list(types, params)).concat(") -> ").concat(type_display(types, return_type))
+}
+
+def type_display_reference(types: &TypeStore, mutable: Bool, inner: TypeId): String = {
+  if (mutable) {
+    "&mut ".concat(type_display(types, inner))
+  } else {
+    "&".concat(type_display(types, inner))
+  }
+}
+
+def type_display_list(types: &TypeStore, items: Vec[TypeId]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < items.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(type_display(types, items.get(index)));
+    index = index + 1
+  }
+  text
+}
+
+def type_mismatch(expected: TypeId, actual: TypeId): TypeMismatch = {
+  TypeMismatch(expected, actual)
+}
+
+def type_mismatch_diagnostic(span: Span, expected: TypeId, actual: TypeId): TypeDiagnostic = {
+  TypeDiagnostic(
+    "cosmo1.type.mismatch",
+    "type mismatch",
+    span,
+    Option[TypeMismatch]::Some(type_mismatch(expected, actual))
+  )
+}
+
+def type_diagnostic_expected_text(types: &TypeStore, diagnostic: TypeDiagnostic): String = {
+  diagnostic.mismatch match {
+    case Option[TypeMismatch]::Some(mismatch) => {
+      type_display(types, mismatch.expected)
+    }
+    case Option[TypeMismatch]::None => {
+      ""
+    }
+  }
+}
+
+def type_diagnostic_actual_text(types: &TypeStore, diagnostic: TypeDiagnostic): String = {
+  diagnostic.mismatch match {
+    case Option[TypeMismatch]::Some(mismatch) => {
+      type_display(types, mismatch.actual)
+    }
+    case Option[TypeMismatch]::None => {
+      ""
+    }
+  }
+}
+
+def render_type_diagnostic(types: &TypeStore, diagnostic: TypeDiagnostic): String = {
+  diagnostic.mismatch match {
+    case Option[TypeMismatch]::Some(mismatch) => {
+      diagnostic.message
+        .concat(": expected ")
+        .concat(type_display(types, mismatch.expected))
+        .concat(" but found ")
+        .concat(type_display(types, mismatch.actual))
+    }
+    case Option[TypeMismatch]::None => {
+      diagnostic.message
+    }
+  }
+}

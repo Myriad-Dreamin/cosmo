@@ -108,22 +108,17 @@ class Core0ArenaIdTests extends munit.FunSuite:
     )
 
   test("cosmo1 syntax AST arena source checks and compiles"):
+    val spanSource =
+      PackageNodeFs.readFileSync("packages/cosmoc/src/source/span.cos", "utf8").asInstanceOf[String]
     val astSource =
       PackageNodeFs.readFileSync("packages/cosmoc/src/syntax/ast.cos", "utf8").asInstanceOf[String]
 
     val result = Cosmo0().compile(
       SourceFile(
         "packages/cosmoc/src/syntax/ast.cos",
-        """class Span {
-          |  val start: usize
-          |  val end: usize
-          |}
-          |
-          |def make_span(start: usize, end: usize): Span = {
-          |  Span(start, end)
-          |}
-          |
-          |""".stripMargin + astSource.linesIterator.filterNot(_.startsWith("import ")).mkString("\n"),
+        List(spanSource, astSource)
+          .map(_.linesIterator.filterNot(_.startsWith("import ")).mkString("\n"))
+          .mkString("\n"),
       ),
     )
 
@@ -134,3 +129,5 @@ class Core0ArenaIdTests extends munit.FunSuite:
     )
     assert(result.value.get.output.contains("cosmo0_runtime::Arena<SyntaxExpr>"))
     assert(result.value.get.output.contains("inline bool syntax_ast_arena_smoke()"))
+    assert(result.value.get.output.contains("inline std::string syntax_debug_module("))
+    assert(result.value.get.output.contains("inline Span syntax_diagnostic_span_for_expr("))
