@@ -22,4 +22,4 @@ None.
 
 - Future implementation will add `packages/lsp-types/`, checked-in metamodel input, generator sources, and generated outputs.
 - Establishes the type boundary consumed by later `ls-base` and `packages/cosmos` work.
-- Implementation should land after `add-cosmo-package-run-cli` and before `add-ls-base-jsonrpc-core`.
+- Implementation should land after `add-cosmo-package-run-cli` and `add-ureq-sys`, and before `add-ls-base-jsonrpc-core`.
