@@ -17,6 +17,7 @@ class TypedExprKind {
   case NumericLiteral(String)
   case StringLiteral(String)
   case BoolLiteral(Bool)
+  case Construct(String, Vec[ExprId])
   case Block(Vec[ExprId])
   case Local(Bool, ExprId)
   case Select(ExprId, String)
@@ -60,6 +61,14 @@ class ExpressionCheckResult {
       ""
     } else {
       self.diagnostics.get(0).code
+    }
+  }
+
+  def first_diagnostic_message(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      ""
+    } else {
+      self.diagnostics.get(0).message
     }
   }
 }
@@ -394,6 +403,34 @@ class ExpressionChecker {
     val maybe_definition = self.names.expr_definitions.get(id);
     maybe_definition match {
       case Option[DefId]::Some(definition) => {
+        val node = self.names.env.definition(definition);
+        node.kind match {
+          case DefinitionKind.Class => {
+            return self.record_typed_expr(id, TypedExprKind.Name, self.types.alloc_user(node.name))
+          }
+          case DefinitionKind.Prelude => {
+          }
+          case DefinitionKind.Module => {
+          }
+          case DefinitionKind.Function => {
+          }
+          case DefinitionKind.Value => {
+          }
+          case DefinitionKind.TypeAlias => {
+          }
+          case DefinitionKind.Field => {
+          }
+          case DefinitionKind.Method => {
+          }
+          case DefinitionKind.Variant => {
+          }
+          case DefinitionKind.Parameter => {
+          }
+          case DefinitionKind.Local => {
+          }
+          case DefinitionKind.Self => {
+          }
+        }
         val maybe_binding = self.binding_for_definition(bindings, definition);
         maybe_binding match {
           case Option[LocalBinding]::Some(binding) => {
@@ -775,6 +812,16 @@ class ExpressionChecker {
       case SyntaxExpr.Missing(missing_span) => {
       }
       case SyntaxExpr.Name(name, name_span) => {
+        val maybe_type = self.class_constructor_type(callee, name);
+        maybe_type match {
+          case Option[TypeId]::Some(result_type) => {
+            self.check_constructor_args(args, result_type, bindings, return_type, span);
+            val ignored = self.record_typed_expr(callee, TypedExprKind.Name, result_type);
+            return self.record_typed_expr(id, TypedExprKind.Construct(name, args), result_type)
+          }
+          case Option[TypeId]::None => {
+          }
+        }
       }
       case SyntaxExpr.NumericLiteral(value, literal_span) => {
       }
@@ -910,16 +957,102 @@ class ExpressionChecker {
     self.record_typed_expr(id, TypedExprKind.Call(callee, args), self.error_type())
   }
 
-  def field_signature_for_type(&self, receiver_type: TypeId, field: String): Option[FieldSignature] = {
+  def class_constructor_type(&mut self, callee: ExprId, name: String): Option[TypeId] = {
+    val maybe_definition = self.names.expr_definitions.get(callee);
+    maybe_definition match {
+      case Option[DefId]::Some(definition) => {
+        val node = self.names.env.definition(definition);
+        node.kind match {
+          case DefinitionKind.Class => {
+            Option[TypeId]::Some(self.types.alloc_user(node.name))
+          }
+          case DefinitionKind.Prelude => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Module => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Function => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Value => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.TypeAlias => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Field => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Method => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Variant => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Parameter => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Local => {
+            Option[TypeId]::None
+          }
+          case DefinitionKind.Self => {
+            Option[TypeId]::None
+          }
+        }
+      }
+      case Option[DefId]::None => {
+        Option[TypeId]::None
+      }
+    }
+  }
+
+  def check_constructor_args(
+    &mut self,
+    args: Vec[ExprId],
+    result_type: TypeId,
+    bindings: Vec[LocalBinding],
+    return_type: Option[TypeId],
+    span: Span
+  ): Unit = {
+    val fields = self.fields_for_constructor(result_type);
+    if (args.len() != fields.len()) {
+      self.diagnostic("cosmo1.type.call-arity", "constructor argument count does not match class fields", span)
+    }
+
+    var index: usize = 0;
+    while (index < args.len()) {
+      val arg = args.get(index);
+      var expected = Option[TypeId]::None;
+      if (index < fields.len()) {
+        expected = Option[TypeId]::Some(fields.get(index).typ)
+      }
+      val actual = self.check_expr(arg, bindings, expected, return_type);
+      if (index < fields.len()) {
+        val ignored = self.expect_assignable(self.arenas.expr_span(arg), fields.get(index).typ, actual);
+      }
+      index = index + 1
+    }
+  }
+
+  def fields_for_constructor(&mut self, receiver_type: TypeId): Vec[FieldSignature] = {
+    val result = Vec[FieldSignature]();
     val members = self.members_for_type(receiver_type);
     members match {
       case Option[Vec[MemberId]]::Some(member_ids) => {
-        for (member_id in member_ids) {
+        var index: usize = 0;
+        while (index < member_ids.len()) {
+          val member_id = member_ids.get(index);
           val member = self.arenas.member_value(member_id);
           member match {
             case SyntaxMember.Field(name, mutable, typ, span) => {
-              if (name == field) {
-                return self.declarations.field_signatures.get(member_id)
+              val maybe_signature = self.field_signature_from_member(member_id, name, mutable, typ);
+              maybe_signature match {
+                case Option[FieldSignature]::Some(signature) => {
+                  result.push(signature)
+                }
+                case Option[FieldSignature]::None => {
+                }
               }
             }
             case SyntaxMember.AEmpty => {
@@ -933,6 +1066,41 @@ class ExpressionChecker {
             case SyntaxMember.Variant(name, fields, span) => {
             }
           }
+          index = index + 1
+        }
+      }
+      case Option[Vec[MemberId]]::None => {
+      }
+    }
+    result
+  }
+
+  def field_signature_for_type(&mut self, receiver_type: TypeId, field: String): Option[FieldSignature] = {
+    val members = self.members_for_type(receiver_type);
+    members match {
+      case Option[Vec[MemberId]]::Some(member_ids) => {
+        var index: usize = 0;
+        while (index < member_ids.len()) {
+          val member_id = member_ids.get(index);
+          val member = self.arenas.member_value(member_id);
+          member match {
+            case SyntaxMember.Field(name, mutable, typ, span) => {
+              if (name == field) {
+                return self.field_signature_from_member(member_id, name, mutable, typ)
+              }
+            }
+            case SyntaxMember.AEmpty => {
+            }
+            case SyntaxMember.Unsupported(text, span) => {
+            }
+            case SyntaxMember.Method(name, params, return_type, body, span) => {
+            }
+            case SyntaxMember.TypeAlias(name, typ, span) => {
+            }
+            case SyntaxMember.Variant(name, fields, span) => {
+            }
+          }
+          index = index + 1
         }
       }
       case Option[Vec[MemberId]]::None => {
@@ -941,11 +1109,68 @@ class ExpressionChecker {
     Option[FieldSignature]::None
   }
 
+  def field_signature_from_member(
+    &mut self,
+    member_id: MemberId,
+    name: String,
+    mutable: Bool,
+    typ: TypeExprId
+  ): Option[FieldSignature] = {
+    val maybe_signature = self.declarations.field_signatures.get(member_id);
+    maybe_signature match {
+      case Option[FieldSignature]::Some(signature) => {
+        return Option[FieldSignature]::Some(signature)
+      }
+      case Option[FieldSignature]::None => {
+      }
+    }
+
+    val maybe_definition = self.names.member_definitions.get(member_id);
+    val maybe_type = self.type_for_member_type_expr(typ);
+    maybe_definition match {
+      case Option[DefId]::Some(definition) => {
+        maybe_type match {
+          case Option[TypeId]::Some(field_type) => {
+            Option[FieldSignature]::Some(FieldSignature(definition, field_type, mutable))
+          }
+          case Option[TypeId]::None => {
+            Option[FieldSignature]::None
+          }
+        }
+      }
+      case Option[DefId]::None => {
+        Option[FieldSignature]::None
+      }
+    }
+  }
+
+  def type_for_member_type_expr(&mut self, id: TypeExprId): Option[TypeId] = {
+    val maybe_type = self.type_for_type_expr(id);
+    maybe_type match {
+      case Option[TypeId]::Some(typ) => {
+        return Option[TypeId]::Some(typ)
+      }
+      case Option[TypeId]::None => {
+      }
+    }
+
+    val text = type_expr_text(self.arenas, id);
+    if (prelude_is_primitive_type(text)) {
+      return Option[TypeId]::Some(self.types.alloc_primitive(text))
+    }
+    if (text == "<empty>" or text == "<missing>") {
+      return Option[TypeId]::None
+    }
+    Option[TypeId]::Some(self.types.alloc_user(text))
+  }
+
   def method_signature_for_type(&self, receiver_type: TypeId, field: String): Option[CallableSignature] = {
     val members = self.members_for_type(receiver_type);
     members match {
       case Option[Vec[MemberId]]::Some(member_ids) => {
-        for (member_id in member_ids) {
+        var index: usize = 0;
+        while (index < member_ids.len()) {
+          val member_id = member_ids.get(index);
           val member = self.arenas.member_value(member_id);
           member match {
             case SyntaxMember.Method(name, params, return_type, body, span) => {
@@ -964,6 +1189,7 @@ class ExpressionChecker {
             case SyntaxMember.Variant(name, fields, span) => {
             }
           }
+          index = index + 1
         }
       }
       case Option[Vec[MemberId]]::None => {
@@ -977,7 +1203,9 @@ class ExpressionChecker {
     name match {
       case Option[String]::Some(type_name) => {
         val module_value = self.arenas.module_value(self.module_id);
-        for (decl_id in module_value.declarations) {
+        var index: usize = 0;
+        while (index < module_value.declarations.len()) {
+          val decl_id = module_value.declarations.get(index);
           val decl = self.arenas.decl_value(decl_id);
           decl match {
             case SyntaxDecl.Class(name, members, span) => {
@@ -998,6 +1226,7 @@ class ExpressionChecker {
             case SyntaxDecl.Value(name, mutable, typ, init, span) => {
             }
           }
+          index = index + 1
         }
       }
       case Option[String]::None => {

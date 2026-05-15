@@ -18,23 +18,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
   private val irVerifierTestPath = "packages/cosmoc/src/ir/verifier_test.cos"
 
   test("cosmo1 IR model, verifier, renderer, and fixtures compile"):
-    val source = combineSources(
-      List(
-        spanPath,
-        astPath,
-        parserPath,
-        symbolPath,
-        scopePath,
-        resolutionPath,
-        modelPath,
-        declarationResolutionPath,
-        typeCheckPath,
-        irModelPath,
-        irLoweringPath,
-        irVerifierTestPath,
-      ),
-    )
-    val compiled = Cosmo0().compile(SourceFile(irVerifierTestPath, source))
+    val compiled = compileIrVerifierTestProgram()
 
     assertEquals(compiled.phase, Phase.Compile)
     assert(
@@ -66,8 +50,132 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assert(output.contains("inline bool ir_basic_expression_lowerer_accepts_simple_parser_source()"))
     assert(output.contains("inline bool ir_member_intrinsic_lowerer_accepts_parser_state_methods()"))
     assert(output.contains("inline bool ir_control_flow_lowerer_accepts_parser_style_flow()"))
+    assert(output.contains("inline bool ir_self_compile_parser_source_runs()"))
     assert(output.contains("int main()"))
     assertCxxAccepts(output)
+
+  test("cosmo1 IR verifier executable self-compiles parser.cos"):
+    val compiled = compileParserSelfCompileProgram()
+
+    assert(
+      compiled.isSuccess,
+      s"cosmo1 parser self-compile program failed with diagnostics: ${compiled.diagnostics.map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
+    )
+    val output = compiled.value.get.output
+    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo1 parser self-compile execution test"))
+    IrTestNodeFs.mkdirSync("target/cosmo1-ir-tests", js.Dynamic.literal("recursive" -> true))
+    val sourcePath = "target/cosmo1-ir-tests/ir_verifier_test.cpp"
+    val executablePath = "target/cosmo1-ir-tests/ir_verifier_test"
+    IrTestNodeFs.writeFileSync(sourcePath, output)
+
+    val compile = IrNodeSpawnSync(
+      compiler,
+      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", sourcePath, "-o", executablePath),
+      js.Dynamic.literal(encoding = "utf8"),
+    )
+    assertEquals(
+      compile.status.toOption,
+      Some(0),
+      s"C++ compiler rejected cosmo1 IR verifier executable output with ${compiler}\n${compile.stderr.getOrElse("")}",
+    )
+
+    val run = IrNodeSpawnSync(
+      executablePath,
+      js.Array(),
+      js.Dynamic.literal(encoding = "utf8"),
+    )
+    assertEquals(
+      run.status.toOption,
+      Some(0),
+      s"cosmo1 parser self-compile executable failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+    )
+
+  private def compileIrVerifierTestProgram(): Result[CompiledModule] =
+    val source = combineSources(
+      List(
+        spanPath,
+        astPath,
+        parserPath,
+        symbolPath,
+        scopePath,
+        resolutionPath,
+        modelPath,
+        declarationResolutionPath,
+        typeCheckPath,
+        irModelPath,
+        irLoweringPath,
+        irVerifierTestPath,
+      ),
+    )
+    Cosmo0().compile(SourceFile(irVerifierTestPath, source))
+
+  private def compileParserSelfCompileProgram(): Result[CompiledModule] =
+    val source = combineSources(
+      List(
+        spanPath,
+        astPath,
+        parserPath,
+        symbolPath,
+        scopePath,
+        resolutionPath,
+        modelPath,
+        declarationResolutionPath,
+        typeCheckPath,
+        irModelPath,
+        irLoweringPath,
+      ),
+    ) + "\n" + parserSelfCompileMainSource
+    Cosmo0().compile(SourceFile("packages/cosmoc/src/ir/parser_self_compile_test.cos", source))
+
+  private def parserSelfCompileMainSource: String =
+    """def ir_self_compile_parser_source_runs(): Bool = {
+      |  val source = read_file("packages/cosmoc/src/source/span.cos")
+      |    .concat("\n")
+      |    .concat(read_file("packages/cosmoc/src/syntax/ast.cos"))
+      |    .concat("\n")
+      |    .concat(read_file("packages/cosmoc/src/parser.cos"));
+      |  val parsed = parse_source_ast(source);
+      |  if (!parsed.is_ok()) {
+      |    println(parsed.first_diagnostic_code());
+      |    return false
+      |  }
+      |
+      |  val names = resolve_module_names(parsed.arenas, parsed.root);
+      |  val resolved = resolve_module_declarations_with_names(parsed.arenas, parsed.root, names);
+      |  val checked = check_module_basic_expressions_with_resolution(parsed.arenas, parsed.root, names, resolved);
+      |  if (!names.is_ok()) {
+      |    println(names.first_diagnostic_code());
+      |    return false
+      |  }
+      |  if (!resolved.is_ok()) {
+      |    println(resolved.first_diagnostic_code());
+      |    return false
+      |  }
+      |  if (!checked.is_ok()) {
+      |    println(checked.first_diagnostic_code());
+      |    println(checked.first_diagnostic_message());
+      |    return false
+      |  }
+      |
+      |  val ir_module = lower_module_declarations(parsed.arenas, parsed.root, names, resolved);
+      |  val verified = verify_ir_module(checked.types, ir_module);
+      |  if (!verified.is_ok()) {
+      |    println(verified.first_code());
+      |    return false
+      |  }
+      |
+      |  val first_render = render_ir_module(checked.types, ir_module);
+      |  val second_render = render_ir_module(checked.types, ir_module);
+      |  first_render == second_render and first_render != ""
+      |}
+      |
+      |def main(): i32 = {
+      |  if (!ir_self_compile_parser_source_runs()) {
+      |    return 1
+      |  }
+      |  0
+      |}
+      |""".stripMargin
 
   private def combineSources(paths: List[String]): String =
     paths.map(readCosmoSource).mkString("\n")
@@ -114,3 +222,9 @@ private trait IrNodeSpawnSyncResult extends js.Object:
   val status: js.UndefOr[Int] = js.native
   val stdout: js.UndefOr[String] = js.native
   val stderr: js.UndefOr[String] = js.native
+
+@js.native
+@JSImport("node:fs",JSImport.Namespace)
+private object IrTestNodeFs extends js.Object:
+  def mkdirSync(path: String, options: js.Any): Unit = js.native
+  def writeFileSync(path: String, data: String): Unit = js.native

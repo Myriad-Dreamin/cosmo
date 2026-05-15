@@ -18,19 +18,19 @@ class IrDeclarationLowerer {
     val module_value = self.arenas.module_value(module_id);
     val declarations = Vec[IrDeclaration]();
     for (decl_id in module_value.declarations) {
-      self.lower_decl(decl_id, declarations)
+      self.lower_decl(module_id, decl_id, declarations)
     }
     IrModule("cosmo1", declarations)
   }
 
-  def lower_decl(&self, id: DeclId, declarations: Vec[IrDeclaration]): Unit = {
+  def lower_decl(&self, module_id: ModuleId, id: DeclId, declarations: Vec[IrDeclaration]): Unit = {
     val decl = self.arenas.decl_value(id);
     decl match {
       case SyntaxDecl.Class(name, members, span) => {
-        self.lower_class(id, name, members, declarations)
+        self.lower_class(module_id, id, name, members, declarations)
       }
       case SyntaxDecl.Function(name, params, return_type, body, span) => {
-        self.lower_function_decl(id, name, body, declarations)
+        self.lower_function_decl(module_id, id, name, body, declarations)
       }
       case SyntaxDecl.AEmpty => {
       }
@@ -45,14 +45,21 @@ class IrDeclarationLowerer {
     }
   }
 
-  def lower_class(&self, id: DeclId, name: String, members: Vec[MemberId], declarations: Vec[IrDeclaration]): Unit = {
+  def lower_class(
+    &self,
+    module_id: ModuleId,
+    id: DeclId,
+    name: String,
+    members: Vec[MemberId],
+    declarations: Vec[IrDeclaration]
+  ): Unit = {
     val class_signature = self.resolved.class_signatures.get(id);
     class_signature match {
       case Option[ClassSignature]::Some(signature) => {
         val fields = Vec[IrField]();
         val methods = Vec[IrDeclaration]();
         for (member_id in members) {
-          self.lower_class_member(member_id, signature.definition, methods, fields)
+          self.lower_class_member(module_id, member_id, signature.definition, methods, fields)
         }
         declarations.push(IrDeclaration.Type(IrTypeDecl(self.ir_id_for_def(signature.definition), name, fields)));
         for (method in methods) {
@@ -66,6 +73,7 @@ class IrDeclarationLowerer {
 
   def lower_class_member(
     &self,
+    module_id: ModuleId,
     id: MemberId,
     owner: DefId,
     declarations: Vec[IrDeclaration],
@@ -77,7 +85,7 @@ class IrDeclarationLowerer {
         self.lower_field(id, name, fields)
       }
       case SyntaxMember.Method(name, params, return_type, body, span) => {
-        self.lower_method(id, name, body, owner, declarations)
+        self.lower_method(module_id, id, name, body, owner, declarations)
       }
       case SyntaxMember.AEmpty => {
       }
@@ -101,29 +109,44 @@ class IrDeclarationLowerer {
     }
   }
 
-  def lower_method(&self, id: MemberId, name: String, body: ExprId, owner: DefId, declarations: Vec[IrDeclaration]): Unit = {
+  def lower_method(
+    &self,
+    module_id: ModuleId,
+    id: MemberId,
+    name: String,
+    body: ExprId,
+    owner: DefId,
+    declarations: Vec[IrDeclaration]
+  ): Unit = {
     val signature = self.resolved.method_signatures.get(id);
     signature match {
       case Option[CallableSignature]::Some(callable) => {
-        declarations.push(IrDeclaration.Function(self.lower_function(name, callable, body, Option[DefId]::Some(owner))))
+        declarations.push(IrDeclaration.Function(self.lower_function(module_id, name, callable, body, Option[DefId]::Some(owner))))
       }
       case Option[CallableSignature]::None => {
       }
     }
   }
 
-  def lower_function_decl(&self, id: DeclId, name: String, body: ExprId, declarations: Vec[IrDeclaration]): Unit = {
+  def lower_function_decl(&self, module_id: ModuleId, id: DeclId, name: String, body: ExprId, declarations: Vec[IrDeclaration]): Unit = {
     val signature = self.resolved.function_signatures.get(id);
     signature match {
       case Option[CallableSignature]::Some(callable) => {
-        declarations.push(IrDeclaration.Function(self.lower_function(name, callable, body, Option[DefId]::None)))
+        declarations.push(IrDeclaration.Function(self.lower_function(module_id, name, callable, body, Option[DefId]::None)))
       }
       case Option[CallableSignature]::None => {
       }
     }
   }
 
-  def lower_function(&self, name: String, signature: CallableSignature, body: ExprId, owner: Option[DefId]): IrFunction = {
+  def lower_function(
+    &self,
+    module_id: ModuleId,
+    name: String,
+    signature: CallableSignature,
+    body: ExprId,
+    owner: Option[DefId]
+  ): IrFunction = {
     val params = Vec[IrParam]();
     for (param_id in signature.params) {
       self.lower_param(param_id, params)
@@ -133,6 +156,7 @@ class IrDeclarationLowerer {
       self.names,
       self.resolved,
       self.checked,
+      module_id,
       signature,
       params,
       Vec[IrLocal](),
@@ -241,6 +265,7 @@ class IrFunctionBodyBuilder {
   val names: NameResolution
   val resolved: DeclarationResolution
   val checked: ExpressionCheckResult
+  val module_id: ModuleId
   val signature: CallableSignature
   val params: Vec[IrParam]
   var locals: Vec[IrLocal]
@@ -319,6 +344,9 @@ class IrFunctionBodyBuilder {
       }
       case TypedExprKind.BoolLiteral(value) => {
         Option[IrValue]::Some(IrValue.BoolLiteral(value, typed.typ))
+      }
+      case TypedExprKind.Construct(name, args) => {
+        self.lower_construct_type(name, typed.typ, args)
       }
       case TypedExprKind.Block(items) => {
         self.lower_block(items)
@@ -558,6 +586,97 @@ class IrFunctionBodyBuilder {
       }
       case Option[DefId]::None => {
         Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_construct_type(&mut self, name: String, typ: TypeId, args: Vec[ExprId]): Option[IrValue] = {
+    val lowered_args = self.lower_args(args);
+    if (lowered_args.len() != args.len()) {
+      return Option[IrValue]::None
+    }
+
+    val fields = self.construct_field_inits(name, lowered_args);
+    if (fields.len() != lowered_args.len()) {
+      return Option[IrValue]::None
+    }
+
+    val output = self.declare_temp(typ);
+    self.operations.push(IrOperation.ConstructType(output.id, typ, fields));
+    Option[IrValue]::Some(IrValue.Local(output.id, typ))
+  }
+
+  def construct_field_inits(&self, name: String, values: Vec[IrValue]): Vec[IrFieldInit] = {
+    val result = Vec[IrFieldInit]();
+    val members = self.constructor_members(name);
+    var index: usize = 0;
+    while (index < values.len() and index < members.len()) {
+      val member = self.arenas.member_value(members.get(index));
+      member match {
+        case SyntaxMember.Field(field_name, mutable, typ, span) => {
+          result.push(IrFieldInit(field_name, values.get(index)))
+        }
+        case SyntaxMember.AEmpty => {
+        }
+        case SyntaxMember.Unsupported(text, span) => {
+        }
+        case SyntaxMember.Method(member_name, params, return_type, body, span) => {
+        }
+        case SyntaxMember.TypeAlias(member_name, typ, span) => {
+        }
+        case SyntaxMember.Variant(member_name, fields, span) => {
+        }
+      }
+      index = index + 1
+    }
+    result
+  }
+
+  def constructor_members(&self, name: String): Vec[MemberId] = {
+    val result = Vec[MemberId]();
+    val module_value = self.arenas.module_value(self.module_id);
+    for (decl_id in module_value.declarations) {
+      val decl = self.arenas.decl_value(decl_id);
+      decl match {
+        case SyntaxDecl.Class(class_name, members, span) => {
+          if (class_name == name) {
+            self.append_constructor_fields(members, result)
+          }
+        }
+        case SyntaxDecl.AEmpty => {
+        }
+        case SyntaxDecl.Unsupported(text, span) => {
+        }
+        case SyntaxDecl.Import(path, span) => {
+        }
+        case SyntaxDecl.Function(function_name, params, return_type, body, span) => {
+        }
+        case SyntaxDecl.TypeAlias(alias_name, typ, span) => {
+        }
+        case SyntaxDecl.Value(value_name, mutable, typ, init, span) => {
+        }
+      }
+    }
+    result
+  }
+
+  def append_constructor_fields(&self, members: Vec[MemberId], result: Vec[MemberId]): Unit = {
+    for (member_id in members) {
+      val member = self.arenas.member_value(member_id);
+      member match {
+        case SyntaxMember.Field(field_name, mutable, typ, span) => {
+          result.push(member_id)
+        }
+        case SyntaxMember.AEmpty => {
+        }
+        case SyntaxMember.Unsupported(text, span) => {
+        }
+        case SyntaxMember.Method(member_name, params, return_type, body, span) => {
+        }
+        case SyntaxMember.TypeAlias(member_name, typ, span) => {
+        }
+        case SyntaxMember.Variant(member_name, fields, span) => {
+        }
       }
     }
   }

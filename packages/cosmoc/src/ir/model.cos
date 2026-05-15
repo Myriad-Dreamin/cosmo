@@ -81,11 +81,17 @@ class IrValue {
 class IrOperation {
   case InitLocal(IrLocalId, IrValue)
   case Assign(IrLocalId, IrValue)
+  case ConstructType(IrLocalId, TypeId, Vec[IrFieldInit])
   case DirectCall(Option[IrLocalId], IrDeclId, Vec[IrValue], IrFunctionSignature)
   case IntrinsicCall(Option[IrLocalId], String, Vec[IrValue], IrFunctionSignature)
   case FieldGet(IrLocalId, IrValue, String, TypeId)
   case FieldSet(IrValue, String, IrValue)
   case Binary(IrLocalId, String, IrValue, IrValue, TypeId)
+}
+
+class IrFieldInit {
+  val name: String
+  val value: IrValue
 }
 
 class IrTerminator {
@@ -351,6 +357,9 @@ def define_operation_output(operation: IrOperation, env: IrFunctionEnv): Unit = 
     case IrOperation.Assign(target, value) => {
       define_local(env, target)
     }
+    case IrOperation.ConstructType(output, owner, fields) => {
+      define_local(env, output)
+    }
     case IrOperation.DirectCall(output, callee, args, signature) => {
       define_optional_local(env, output)
     }
@@ -397,6 +406,9 @@ def verify_ir_operation(
       verify_defined_local_type(types, fn_value, target, ir_value_type(value), diagnostics);
       define_local(env, target)
     }
+    case IrOperation.ConstructType(output, owner, fields) => {
+      verify_construct_type(types, ir_module, fn_value, env, output, owner, fields, diagnostics)
+    }
     case IrOperation.DirectCall(output, callee, args, signature) => {
       verify_call(types, ir_module, fn_value, env, output, callee, args, signature, diagnostics)
     }
@@ -413,6 +425,37 @@ def verify_ir_operation(
       verify_binary(types, fn_value, env, output, op, left, right, result_type, diagnostics)
     }
   }
+}
+
+def verify_construct_type(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  output: IrLocalId,
+  owner: TypeId,
+  fields: Vec[IrFieldInit],
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  var index: usize = 0;
+  while (index < fields.len()) {
+    val init = fields.get(index);
+    verify_value(types, fn_value, env, init.value, diagnostics);
+    val maybe_field = find_ir_field(types, ir_module, owner, init.name);
+    maybe_field match {
+      case Option[IrField]::Some(field_value) => {
+        if (!ir_type_equals(types, field_value.typ, ir_value_type(init.value))) {
+          ir_error(diagnostics, "cosmo1.ir.invalid-construct", "constructor field type mismatch for ".concat(init.name))
+        }
+      }
+      case Option[IrField]::None => {
+        ir_error(diagnostics, "cosmo1.ir.invalid-construct", "unknown constructor field ".concat(init.name))
+      }
+    }
+    index = index + 1
+  }
+  verify_defined_local_type(types, fn_value, output, owner, diagnostics);
+  define_local(env, output)
 }
 
 def verify_field_get(
@@ -997,6 +1040,9 @@ def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
     case IrOperation.DirectCall(output, callee, args, signature) => {
       render_ir_call(types, output, callee, args, signature)
     }
+    case IrOperation.ConstructType(output, owner, fields) => {
+      render_ir_construct_type(types, output, owner, fields)
+    }
     case IrOperation.IntrinsicCall(output, name, args, signature) => {
       render_ir_intrinsic_call(types, output, name, args, signature)
     }
@@ -1029,6 +1075,20 @@ def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
         .concat(ir_type_display(types, result_type))
     }
   }
+}
+
+def render_ir_construct_type(types: TypeStore, output: IrLocalId, owner: TypeId, fields: Vec[IrFieldInit]): String = {
+  var text = "%".concat(output.value).concat(" = construct ").concat(ir_type_display(types, owner)).concat("(");
+  var index: usize = 0;
+  while (index < fields.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    val field = fields.get(index);
+    text = text.concat(field.name).concat(" = ").concat(render_ir_value(types, field.value));
+    index = index + 1
+  }
+  text.concat(")")
 }
 
 def render_ir_intrinsic_call(
