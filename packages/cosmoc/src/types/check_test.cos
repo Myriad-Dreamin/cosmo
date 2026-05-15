@@ -382,6 +382,110 @@ def member_call_checker_rejects_immutable_self_mutation(): Bool = {
   !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.immutable-receiver"
 }
 
+def control_flow_checker_types_if_else_and_while(): Bool = {
+  var arenas = syntax_arenas();
+
+  val bool_type = arenas.make_name_type("Bool", make_span(10, 14));
+  val i32_type = arenas.make_name_type("i32", make_span(15, 18));
+
+  val flag_default = arenas.make_missing_expr(make_span(0, 0));
+  val flag_param = arenas.make_named_param("flag", bool_type, flag_default, make_span(0, 14));
+  val params = Vec[ParamId]();
+  params.push(flag_param);
+
+  val count_type = arenas.make_name_type("i32", make_span(25, 28));
+  val count_init = arenas.make_numeric_literal_expr("0", make_span(31, 32));
+  val count_local = arenas.make_local_expr("count", true, count_type, count_init, make_span(19, 32));
+
+  val while_condition = arenas.make_name_expr("flag", make_span(40, 44));
+  val target = arenas.make_name_expr("count", make_span(55, 60));
+  val current = arenas.make_name_expr("count", make_span(63, 68));
+  val one = arenas.make_numeric_literal_expr("1", make_span(71, 72));
+  val next = arenas.make_binary_expr("+", current, one, make_span(63, 72));
+  val assign = arenas.make_assign_expr(target, next, make_span(55, 72));
+  val while_items = Vec[ExprId]();
+  while_items.push(assign);
+  val while_body = arenas.make_block_expr(while_items, make_span(52, 75));
+  val loop_expr = arenas.make_while_expr(while_condition, while_body, make_span(34, 75));
+
+  val if_condition = arenas.make_name_expr("flag", make_span(84, 88));
+  val then_name = arenas.make_name_expr("count", make_span(96, 101));
+  val then_return = arenas.make_return_expr(then_name, make_span(89, 101));
+  val then_items = Vec[ExprId]();
+  then_items.push(then_return);
+  val then_body = arenas.make_block_expr(then_items, make_span(89, 103));
+  val else_value = arenas.make_numeric_literal_expr("0", make_span(112, 113));
+  val else_return = arenas.make_return_expr(else_value, make_span(105, 113));
+  val else_items = Vec[ExprId]();
+  else_items.push(else_return);
+  val else_body = arenas.make_block_expr(else_items, make_span(105, 115));
+  val if_expr = arenas.make_if_expr(if_condition, then_body, else_body, make_span(79, 115));
+
+  val items = Vec[ExprId]();
+  items.push(count_local);
+  items.push(loop_expr);
+  items.push(if_expr);
+  val body = arenas.make_block_expr(items, make_span(19, 116));
+  val decl = arenas.make_function_decl("control", params, i32_type, body, make_span(0, 116));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 116));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  checked.is_ok() and
+    typed_expr_has_primitive(checked, loop_expr, "Unit") and
+    typed_expr_has_display(checked, then_return, "never") and
+    typed_expr_has_display(checked, else_return, "never") and
+    typed_expr_has_display(checked, if_expr, "never") and
+    typed_expr_has_display(checked, body, "never")
+}
+
+def control_flow_checker_rejects_bad_conditions(): Bool = {
+  var arenas = syntax_arenas();
+
+  val unit_type = arenas.make_name_type("Unit", make_span(0, 4));
+  val condition = arenas.make_numeric_literal_expr("1", make_span(8, 9));
+  val then_body = arenas.make_block_expr(Vec[ExprId](), make_span(11, 13));
+  val missing_else = arenas.make_missing_expr(make_span(0, 0));
+  val if_expr = arenas.make_if_expr(condition, then_body, missing_else, make_span(5, 13));
+  val decl = arenas.make_function_decl("bad_condition", Vec[ParamId](), unit_type, if_expr, make_span(0, 13));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 13));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.expected-bool"
+}
+
+def control_flow_checker_reports_missing_return(): Bool = {
+  var arenas = syntax_arenas();
+
+  val bool_type = arenas.make_name_type("Bool", make_span(10, 14));
+  val flag_default = arenas.make_missing_expr(make_span(0, 0));
+  val flag_param = arenas.make_named_param("flag", bool_type, flag_default, make_span(0, 14));
+  val params = Vec[ParamId]();
+  params.push(flag_param);
+
+  val condition = arenas.make_name_expr("flag", make_span(22, 26));
+  val true_value = arenas.make_bool_literal_expr(true, make_span(37, 41));
+  val ret = arenas.make_return_expr(true_value, make_span(30, 41));
+  val then_items = Vec[ExprId]();
+  then_items.push(ret);
+  val then_body = arenas.make_block_expr(then_items, make_span(29, 43));
+  val missing_else = arenas.make_missing_expr(make_span(0, 0));
+  val if_expr = arenas.make_if_expr(condition, then_body, missing_else, make_span(17, 43));
+  val items = Vec[ExprId]();
+  items.push(if_expr);
+  val body = arenas.make_block_expr(items, make_span(17, 44));
+  val decl = arenas.make_function_decl("missing", params, bool_type, body, make_span(0, 44));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 44));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.missing-return"
+}
+
 def main(): i32 = {
   if (!basic_expression_checker_types_supported_expressions()) {
     return 1
@@ -402,6 +506,15 @@ def main(): i32 = {
     return 1
   }
   if (!member_call_checker_rejects_immutable_self_mutation()) {
+    return 1
+  }
+  if (!control_flow_checker_types_if_else_and_while()) {
+    return 1
+  }
+  if (!control_flow_checker_rejects_bad_conditions()) {
+    return 1
+  }
+  if (!control_flow_checker_reports_missing_return()) {
     return 1
   }
   0

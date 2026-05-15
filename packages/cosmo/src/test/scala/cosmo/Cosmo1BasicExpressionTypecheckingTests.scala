@@ -33,6 +33,8 @@ class Cosmo1BasicExpressionTypecheckingTests extends TestBase:
     assert(checker.contains("class LocalBinding"))
     assert(checker.contains("class ExpressionCheckResult"))
     assert(checker.contains("class ExpressionChecker"))
+    assert(checker.contains("case If(ExprId, ExprId, ExprId)"))
+    assert(checker.contains("case While(ExprId, ExprId)"))
     assert(checker.contains("def check_module_basic_expressions("))
     assert(checker.contains("def check_module_basic_expressions_with_resolution("))
     assert(fixtures.contains("basic_expression_checker_types_supported_expressions"))
@@ -40,5 +42,8 @@ class Cosmo1BasicExpressionTypecheckingTests extends TestBase:
     assert(fixtures.contains("basic_expression_checker_reports_assignment_mismatch"))
     assert(fixtures.contains("basic_expression_checker_reports_return_mismatch"))
     assert(fixtures.contains("basic_expression_checker_rejects_invalid_binary_operands"))
+    assert(fixtures.contains("control_flow_checker_types_if_else_and_while"))
+    assert(fixtures.contains("control_flow_checker_rejects_bad_conditions"))
+    assert(fixtures.contains("control_flow_checker_reports_missing_return"))
   }
 end Cosmo1BasicExpressionTypecheckingTests
