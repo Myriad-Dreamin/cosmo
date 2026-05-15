@@ -82,6 +82,9 @@ class IrOperation {
   case InitLocal(IrLocalId, IrValue)
   case Assign(IrLocalId, IrValue)
   case DirectCall(Option[IrLocalId], IrDeclId, Vec[IrValue], IrFunctionSignature)
+  case IntrinsicCall(Option[IrLocalId], String, Vec[IrValue], IrFunctionSignature)
+  case FieldGet(IrLocalId, IrValue, String, TypeId)
+  case FieldSet(IrValue, String, IrValue)
   case Binary(IrLocalId, String, IrValue, IrValue, TypeId)
 }
 
@@ -353,8 +356,72 @@ def verify_ir_operation(
     case IrOperation.DirectCall(output, callee, args, signature) => {
       verify_call(types, ir_module, fn_value, env, output, callee, args, signature, diagnostics)
     }
+    case IrOperation.IntrinsicCall(output, name, args, signature) => {
+      verify_intrinsic_call(types, fn_value, env, output, name, args, signature, diagnostics)
+    }
+    case IrOperation.FieldGet(output, receiver, field, result_type) => {
+      verify_field_get(types, ir_module, fn_value, env, output, receiver, field, result_type, diagnostics)
+    }
+    case IrOperation.FieldSet(receiver, field, value) => {
+      verify_field_set(types, ir_module, fn_value, env, receiver, field, value, diagnostics)
+    }
     case IrOperation.Binary(output, op, left, right, result_type) => {
       verify_binary(types, fn_value, env, output, op, left, right, result_type, diagnostics)
+    }
+  }
+}
+
+def verify_field_get(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  output: IrLocalId,
+  receiver: IrValue,
+  field: String,
+  result_type: TypeId,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  verify_value(types, fn_value, env, receiver, diagnostics);
+  val maybe_field = find_ir_field(types, ir_module, ir_value_type(receiver), field);
+  maybe_field match {
+    case Option[IrField]::Some(field_value) => {
+      if (!ir_type_equals(types, field_value.typ, result_type)) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-field", "field get result type mismatch for ".concat(field))
+      }
+    }
+    case Option[IrField]::None => {
+      ir_error(diagnostics, "cosmo1.ir.invalid-field", "unknown field ".concat(field))
+    }
+  }
+  verify_defined_local_type(types, fn_value, output, result_type, diagnostics);
+  define_local(env, output)
+}
+
+def verify_field_set(
+  types: TypeStore,
+  ir_module: IrModule,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  receiver: IrValue,
+  field: String,
+  value: IrValue,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  verify_value(types, fn_value, env, receiver, diagnostics);
+  verify_value(types, fn_value, env, value, diagnostics);
+  val maybe_field = find_ir_field(types, ir_module, ir_value_type(receiver), field);
+  maybe_field match {
+    case Option[IrField]::Some(field_value) => {
+      if (!field_value.mutable) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-field", "field is immutable ".concat(field))
+      }
+      if (!ir_type_equals(types, field_value.typ, ir_value_type(value))) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-field", "field set value type mismatch for ".concat(field))
+      }
+    }
+    case Option[IrField]::None => {
+      ir_error(diagnostics, "cosmo1.ir.invalid-field", "unknown field ".concat(field))
     }
   }
 }
@@ -419,6 +486,50 @@ def verify_call(
       }
     }
   }
+}
+
+def verify_intrinsic_call(
+  types: TypeStore,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  output: Option[IrLocalId],
+  name: String,
+  args: Vec[IrValue],
+  signature: IrFunctionSignature,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  if (!ir_intrinsic_is_known(name)) {
+    ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "unknown intrinsic ".concat(name))
+  }
+  if (args.len() != signature.params.len()) {
+    ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "intrinsic arity mismatch for ".concat(name))
+  }
+
+  var index: usize = 0;
+  while (index < args.len() and index < signature.params.len()) {
+    val arg = args.get(index);
+    verify_value(types, fn_value, env, arg, diagnostics);
+    if (!ir_type_equals(types, ir_value_type(arg), signature.params.get(index))) {
+      ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "intrinsic argument type mismatch for ".concat(name))
+    }
+    index = index + 1
+  }
+
+  output match {
+    case Option[IrLocalId]::Some(target) => {
+      verify_defined_local_type(types, fn_value, target, signature.return_type, diagnostics);
+      define_local(env, target)
+    }
+    case Option[IrLocalId]::None => {
+      if (!is_unit_type(types, signature.return_type)) {
+        ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "non-unit intrinsic result is not captured for ".concat(name))
+      }
+    }
+  }
+}
+
+def ir_intrinsic_is_known(name: String): Bool = {
+  name == "string.len" or name == "string.size" or name == "string.byte_at" or name == "string.slice"
 }
 
 def verify_function_callee(
@@ -551,6 +662,55 @@ def find_function(ir_module: IrModule, id: IrDeclId): Option[IrFunction] = {
   Option[IrFunction]::None
 }
 
+def find_ir_field(types: TypeStore, ir_module: IrModule, receiver_type: TypeId, name: String): Option[IrField] = {
+  val receiver_name = ir_receiver_type_name(types, receiver_type);
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        if (type_decl.name == receiver_name) {
+          return find_type_field(type_decl, name)
+        }
+      }
+      case IrDeclaration.Function(fn_value) => {
+      }
+    }
+  }
+  Option[IrField]::None
+}
+
+def find_type_field(type_decl: IrTypeDecl, name: String): Option[IrField] = {
+  for (field in type_decl.fields) {
+    if (field.name == name) {
+      return Option[IrField]::Some(field)
+    }
+  }
+  Option[IrField]::None
+}
+
+def ir_receiver_type_name(types: TypeStore, id: TypeId): String = {
+  val value = types.type_value(id);
+  value match {
+    case CosmoType.User(name) => {
+      name
+    }
+    case CosmoType.Reference(mutable, inner) => {
+      ir_receiver_type_name(types, inner)
+    }
+    case CosmoType.Primitive(name) => {
+      name
+    }
+    case CosmoType.Function(params, return_type) => {
+      ""
+    }
+    case CosmoType.Never => {
+      ""
+    }
+    case CosmoType.Error => {
+      ""
+    }
+  }
+}
+
 def find_local_type(fn_value: IrFunction, id: IrLocalId): Option[TypeId] = {
   for (param in fn_value.params) {
     if (param.id.value == id.value) {
@@ -621,6 +781,9 @@ def ir_binary_result_matches(types: TypeStore, op: String, operand_type: TypeId,
   if (ir_binary_is_comparison(op) or ir_binary_is_equality(op)) {
     return ir_type_display(types, result_type) == "Bool"
   }
+  if (ir_binary_is_bool(op)) {
+    return ir_type_display(types, operand_type) == "Bool" and ir_type_display(types, result_type) == "Bool"
+  }
   false
 }
 
@@ -634,6 +797,10 @@ def ir_binary_is_comparison(op: String): Bool = {
 
 def ir_binary_is_equality(op: String): Bool = {
   op == "==" or op == "!="
+}
+
+def ir_binary_is_bool(op: String): Bool = {
+  op == "and" or op == "or"
 }
 
 def ir_error(diagnostics: Vec[IrDiagnostic], code: String, message: String): Unit = {
@@ -786,6 +953,26 @@ def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
     case IrOperation.DirectCall(output, callee, args, signature) => {
       render_ir_call(types, output, callee, args, signature)
     }
+    case IrOperation.IntrinsicCall(output, name, args, signature) => {
+      render_ir_intrinsic_call(types, output, name, args, signature)
+    }
+    case IrOperation.FieldGet(output, receiver, field, result_type) => {
+      "%".concat(output.value)
+        .concat(" = field_get ")
+        .concat(render_ir_value(types, receiver))
+        .concat(".")
+        .concat(field)
+        .concat(" -> ")
+        .concat(ir_type_display(types, result_type))
+    }
+    case IrOperation.FieldSet(receiver, field, value) => {
+      "field_set "
+        .concat(render_ir_value(types, receiver))
+        .concat(".")
+        .concat(field)
+        .concat(" = ")
+        .concat(render_ir_value(types, value))
+    }
     case IrOperation.Binary(output, op, left, right, result_type) => {
       "%".concat(output.value)
         .concat(" = ")
@@ -798,6 +985,26 @@ def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
         .concat(ir_type_display(types, result_type))
     }
   }
+}
+
+def render_ir_intrinsic_call(
+  types: TypeStore,
+  output: Option[IrLocalId],
+  name: String,
+  args: Vec[IrValue],
+  signature: IrFunctionSignature
+): String = {
+  var text = "";
+  output match {
+    case Option[IrLocalId]::Some(target) => {
+      text = text.concat("%").concat(target.value).concat(" = ")
+    }
+    case Option[IrLocalId]::None => {
+    }
+  }
+  text = text.concat("intrinsic @").concat(name).concat("(");
+  text = text.concat(render_ir_args(types, args)).concat(") -> ");
+  text.concat(ir_type_display(types, signature.return_type))
 }
 
 def render_ir_call(

@@ -338,7 +338,7 @@ class IrFunctionBodyBuilder {
         Option[IrValue]::None
       }
       case TypedExprKind.Select(receiver, field) => {
-        Option[IrValue]::None
+        self.lower_select(receiver, field, typed.typ)
       }
       case TypedExprKind.If(condition, then_body, else_body) => {
         Option[IrValue]::None
@@ -400,24 +400,144 @@ class IrFunctionBodyBuilder {
   }
 
   def lower_assign(&mut self, target: ExprId, value: ExprId): Unit = {
-    val maybe_target = self.local_ref_for_expr(target);
-    val maybe_value = self.lower_expr(value);
-    maybe_target match {
-      case Option[IrLocalId]::Some(local_id) => {
-        maybe_value match {
-          case Option[IrValue]::Some(lowered_value) => {
-            self.operations.push(IrOperation.Assign(local_id, lowered_value));
+    if (!self.lower_field_assign(target, value)) {
+      val maybe_target = self.local_ref_for_expr(target);
+      val maybe_value = self.lower_expr(value);
+      maybe_target match {
+        case Option[IrLocalId]::Some(local_id) => {
+          maybe_value match {
+            case Option[IrValue]::Some(lowered_value) => {
+              self.operations.push(IrOperation.Assign(local_id, lowered_value));
+            }
+            case Option[IrValue]::None => {
+            }
+          }
+        }
+        case Option[IrLocalId]::None => {
+        }
+      }
+    }
+  }
+
+  def lower_field_assign(&mut self, target: ExprId, value: ExprId): Bool = {
+    val target_expr = self.arenas.expr_value(target);
+    target_expr match {
+      case SyntaxExpr.Select(receiver, field, span) => {
+        val maybe_receiver = self.lower_expr(receiver);
+        val maybe_value = self.lower_expr(value);
+        maybe_receiver match {
+          case Option[IrValue]::Some(receiver_value) => {
+            maybe_value match {
+              case Option[IrValue]::Some(lowered_value) => {
+                self.operations.push(IrOperation.FieldSet(receiver_value, field, lowered_value));
+                true
+              }
+              case Option[IrValue]::None => {
+                false
+              }
+            }
           }
           case Option[IrValue]::None => {
+            false
           }
         }
       }
-      case Option[IrLocalId]::None => {
+      case SyntaxExpr.AEmpty => {
+        false
+      }
+      case SyntaxExpr.Missing(span) => {
+        false
+      }
+      case SyntaxExpr.Name(name, span) => {
+        false
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.Block(items, span) => {
+        false
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        false
+      }
+      case SyntaxExpr.Assign(next_target, next_value, span) => {
+        false
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        false
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        false
+      }
+      case SyntaxExpr.Unary(op, expr, span) => {
+        false
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        false
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        false
+      }
+      case SyntaxExpr.Return(expr, span) => {
+        false
       }
     }
   }
 
   def lower_call(&mut self, id: ExprId, typ: TypeId, callee: ExprId, args: Vec[ExprId]): Option[IrValue] = {
+    val callee_expr = self.arenas.expr_value(callee);
+    callee_expr match {
+      case SyntaxExpr.Select(receiver, field, span) => {
+        return self.lower_member_call(typ, callee, receiver, field, args)
+      }
+      case SyntaxExpr.AEmpty => {
+      }
+      case SyntaxExpr.Missing(span) => {
+      }
+      case SyntaxExpr.Name(name, span) => {
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+      }
+      case SyntaxExpr.Block(items, span) => {
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+      }
+      case SyntaxExpr.Call(inner_callee, inner_args, span) => {
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+      }
+      case SyntaxExpr.Unary(op, expr, span) => {
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+      }
+      case SyntaxExpr.Return(expr, span) => {
+      }
+    }
+
     val maybe_callee = self.function_def_for_expr(callee);
     maybe_callee match {
       case Option[DefId]::Some(definition) => {
@@ -432,6 +552,62 @@ class IrFunctionBodyBuilder {
         }
       }
       case Option[DefId]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_select(&mut self, receiver: ExprId, field: String, typ: TypeId): Option[IrValue] = {
+    val maybe_receiver = self.lower_expr(receiver);
+    maybe_receiver match {
+      case Option[IrValue]::Some(receiver_value) => {
+        if (self.select_is_callable(typ)) {
+          return Option[IrValue]::None
+        }
+        val output = self.declare_temp(typ);
+        self.operations.push(IrOperation.FieldGet(output.id, receiver_value, field, typ));
+        Option[IrValue]::Some(IrValue.Local(output.id, typ))
+      }
+      case Option[IrValue]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_member_call(
+    &mut self,
+    typ: TypeId,
+    callee: ExprId,
+    receiver: ExprId,
+    field: String,
+    args: Vec[ExprId]
+  ): Option[IrValue] = {
+    val maybe_receiver = self.lower_expr(receiver);
+    val lowered_args = self.lower_args(args);
+    maybe_receiver match {
+      case Option[IrValue]::Some(receiver_value) => {
+        if (lowered_args.len() != args.len()) {
+          return Option[IrValue]::None
+        }
+        val all_args = self.prepend_arg(receiver_value, lowered_args);
+        val signature = self.signature_with_receiver(receiver_value, self.signature_for_call(callee));
+        val output = self.call_output(typ);
+        val maybe_method = self.function_def_for_expr(callee);
+        maybe_method match {
+          case Option[DefId]::Some(definition) => {
+            self.operations.push(IrOperation.DirectCall(output, self.ir_id_for_def(definition), all_args, signature));
+            self.call_result(output, typ)
+          }
+          case Option[DefId]::None => {
+            if (!self.string_intrinsic_name(field).is_empty()) {
+              self.operations.push(IrOperation.IntrinsicCall(output, self.string_intrinsic_name(field), all_args, signature));
+              return self.call_result(output, typ)
+            }
+            Option[IrValue]::None
+          }
+        }
+      }
+      case Option[IrValue]::None => {
         Option[IrValue]::None
       }
     }
@@ -457,6 +633,64 @@ class IrFunctionBodyBuilder {
         Option[IrValue]::None
       }
     }
+  }
+
+  def prepend_arg(&self, first: IrValue, rest: Vec[IrValue]): Vec[IrValue] = {
+    val result = Vec[IrValue]();
+    result.push(first);
+    for (arg in rest) {
+      result.push(arg)
+    }
+    result
+  }
+
+  def signature_with_receiver(&self, receiver: IrValue, signature: IrFunctionSignature): IrFunctionSignature = {
+    val params = Vec[TypeId]();
+    params.push(ir_value_type(receiver));
+    for (param in signature.params) {
+      params.push(param)
+    }
+    ir_signature(params, signature.return_type)
+  }
+
+  def select_is_callable(&self, typ: TypeId): Bool = {
+    val node = self.checked.types.type_value(typ);
+    node match {
+      case CosmoType.Function(params, return_type) => {
+        true
+      }
+      case CosmoType.Primitive(name) => {
+        false
+      }
+      case CosmoType.User(name) => {
+        false
+      }
+      case CosmoType.Reference(mutable, inner) => {
+        false
+      }
+      case CosmoType.Never => {
+        false
+      }
+      case CosmoType.Error => {
+        false
+      }
+    }
+  }
+
+  def string_intrinsic_name(&self, field: String): String = {
+    if (field == "len") {
+      return "string.len"
+    }
+    if (field == "size") {
+      return "string.size"
+    }
+    if (field == "byte_at") {
+      return "string.byte_at"
+    }
+    if (field == "slice") {
+      return "string.slice"
+    }
+    ""
   }
 
   def lower_args(&mut self, args: Vec[ExprId]): Vec[IrValue] = {
