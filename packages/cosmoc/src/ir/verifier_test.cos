@@ -200,6 +200,86 @@ def ir_basic_expression_lowerer_accepts_simple_parser_source(): Bool = {
     ir_lowered_function_has_operation_count(ir_module, "main", 5)
 }
 
+def ir_member_intrinsic_lowerer_accepts_parser_state_methods(): Bool = {
+  var arenas = syntax_arenas();
+  val usize_type = arenas.make_name_type("usize", make_span(0, 5));
+  val u8_type = arenas.make_name_type("u8", make_span(6, 8));
+  val string_type = arenas.make_name_type("String", make_span(9, 15));
+  val unit_type = arenas.make_name_type("Unit", make_span(16, 20));
+
+  val offset_field = arenas.make_field_member("offset", true, usize_type, make_span(21, 27));
+  val source_field = arenas.make_field_member("source", false, string_type, make_span(28, 34));
+
+  val current_self = arenas.make_self_param(false, make_span(35, 39));
+  val current_params = Vec[ParamId]();
+  current_params.push(current_self);
+  val current_source_self = arenas.make_name_expr("self", make_span(40, 44));
+  val current_source = arenas.make_select_expr(current_source_self, "source", make_span(40, 51));
+  val byte_at_select = arenas.make_select_expr(current_source, "byte_at", make_span(40, 59));
+  val current_offset_self = arenas.make_name_expr("self", make_span(60, 64));
+  val current_offset = arenas.make_select_expr(current_offset_self, "offset", make_span(60, 71));
+  val byte_at_args = Vec[ExprId]();
+  byte_at_args.push(current_offset);
+  val byte_at_call = arenas.make_call_expr(byte_at_select, byte_at_args, make_span(40, 72));
+  val current_byte = arenas.make_method_member("current_byte", current_params, u8_type, byte_at_call, make_span(35, 72));
+
+  val advance_self = arenas.make_self_param(true, make_span(73, 82));
+  val advance_params = Vec[ParamId]();
+  advance_params.push(advance_self);
+  val advance_target_self = arenas.make_name_expr("self", make_span(83, 87));
+  val advance_target = arenas.make_select_expr(advance_target_self, "offset", make_span(83, 94));
+  val advance_left_self = arenas.make_name_expr("self", make_span(97, 101));
+  val advance_left = arenas.make_select_expr(advance_left_self, "offset", make_span(97, 108));
+  val one = arenas.make_numeric_literal_expr("1", make_span(111, 112));
+  val next_offset = arenas.make_binary_expr("+", advance_left, one, make_span(97, 112));
+  val offset_assign = arenas.make_assign_expr(advance_target, next_offset, make_span(83, 112));
+  val advance_items = Vec[ExprId]();
+  advance_items.push(offset_assign);
+  val advance_body = arenas.make_block_expr(advance_items, make_span(83, 113));
+  val advance = arenas.make_method_member("advance", advance_params, unit_type, advance_body, make_span(73, 113));
+
+  val skip_self = arenas.make_self_param(true, make_span(114, 123));
+  val skip_params = Vec[ParamId]();
+  skip_params.push(skip_self);
+  val skip_call_self = arenas.make_name_expr("self", make_span(124, 128));
+  val skip_select = arenas.make_select_expr(skip_call_self, "advance", make_span(124, 136));
+  val skip_call = arenas.make_call_expr(skip_select, Vec[ExprId](), make_span(124, 138));
+  val skip_one = arenas.make_method_member("skip_one", skip_params, unit_type, skip_call, make_span(114, 138));
+
+  val members = Vec[MemberId]();
+  members.push(offset_field);
+  members.push(source_field);
+  members.push(current_byte);
+  members.push(advance);
+  members.push(skip_one);
+  val parser_state = arenas.make_class_decl("ParserState", members, make_span(0, 138));
+  val declarations = Vec[DeclId]();
+  declarations.push(parser_state);
+  val root = arenas.make_module(declarations, make_span(0, 138));
+
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  val checked = check_module_basic_expressions_with_resolution(arenas, root, names, resolved);
+  if (!names.is_ok() or !resolved.is_ok() or !checked.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+
+  ir_lowered_function_has_operation_count(ir_module, "ParserState.current_byte", 3) and
+    ir_lowered_function_has_operation_count(ir_module, "ParserState.advance", 3) and
+    ir_lowered_function_has_operation_count(ir_module, "ParserState.skip_one", 1) and
+    ir_lowered_function_has_intrinsic(ir_module, "ParserState.current_byte", "string.byte_at") and
+    ir_lowered_function_has_field_get(ir_module, "ParserState.current_byte", "source") and
+    ir_lowered_function_has_field_get(ir_module, "ParserState.current_byte", "offset") and
+    ir_lowered_function_has_field_set(ir_module, "ParserState.advance", "offset") and
+    ir_lowered_function_has_call(ir_module, "ParserState.skip_one", "ParserState.advance")
+}
+
 def valid_ir_fixture(): IrFixture = {
   var types = type_store();
   val unit_type = types.alloc_primitive("Unit");
@@ -483,6 +563,146 @@ def ir_lowered_function_has_operation_count(ir_module: IrModule, id: String, cou
         return false
       }
       fn_value.blocks.get(0).operations.len() == count
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_intrinsic(ir_module: IrModule, id: String, name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+              if (intrinsic_name == name) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+            }
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+            }
+            case IrOperation.FieldSet(receiver, field, value) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_field_get(ir_module: IrModule, id: String, name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+              if (field == name) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+            }
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+            }
+            case IrOperation.FieldSet(receiver, field, value) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_field_set(ir_module: IrModule, id: String, name: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.FieldSet(receiver, field, value) => {
+              if (field == name) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+            }
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+            }
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
+    }
+    case Option[IrFunction]::None => {
+      false
+    }
+  }
+}
+
+def ir_lowered_function_has_call(ir_module: IrModule, id: String, callee_id: String): Bool = {
+  val maybe_fn = find_function(ir_module, ir_decl_id(id));
+  maybe_fn match {
+    case Option[IrFunction]::Some(fn_value) => {
+      for (block in fn_value.blocks) {
+        for (operation in block.operations) {
+          operation match {
+            case IrOperation.DirectCall(output, callee, args, signature) => {
+              if (callee.value == callee_id) {
+                return true
+              }
+            }
+            case IrOperation.InitLocal(target, value) => {
+            }
+            case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
+            }
+            case IrOperation.FieldGet(output, receiver, field, result_type) => {
+            }
+            case IrOperation.FieldSet(receiver, field, value) => {
+            }
+            case IrOperation.Binary(output, op, left, right, result_type) => {
+            }
+          }
+        }
+      }
+      false
     }
     case Option[IrFunction]::None => {
       false

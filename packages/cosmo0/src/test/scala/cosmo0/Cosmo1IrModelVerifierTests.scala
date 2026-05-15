@@ -57,6 +57,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assert(output.contains("inline bool ir_debug_renderer_is_deterministic()"))
     assert(output.contains("inline bool ir_declaration_lowerer_records_parser_state_and_helpers()"))
     assert(output.contains("inline bool ir_basic_expression_lowerer_accepts_simple_parser_source()"))
+    assert(output.contains("inline bool ir_member_intrinsic_lowerer_accepts_parser_state_methods()"))
 
   private def combineSources(paths: List[String]): String =
     paths.map(readCosmoSource).mkString("\n")
