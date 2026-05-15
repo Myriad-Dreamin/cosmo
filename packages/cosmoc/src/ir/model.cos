@@ -18,7 +18,20 @@ class IrModule {
 }
 
 class IrDeclaration {
+  case Type(IrTypeDecl)
   case Function(IrFunction)
+}
+
+class IrTypeDecl {
+  val id: IrDeclId
+  val name: String
+  val fields: Vec[IrField]
+}
+
+class IrField {
+  val name: String
+  val typ: TypeId
+  val mutable: Bool
 }
 
 class IrFunction {
@@ -29,6 +42,7 @@ class IrFunction {
   val locals: Vec[IrLocal]
   val blocks: Vec[IrBlock]
   val owner: Option[IrDeclId]
+  val receiver: Option[IrLocalId]
 }
 
 class IrParam {
@@ -145,6 +159,9 @@ def verify_ir_module(types: TypeStore, ir_module: IrModule): IrVerifyResult = {
   verify_duplicate_declarations(ir_module, diagnostics);
   for (declaration in ir_module.declarations) {
     declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        verify_ir_type(type_decl, diagnostics)
+      }
       case IrDeclaration.Function(fn_value) => {
         verify_ir_function(types, ir_module, fn_value, diagnostics)
       }
@@ -171,9 +188,28 @@ def verify_duplicate_declarations(ir_module: IrModule, diagnostics: Vec[IrDiagno
 
 def declaration_id(declaration: IrDeclaration): IrDeclId = {
   declaration match {
+    case IrDeclaration.Type(type_decl) => {
+      type_decl.id
+    }
     case IrDeclaration.Function(fn_value) => {
       fn_value.id
     }
+  }
+}
+
+def verify_ir_type(type_decl: IrTypeDecl, diagnostics: Vec[IrDiagnostic]): Unit = {
+  var index: usize = 0;
+  while (index < type_decl.fields.len()) {
+    val current = type_decl.fields.get(index).name;
+    var next = index + 1;
+    while (next < type_decl.fields.len()) {
+      val other = type_decl.fields.get(next).name;
+      if (current == other) {
+        ir_error(diagnostics, "cosmo1.ir.duplicate-field", "duplicate field ".concat(current))
+      }
+      next = next + 1
+    }
+    index = index + 1
   }
 }
 
@@ -481,6 +517,8 @@ def find_function(ir_module: IrModule, id: IrDeclId): Option[IrFunction] = {
           return Option[IrFunction]::Some(fn_value)
         }
       }
+      case IrDeclaration.Type(type_decl) => {
+      }
     }
   }
   Option[IrFunction]::None
@@ -611,10 +649,25 @@ def render_ir_module(types: TypeStore, ir_module: IrModule): String = {
 
 def render_ir_declaration(types: TypeStore, declaration: IrDeclaration): String = {
   declaration match {
+    case IrDeclaration.Type(type_decl) => {
+      render_ir_type(types, type_decl)
+    }
     case IrDeclaration.Function(fn_value) => {
       render_ir_function(types, fn_value)
     }
   }
+}
+
+def render_ir_type(types: TypeStore, type_decl: IrTypeDecl): String = {
+  var text = "  type @".concat(type_decl.id.value).concat(" ").concat(type_decl.name).concat(" {\n");
+  for (field in type_decl.fields) {
+    text = text.concat("    field ");
+    if (field.mutable) {
+      text = text.concat("var ")
+    }
+    text = text.concat(field.name).concat(": ").concat(ir_type_display(types, field.typ)).concat("\n")
+  }
+  text.concat("  }")
 }
 
 def render_ir_function(types: TypeStore, fn_value: IrFunction): String = {
@@ -626,6 +679,13 @@ def render_ir_function(types: TypeStore, fn_value: IrFunction): String = {
       text = text.concat(" owner @").concat(owner.value)
     }
     case Option[IrDeclId]::None => {
+    }
+  }
+  fn_value.receiver match {
+    case Option[IrLocalId]::Some(receiver) => {
+      text = text.concat(" receiver %").concat(receiver.value)
+    }
+    case Option[IrLocalId]::None => {
     }
   }
   text = text.concat(" {\n");

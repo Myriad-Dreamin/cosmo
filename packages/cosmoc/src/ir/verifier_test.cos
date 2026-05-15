@@ -1,4 +1,9 @@
+import ir.lowering
 import ir.model
+import names.resolution
+import source.span
+import syntax.ast
+import types.declaration_resolution
 import types.model
 
 class IrFixture {
@@ -49,6 +54,83 @@ def ir_debug_renderer_is_deterministic(): Bool = {
   first == second and first != ""
 }
 
+def ir_declaration_lowerer_records_parser_state_and_helpers(): Bool = {
+  var arenas = syntax_arenas();
+  val offset_type = arenas.make_name_type("usize", make_span(0, 5));
+  val offset_field = arenas.make_field_member("offset", false, offset_type, make_span(0, 5));
+  val source_type = arenas.make_name_type("String", make_span(6, 12));
+  val source_field = arenas.make_field_member("source", false, source_type, make_span(6, 12));
+
+  val current_self = arenas.make_self_param(false, make_span(13, 18));
+  val current_params = Vec[ParamId]();
+  current_params.push(current_self);
+  val current_return = arenas.make_name_type("u8", make_span(19, 21));
+  val current_body = arenas.make_missing_expr(make_span(22, 22));
+  val current_byte = arenas.make_method_member("current_byte", current_params, current_return, current_body, make_span(13, 22));
+
+  val advance_self = arenas.make_self_param(true, make_span(23, 32));
+  val advance_params = Vec[ParamId]();
+  advance_params.push(advance_self);
+  val advance_return = arenas.make_name_type("Unit", make_span(33, 37));
+  val advance_body = arenas.make_missing_expr(make_span(38, 38));
+  val advance = arenas.make_method_member("advance", advance_params, advance_return, advance_body, make_span(23, 38));
+
+  val members = Vec[MemberId]();
+  members.push(offset_field);
+  members.push(source_field);
+  members.push(current_byte);
+  members.push(advance);
+  val parser_state = arenas.make_class_decl("ParserState", members, make_span(0, 38));
+
+  val source_param_type = arenas.make_name_type("String", make_span(39, 45));
+  val source_param_default = arenas.make_missing_expr(make_span(0, 0));
+  val source_param = arenas.make_named_param("source", source_param_type, source_param_default, make_span(39, 45));
+  val parser_state_params = Vec[ParamId]();
+  parser_state_params.push(source_param);
+  val parser_state_return = arenas.make_name_type("ParserState", make_span(46, 57));
+  val parser_state_body = arenas.make_missing_expr(make_span(58, 58));
+  val parser_state_fn = arenas.make_function_decl("parser_state", parser_state_params, parser_state_return, parser_state_body, make_span(39, 58));
+
+  val parse_source_param_type = arenas.make_name_type("String", make_span(59, 65));
+  val parse_source_param_default = arenas.make_missing_expr(make_span(0, 0));
+  val parse_source_param = arenas.make_named_param("source", parse_source_param_type, parse_source_param_default, make_span(59, 65));
+  val parse_source_params = Vec[ParamId]();
+  parse_source_params.push(parse_source_param);
+  val parse_source_return = arenas.make_name_type("Bool", make_span(66, 70));
+  val parse_source_body = arenas.make_missing_expr(make_span(71, 71));
+  val parse_source_fn = arenas.make_function_decl("parse_source", parse_source_params, parse_source_return, parse_source_body, make_span(59, 71));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(parser_state);
+  declarations.push(parser_state_fn);
+  declarations.push(parse_source_fn);
+  val root = arenas.make_module(declarations, make_span(0, 71));
+
+  val names = resolve_module_names(arenas, root);
+  val resolved = resolve_module_declarations_with_names(arenas, root, names);
+  if (!resolved.is_ok()) {
+    return false
+  }
+
+  val ir_module = lower_module_declarations(arenas, root, names, resolved);
+  val verified = verify_ir_module(resolved.types, ir_module);
+  if (!verified.is_ok()) {
+    return false
+  }
+  if (ir_module.declarations.len() != 5) {
+    return false
+  }
+  if (!declaration_fixture_has_stable_order(ir_module)) {
+    return false
+  }
+
+  declaration_fixture_has_parser_state(resolved.types, ir_module) and
+    declaration_fixture_has_method(ir_module, "ParserState.current_byte", "self") and
+    declaration_fixture_has_method(ir_module, "ParserState.advance", "self") and
+    declaration_fixture_has_function(ir_module, "parser_state") and
+    declaration_fixture_has_function(ir_module, "parse_source")
+}
+
 def valid_ir_fixture(): IrFixture = {
   var types = type_store();
   val unit_type = types.alloc_primitive("Unit");
@@ -73,7 +155,8 @@ def valid_ir_fixture(): IrFixture = {
     i32_type,
     Vec[IrLocal](),
     identity_blocks,
-    Option[IrDeclId]::None
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
   );
 
   val main_params = Vec[IrParam]();
@@ -115,7 +198,8 @@ def valid_ir_fixture(): IrFixture = {
     i32_type,
     main_locals,
     main_blocks,
-    Option[IrDeclId]::None
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
   );
 
   val declarations = Vec[IrDeclaration]();
@@ -137,7 +221,8 @@ def invalid_branch_fixture(): IrFixture = {
     unit_type,
     Vec[IrLocal](),
     blocks,
-    Option[IrDeclId]::None
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
   );
   declarations.push(IrDeclaration.Function(fn_value));
   IrFixture(types, IrModule("bad_branch", declarations))
@@ -161,7 +246,8 @@ def use_before_definition_fixture(): IrFixture = {
     i32_type,
     locals,
     blocks,
-    Option[IrDeclId]::None
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
   );
   val declarations = Vec[IrDeclaration]();
   declarations.push(IrDeclaration.Function(fn_value));
@@ -199,7 +285,8 @@ def invalid_call_fixture(): IrFixture = {
     i32_type,
     locals,
     blocks,
-    Option[IrDeclId]::None
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
   );
   val declarations = fixture.ir_module.declarations;
   declarations.push(IrDeclaration.Function(bad));
@@ -223,9 +310,81 @@ def return_mismatch_fixture(): IrFixture = {
     i32_type,
     Vec[IrLocal](),
     blocks,
-    Option[IrDeclId]::None
+    Option[IrDeclId]::None,
+    Option[IrLocalId]::None
   );
   val declarations = Vec[IrDeclaration]();
   declarations.push(IrDeclaration.Function(fn_value));
   IrFixture(types, IrModule("bad_return", declarations))
+}
+
+def declaration_fixture_has_parser_state(types: TypeStore, ir_module: IrModule): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        if (type_decl.id.value == "ParserState" and type_decl.name == "ParserState") {
+          return declaration_fixture_has_field(types, type_decl, "offset", "usize") and
+            declaration_fixture_has_field(types, type_decl, "source", "String")
+        }
+      }
+      case IrDeclaration.Function(fn_value) => {
+      }
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_stable_order(ir_module: IrModule): Bool = {
+  declaration_id(ir_module.declarations.get(0)).value == "ParserState" and
+    declaration_id(ir_module.declarations.get(1)).value == "ParserState.current_byte" and
+    declaration_id(ir_module.declarations.get(2)).value == "ParserState.advance" and
+    declaration_id(ir_module.declarations.get(3)).value == "parser_state" and
+    declaration_id(ir_module.declarations.get(4)).value == "parse_source"
+}
+
+def declaration_fixture_has_field(types: TypeStore, type_decl: IrTypeDecl, name: String, expected_type: String): Bool = {
+  for (field in type_decl.fields) {
+    if (field.name == name and ir_type_display(types, field.typ) == expected_type) {
+      return true
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_method(ir_module: IrModule, id: String, receiver: String): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Function(fn_value) => {
+        if (fn_value.id.value == id and fn_value.owner.is_some()) {
+          fn_value.receiver match {
+            case Option[IrLocalId]::Some(receiver_id) => {
+              if (receiver_id.value == receiver) {
+                return true
+              }
+            }
+            case Option[IrLocalId]::None => {
+            }
+          }
+        }
+      }
+      case IrDeclaration.Type(type_decl) => {
+      }
+    }
+  }
+  false
+}
+
+def declaration_fixture_has_function(ir_module: IrModule, id: String): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Function(fn_value) => {
+        if (fn_value.id.value == id and fn_value.owner.is_none() and fn_value.receiver.is_none()) {
+          return true
+        }
+      }
+      case IrDeclaration.Type(type_decl) => {
+      }
+    }
+  }
+  false
 }
