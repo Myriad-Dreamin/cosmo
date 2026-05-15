@@ -1,0 +1,1413 @@
+import ir.model
+import names.resolution
+import names.scope
+import names.symbol
+import source.span
+import syntax.ast
+import types.check
+import types.declaration_resolution
+import types.model
+
+class IrDeclarationLowerer {
+  val arenas: SyntaxArenas
+  val names: NameResolution
+  val resolved: DeclarationResolution
+  val checked: ExpressionCheckResult
+
+  def lower_module(&self, module_id: ModuleId): IrModule = {
+    val module_value = self.arenas.module_value(module_id);
+    val declarations = Vec[IrDeclaration]();
+    for (decl_id in module_value.declarations) {
+      self.lower_decl(module_id, decl_id, declarations)
+    }
+    IrModule("cosmo1", declarations)
+  }
+
+  def lower_decl(&self, module_id: ModuleId, id: DeclId, declarations: Vec[IrDeclaration]): Unit = {
+    val decl = self.arenas.decl_value(id);
+    decl match {
+      case SyntaxDecl.Class(name, members, span) => {
+        self.lower_class(module_id, id, name, members, declarations)
+      }
+      case SyntaxDecl.Function(name, params, return_type, body, span) => {
+        self.lower_function_decl(module_id, id, name, body, declarations)
+      }
+      case SyntaxDecl.AEmpty => {
+      }
+      case SyntaxDecl.Unsupported(text, span) => {
+      }
+      case SyntaxDecl.Import(path, span) => {
+      }
+      case SyntaxDecl.TypeAlias(name, typ, span) => {
+      }
+      case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      }
+    }
+  }
+
+  def lower_class(
+    &self,
+    module_id: ModuleId,
+    id: DeclId,
+    name: String,
+    members: Vec[MemberId],
+    declarations: Vec[IrDeclaration]
+  ): Unit = {
+    val class_signature = self.resolved.class_signatures.get(id);
+    class_signature match {
+      case Option[ClassSignature]::Some(signature) => {
+        val fields = Vec[IrField]();
+        val methods = Vec[IrDeclaration]();
+        for (member_id in members) {
+          self.lower_class_member(module_id, member_id, signature.definition, methods, fields)
+        }
+        declarations.push(IrDeclaration.Type(IrTypeDecl(self.ir_id_for_def(signature.definition), name, fields)));
+        for (method in methods) {
+          declarations.push(method)
+        }
+      }
+      case Option[ClassSignature]::None => {
+      }
+    }
+  }
+
+  def lower_class_member(
+    &self,
+    module_id: ModuleId,
+    id: MemberId,
+    owner: DefId,
+    declarations: Vec[IrDeclaration],
+    fields: Vec[IrField]
+  ): Unit = {
+    val member = self.arenas.member_value(id);
+    member match {
+      case SyntaxMember.Field(name, mutable, typ, span) => {
+        self.lower_field(id, name, fields)
+      }
+      case SyntaxMember.Method(name, params, return_type, body, span) => {
+        self.lower_method(module_id, id, name, body, owner, declarations)
+      }
+      case SyntaxMember.AEmpty => {
+      }
+      case SyntaxMember.Unsupported(text, span) => {
+      }
+      case SyntaxMember.TypeAlias(name, typ, span) => {
+      }
+      case SyntaxMember.Variant(name, fields, span) => {
+      }
+    }
+  }
+
+  def lower_field(&self, id: MemberId, name: String, fields: Vec[IrField]): Unit = {
+    val signature = self.resolved.field_signatures.get(id);
+    signature match {
+      case Option[FieldSignature]::Some(field) => {
+        fields.push(IrField(name, field.typ, field.mutable))
+      }
+      case Option[FieldSignature]::None => {
+      }
+    }
+  }
+
+  def lower_method(
+    &self,
+    module_id: ModuleId,
+    id: MemberId,
+    name: String,
+    body: ExprId,
+    owner: DefId,
+    declarations: Vec[IrDeclaration]
+  ): Unit = {
+    val signature = self.resolved.method_signatures.get(id);
+    signature match {
+      case Option[CallableSignature]::Some(callable) => {
+        declarations.push(IrDeclaration.Function(self.lower_function(module_id, name, callable, body, Option[DefId]::Some(owner))))
+      }
+      case Option[CallableSignature]::None => {
+      }
+    }
+  }
+
+  def lower_function_decl(&self, module_id: ModuleId, id: DeclId, name: String, body: ExprId, declarations: Vec[IrDeclaration]): Unit = {
+    val signature = self.resolved.function_signatures.get(id);
+    signature match {
+      case Option[CallableSignature]::Some(callable) => {
+        declarations.push(IrDeclaration.Function(self.lower_function(module_id, name, callable, body, Option[DefId]::None)))
+      }
+      case Option[CallableSignature]::None => {
+      }
+    }
+  }
+
+  def lower_function(
+    &self,
+    module_id: ModuleId,
+    name: String,
+    signature: CallableSignature,
+    body: ExprId,
+    owner: Option[DefId]
+  ): IrFunction = {
+    val params = Vec[IrParam]();
+    for (param_id in signature.params) {
+      self.lower_param(param_id, params)
+    }
+    val builder = IrFunctionBodyBuilder(
+      self.arenas,
+      self.names,
+      self.resolved,
+      self.checked,
+      module_id,
+      signature,
+      params,
+      Vec[IrLocal](),
+      Vec[IrOperation](),
+      Vec[IrBlock](),
+      ir_block_id("entry"),
+      Map[DefId, IrLocalId](),
+      0,
+      0,
+      false,
+      Option[IrTerminator]::None
+    );
+    val lowered_body = builder.lower_body(body);
+    IrFunction(
+      self.ir_id_for_def(signature.definition),
+      name,
+      params,
+      signature.return_type,
+      lowered_body.locals,
+      lowered_body.blocks,
+      self.ir_owner(owner),
+      self.receiver_id(signature.receiver)
+    )
+  }
+
+  def lower_param(&self, id: ParamId, params: Vec[IrParam]): Unit = {
+    val signature = self.resolved.param_signatures.get(id);
+    signature match {
+      case Option[ParameterSignature]::Some(param) => {
+        val name = self.param_name(id);
+        params.push(IrParam(ir_local_id(name), name, param.typ))
+      }
+      case Option[ParameterSignature]::None => {
+      }
+    }
+  }
+
+  def param_name(&self, id: ParamId): String = {
+    val param = self.arenas.param_value(id);
+    param match {
+      case SyntaxParam.Self(mutable, span) => {
+        "self"
+      }
+      case SyntaxParam.Named(name, typ, default_value, span) => {
+        name
+      }
+      case SyntaxParam.AEmpty => {
+        "param"
+      }
+    }
+  }
+
+  def placeholder_blocks(&self): Vec[IrBlock] = {
+    val blocks = Vec[IrBlock]();
+    blocks.push(IrBlock(ir_block_id("entry"), Vec[IrOperation](), IrTerminator.Unreachable("body lowering pending")));
+    blocks
+  }
+
+  def receiver_id(&self, receiver: Option[ParamId]): Option[IrLocalId] = {
+    receiver match {
+      case Option[ParamId]::Some(param_id) => {
+        Option[IrLocalId]::Some(ir_local_id(self.param_name(param_id)))
+      }
+      case Option[ParamId]::None => {
+        Option[IrLocalId]::None
+      }
+    }
+  }
+
+  def ir_owner(&self, owner: Option[DefId]): Option[IrDeclId] = {
+    owner match {
+      case Option[DefId]::Some(definition) => {
+        Option[IrDeclId]::Some(self.ir_id_for_def(definition))
+      }
+      case Option[DefId]::None => {
+        Option[IrDeclId]::None
+      }
+    }
+  }
+
+  def ir_id_for_def(&self, id: DefId): IrDeclId = {
+    ir_decl_id(self.stable_symbol(id))
+  }
+
+  def stable_symbol(&self, id: DefId): String = {
+    val definition = self.names.env.definition(id);
+    val name = symbol_text(definition.name);
+    definition.owner match {
+      case Option[DefId]::Some(owner) => {
+        self.stable_symbol(owner).concat(".").concat(name)
+      }
+      case Option[DefId]::None => {
+        name
+      }
+    }
+  }
+}
+
+class IrLoweredFunctionBody {
+  val locals: Vec[IrLocal]
+  val blocks: Vec[IrBlock]
+}
+
+class IrFunctionBodyBuilder {
+  val arenas: SyntaxArenas
+  val names: NameResolution
+  val resolved: DeclarationResolution
+  val checked: ExpressionCheckResult
+  val module_id: ModuleId
+  val signature: CallableSignature
+  val params: Vec[IrParam]
+  var locals: Vec[IrLocal]
+  var operations: Vec[IrOperation]
+  var blocks: Vec[IrBlock]
+  var current_label: IrBlockId
+  var local_defs: Map[DefId, IrLocalId]
+  var temp_index: usize
+  var label_index: usize
+  var terminated: Bool
+  var terminator: Option[IrTerminator]
+
+  def lower_body(&mut self, body: ExprId): IrLoweredFunctionBody = {
+    self.bind_params();
+    if (!self.checked.is_ok()) {
+      IrLoweredFunctionBody(self.locals, self.placeholder_blocks())
+    } else {
+      val maybe_value = self.lower_expr(body);
+      if (!self.terminated) {
+        self.terminate_return(maybe_value)
+      }
+
+      self.finish_current_block();
+      IrLoweredFunctionBody(self.locals, self.blocks)
+    }
+  }
+
+  def bind_params(&mut self): Unit = {
+    var index: usize = 0;
+    while (index < self.signature.params.len() and index < self.params.len()) {
+      val param_id = self.signature.params.get(index);
+      val maybe_def = self.names.param_definitions.get(param_id);
+      maybe_def match {
+        case Option[DefId]::Some(definition) => {
+          val ignored = self.local_defs.insert(definition, self.params.get(index).id);
+        }
+        case Option[DefId]::None => {
+        }
+      }
+      index = index + 1
+    }
+  }
+
+  def placeholder_blocks(&self): Vec[IrBlock] = {
+    val blocks = Vec[IrBlock]();
+    blocks.push(IrBlock(ir_block_id("entry"), Vec[IrOperation](), IrTerminator.Unreachable("body lowering pending")));
+    blocks
+  }
+
+  def lower_expr(&mut self, id: ExprId): Option[IrValue] = {
+    if (self.terminated) {
+      return Option[IrValue]::None
+    }
+
+    val maybe_typed = self.checked.typed_exprs.get(id);
+    maybe_typed match {
+      case Option[TypedExpr]::Some(typed) => {
+        self.lower_typed_expr(typed)
+      }
+      case Option[TypedExpr]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_typed_expr(&mut self, typed: TypedExpr): Option[IrValue] = {
+    typed.kind match {
+      case TypedExprKind.Name => {
+        self.lower_name(typed.expr, typed.typ)
+      }
+      case TypedExprKind.NumericLiteral(value) => {
+        Option[IrValue]::Some(IrValue.NumericLiteral(value, typed.typ))
+      }
+      case TypedExprKind.StringLiteral(value) => {
+        Option[IrValue]::Some(IrValue.StringLiteral(value, typed.typ))
+      }
+      case TypedExprKind.BoolLiteral(value) => {
+        Option[IrValue]::Some(IrValue.BoolLiteral(value, typed.typ))
+      }
+      case TypedExprKind.Construct(name, args) => {
+        self.lower_construct_type(name, typed.typ, args)
+      }
+      case TypedExprKind.Block(items) => {
+        self.lower_block(items)
+      }
+      case TypedExprKind.Local(mutable, init) => {
+        self.lower_local(typed.expr, mutable, init);
+        Option[IrValue]::Some(IrValue.Unit(typed.typ))
+      }
+      case TypedExprKind.Assign(target, value) => {
+        self.lower_assign(target, value);
+        Option[IrValue]::Some(IrValue.Unit(typed.typ))
+      }
+      case TypedExprKind.Call(callee, args) => {
+        self.lower_call(typed.expr, typed.typ, callee, args)
+      }
+      case TypedExprKind.Binary(op, left, right) => {
+        self.lower_binary(op, left, right, typed.typ)
+      }
+      case TypedExprKind.Return(value) => {
+        val lowered = self.lower_expr(value);
+        self.terminate_return(lowered);
+        Option[IrValue]::None
+      }
+      case TypedExprKind.Select(receiver, field) => {
+        self.lower_select(receiver, field, typed.typ)
+      }
+      case TypedExprKind.If(condition, then_body, else_body) => {
+        self.lower_if(condition, then_body, else_body, typed.typ)
+      }
+      case TypedExprKind.While(condition, body) => {
+        self.lower_while(condition, body, typed.typ)
+      }
+      case TypedExprKind.Error => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_block(&mut self, items: Vec[ExprId]): Option[IrValue] = {
+    var result = Option[IrValue]::Some(IrValue.Unit(self.signature.return_type));
+    for (item in items) {
+      if (!self.terminated) {
+        result = self.lower_expr(item)
+      }
+    }
+    result
+  }
+
+  def lower_name(&self, id: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_def = self.names.expr_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val maybe_local = self.local_defs.get(definition);
+        maybe_local match {
+          case Option[IrLocalId]::Some(local_id) => {
+            Option[IrValue]::Some(IrValue.Local(local_id, typ))
+          }
+          case Option[IrLocalId]::None => {
+            Option[IrValue]::Some(IrValue.Function(self.ir_id_for_def(definition), self.signature_for_function_type(typ)))
+          }
+        }
+      }
+      case Option[DefId]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_local(&mut self, id: ExprId, mutable: Bool, init: ExprId): Unit = {
+    val maybe_value = self.lower_expr(init);
+    maybe_value match {
+      case Option[IrValue]::Some(value) => {
+        val local_type = self.local_type(id);
+        val local_name = self.local_name(id);
+        val local_id = self.local_id_for_name(local_name);
+        val local = IrLocal(local_id, local_name, local_type, mutable);
+        self.locals.push(local);
+        self.operations.push(IrOperation.InitLocal(local_id, value));
+        self.bind_local_definition(id, local_id)
+      }
+      case Option[IrValue]::None => {
+      }
+    }
+  }
+
+  def lower_assign(&mut self, target: ExprId, value: ExprId): Unit = {
+    if (!self.lower_field_assign(target, value)) {
+      val maybe_target = self.local_ref_for_expr(target);
+      val maybe_value = self.lower_expr(value);
+      maybe_target match {
+        case Option[IrLocalId]::Some(local_id) => {
+          maybe_value match {
+            case Option[IrValue]::Some(lowered_value) => {
+              self.operations.push(IrOperation.Assign(local_id, lowered_value));
+            }
+            case Option[IrValue]::None => {
+            }
+          }
+        }
+        case Option[IrLocalId]::None => {
+        }
+      }
+    }
+  }
+
+  def lower_field_assign(&mut self, target: ExprId, value: ExprId): Bool = {
+    val target_expr = self.arenas.expr_value(target);
+    target_expr match {
+      case SyntaxExpr.Select(receiver, field, span) => {
+        val maybe_receiver = self.lower_expr(receiver);
+        val maybe_value = self.lower_expr(value);
+        maybe_receiver match {
+          case Option[IrValue]::Some(receiver_value) => {
+            maybe_value match {
+              case Option[IrValue]::Some(lowered_value) => {
+                self.operations.push(IrOperation.FieldSet(receiver_value, field, lowered_value));
+                true
+              }
+              case Option[IrValue]::None => {
+                false
+              }
+            }
+          }
+          case Option[IrValue]::None => {
+            false
+          }
+        }
+      }
+      case SyntaxExpr.AEmpty => {
+        false
+      }
+      case SyntaxExpr.Missing(span) => {
+        false
+      }
+      case SyntaxExpr.Name(name, span) => {
+        false
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.Block(items, span) => {
+        false
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        false
+      }
+      case SyntaxExpr.Assign(next_target, next_value, span) => {
+        false
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        false
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        false
+      }
+      case SyntaxExpr.Unary(op, expr, span) => {
+        false
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        false
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        false
+      }
+      case SyntaxExpr.Return(expr, span) => {
+        false
+      }
+    }
+  }
+
+  def lower_call(&mut self, id: ExprId, typ: TypeId, callee: ExprId, args: Vec[ExprId]): Option[IrValue] = {
+    val callee_expr = self.arenas.expr_value(callee);
+    callee_expr match {
+      case SyntaxExpr.Select(receiver, field, span) => {
+        return self.lower_member_call(typ, callee, receiver, field, args)
+      }
+      case SyntaxExpr.AEmpty => {
+      }
+      case SyntaxExpr.Missing(span) => {
+      }
+      case SyntaxExpr.Name(name, span) => {
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+      }
+      case SyntaxExpr.Block(items, span) => {
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+      }
+      case SyntaxExpr.Call(inner_callee, inner_args, span) => {
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+      }
+      case SyntaxExpr.Unary(op, expr, span) => {
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+      }
+      case SyntaxExpr.Return(expr, span) => {
+      }
+    }
+
+    val maybe_callee = self.function_def_for_expr(callee);
+    maybe_callee match {
+      case Option[DefId]::Some(definition) => {
+        val lowered_args = self.lower_args(args);
+        if (lowered_args.len() != args.len()) {
+          Option[IrValue]::None
+        } else {
+          val signature = self.signature_for_call(callee);
+          val output = self.call_output(typ);
+          self.operations.push(IrOperation.DirectCall(output, self.ir_id_for_def(definition), lowered_args, signature));
+          self.call_result(output, typ)
+        }
+      }
+      case Option[DefId]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_construct_type(&mut self, name: String, typ: TypeId, args: Vec[ExprId]): Option[IrValue] = {
+    val lowered_args = self.lower_args(args);
+    if (lowered_args.len() != args.len()) {
+      return Option[IrValue]::None
+    }
+
+    val fields = self.construct_field_inits(name, lowered_args);
+    if (fields.len() != lowered_args.len()) {
+      return Option[IrValue]::None
+    }
+
+    val output = self.declare_temp(typ);
+    self.operations.push(IrOperation.ConstructType(output.id, typ, fields));
+    Option[IrValue]::Some(IrValue.Local(output.id, typ))
+  }
+
+  def construct_field_inits(&self, name: String, values: Vec[IrValue]): Vec[IrFieldInit] = {
+    val result = Vec[IrFieldInit]();
+    val members = self.constructor_members(name);
+    var index: usize = 0;
+    while (index < values.len() and index < members.len()) {
+      val member = self.arenas.member_value(members.get(index));
+      member match {
+        case SyntaxMember.Field(field_name, mutable, typ, span) => {
+          result.push(IrFieldInit(field_name, values.get(index)))
+        }
+        case SyntaxMember.AEmpty => {
+        }
+        case SyntaxMember.Unsupported(text, span) => {
+        }
+        case SyntaxMember.Method(member_name, params, return_type, body, span) => {
+        }
+        case SyntaxMember.TypeAlias(member_name, typ, span) => {
+        }
+        case SyntaxMember.Variant(member_name, fields, span) => {
+        }
+      }
+      index = index + 1
+    }
+    result
+  }
+
+  def constructor_members(&self, name: String): Vec[MemberId] = {
+    val result = Vec[MemberId]();
+    val module_value = self.arenas.module_value(self.module_id);
+    for (decl_id in module_value.declarations) {
+      val decl = self.arenas.decl_value(decl_id);
+      decl match {
+        case SyntaxDecl.Class(class_name, members, span) => {
+          if (class_name == name) {
+            self.append_constructor_fields(members, result)
+          }
+        }
+        case SyntaxDecl.AEmpty => {
+        }
+        case SyntaxDecl.Unsupported(text, span) => {
+        }
+        case SyntaxDecl.Import(path, span) => {
+        }
+        case SyntaxDecl.Function(function_name, params, return_type, body, span) => {
+        }
+        case SyntaxDecl.TypeAlias(alias_name, typ, span) => {
+        }
+        case SyntaxDecl.Value(value_name, mutable, typ, init, span) => {
+        }
+      }
+    }
+    result
+  }
+
+  def append_constructor_fields(&self, members: Vec[MemberId], result: Vec[MemberId]): Unit = {
+    for (member_id in members) {
+      val member = self.arenas.member_value(member_id);
+      member match {
+        case SyntaxMember.Field(field_name, mutable, typ, span) => {
+          result.push(member_id)
+        }
+        case SyntaxMember.AEmpty => {
+        }
+        case SyntaxMember.Unsupported(text, span) => {
+        }
+        case SyntaxMember.Method(member_name, params, return_type, body, span) => {
+        }
+        case SyntaxMember.TypeAlias(member_name, typ, span) => {
+        }
+        case SyntaxMember.Variant(member_name, fields, span) => {
+        }
+      }
+    }
+  }
+
+  def lower_select(&mut self, receiver: ExprId, field: String, typ: TypeId): Option[IrValue] = {
+    val maybe_receiver = self.lower_expr(receiver);
+    maybe_receiver match {
+      case Option[IrValue]::Some(receiver_value) => {
+        if (self.select_is_callable(typ)) {
+          return Option[IrValue]::None
+        }
+        val output = self.declare_temp(typ);
+        self.operations.push(IrOperation.FieldGet(output.id, receiver_value, field, typ));
+        Option[IrValue]::Some(IrValue.Local(output.id, typ))
+      }
+      case Option[IrValue]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_member_call(
+    &mut self,
+    typ: TypeId,
+    callee: ExprId,
+    receiver: ExprId,
+    field: String,
+    args: Vec[ExprId]
+  ): Option[IrValue] = {
+    val maybe_receiver = self.lower_expr(receiver);
+    val lowered_args = self.lower_args(args);
+    maybe_receiver match {
+      case Option[IrValue]::Some(receiver_value) => {
+        if (lowered_args.len() != args.len()) {
+          return Option[IrValue]::None
+        }
+        val all_args = self.prepend_arg(receiver_value, lowered_args);
+        val signature = self.signature_with_receiver(receiver_value, self.signature_for_call(callee));
+        val output = self.call_output(typ);
+        val maybe_method = self.function_def_for_expr(callee);
+        maybe_method match {
+          case Option[DefId]::Some(definition) => {
+            self.operations.push(IrOperation.DirectCall(output, self.ir_id_for_def(definition), all_args, signature));
+            self.call_result(output, typ)
+          }
+          case Option[DefId]::None => {
+            if (!self.string_intrinsic_name(field).is_empty()) {
+              self.operations.push(IrOperation.IntrinsicCall(output, self.string_intrinsic_name(field), all_args, signature));
+              return self.call_result(output, typ)
+            }
+            Option[IrValue]::None
+          }
+        }
+      }
+      case Option[IrValue]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_binary(&mut self, op: String, left: ExprId, right: ExprId, typ: TypeId): Option[IrValue] = {
+    if (op == "and") {
+      return self.lower_short_circuit_and(left, right, typ)
+    }
+    if (op == "or") {
+      return self.lower_short_circuit_or(left, right, typ)
+    }
+
+    val maybe_left = self.lower_expr(left);
+    val maybe_right = self.lower_expr(right);
+    maybe_left match {
+      case Option[IrValue]::Some(left_value) => {
+        maybe_right match {
+          case Option[IrValue]::Some(right_value) => {
+            val output = self.declare_temp(typ);
+            self.operations.push(IrOperation.Binary(output.id, op, left_value, right_value, typ));
+            Option[IrValue]::Some(IrValue.Local(output.id, typ))
+          }
+          case Option[IrValue]::None => {
+            Option[IrValue]::None
+          }
+        }
+      }
+      case Option[IrValue]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_if(&mut self, condition: ExprId, then_body: ExprId, else_body: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_condition = self.lower_expr(condition);
+    maybe_condition match {
+      case Option[IrValue]::None => {
+        return Option[IrValue]::None
+      }
+      case Option[IrValue]::Some(condition_value) => {
+        val then_label = self.next_block_id("if_then");
+        val else_label = self.next_block_id("if_else");
+        val join_label = self.next_block_id("if_join");
+        val output = self.join_output(typ);
+
+        self.terminate_cond_branch(condition_value, then_label, else_label);
+        self.finish_current_block();
+
+        self.start_block(then_label);
+        val then_result = self.lower_expr(then_body);
+        val then_falls_through = self.finish_structured_branch(output, then_result, join_label);
+
+        self.start_block(else_label);
+        val else_result = self.lower_expr(else_body);
+        val else_falls_through = self.finish_structured_branch(output, else_result, join_label);
+
+        if (then_falls_through or else_falls_through) {
+          self.start_block(join_label);
+          return self.structured_result(output, typ)
+        }
+        self.start_block(join_label);
+        self.terminate_unreachable("unreachable after if");
+        return Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_while(&mut self, condition: ExprId, body: ExprId, typ: TypeId): Option[IrValue] = {
+    val condition_label = self.next_block_id("while_cond");
+    val body_label = self.next_block_id("while_body");
+    val exit_label = self.next_block_id("while_exit");
+
+    self.terminate_branch(condition_label);
+    self.finish_current_block();
+
+    self.start_block(condition_label);
+    val maybe_condition = self.lower_expr(condition);
+    maybe_condition match {
+      case Option[IrValue]::Some(condition_value) => {
+        self.terminate_cond_branch(condition_value, body_label, exit_label)
+      }
+      case Option[IrValue]::None => {
+        self.terminate_unreachable("missing while condition")
+      }
+    }
+    self.finish_current_block();
+
+    self.start_block(body_label);
+    val ignored = self.lower_expr(body);
+    if (!self.terminated) {
+      self.terminate_branch(condition_label)
+    }
+    self.finish_current_block();
+
+    self.start_block(exit_label);
+    Option[IrValue]::Some(IrValue.Unit(typ))
+  }
+
+  def lower_short_circuit_and(&mut self, left: ExprId, right: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_left = self.lower_expr(left);
+    maybe_left match {
+      case Option[IrValue]::None => {
+        return Option[IrValue]::None
+      }
+      case Option[IrValue]::Some(left_value) => {
+        val rhs_label = self.next_block_id("and_rhs");
+        val false_label = self.next_block_id("and_false");
+        val join_label = self.next_block_id("and_join");
+        val output = self.declare_temp(typ);
+
+        self.terminate_cond_branch(left_value, rhs_label, false_label);
+        self.finish_current_block();
+
+        self.start_block(rhs_label);
+        val maybe_right = self.lower_expr(right);
+        maybe_right match {
+          case Option[IrValue]::Some(right_value) => {
+            self.operations.push(IrOperation.Assign(output.id, right_value))
+          }
+          case Option[IrValue]::None => {
+          }
+        }
+        if (!self.terminated) {
+          self.terminate_branch(join_label)
+        }
+        self.finish_current_block();
+
+        self.start_block(false_label);
+        self.operations.push(IrOperation.Assign(output.id, IrValue.BoolLiteral(false, typ)));
+        self.terminate_branch(join_label);
+        self.finish_current_block();
+
+        self.start_block(join_label);
+        return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+      }
+    }
+  }
+
+  def lower_short_circuit_or(&mut self, left: ExprId, right: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_left = self.lower_expr(left);
+    maybe_left match {
+      case Option[IrValue]::None => {
+        return Option[IrValue]::None
+      }
+      case Option[IrValue]::Some(left_value) => {
+        val true_label = self.next_block_id("or_true");
+        val rhs_label = self.next_block_id("or_rhs");
+        val join_label = self.next_block_id("or_join");
+        val output = self.declare_temp(typ);
+
+        self.terminate_cond_branch(left_value, true_label, rhs_label);
+        self.finish_current_block();
+
+        self.start_block(true_label);
+        self.operations.push(IrOperation.Assign(output.id, IrValue.BoolLiteral(true, typ)));
+        self.terminate_branch(join_label);
+        self.finish_current_block();
+
+        self.start_block(rhs_label);
+        val maybe_right = self.lower_expr(right);
+        maybe_right match {
+          case Option[IrValue]::Some(right_value) => {
+            self.operations.push(IrOperation.Assign(output.id, right_value))
+          }
+          case Option[IrValue]::None => {
+          }
+        }
+        if (!self.terminated) {
+          self.terminate_branch(join_label)
+        }
+        self.finish_current_block();
+
+        self.start_block(join_label);
+        return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+      }
+    }
+  }
+
+  def join_output(&mut self, typ: TypeId): Option[IrLocalId] = {
+    if (ir_type_display(self.checked.types, typ) == "Unit") {
+      return Option[IrLocalId]::None
+    }
+    if (ir_type_display(self.checked.types, typ) == "never") {
+      return Option[IrLocalId]::None
+    }
+    val temp = self.declare_temp(typ);
+    Option[IrLocalId]::Some(temp.id)
+  }
+
+  def structured_result(&self, output: Option[IrLocalId], typ: TypeId): Option[IrValue] = {
+    output match {
+      case Option[IrLocalId]::Some(local_id) => {
+        Option[IrValue]::Some(IrValue.Local(local_id, typ))
+      }
+      case Option[IrLocalId]::None => {
+        Option[IrValue]::Some(IrValue.Unit(typ))
+      }
+    }
+  }
+
+  def finish_structured_branch(
+    &mut self,
+    output: Option[IrLocalId],
+    result: Option[IrValue],
+    join_label: IrBlockId
+  ): Bool = {
+    if (self.terminated) {
+      self.finish_current_block();
+      return false
+    }
+
+    output match {
+      case Option[IrLocalId]::Some(local_id) => {
+        result match {
+          case Option[IrValue]::Some(value) => {
+            self.operations.push(IrOperation.Assign(local_id, value))
+          }
+          case Option[IrValue]::None => {
+            self.terminate_unreachable("missing branch value");
+            self.finish_current_block();
+            return false
+          }
+        }
+      }
+      case Option[IrLocalId]::None => {
+      }
+    }
+
+    self.terminate_branch(join_label);
+    self.finish_current_block();
+    true
+  }
+
+  def prepend_arg(&self, first: IrValue, rest: Vec[IrValue]): Vec[IrValue] = {
+    val result = Vec[IrValue]();
+    result.push(first);
+    for (arg in rest) {
+      result.push(arg)
+    }
+    result
+  }
+
+  def signature_with_receiver(&self, receiver: IrValue, signature: IrFunctionSignature): IrFunctionSignature = {
+    val params = Vec[TypeId]();
+    params.push(ir_value_type(receiver));
+    for (param in signature.params) {
+      params.push(param)
+    }
+    ir_signature(params, signature.return_type)
+  }
+
+  def select_is_callable(&self, typ: TypeId): Bool = {
+    val node = self.checked.types.type_value(typ);
+    node match {
+      case CosmoType.Function(params, return_type) => {
+        true
+      }
+      case CosmoType.Primitive(name) => {
+        false
+      }
+      case CosmoType.User(name) => {
+        false
+      }
+      case CosmoType.Reference(mutable, inner) => {
+        false
+      }
+      case CosmoType.Never => {
+        false
+      }
+      case CosmoType.Error => {
+        false
+      }
+    }
+  }
+
+  def string_intrinsic_name(&self, field: String): String = {
+    if (field == "len") {
+      return "string.len"
+    }
+    if (field == "size") {
+      return "string.size"
+    }
+    if (field == "byte_at") {
+      return "string.byte_at"
+    }
+    if (field == "slice") {
+      return "string.slice"
+    }
+    ""
+  }
+
+  def lower_args(&mut self, args: Vec[ExprId]): Vec[IrValue] = {
+    val lowered = Vec[IrValue]();
+    for (arg in args) {
+      val maybe_value = self.lower_expr(arg);
+      maybe_value match {
+        case Option[IrValue]::Some(value) => {
+          val ignored = lowered.push(value);
+        }
+        case Option[IrValue]::None => {
+        }
+      }
+    }
+    lowered
+  }
+
+  def call_output(&mut self, typ: TypeId): Option[IrLocalId] = {
+    if (ir_type_display(self.checked.types, typ) == "Unit") {
+      return Option[IrLocalId]::None
+    }
+    val temp = self.declare_temp(typ);
+    Option[IrLocalId]::Some(temp.id)
+  }
+
+  def call_result(&self, output: Option[IrLocalId], typ: TypeId): Option[IrValue] = {
+    output match {
+      case Option[IrLocalId]::Some(local_id) => {
+        Option[IrValue]::Some(IrValue.Local(local_id, typ))
+      }
+      case Option[IrLocalId]::None => {
+        Option[IrValue]::Some(IrValue.Unit(typ))
+      }
+    }
+  }
+
+  def declare_temp(&mut self, typ: TypeId): IrLocal = {
+    val name = "tmp".concat(ir_ordinal_text(self.temp_index));
+    self.temp_index = self.temp_index + 1;
+    val local = IrLocal(ir_local_id(name), name, typ, false);
+    self.locals.push(local);
+    local
+  }
+
+  def bind_local_definition(&mut self, id: ExprId, local_id: IrLocalId): Unit = {
+    val maybe_def = self.names.local_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val ignored = self.local_defs.insert(definition, local_id);
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def local_ref_for_expr(&self, id: ExprId): Option[IrLocalId] = {
+    val maybe_def = self.names.expr_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        self.local_defs.get(definition)
+      }
+      case Option[DefId]::None => {
+        Option[IrLocalId]::None
+      }
+    }
+  }
+
+  def function_def_for_expr(&self, id: ExprId): Option[DefId] = {
+    val maybe_def = self.names.expr_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val maybe_local = self.local_defs.get(definition);
+        if (maybe_local.is_some()) {
+          return Option[DefId]::None
+        }
+        Option[DefId]::Some(definition)
+      }
+      case Option[DefId]::None => {
+        Option[DefId]::None
+      }
+    }
+  }
+
+  def signature_for_call(&self, callee: ExprId): IrFunctionSignature = {
+    val maybe_typed = self.checked.typed_exprs.get(callee);
+    maybe_typed match {
+      case Option[TypedExpr]::Some(typed) => {
+        self.signature_for_function_type(typed.typ)
+      }
+      case Option[TypedExpr]::None => {
+        ir_signature(Vec[TypeId](), self.signature.return_type)
+      }
+    }
+  }
+
+  def signature_for_function_type(&self, typ: TypeId): IrFunctionSignature = {
+    val node = self.checked.types.type_value(typ);
+    node match {
+      case CosmoType.Function(params, return_type) => {
+        ir_signature(params, return_type)
+      }
+      case CosmoType.Primitive(name) => {
+        ir_signature(Vec[TypeId](), typ)
+      }
+      case CosmoType.User(name) => {
+        ir_signature(Vec[TypeId](), typ)
+      }
+      case CosmoType.Reference(mutable, inner) => {
+        ir_signature(Vec[TypeId](), typ)
+      }
+      case CosmoType.Never => {
+        ir_signature(Vec[TypeId](), typ)
+      }
+      case CosmoType.Error => {
+        ir_signature(Vec[TypeId](), typ)
+      }
+    }
+  }
+
+  def terminate_return(&mut self, value: Option[IrValue]): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.Return(value))
+  }
+
+  def terminate_branch(&mut self, target: IrBlockId): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.Branch(target))
+  }
+
+  def terminate_cond_branch(&mut self, condition: IrValue, true_target: IrBlockId, false_target: IrBlockId): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.CondBranch(condition, true_target, false_target))
+  }
+
+  def terminate_unreachable(&mut self, reason: String): Unit = {
+    self.terminated = true;
+    self.terminator = Option[IrTerminator]::Some(IrTerminator.Unreachable(reason))
+  }
+
+  def current_terminator_value(&self): IrTerminator = {
+    self.terminator match {
+      case Option[IrTerminator]::Some(value) => {
+        value
+      }
+      case Option[IrTerminator]::None => {
+        IrTerminator.Return(Option[IrValue]::None)
+      }
+    }
+  }
+
+  def finish_current_block(&mut self): Unit = {
+    self.blocks.push(IrBlock(self.current_label, self.operations, self.current_terminator_value()));
+    self.operations = Vec[IrOperation]();
+    self.terminated = false;
+    self.terminator = Option[IrTerminator]::None
+  }
+
+  def start_block(&mut self, label: IrBlockId): Unit = {
+    self.current_label = label;
+    self.operations = Vec[IrOperation]();
+    self.terminated = false;
+    self.terminator = Option[IrTerminator]::None
+  }
+
+  def next_block_id(&mut self, prefix: String): IrBlockId = {
+    val label = prefix.concat("_").concat(ir_ordinal_text(self.label_index));
+    self.label_index = self.label_index + 1;
+    ir_block_id(label)
+  }
+
+  def local_type(&self, id: ExprId): TypeId = {
+    val expr = self.arenas.expr_value(id);
+    expr match {
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        val maybe_type = self.resolved.type_expr_types.get(typ);
+        maybe_type match {
+          case Option[TypeId]::Some(local_type) => {
+            local_type
+          }
+          case Option[TypeId]::None => {
+            self.signature.return_type
+          }
+        }
+      }
+      case SyntaxExpr.AEmpty => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Missing(span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Name(name, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Block(items, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Select(receiver, field, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Unary(op, value, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        self.signature.return_type
+      }
+      case SyntaxExpr.Return(value, span) => {
+        self.signature.return_type
+      }
+    }
+  }
+
+  def local_name(&self, id: ExprId): String = {
+    val expr = self.arenas.expr_value(id);
+    expr match {
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        name
+      }
+      case SyntaxExpr.AEmpty => {
+        "local"
+      }
+      case SyntaxExpr.Missing(span) => {
+        "local"
+      }
+      case SyntaxExpr.Name(name, span) => {
+        name
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+        "local"
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+        "local"
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+        "local"
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+        "local"
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+        "local"
+      }
+      case SyntaxExpr.Block(items, span) => {
+        "local"
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+        "local"
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        "local"
+      }
+      case SyntaxExpr.Select(receiver, field, span) => {
+        "local"
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        "local"
+      }
+      case SyntaxExpr.Unary(op, value, span) => {
+        "local"
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        "local"
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        "local"
+      }
+      case SyntaxExpr.Return(value, span) => {
+        "local"
+      }
+    }
+  }
+
+  def local_id_for_name(&self, name: String): IrLocalId = {
+    if (!self.has_local_id(name)) {
+      return ir_local_id(name)
+    }
+    ir_local_id(name.concat("_").concat(ir_ordinal_text(self.locals.len())))
+  }
+
+  def has_local_id(&self, name: String): Bool = {
+    for (param in self.params) {
+      if (param.id.value == name) {
+        return true
+      }
+    }
+    for (local in self.locals) {
+      if (local.id.value == name) {
+        return true
+      }
+    }
+    false
+  }
+
+  def ir_id_for_def(&self, id: DefId): IrDeclId = {
+    ir_decl_id(self.stable_symbol(id))
+  }
+
+  def stable_symbol(&self, id: DefId): String = {
+    val definition = self.names.env.definition(id);
+    val name = symbol_text(definition.name);
+    definition.owner match {
+      case Option[DefId]::Some(owner) => {
+        self.stable_symbol(owner).concat(".").concat(name)
+      }
+      case Option[DefId]::None => {
+        name
+      }
+    }
+  }
+}
+
+def ir_ordinal_text(value: usize): String = {
+  if (value < 10) {
+    return ir_digit_text(value)
+  }
+  if (value < 100) {
+    val tens = value / 10;
+    val ones = value % 10;
+    return ir_digit_text(tens).concat(ir_digit_text(ones))
+  }
+  "many".concat(ir_digit_text(value % 10))
+}
+
+def ir_digit_text(value: usize): String = {
+  if (value == 0) {
+    return "0"
+  }
+  if (value == 1) {
+    return "1"
+  }
+  if (value == 2) {
+    return "2"
+  }
+  if (value == 3) {
+    return "3"
+  }
+  if (value == 4) {
+    return "4"
+  }
+  if (value == 5) {
+    return "5"
+  }
+  if (value == 6) {
+    return "6"
+  }
+  if (value == 7) {
+    return "7"
+  }
+  if (value == 8) {
+    return "8"
+  }
+  "9"
+}
+
+def lower_module_declarations(
+  arenas: SyntaxArenas,
+  module_id: ModuleId,
+  names: NameResolution,
+  resolved: DeclarationResolution
+): IrModule = {
+  val checked = check_module_basic_expressions_with_resolution(arenas, module_id, names, resolved);
+  IrDeclarationLowerer(arenas, names, resolved, checked).lower_module(module_id)
+}

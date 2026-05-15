@@ -1,0 +1,171 @@
+import names.resolution
+import names.symbol
+import source.span
+import syntax.ast
+
+def name_resolution_test_symbols_are_interned(): Bool = {
+  var interner = symbol_interner();
+  val first = interner.intern("alpha");
+  val second = interner.intern("alpha");
+  val third = interner.intern("beta");
+  first == second and third == "beta" and interner.len() == 2
+}
+
+def name_resolution_test_resolves_parser_subset_fixture(): Bool = {
+  var arenas = syntax_arenas();
+
+  val i32_type = arenas.make_name_type("i32", make_span(0, 3));
+  val field = arenas.make_field_member("value", false, i32_type, make_span(10, 24));
+
+  val self_param = arenas.make_self_param(false, make_span(35, 40));
+  val extra_type = arenas.make_name_type("i32", make_span(48, 51));
+  val extra_default = arenas.make_missing_expr(make_span(0, 0));
+  val extra_param = arenas.make_named_param("extra", extra_type, extra_default, make_span(42, 51));
+  val method_params = Vec[ParamId]();
+  method_params.push(self_param);
+  method_params.push(extra_param);
+
+  val copy_type = arenas.make_name_type("i32", make_span(70, 73));
+  val extra_name = arenas.make_name_expr("extra", make_span(76, 81));
+  val copy_local = arenas.make_local_expr("copy", false, copy_type, extra_name, make_span(60, 82));
+  val self_name = arenas.make_name_expr("self", make_span(84, 88));
+  val self_value = arenas.make_select_expr(self_name, "value", make_span(84, 94));
+  val method_items = Vec[ExprId]();
+  method_items.push(copy_local);
+  method_items.push(self_value);
+  val method_body = arenas.make_block_expr(method_items, make_span(58, 96));
+  val method_return = arenas.make_name_type("i32", make_span(53, 56));
+  val method = arenas.make_method_member("get", method_params, method_return, method_body, make_span(30, 96));
+
+  val members = Vec[MemberId]();
+  members.push(field);
+  members.push(method);
+  val widget_decl = arenas.make_class_decl("Widget", members, make_span(0, 100));
+
+  val widget_type = arenas.make_name_type("Widget", make_span(120, 126));
+  val widget_default = arenas.make_missing_expr(make_span(0, 0));
+  val widget_param = arenas.make_named_param("widget", widget_type, widget_default, make_span(112, 126));
+  val use_params = Vec[ParamId]();
+  use_params.push(widget_param);
+
+  val widget_name = arenas.make_name_expr("widget", make_span(145, 151));
+  val widget_get = arenas.make_select_expr(widget_name, "get", make_span(145, 155));
+  val one = arenas.make_numeric_literal_expr("1", make_span(156, 157));
+  val args = Vec[ExprId]();
+  args.push(one);
+  val call_get = arenas.make_call_expr(widget_get, args, make_span(145, 158));
+  val local_type = arenas.make_name_type("i32", make_span(136, 139));
+  val local = arenas.make_local_expr("local", false, local_type, call_get, make_span(130, 159));
+  val local_name = arenas.make_name_expr("local", make_span(161, 166));
+  val use_items = Vec[ExprId]();
+  use_items.push(local);
+  use_items.push(local_name);
+  val use_body = arenas.make_block_expr(use_items, make_span(128, 168));
+  val use_return = arenas.make_name_type("i32", make_span(170, 173));
+  val use_decl = arenas.make_function_decl("use_widget", use_params, use_return, use_body, make_span(108, 174));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(widget_decl);
+  declarations.push(use_decl);
+  val root = arenas.make_module(declarations, make_span(0, 174));
+
+  val resolution = resolve_module_names(arenas, root);
+  resolution.is_ok() and
+    resolution.decl_definitions.contains_key(widget_decl) and
+    resolution.decl_definitions.contains_key(use_decl) and
+    resolution.member_definitions.contains_key(field) and
+    resolution.member_definitions.contains_key(method) and
+    resolution.param_definitions.contains_key(self_param) and
+    resolution.param_definitions.contains_key(extra_param) and
+    resolution.param_definitions.contains_key(widget_param) and
+    resolution.local_definitions.contains_key(copy_local) and
+    resolution.local_definitions.contains_key(local) and
+    resolution.expr_definitions.contains_key(extra_name) and
+    resolution.expr_definitions.contains_key(self_name) and
+    resolution.expr_definitions.contains_key(self_value) and
+    resolution.expr_definitions.contains_key(widget_name) and
+    resolution.expr_definitions.contains_key(local_name) and
+    resolution.resolved_type_len() >= 5 and
+    resolution.scope_len() >= 7
+}
+
+def name_resolution_test_resolves_supported_qualified_path(): Bool = {
+  var arenas = syntax_arenas();
+
+  val fields = Vec[TypeExprId]();
+  val ready = arenas.make_variant_member("Ready", fields, make_span(12, 22));
+  val members = Vec[MemberId]();
+  members.push(ready);
+  val status = arenas.make_class_decl("Status", members, make_span(0, 24));
+
+  val status_name = arenas.make_name_expr("Status", make_span(40, 46));
+  val ready_select = arenas.make_select_expr(status_name, "Ready", make_span(40, 52));
+  val return_type = arenas.make_name_type("Status", make_span(30, 36));
+  val params = Vec[ParamId]();
+  val make_ready = arenas.make_function_decl("make_ready", params, return_type, ready_select, make_span(26, 53));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(status);
+  declarations.push(make_ready);
+  val root = arenas.make_module(declarations, make_span(0, 53));
+
+  val resolution = resolve_module_names(arenas, root);
+  resolution.is_ok() and
+    resolution.member_definitions.contains_key(ready) and
+    resolution.expr_definitions.contains_key(status_name) and
+    resolution.expr_definitions.contains_key(ready_select)
+}
+
+def name_resolution_test_reports_duplicate_definition(): Bool = {
+  var arenas = syntax_arenas();
+
+  val first_type = arenas.make_name_type("i32", make_span(11, 14));
+  val first_init = arenas.make_numeric_literal_expr("1", make_span(17, 18));
+  val first = arenas.make_value_decl("answer", false, first_type, first_init, make_span(0, 18));
+
+  val second_type = arenas.make_name_type("i32", make_span(31, 34));
+  val second_init = arenas.make_numeric_literal_expr("2", make_span(37, 38));
+  val second = arenas.make_value_decl("answer", false, second_type, second_init, make_span(20, 38));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(first);
+  declarations.push(second);
+  val root = arenas.make_module(declarations, make_span(0, 38));
+
+  val resolution = resolve_module_names(arenas, root);
+  !resolution.is_ok() and resolution.first_diagnostic_code() == "cosmo1.name.duplicate-definition"
+}
+
+def name_resolution_test_reports_unresolved_name(): Bool = {
+  var arenas = syntax_arenas();
+
+  val return_type = arenas.make_name_type("i32", make_span(12, 15));
+  val body = arenas.make_name_expr("missing", make_span(18, 25));
+  val params = Vec[ParamId]();
+  val decl = arenas.make_function_decl("main", params, return_type, body, make_span(0, 25));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 25));
+
+  val resolution = resolve_module_names(arenas, root);
+  !resolution.is_ok() and resolution.first_diagnostic_code() == "cosmo1.name.unresolved-name"
+}
+
+def main(): i32 = {
+  if (!name_resolution_test_symbols_are_interned()) {
+    return 1
+  }
+  if (!name_resolution_test_resolves_parser_subset_fixture()) {
+    return 1
+  }
+  if (!name_resolution_test_resolves_supported_qualified_path()) {
+    return 1
+  }
+  if (!name_resolution_test_reports_duplicate_definition()) {
+    return 1
+  }
+  if (!name_resolution_test_reports_unresolved_name()) {
+    return 1
+  }
+  0
+}

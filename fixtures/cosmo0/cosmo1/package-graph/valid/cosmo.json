@@ -1,0 +1,10 @@
+{
+  "name": "@cosmo1/package-graph-valid",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "sources": [
+    "main.cos",
+    "util.cos"
+  ]
+}

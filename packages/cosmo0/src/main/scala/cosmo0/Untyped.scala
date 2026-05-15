@@ -249,6 +249,18 @@ final case class UntypedStringLiteral(
 ) extends UntypedExpr
     with UntypedPattern
 
+final case class UntypedAsciiLiteral(
+    value: String,
+    span: SourceSpan,
+) extends UntypedExpr
+    with UntypedPattern
+
+final case class UntypedRuneLiteral(
+    value: String,
+    span: SourceSpan,
+) extends UntypedExpr
+    with UntypedPattern
+
 final case class UntypedUnitLiteral(
     span: SourceSpan,
 ) extends UntypedExpr

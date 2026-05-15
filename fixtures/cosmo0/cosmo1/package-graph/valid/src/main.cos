@@ -1,0 +1,5 @@
+import util
+
+def entry(): i32 = {
+  util_value()
+}

@@ -1,0 +1,5 @@
+import missing
+
+def entry(): i32 = {
+  1
+}

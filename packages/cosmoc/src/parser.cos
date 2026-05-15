@@ -1,11 +1,116 @@
+import source.span
+import syntax.ast
+
 class ParserToken {
   val offset: usize
   val text: String
 }
 
-class ParserState {
+class SyntaxParserDiagnostic {
+  val code: String
+  val message: String
+  val span: Span
+}
+
+class SyntaxParserResult {
+  val root: ModuleId
+  val arenas: SyntaxArenas
+  val diagnostics: Vec[SyntaxParserDiagnostic]
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def diagnostic_len(&self): usize = {
+    self.diagnostics.len()
+  }
+
+  def first_diagnostic_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      ""
+    } else {
+      self.diagnostics.get(0).code
+    }
+  }
+
+  def declaration_len(&self): usize = {
+    self.arenas.module_decl_len(self.root)
+  }
+
+  def expr_len(&self): usize = {
+    self.arenas.expr_len()
+  }
+
+  def has_syntax(&self): Bool = {
+    self.declaration_len() > 0
+  }
+
+  def debug_syntax(&self): String = {
+    self.arenas.debug_module(self.root)
+  }
+
+  def required_spans_ok(&self): Bool = {
+    self.arenas.required_spans_ok(self.root)
+  }
+}
+
+class SyntaxParsedName {
+  val ok: Bool
+  val text: String
+  val span: Span
+}
+
+class SyntaxParsedType {
+  val ok: Bool
+  val id: TypeExprId
+}
+
+class SyntaxParsedParam {
+  val ok: Bool
+  val id: ParamId
+}
+
+class SyntaxParsedParams {
+  val ok: Bool
+  val params: Vec[ParamId]
+}
+
+class SyntaxParsedMembers {
+  val ok: Bool
+  val members: Vec[MemberId]
+}
+
+class SyntaxParsedTypes {
+  val ok: Bool
+  val types: Vec[TypeExprId]
+}
+
+class SyntaxParsedExpr {
+  val ok: Bool
+  val id: ExprId
+}
+
+class SyntaxParsedDecl {
+  val ok: Bool
+  val id: DeclId
+}
+
+class SyntaxParsedMember {
+  val ok: Bool
+  val id: MemberId
+}
+
+class ParserSliceMatch {
+  val found: Bool
+  val offset: usize
+}
+
+class SyntaxParserState {
   var offset: usize
   val source: String
+  var arenas: SyntaxArenas
+  var declarations: Vec[DeclId]
+  var diagnostics: Vec[SyntaxParserDiagnostic]
 
   def position(&self): usize = {
     self.offset
@@ -17,7 +122,7 @@ class ParserState {
 
   def current_byte(&self): u8 = {
     if (self.is_at_end()) {
-      0
+      a"\x00"
     } else {
       self.source.byte_at(self.offset)
     }
@@ -30,11 +135,15 @@ class ParserState {
   }
 
   def starts_with(&self, text: String): Bool = {
-    val end = self.offset + text.len();
+    self.starts_with_at(self.offset, text)
+  }
+
+  def starts_with_at(&self, offset: usize, text: String): Bool = {
+    val end = offset + text.len();
     if (end > self.source.len()) {
       false
     } else {
-      self.source.slice(self.offset, end) == text
+      self.source.slice(offset, end) == text
     }
   }
 
@@ -75,6 +184,14 @@ class ParserState {
     }
   }
 
+  def is_word_boundary_at(&self, offset: usize): Bool = {
+    if (offset >= self.source.len()) {
+      true
+    } else {
+      !is_ident_continue(self.source.byte_at(offset))
+    }
+  }
+
   def skip_ws(&mut self): Unit = {
     var changed = true;
     while (changed) {
@@ -84,7 +201,7 @@ class ParserState {
         changed = true
       }
       if (self.starts_with("//")) {
-        while (!self.is_at_end() and self.current_byte() != 10) {
+        while (!self.is_at_end() and self.current_byte() != a"\n") {
           self.advance()
         }
         changed = true
@@ -92,77 +209,188 @@ class ParserState {
     }
   }
 
+  def diagnostic(&mut self, code: String, message: String, span: Span): Unit = {
+    var diagnostics = self.diagnostics;
+    diagnostics.push(SyntaxParserDiagnostic(code, message, span));
+    self.diagnostics = diagnostics
+  }
+
+  def expected(&mut self, text: String, start: usize): Unit = {
+    self.diagnostic("cosmo1.parser.expected", text, make_span(start, self.offset))
+  }
+
+  def unsupported(&mut self, text: String, start: usize, end: usize): Bool = {
+    self.diagnostic("cosmo1.parser.unsupported-syntax", text, make_span(start, end));
+    false
+  }
+
+  def missing_expr(&mut self, span: Span): ExprId = {
+    self.alloc_expr(SyntaxExpr.Missing(span))
+  }
+
+  def missing_type(&mut self, span: Span): TypeExprId = {
+    self.alloc_type(SyntaxType.Missing(span))
+  }
+
+  def unsupported_decl(&mut self, text: String, span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.Unsupported(text, span))
+  }
+
+  def unsupported_member(&mut self, text: String, span: Span): MemberId = {
+    self.alloc_member(SyntaxMember.Unsupported(text, span))
+  }
+
+  def alloc_module(&mut self, value: SyntaxModule): ModuleId = {
+    var arenas = self.arenas;
+    val id = arenas.alloc_module(value);
+    self.arenas = arenas;
+    id
+  }
+
+  def alloc_decl(&mut self, decl: SyntaxDecl): DeclId = {
+    var arenas = self.arenas;
+    val id = arenas.alloc_decl(decl);
+    self.arenas = arenas;
+    id
+  }
+
+  def alloc_member(&mut self, member: SyntaxMember): MemberId = {
+    var arenas = self.arenas;
+    val id = arenas.alloc_member(member);
+    self.arenas = arenas;
+    id
+  }
+
+  def alloc_param(&mut self, param: SyntaxParam): ParamId = {
+    var arenas = self.arenas;
+    val id = arenas.alloc_param(param);
+    self.arenas = arenas;
+    id
+  }
+
+  def alloc_expr(&mut self, expr: SyntaxExpr): ExprId = {
+    var arenas = self.arenas;
+    val id = arenas.alloc_expr(expr);
+    self.arenas = arenas;
+    id
+  }
+
+  def alloc_type(&mut self, typ: SyntaxType): TypeExprId = {
+    var arenas = self.arenas;
+    val id = arenas.alloc_type(typ);
+    self.arenas = arenas;
+    id
+  }
+
   def parse_identifier(&mut self): Bool = {
+    self.parse_identifier_name().ok
+  }
+
+  def parse_identifier_name(&mut self): SyntaxParsedName = {
     self.skip_ws();
+    val start = self.offset;
     if (self.is_at_end()) {
-      false
+      SyntaxParsedName(false, "", make_span(start, start))
     } else {
       if (!is_ident_start(self.current_byte())) {
-        false
+        SyntaxParsedName(false, "", make_span(start, start))
       } else {
         self.advance();
         while (!self.is_at_end() and is_ident_continue(self.current_byte())) {
           self.advance()
         }
-        true
+        SyntaxParsedName(true, self.source.slice(start, self.offset), make_span(start, self.offset))
       }
     }
   }
 
   def parse_path(&mut self): Bool = {
-    if (!self.parse_identifier()) {
-      false
+    self.parse_path_type().ok
+  }
+
+  def parse_type(&mut self): Bool = {
+    self.parse_type_expr().ok
+  }
+
+  def parse_type_expr(&mut self): SyntaxParsedType = {
+    self.skip_ws();
+    val start = self.offset;
+    if (self.match_text("&")) {
+      self.skip_ws();
+      val mutable = self.expect_word("mut");
+      val inner = self.parse_type_expr();
+      if (!inner.ok) {
+        inner
+      } else {
+        SyntaxParsedType(true, self.alloc_type(SyntaxType.Ref(mutable, inner.id, make_span(start, self.offset))))
+      }
     } else {
+      val path = self.parse_path_type();
+      if (!path.ok) {
+        path
+      } else {
+        self.parse_generic_args_type(path.id, start)
+      }
+    }
+  }
+
+  def parse_path_type(&mut self): SyntaxParsedType = {
+    self.skip_ws();
+    val start = self.offset;
+    val head = self.parse_identifier_name();
+    if (!head.ok) {
+      SyntaxParsedType(false, self.missing_type(make_span(start, start)))
+    } else {
+      var text = head.text;
       var keep = true;
       while (keep) {
         self.skip_ws();
         if (self.match_text("::")) {
-          if (!self.parse_identifier()) {
-            return false
+          val next = self.parse_identifier_name();
+          if (!next.ok) {
+            self.expected("identifier after ::", self.offset);
+            return SyntaxParsedType(false, self.missing_type(make_span(start, self.offset)))
           }
+          text = text.concat("::").concat(next.text)
         } else {
           if (self.match_text(".")) {
-            if (!self.parse_identifier()) {
-              return false
+            val next = self.parse_identifier_name();
+            if (!next.ok) {
+              self.expected("identifier after .", self.offset);
+              return SyntaxParsedType(false, self.missing_type(make_span(start, self.offset)))
             }
+            text = text.concat(".").concat(next.text)
           } else {
             keep = false
           }
         }
       }
-      true
-    }
-  }
-
-  def parse_type(&mut self): Bool = {
-    self.skip_ws();
-    if (self.match_text("&")) {
-      self.skip_ws();
-      self.expect_word("mut");
-      self.parse_type()
-    } else {
-      if (!self.parse_path()) {
-        false
-      } else {
-        self.parse_generic_args()
-      }
+      SyntaxParsedType(true, self.alloc_type(SyntaxType.Name(text, make_span(start, self.offset))))
     }
   }
 
   def parse_generic_args(&mut self): Bool = {
+    val missing = self.missing_type(make_span(self.offset, self.offset));
+    self.parse_generic_args_type(missing, self.offset).ok
+  }
+
+  def parse_generic_args_type(&mut self, base: TypeExprId, start: usize): SyntaxParsedType = {
     self.skip_ws();
     if (!self.match_text("[")) {
-      true
+      SyntaxParsedType(true, base)
     } else {
+      val args = Vec[TypeExprId]();
       self.skip_ws();
       if (self.match_text("]")) {
-        true
+        SyntaxParsedType(true, self.alloc_type(SyntaxType.Generic(base, args, make_span(start, self.offset))))
       } else {
         var keep = true;
         while (keep) {
-          if (!self.parse_type()) {
-            return false
+          val arg = self.parse_type_expr();
+          if (!arg.ok) {
+            return SyntaxParsedType(false, base)
           }
+          args.push(arg.id);
           self.skip_ws();
           if (self.match_text(",")) {
             keep = true
@@ -170,24 +398,33 @@ class ParserState {
             keep = false
           }
         }
-        self.expect_text("]")
+        if (!self.expect_text("]")) {
+          self.expected("]", self.offset);
+          SyntaxParsedType(false, base)
+        } else {
+          SyntaxParsedType(true, self.alloc_type(SyntaxType.Generic(base, args, make_span(start, self.offset))))
+        }
       }
     }
   }
 
-  def parse_params(&mut self): Bool = {
+  def parse_params(&mut self): SyntaxParsedParams = {
+    val params = Vec[ParamId]();
     if (!self.expect_text("(")) {
-      false
+      self.expected("(", self.offset);
+      SyntaxParsedParams(false, params)
     } else {
       self.skip_ws();
       if (self.match_text(")")) {
-        true
+        SyntaxParsedParams(true, params)
       } else {
         var keep = true;
         while (keep) {
-          if (!self.parse_param()) {
-            return false
+          val param = self.parse_param();
+          if (!param.ok) {
+            return SyntaxParsedParams(false, params)
           }
+          params.push(param.id);
           self.skip_ws();
           if (self.match_text(",")) {
             keep = true
@@ -195,93 +432,133 @@ class ParserState {
             keep = false
           }
         }
-        self.expect_text(")")
+        if (!self.expect_text(")")) {
+          self.expected(")", self.offset);
+          SyntaxParsedParams(false, params)
+        } else {
+          SyntaxParsedParams(true, params)
+        }
       }
     }
   }
 
-  def parse_param(&mut self): Bool = {
+  def parse_param(&mut self): SyntaxParsedParam = {
     self.skip_ws();
+    val start = self.offset;
     if (self.match_text("&")) {
       self.skip_ws();
-      self.expect_word("mut");
-      self.expect_word("self")
+      val mutable = self.expect_word("mut");
+      if (!self.expect_word("self")) {
+        self.expected("self", start);
+        SyntaxParsedParam(false, self.alloc_param(SyntaxParam.Self(mutable, make_span(start, self.offset))))
+      } else {
+        SyntaxParsedParam(true, self.alloc_param(SyntaxParam.Self(mutable, make_span(start, self.offset))))
+      }
     } else {
-      if (!self.parse_identifier()) {
-        false
+      val name = self.parse_identifier_name();
+      if (!name.ok) {
+        self.expected("parameter name", start);
+        SyntaxParsedParam(false, self.alloc_param(SyntaxParam.Named("", self.missing_type(name.span), self.missing_expr(name.span), name.span)))
       } else {
         self.skip_ws();
+        var typ = self.missing_type(name.span);
         if (self.match_text(":")) {
-          if (!self.parse_type()) {
-            return false
+          val parsed_type = self.parse_type_expr();
+          if (!parsed_type.ok) {
+            return SyntaxParsedParam(false, self.alloc_param(SyntaxParam.Named(name.text, typ, self.missing_expr(name.span), name.span)))
           }
+          typ = parsed_type.id
         }
         self.skip_ws();
+        var default_value = self.missing_expr(name.span);
         if (self.match_text("=")) {
-          self.consume_expr_until_statement_end()
-        } else {
-          true
+          val parsed_default = self.parse_expr_until_param_boundary();
+          if (!parsed_default.ok) {
+            return SyntaxParsedParam(false, self.alloc_param(SyntaxParam.Named(name.text, typ, default_value, make_span(start, self.offset))))
+          }
+          default_value = parsed_default.id
         }
+        SyntaxParsedParam(true, self.alloc_param(SyntaxParam.Named(name.text, typ, default_value, make_span(start, self.offset))))
       }
     }
   }
 
-  def parse_class_after_keyword(&mut self): Bool = {
-    if (!self.parse_identifier()) {
-      false
+  def parse_class_after_keyword(&mut self, start: usize): SyntaxParsedDecl = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("class name", start);
+      SyntaxParsedDecl(false, self.unsupported_decl("class", make_span(start, self.offset)))
     } else {
       self.skip_ws();
       if (self.starts_with("[")) {
-        if (!self.consume_balanced_group(91, 93)) {
-          return false
+        if (!self.consume_balanced_group(a"[", a"]")) {
+          self.expected("]", self.offset);
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
         }
       }
       self.skip_ws();
       if (self.starts_with("(")) {
-        if (!self.parse_params()) {
-          return false
+        val params = self.parse_params();
+        if (!params.ok) {
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
         }
       }
-      self.parse_class_body()
+      val body = self.parse_class_body();
+      if (!body.ok) {
+        SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+      } else {
+        SyntaxParsedDecl(true, self.alloc_decl(SyntaxDecl.Class(name.text, body.members, make_span(start, self.offset))))
+      }
     }
   }
 
-  def parse_class_body(&mut self): Bool = {
+  def parse_class_body(&mut self): SyntaxParsedMembers = {
+    val members = Vec[MemberId]();
     if (!self.expect_text("{")) {
-      false
+      self.expected("{", self.offset);
+      SyntaxParsedMembers(false, members)
     } else {
       var keep = true;
       while (keep) {
         self.skip_ws();
         if (self.match_text("}")) {
-          return true
+          return SyntaxParsedMembers(true, members)
         }
-        if (!self.parse_class_member()) {
-          return false
+        if (self.is_at_end()) {
+          self.expected("}", self.offset);
+          return SyntaxParsedMembers(false, members)
         }
+        val member = self.parse_class_member();
+        if (!member.ok) {
+          return SyntaxParsedMembers(false, members)
+        }
+        members.push(member.id);
         self.consume_optional_semicolon()
       }
-      false
+      SyntaxParsedMembers(false, members)
     }
   }
 
-  def parse_class_member(&mut self): Bool = {
+  def parse_class_member(&mut self): SyntaxParsedMember = {
+    self.skip_ws();
+    val start = self.offset;
     if (self.expect_word("val")) {
-      self.parse_value_after_keyword(true)
+      self.parse_member_value_after_keyword(start, false)
     } else {
       if (self.expect_word("var")) {
-        self.parse_value_after_keyword(true)
+        self.parse_member_value_after_keyword(start, true)
       } else {
         if (self.expect_word("def")) {
-          self.parse_def_after_keyword()
+          self.parse_member_def_after_keyword(start)
         } else {
           if (self.expect_word("type")) {
-            self.parse_type_alias_after_keyword()
+            self.parse_member_type_alias_after_keyword(start)
           } else {
             if (self.expect_word("case")) {
-              self.parse_case_after_keyword()
+              self.parse_case_after_keyword(start)
             } else {
-              false
+              self.expected("class member", start);
+              SyntaxParsedMember(false, self.unsupported_member("member", make_span(start, self.offset)))
             }
           }
         }
@@ -289,94 +566,247 @@ class ParserState {
     }
   }
 
-  def parse_case_after_keyword(&mut self): Bool = {
-    if (!self.parse_identifier()) {
-      false
+  def parse_case_after_keyword(&mut self, start: usize): SyntaxParsedMember = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("case name", start);
+      SyntaxParsedMember(false, self.unsupported_member("case", make_span(start, self.offset)))
     } else {
+      var fields = Vec[TypeExprId]();
       self.skip_ws();
       if (self.starts_with("(")) {
-        self.consume_balanced_group(40, 41)
+        val payloads = self.parse_variant_payloads();
+        if (!payloads.ok) {
+          return SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
+        }
+        fields = payloads.types
+      }
+      SyntaxParsedMember(true, self.alloc_member(SyntaxMember.Variant(name.text, fields, make_span(start, self.offset))))
+    }
+  }
+
+  def parse_variant_payloads(&mut self): SyntaxParsedTypes = {
+    val fields = Vec[TypeExprId]();
+    if (!self.expect_text("(")) {
+      SyntaxParsedTypes(false, fields)
+    } else {
+      self.skip_ws();
+      if (self.match_text(")")) {
+        SyntaxParsedTypes(true, fields)
       } else {
-        true
+        var keep = true;
+        while (keep) {
+          val typ = self.parse_type_expr();
+          if (!typ.ok) {
+            return SyntaxParsedTypes(false, fields)
+          }
+          fields.push(typ.id);
+          self.skip_ws();
+          if (self.match_text(",")) {
+            keep = true
+          } else {
+            keep = false
+          }
+        }
+        SyntaxParsedTypes(self.expect_text(")"), fields)
       }
     }
   }
 
-  def parse_def_after_keyword(&mut self): Bool = {
-    if (!self.parse_identifier()) {
-      false
+  def parse_member_def_after_keyword(&mut self, start: usize): SyntaxParsedMember = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("method name", start);
+      SyntaxParsedMember(false, self.unsupported_member("def", make_span(start, self.offset)))
     } else {
+      var params = Vec[ParamId]();
       self.skip_ws();
       if (self.starts_with("(")) {
-        if (!self.parse_params()) {
-          return false
+        val parsed_params = self.parse_params();
+        if (!parsed_params.ok) {
+          return SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
         }
+        params = parsed_params.params
       }
+      var return_type = self.missing_type(name.span);
       self.skip_ws();
       if (self.match_text(":")) {
-        if (!self.parse_type()) {
-          return false
+        val parsed_type = self.parse_type_expr();
+        if (!parsed_type.ok) {
+          return SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
         }
+        return_type = parsed_type.id
+      }
+      var body = self.missing_expr(name.span);
+      self.skip_ws();
+      if (self.match_text("=")) {
+        val parsed_body = self.parse_rhs();
+        if (!parsed_body.ok) {
+          return SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
+        }
+        body = parsed_body.id
+      }
+      SyntaxParsedMember(true, self.alloc_member(SyntaxMember.Method(name.text, params, return_type, body, make_span(start, self.offset))))
+    }
+  }
+
+  def parse_member_value_after_keyword(&mut self, start: usize, mutable: Bool): SyntaxParsedMember = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("field name", start);
+      SyntaxParsedMember(false, self.unsupported_member("field", make_span(start, self.offset)))
+    } else {
+      var typ = self.missing_type(name.span);
+      self.skip_ws();
+      if (self.match_text(":")) {
+        val parsed_type = self.parse_type_expr();
+        if (!parsed_type.ok) {
+          return SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
+        }
+        typ = parsed_type.id
       }
       self.skip_ws();
       if (self.match_text("=")) {
-        self.parse_rhs()
-      } else {
-        true
+        val ignored = self.parse_rhs()
       }
+      SyntaxParsedMember(true, self.alloc_member(SyntaxMember.Field(name.text, mutable, typ, make_span(start, self.offset))))
     }
   }
 
-  def parse_value_after_keyword(&mut self, allow_missing_init: Bool): Bool = {
-    if (!self.parse_identifier()) {
-      false
-    } else {
-      self.skip_ws();
-      if (self.match_text(":")) {
-        if (!self.parse_type()) {
-          return false
-        }
-      }
-      self.skip_ws();
-      if (self.match_text("=")) {
-        self.parse_rhs()
-      } else {
-        allow_missing_init
-      }
-    }
-  }
-
-  def parse_type_alias_after_keyword(&mut self): Bool = {
-    if (!self.parse_identifier()) {
-      false
+  def parse_member_type_alias_after_keyword(&mut self, start: usize): SyntaxParsedMember = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("type alias name", start);
+      SyntaxParsedMember(false, self.unsupported_member("type", make_span(start, self.offset)))
     } else {
       if (!self.expect_text("=")) {
-        false
+        self.expected("=", self.offset);
+        SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
       } else {
-        self.parse_type()
+        val typ = self.parse_type_expr();
+        if (!typ.ok) {
+          SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
+        } else {
+          SyntaxParsedMember(true, self.alloc_member(SyntaxMember.TypeAlias(name.text, typ.id, make_span(start, self.offset))))
+        }
       }
     }
   }
 
-  def parse_import_after_keyword(&mut self): Bool = {
-    val ok = self.consume_expr_until_statement_end();
-    self.consume_optional_semicolon();
-    ok
+  def parse_def_after_keyword(&mut self, start: usize): SyntaxParsedDecl = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("function name", start);
+      SyntaxParsedDecl(false, self.unsupported_decl("def", make_span(start, self.offset)))
+    } else {
+      var params = Vec[ParamId]();
+      self.skip_ws();
+      if (self.starts_with("(")) {
+        val parsed_params = self.parse_params();
+        if (!parsed_params.ok) {
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        }
+        params = parsed_params.params
+      }
+      var return_type = self.missing_type(name.span);
+      self.skip_ws();
+      if (self.match_text(":")) {
+        val parsed_type = self.parse_type_expr();
+        if (!parsed_type.ok) {
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        }
+        return_type = parsed_type.id
+      }
+      var body = self.missing_expr(name.span);
+      self.skip_ws();
+      if (self.match_text("=")) {
+        val parsed_body = self.parse_rhs();
+        if (!parsed_body.ok) {
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        }
+        body = parsed_body.id
+      }
+      SyntaxParsedDecl(true, self.alloc_decl(SyntaxDecl.Function(name.text, params, return_type, body, make_span(start, self.offset))))
+    }
   }
 
-  def parse_rhs(&mut self): Bool = {
+  def parse_value_after_keyword(&mut self, start: usize, mutable: Bool, allow_missing_init: Bool): SyntaxParsedDecl = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("value name", start);
+      SyntaxParsedDecl(false, self.unsupported_decl("value", make_span(start, self.offset)))
+    } else {
+      var typ = self.missing_type(name.span);
+      self.skip_ws();
+      if (self.match_text(":")) {
+        val parsed_type = self.parse_type_expr();
+        if (!parsed_type.ok) {
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        }
+        typ = parsed_type.id
+      }
+      var init = self.missing_expr(name.span);
+      self.skip_ws();
+      if (self.match_text("=")) {
+        val parsed_init = self.parse_rhs();
+        if (!parsed_init.ok) {
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        }
+        init = parsed_init.id
+      } else {
+        if (!allow_missing_init) {
+          self.expected("initializer", self.offset);
+          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        }
+      }
+      SyntaxParsedDecl(true, self.alloc_decl(SyntaxDecl.Value(name.text, mutable, typ, init, make_span(start, self.offset))))
+    }
+  }
+
+  def parse_type_alias_after_keyword(&mut self, start: usize): SyntaxParsedDecl = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("type alias name", start);
+      SyntaxParsedDecl(false, self.unsupported_decl("type", make_span(start, self.offset)))
+    } else {
+      if (!self.expect_text("=")) {
+        self.expected("=", self.offset);
+        SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+      } else {
+        val typ = self.parse_type_expr();
+        if (!typ.ok) {
+          SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+        } else {
+          SyntaxParsedDecl(true, self.alloc_decl(SyntaxDecl.TypeAlias(name.text, typ.id, make_span(start, self.offset))))
+        }
+      }
+    }
+  }
+
+  def parse_import_after_keyword(&mut self, start: usize): SyntaxParsedDecl = {
+    self.skip_ws();
+    val path_start = self.offset;
+    val parsed = self.parse_expr_until_statement_end();
+    val path_end = self.offset;
+    if (!parsed.ok) {
+      SyntaxParsedDecl(false, self.unsupported_decl("import", make_span(start, self.offset)))
+    } else {
+      SyntaxParsedDecl(true, self.alloc_decl(SyntaxDecl.Import(self.trimmed_text(path_start, path_end), make_span(start, self.offset))))
+    }
+  }
+
+  def parse_rhs(&mut self): SyntaxParsedExpr = {
     self.skip_ws();
     if (self.starts_with("{")) {
-      self.consume_balanced_group(123, 125)
+      self.parse_block_expr()
     } else {
-      val ok = self.consume_expr_until_statement_end();
-      self.consume_optional_semicolon();
-      ok
+      self.parse_expr_until_statement_end()
     }
   }
 
   def parse_item(&mut self): Bool = {
     self.skip_ws();
+    val start = self.offset;
     if (self.match_text(";")) {
       true
     } else {
@@ -386,31 +816,111 @@ class ParserState {
         if (self.expect_word("private")) {
           self.parse_item()
         } else {
+          var item = SyntaxParsedDecl(false, self.unsupported_decl("missing", make_span(start, start)));
           if (self.expect_word("import")) {
-            self.parse_import_after_keyword()
+            item = self.parse_import_after_keyword(start)
           } else {
             if (self.expect_word("class")) {
-              self.parse_class_after_keyword()
+              item = self.parse_class_after_keyword(start)
             } else {
-              if (self.expect_word("trait")) {
-                self.parse_class_after_keyword()
+              if (self.expect_word("def")) {
+                item = self.parse_def_after_keyword(start)
               } else {
-                if (self.expect_word("def")) {
-                  self.parse_def_after_keyword()
+                if (self.expect_word("val")) {
+                  item = self.parse_value_after_keyword(start, false, false)
                 } else {
-                  if (self.expect_word("val")) {
-                    self.parse_value_after_keyword(true)
+                  if (self.expect_word("var")) {
+                    item = self.parse_value_after_keyword(start, true, false)
                   } else {
-                    if (self.expect_word("var")) {
-                      self.parse_value_after_keyword(true)
+                    if (self.expect_word("type")) {
+                      item = self.parse_type_alias_after_keyword(start)
                     } else {
-                      if (self.expect_word("type")) {
-                        self.parse_type_alias_after_keyword()
+                      if (self.expect_word("trait")) {
+                        self.unsupported("trait declarations are outside the native parser subset", start, self.offset);
+                        return false
                       } else {
-                        false
+                        if (self.expect_word("impl")) {
+                          self.unsupported("impl declarations are outside the native parser subset", start, self.offset);
+                          return false
+                        } else {
+                          self.expected("top-level declaration", start);
+                          return false
+                        }
                       }
                     }
                   }
+                }
+              }
+            }
+          }
+          if (item.ok) {
+            var declarations = self.declarations;
+            declarations.push(item.id);
+            self.declarations = declarations;
+            self.consume_optional_semicolon();
+            true
+          } else {
+            false
+          }
+        }
+      }
+    }
+  }
+
+  def parse_block_expr(&mut self): SyntaxParsedExpr = {
+    self.skip_ws();
+    val start = self.offset;
+    if (!self.match_text("{")) {
+      self.expected("{", start);
+      SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+    } else {
+      val items = Vec[ExprId]();
+      var keep = true;
+      while (keep) {
+        self.skip_ws();
+        if (self.match_text("}")) {
+          return SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Block(items, make_span(start, self.offset))))
+        }
+        if (self.is_at_end()) {
+          self.expected("}", self.offset);
+          return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+        }
+        val item = self.parse_statement_expr();
+        if (!item.ok) {
+          return item
+        }
+        items.push(item.id)
+      }
+      SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+    }
+  }
+
+  def parse_statement_expr(&mut self): SyntaxParsedExpr = {
+    self.skip_ws();
+    val start = self.offset;
+    if (self.match_text(";")) {
+      SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+    } else {
+      if (self.expect_word("val")) {
+        self.parse_local_after_keyword(start, false)
+      } else {
+        if (self.expect_word("var")) {
+          self.parse_local_after_keyword(start, true)
+        } else {
+          if (self.expect_word("if")) {
+            self.parse_if_after_keyword(start)
+          } else {
+            if (self.expect_word("while")) {
+              self.parse_while_after_keyword(start)
+            } else {
+              if (self.expect_word("return")) {
+                self.parse_return_after_keyword(start)
+              } else {
+                if (self.expect_word("for")) {
+                  self.unsupported("for expressions are outside the native parser subset", start, self.offset);
+                  SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+                } else {
+                  self.parse_expr_until_statement_end()
                 }
               }
             }
@@ -420,6 +930,440 @@ class ParserState {
     }
   }
 
+  def parse_local_after_keyword(&mut self, start: usize, mutable: Bool): SyntaxParsedExpr = {
+    val name = self.parse_identifier_name();
+    if (!name.ok) {
+      self.expected("local name", start);
+      SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+    } else {
+      var typ = self.missing_type(name.span);
+      self.skip_ws();
+      if (self.match_text(":")) {
+        val parsed_type = self.parse_type_expr();
+        if (!parsed_type.ok) {
+          return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+        }
+        typ = parsed_type.id
+      }
+      self.skip_ws();
+      var init = self.missing_expr(name.span);
+      if (self.match_text("=")) {
+        val parsed_init = self.parse_expr_until_statement_end();
+        if (!parsed_init.ok) {
+          return parsed_init
+        }
+        init = parsed_init.id
+      } else {
+        self.expected("initializer", self.offset)
+      }
+      SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Local(name.text, mutable, typ, init, make_span(start, self.offset))))
+    }
+  }
+
+  def parse_if_after_keyword(&mut self, start: usize): SyntaxParsedExpr = {
+    val condition = self.parse_parenthesized_expr();
+    if (!condition.ok) {
+      condition
+    } else {
+      val then_body = self.parse_block_expr();
+      if (!then_body.ok) {
+        then_body
+      } else {
+        var else_body = self.missing_expr(make_span(self.offset, self.offset));
+        self.skip_ws();
+        if (self.expect_word("else")) {
+          self.skip_ws();
+          val else_start = self.offset;
+          if (self.expect_word("if")) {
+            val parsed_else = self.parse_if_after_keyword(else_start);
+            if (!parsed_else.ok) {
+              return parsed_else
+            }
+            else_body = parsed_else.id
+          } else {
+            val parsed_else = self.parse_block_expr();
+            if (!parsed_else.ok) {
+              return parsed_else
+            }
+            else_body = parsed_else.id
+          }
+        }
+        SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.If(condition.id, then_body.id, else_body, make_span(start, self.offset))))
+      }
+    }
+  }
+
+  def parse_while_after_keyword(&mut self, start: usize): SyntaxParsedExpr = {
+    val condition = self.parse_parenthesized_expr();
+    if (!condition.ok) {
+      condition
+    } else {
+      val body = self.parse_block_expr();
+      if (!body.ok) {
+        body
+      } else {
+        SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.While(condition.id, body.id, make_span(start, self.offset))))
+      }
+    }
+  }
+
+  def parse_return_after_keyword(&mut self, start: usize): SyntaxParsedExpr = {
+    val value = self.parse_expr_until_statement_end();
+    if (!value.ok) {
+      value
+    } else {
+      SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Return(value.id, make_span(start, self.offset))))
+    }
+  }
+
+  def parse_parenthesized_expr(&mut self): SyntaxParsedExpr = {
+    self.skip_ws();
+    val open = self.offset;
+    if (!self.match_text("(")) {
+      self.expected("(", open);
+      SyntaxParsedExpr(false, self.missing_expr(make_span(open, self.offset)))
+    } else {
+      val start = self.offset;
+      var depth: usize = 1;
+      while (!self.is_at_end()) {
+        val byte = self.current_byte();
+        if (byte == a"\"") {
+          if (!self.consume_string()) {
+            self.expected("string literal", self.offset);
+            return SyntaxParsedExpr(false, self.missing_expr(make_span(open, self.offset)))
+          }
+        } else {
+          if (byte == a"(") {
+            depth = depth + 1;
+            self.advance()
+          } else {
+            if (byte == a")") {
+              depth = depth - 1;
+              if (depth == 0) {
+                val end = self.offset;
+                self.advance();
+                return self.parse_expr_slice(start, end)
+              } else {
+                self.advance()
+              }
+            } else {
+              self.advance()
+            }
+          }
+        }
+      }
+      self.expected(")", open);
+      SyntaxParsedExpr(false, self.missing_expr(make_span(open, self.offset)))
+    }
+  }
+
+  def parse_expr_until_statement_end(&mut self): SyntaxParsedExpr = {
+    self.skip_ws();
+    val start = self.offset;
+    var saw = false;
+    var depth: usize = 0;
+    while (!self.is_at_end()) {
+      val byte = self.current_byte();
+      if (byte == a"\"") {
+        if (!self.consume_string()) {
+          self.expected("string literal", self.offset);
+          return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+        }
+        saw = true
+      } else {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
+          depth = depth + 1;
+          saw = true;
+          self.advance()
+        } else {
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth == 0) {
+              if (saw) {
+                return self.parse_expr_slice(start, self.offset)
+              } else {
+                return SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+              }
+            } else {
+              depth = depth - 1;
+              saw = true;
+              self.advance()
+            }
+          } else {
+            if (depth == 0 and byte == a";") {
+              val end = self.offset;
+              self.advance();
+              if (saw) {
+                return self.parse_expr_slice(start, end)
+              } else {
+                return SyntaxParsedExpr(true, self.missing_expr(make_span(start, end)))
+              }
+            } else {
+              saw = true;
+              self.advance()
+            }
+          }
+        }
+      }
+    }
+    if (saw) {
+      self.parse_expr_slice(start, self.offset)
+    } else {
+      SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+    }
+  }
+
+  def parse_expr_until_param_boundary(&mut self): SyntaxParsedExpr = {
+    self.skip_ws();
+    val start = self.offset;
+    var saw = false;
+    var depth: usize = 0;
+    while (!self.is_at_end()) {
+      val byte = self.current_byte();
+      if (byte == a"\"") {
+        if (!self.consume_string()) {
+          return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+        }
+        saw = true
+      } else {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
+          depth = depth + 1;
+          saw = true;
+          self.advance()
+        } else {
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth == 0) {
+              if (saw) {
+                return self.parse_expr_slice(start, self.offset)
+              } else {
+                return SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+              }
+            } else {
+              depth = depth - 1;
+              saw = true;
+              self.advance()
+            }
+          } else {
+            if (depth == 0 and byte == a",") {
+              if (saw) {
+                return self.parse_expr_slice(start, self.offset)
+              } else {
+                return SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+              }
+            } else {
+              saw = true;
+              self.advance()
+            }
+          }
+        }
+      }
+    }
+    if (saw) {
+      self.parse_expr_slice(start, self.offset)
+    } else {
+      SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+    }
+  }
+
+  def parse_expr_slice(&mut self, raw_start: usize, raw_end: usize): SyntaxParsedExpr = {
+    val start = self.trim_start(raw_start, raw_end);
+    val end = self.trim_end(start, raw_end);
+    val span = make_span(start, end);
+    if (start >= end) {
+      SyntaxParsedExpr(true, self.missing_expr(span))
+    } else {
+      val unsupported_arrow = self.find_top_level_text(start, end, "=>", false);
+      if (unsupported_arrow.found) {
+        self.unsupported("lambda expressions are outside the native parser subset", unsupported_arrow.offset, unsupported_arrow.offset + 2);
+        return SyntaxParsedExpr(false, self.missing_expr(span))
+      }
+      val unsupported_match = self.find_top_level_text(start, end, "match", true);
+      if (unsupported_match.found) {
+        self.unsupported("match expressions are outside the native parser subset", unsupported_match.offset, unsupported_match.offset + 5);
+        return SyntaxParsedExpr(false, self.missing_expr(span))
+      }
+
+      val assignment = self.find_top_level_assignment(start, end);
+      if (assignment.found) {
+        val left = self.parse_expr_slice(start, assignment.offset);
+        val right = self.parse_expr_slice(assignment.offset + 1, end);
+        if (!left.ok or !right.ok) {
+          return SyntaxParsedExpr(false, self.missing_expr(span))
+        }
+        return SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Assign(left.id, right.id, span)))
+      }
+
+      val or_op = self.find_top_level_text(start, end, "or", true);
+      if (or_op.found) {
+        return self.parse_binary_slice(start, end, or_op.offset, "or")
+      }
+      val and_op = self.find_top_level_text(start, end, "and", true);
+      if (and_op.found) {
+        return self.parse_binary_slice(start, end, and_op.offset, "and")
+      }
+      val eq_op = self.find_top_level_text(start, end, "==", false);
+      if (eq_op.found) {
+        return self.parse_binary_slice(start, end, eq_op.offset, "==")
+      }
+      val ne_op = self.find_top_level_text(start, end, "!=", false);
+      if (ne_op.found) {
+        return self.parse_binary_slice(start, end, ne_op.offset, "!=")
+      }
+      val ge_op = self.find_top_level_text(start, end, ">=", false);
+      if (ge_op.found) {
+        return self.parse_binary_slice(start, end, ge_op.offset, ">=")
+      }
+      val le_op = self.find_top_level_text(start, end, "<=", false);
+      if (le_op.found) {
+        return self.parse_binary_slice(start, end, le_op.offset, "<=")
+      }
+      val gt_op = self.find_top_level_text(start, end, ">", false);
+      if (gt_op.found) {
+        return self.parse_binary_slice(start, end, gt_op.offset, ">")
+      }
+      val lt_op = self.find_top_level_text(start, end, "<", false);
+      if (lt_op.found) {
+        return self.parse_binary_slice(start, end, lt_op.offset, "<")
+      }
+      val plus_op = self.find_top_level_text(start, end, "+", false);
+      if (plus_op.found) {
+        return self.parse_binary_slice(start, end, plus_op.offset, "+")
+      }
+      val minus_op = self.find_top_level_minus(start, end);
+      if (minus_op.found) {
+        return self.parse_binary_slice(start, end, minus_op.offset, "-")
+      }
+      val star_op = self.find_top_level_text(start, end, "*", false);
+      if (star_op.found) {
+        return self.parse_binary_slice(start, end, star_op.offset, "*")
+      }
+      val slash_op = self.find_top_level_text(start, end, "/", false);
+      if (slash_op.found) {
+        return self.parse_binary_slice(start, end, slash_op.offset, "/")
+      }
+
+      val first = self.source.byte_at(start);
+      if (first == a"!") {
+        val inner = self.parse_expr_slice(start + 1, end);
+        if (!inner.ok) {
+          return inner
+        }
+        return SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Unary("!", inner.id, span)))
+      }
+      if (first == a"-" and end > start + 1) {
+        val inner = self.parse_expr_slice(start + 1, end);
+        if (!inner.ok) {
+          return inner
+        }
+        return SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Unary("-", inner.id, span)))
+      }
+
+      if (first == a"(" and self.matching_close(start, end, a"(", a")") == end - 1) {
+        return self.parse_expr_slice(start + 1, end - 1)
+      }
+
+      val call_open = self.find_call_open(start, end);
+      if (call_open.found) {
+        val callee = self.parse_expr_slice(start, call_open.offset);
+        if (!callee.ok) {
+          return callee
+        }
+        val args = self.parse_expr_arguments(call_open.offset + 1, end - 1);
+        return SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Call(callee.id, args, span)))
+      }
+
+      val dot = self.find_top_level_dot(start, end);
+      if (dot.found) {
+        val receiver = self.parse_expr_slice(start, dot.offset);
+        if (!receiver.ok) {
+          return receiver
+        }
+        val field_start = self.trim_start(dot.offset + 1, end);
+        val field_end = self.trim_end(field_start, end);
+        return SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Select(receiver.id, self.source.slice(field_start, field_end), span)))
+      }
+
+      if (end > start + 2 and self.source.byte_at(start + 1) == a"\"" and first == a"a") {
+        SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.AsciiLiteral(self.source.slice(start, end), span)))
+      } else {
+        if (end > start + 2 and self.source.byte_at(start + 1) == a"\"" and first == a"c") {
+          SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.RuneLiteral(self.source.slice(start, end), span)))
+        } else {
+          if (first == a"\"") {
+            SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.StringLiteral(self.source.slice(start, end), span)))
+          } else {
+            if (is_digit(first)) {
+              SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.NumericLiteral(self.source.slice(start, end), span)))
+            } else {
+              val text = self.source.slice(start, end);
+              if (text == "true") {
+                SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.BoolLiteral(true, span)))
+              } else {
+                if (text == "false") {
+                  SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.BoolLiteral(false, span)))
+                } else {
+                  SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Name(text, span)))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  def parse_binary_slice(&mut self, start: usize, end: usize, op_offset: usize, op: String): SyntaxParsedExpr = {
+    val left = self.parse_expr_slice(start, op_offset);
+    val right = self.parse_expr_slice(op_offset + op.len(), end);
+    val span = make_span(start, end);
+    if (!left.ok or !right.ok) {
+      SyntaxParsedExpr(false, self.missing_expr(span))
+    } else {
+      SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Binary(op, left.id, right.id, span)))
+    }
+  }
+
+  def parse_expr_arguments(&mut self, start: usize, end: usize): Vec[ExprId] = {
+    val args = Vec[ExprId]();
+    var segment_start = start;
+    var offset = start;
+    var depth: usize = 0;
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\"") {
+        offset = self.string_end(offset, end)
+      } else {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
+          depth = depth + 1;
+          offset = offset + 1
+        } else {
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth > 0) {
+              depth = depth - 1
+            }
+            offset = offset + 1
+          } else {
+            if (byte == a"," and depth == 0) {
+              val arg = self.parse_expr_slice(segment_start, offset);
+              if (arg.ok) {
+                args.push(arg.id)
+              }
+              segment_start = offset + 1
+            }
+            offset = offset + 1
+          }
+        }
+      }
+    }
+    val trimmed = self.trim_start(segment_start, end);
+    if (trimmed < self.trim_end(trimmed, end)) {
+      val arg = self.parse_expr_slice(segment_start, end);
+      if (arg.ok) {
+        args.push(arg.id)
+      }
+    }
+    args
+  }
+
   def consume_optional_semicolon(&mut self): Bool = {
     self.skip_ws();
     self.match_text(";");
@@ -427,18 +1371,18 @@ class ParserState {
   }
 
   def consume_string(&mut self): Bool = {
-    if (self.current_byte() != 34) {
+    if (self.current_byte() != a"\"") {
       false
     } else {
       self.advance();
       while (!self.is_at_end()) {
-        if (self.current_byte() == 92) {
+        if (self.current_byte() == a"\\") {
           self.advance();
           if (!self.is_at_end()) {
             self.advance()
           }
         } else {
-          if (self.current_byte() == 34) {
+          if (self.current_byte() == a"\"") {
             self.advance();
             return true
           } else {
@@ -457,7 +1401,7 @@ class ParserState {
       var depth: usize = 0;
       while (!self.is_at_end()) {
         val byte = self.current_byte();
-        if (byte == 34) {
+        if (byte == a"\"") {
           if (!self.consume_string()) {
             return false
           }
@@ -483,47 +1427,258 @@ class ParserState {
   }
 
   def consume_expr_until_statement_end(&mut self): Bool = {
-    self.skip_ws();
-    var saw = false;
+    self.parse_expr_until_statement_end().ok
+  }
+
+  def find_top_level_text(&self, start: usize, end: usize, text: String, word: Bool): ParserSliceMatch = {
+    var offset = start;
     var depth: usize = 0;
-    while (!self.is_at_end()) {
-      val byte = self.current_byte();
-      if (byte == 34) {
-        if (!self.consume_string()) {
-          return false
-        }
-        saw = true
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\"") {
+        offset = self.string_end(offset, end)
       } else {
-        if (byte == 40 or byte == 91 or byte == 123) {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
           depth = depth + 1;
-          saw = true;
-          self.advance()
+          offset = offset + 1
         } else {
-          if (byte == 41 or byte == 93 or byte == 125) {
-            if (depth == 0) {
-              return saw
-            } else {
-              depth = depth - 1;
-              saw = true;
-              self.advance()
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth > 0) {
+              depth = depth - 1
             }
+            offset = offset + 1
           } else {
-            if (depth == 0 and byte == 59) {
-              return saw
-            } else {
-              saw = true;
-              self.advance()
+            if (depth == 0 and self.starts_with_at(offset, text)) {
+              val after = offset + text.len();
+              if (!word or ((offset == start or self.is_word_boundary_at(offset - 1)) and self.is_word_boundary_at(after))) {
+                return ParserSliceMatch(true, offset)
+              }
             }
+            offset = offset + 1
           }
         }
       }
     }
-    saw
+    ParserSliceMatch(false, 0)
+  }
+
+  def find_top_level_assignment(&self, start: usize, end: usize): ParserSliceMatch = {
+    var offset = start;
+    var depth: usize = 0;
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\"") {
+        offset = self.string_end(offset, end)
+      } else {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
+          depth = depth + 1;
+          offset = offset + 1
+        } else {
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth > 0) {
+              depth = depth - 1
+            }
+            offset = offset + 1
+          } else {
+            if (depth == 0 and byte == a"=") {
+              val previous_is_operator = offset > start and is_assignment_neighbor(self.source.byte_at(offset - 1));
+              val next_is_operator = offset + 1 < end and is_assignment_neighbor(self.source.byte_at(offset + 1));
+              if (!previous_is_operator and !next_is_operator) {
+                return ParserSliceMatch(true, offset)
+              }
+            }
+            offset = offset + 1
+          }
+        }
+      }
+    }
+    ParserSliceMatch(false, 0)
+  }
+
+  def find_top_level_minus(&self, start: usize, end: usize): ParserSliceMatch = {
+    var offset = start;
+    var depth: usize = 0;
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\"") {
+        offset = self.string_end(offset, end)
+      } else {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
+          depth = depth + 1;
+          offset = offset + 1
+        } else {
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth > 0) {
+              depth = depth - 1
+            }
+            offset = offset + 1
+          } else {
+            if (depth == 0 and byte == a"-" and offset > start) {
+              return ParserSliceMatch(true, offset)
+            }
+            offset = offset + 1
+          }
+        }
+      }
+    }
+    ParserSliceMatch(false, 0)
+  }
+
+  def find_call_open(&self, start: usize, end: usize): ParserSliceMatch = {
+    if (end <= start or self.source.byte_at(end - 1) != a")") {
+      ParserSliceMatch(false, 0)
+    } else {
+      var offset = start;
+      var depth: usize = 0;
+      var candidate: usize = 0;
+      var found = false;
+      while (offset < end) {
+        val byte = self.source.byte_at(offset);
+        if (byte == a"\"") {
+          offset = self.string_end(offset, end)
+        } else {
+          if (byte == a"(") {
+            if (depth == 0) {
+              candidate = offset;
+              found = true
+            }
+            depth = depth + 1
+          } else {
+            if (byte == a")") {
+              if (depth > 0) {
+                depth = depth - 1
+              }
+              if (depth == 0 and offset == end - 1 and found and candidate > start) {
+                return ParserSliceMatch(true, candidate)
+              }
+              if (depth == 0 and offset < end - 1) {
+                found = false
+              }
+            } else {
+              if (byte == a"[" or byte == a"{") {
+                depth = depth + 1
+              } else {
+                if (byte == a"]" or byte == a"}") {
+                  if (depth > 0) {
+                    depth = depth - 1
+                  }
+                }
+              }
+            }
+          }
+          offset = offset + 1
+        }
+      }
+      ParserSliceMatch(false, 0)
+    }
+  }
+
+  def find_top_level_dot(&self, start: usize, end: usize): ParserSliceMatch = {
+    var offset = start;
+    var depth: usize = 0;
+    var found = false;
+    var dot: usize = 0;
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\"") {
+        offset = self.string_end(offset, end)
+      } else {
+        if (byte == a"(" or byte == a"[" or byte == a"{") {
+          depth = depth + 1;
+          offset = offset + 1
+        } else {
+          if (byte == a")" or byte == a"]" or byte == a"}") {
+            if (depth > 0) {
+              depth = depth - 1
+            }
+            offset = offset + 1
+          } else {
+            if (depth == 0 and byte == a".") {
+              found = true;
+              dot = offset
+            }
+            offset = offset + 1
+          }
+        }
+      }
+    }
+    ParserSliceMatch(found, dot)
+  }
+
+  def matching_close(&self, start: usize, end: usize, open: u8, close: u8): usize = {
+    var offset = start;
+    var depth: usize = 0;
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\"") {
+        offset = self.string_end(offset, end)
+      } else {
+        if (byte == open) {
+          depth = depth + 1
+        } else {
+          if (byte == close) {
+            if (depth == 0) {
+              return end
+            }
+            depth = depth - 1;
+            if (depth == 0) {
+              return offset
+            }
+          }
+        }
+        offset = offset + 1
+      }
+    }
+    end
+  }
+
+  def string_end(&self, start: usize, end: usize): usize = {
+    var offset = start + 1;
+    while (offset < end) {
+      val byte = self.source.byte_at(offset);
+      if (byte == a"\\") {
+        offset = offset + 2
+      } else {
+        if (byte == a"\"") {
+          return offset + 1
+        } else {
+          offset = offset + 1
+        }
+      }
+    }
+    end
+  }
+
+  def trim_start(&self, start: usize, end: usize): usize = {
+    var offset = start;
+    while (offset < end and is_space(self.source.byte_at(offset))) {
+      offset = offset + 1
+    }
+    offset
+  }
+
+  def trim_end(&self, start: usize, end: usize): usize = {
+    var offset = end;
+    while (offset > start and is_space(self.source.byte_at(offset - 1))) {
+      offset = offset - 1
+    }
+    offset
+  }
+
+  def trimmed_text(&self, start: usize, end: usize): String = {
+    val trimmed_start = self.trim_start(start, end);
+    val trimmed_end = self.trim_end(trimmed_start, end);
+    self.source.slice(trimmed_start, trimmed_end)
+  }
+
+  def finish(&mut self): SyntaxParserResult = {
+    val root = self.alloc_module(SyntaxModule(self.declarations, make_span(0, self.source.len())));
+    SyntaxParserResult(root, self.arenas, self.diagnostics)
   }
 }
 
 def parser_version(): i32 = {
-  1
+  2
 }
 
 def source_len(source: String): usize = {
@@ -531,39 +1686,51 @@ def source_len(source: String): usize = {
 }
 
 def is_space(byte: u8): Bool = {
-  byte == 32 or byte == 9 or byte == 10 or byte == 13
+  byte == a" " or byte == a"\t" or byte == a"\n" or byte == a"\r"
 }
 
 def is_digit(byte: u8): Bool = {
-  byte >= 48 and byte <= 57
+  byte >= a"0" and byte <= a"9"
 }
 
 def is_lower(byte: u8): Bool = {
-  byte >= 97 and byte <= 122
+  byte >= a"a" and byte <= a"z"
 }
 
 def is_upper(byte: u8): Bool = {
-  byte >= 65 and byte <= 90
+  byte >= a"A" and byte <= a"Z"
 }
 
 def is_ident_start(byte: u8): Bool = {
-  is_lower(byte) or is_upper(byte) or byte == 95
+  is_lower(byte) or is_upper(byte) or byte == a"_"
 }
 
 def is_ident_continue(byte: u8): Bool = {
   is_ident_start(byte) or is_digit(byte)
 }
 
-def parse_source(source: String): Bool = {
-  var state = ParserState(0, source);
+def is_assignment_neighbor(byte: u8): Bool = {
+  byte == a"=" or byte == a"!" or byte == a"<" or byte == a">" or byte == a"+" or byte == a"-" or byte == a"*" or byte == a"/"
+}
+
+def parser_state(source: String): SyntaxParserState = {
+  SyntaxParserState(0, source, syntax_arenas(), Vec[DeclId](), Vec[SyntaxParserDiagnostic]())
+}
+
+def parse_source_ast(source: String): SyntaxParserResult = {
+  val state = parser_state(source);
   state.skip_ws();
   while (!state.is_at_end()) {
     if (!state.parse_item()) {
-      return false
+      return state.finish()
     }
     state.skip_ws()
   }
-  true
+  state.finish()
+}
+
+def parse_source(source: String): Bool = {
+  parse_source_ast(source).is_ok()
 }
 
 def parse_diagnostic_code(source: String): String = {
@@ -572,4 +1739,32 @@ def parse_diagnostic_code(source: String): String = {
   } else {
     "cosmo0.parse.failed"
   }
+}
+
+def parse_native_diagnostic_code(source: String): String = {
+  parse_source_ast(source).first_diagnostic_code()
+}
+
+def parser_result_has_syntax(result: SyntaxParserResult): Bool = {
+  result.has_syntax()
+}
+
+def parser_result_decl_len(result: SyntaxParserResult): usize = {
+  result.declaration_len()
+}
+
+def parser_result_expr_len(result: SyntaxParserResult): usize = {
+  result.expr_len()
+}
+
+def parser_result_diagnostic_len(result: SyntaxParserResult): usize = {
+  result.diagnostic_len()
+}
+
+def parser_result_debug_syntax(result: SyntaxParserResult): String = {
+  result.debug_syntax()
+}
+
+def parser_result_required_spans_ok(result: SyntaxParserResult): Bool = {
+  result.required_spans_ok()
 }

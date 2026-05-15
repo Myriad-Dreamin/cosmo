@@ -14,6 +14,19 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.value.get.source.name, "<memory>")
     assert(result.diagnostics.isEmpty)
 
+  test("parse keeps ascii and rune literals distinct from template literals"):
+    val result = Cosmo0().parse(
+      """val ascii = a"("
+        |val rune = c"("
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Parse)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val stmts = result.value.get.ast.stmts
+    assert(stmts.head.asInstanceOf[cosmo.syntax.Val].init.get.isInstanceOf[cosmo.syntax.AsciiLit])
+    assert(stmts(1).asInstanceOf[cosmo.syntax.Val].init.get.isInstanceOf[cosmo.syntax.RuneLit])
+
   test("parse failures return structured diagnostics"):
     val result = Cosmo0().parse("val =")
 
@@ -34,6 +47,40 @@ class FacadeTests extends munit.FunSuite:
     val value = result.value.get.typed.declarations.head.asInstanceOf[TypedValueDecl]
     assertEquals(value.name, "answer")
     assertEquals(value.valueType, SourceType.I32)
+
+  test("check types ascii and rune literals as fixed-width integers"):
+    val result = Cosmo0().check(
+      """val newline: u8 = a"\n"
+        |val nul: u8 = a"\x00"
+        |val rune: u32 = c"("
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val values = result.value.get.typed.declarations.collect { case value: TypedValueDecl =>
+      value.name -> value.valueType
+    }
+    assertEquals(values, List("newline" -> SourceType.Byte, "nul" -> SourceType.Byte, "rune" -> SourceType.Rune))
+
+  test("check rejects malformed ascii and rune literals"):
+    val cases = List(
+      "val bad = a\"ab\"" -> "cosmo0.type.invalid-ascii-literal",
+      "val bad = a\"\\x80\"" -> "cosmo0.type.invalid-ascii-literal",
+      "val bad = c\"ab\"" -> "cosmo0.type.invalid-rune-literal",
+    )
+
+    cases.foreach { case (source, code) =>
+      val result = Cosmo0().check(source)
+      assertEquals(result.phase, Phase.Check)
+      assertEquals(result.status, PhaseStatus.Failed)
+      assert(
+        result.diagnostics.exists(_.code == code),
+        s"missing $code in ${result.diagnostics.map(d => d.code -> d.message)}",
+      )
+    }
 
   test("elaborate builds untyped representation for accepted core declarations"):
     val result = Cosmo0().elaborate(

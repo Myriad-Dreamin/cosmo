@@ -1,29 +1,500 @@
+import core0.json
 import names.symbol
+import syntax.ast
 
-type ModuleId = Id[Module]
+type PackageModuleId = Id[PackageModule]
 
-class Module {
+class Cosmo1PackageMetadata {
+  val name: String
+  val version: String
+  val target: Option[String]
+  val source_root: String
+  val stage_profile: Option[String]
+  val sources: Vec[String]
+}
+
+class PackageMetadataError {
+  val code: String
+  val message: String
+}
+
+class PackageModule {
   val name: Symbol
 }
 
-class ModuleGraph {
-  var modules: Map[Symbol, ModuleId]
-  var roots: Set[Symbol]
+class PackageSyntaxModule {
+  val name: Symbol
+  val syntax_id: ModuleId
+}
 
-  def add_root(&mut self, name: Symbol, id: ModuleId): Option[ModuleId] = {
+class ModuleGraphDiagnostic {
+  val code: String
+  val message: String
+  val source: Symbol
+  val import_path: Symbol
+}
+
+class ModuleGraphPlan {
+  val order: Vec[Symbol]
+  val diagnostics: Vec[ModuleGraphDiagnostic]
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def should_run_name_resolution(&self): Bool = {
+    self.is_ok()
+  }
+
+  def first_diagnostic_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      ""
+    } else {
+      self.diagnostics.get(0).code
+    }
+  }
+}
+
+class ModuleGraph {
+  var modules: Map[Symbol, PackageModuleId]
+  var roots: Set[Symbol]
+  var edges: Map[Symbol, Vec[Symbol]]
+
+  def add_root(&mut self, name: Symbol, id: PackageModuleId): Option[PackageModuleId] = {
     self.roots.insert(name);
     self.modules.insert(name, id)
+  }
+
+  def add_edges(&mut self, name: Symbol, imports: Vec[Symbol]): Option[Vec[Symbol]] = {
+    self.edges.insert(name, imports)
   }
 
   def has_module(&self, name: Symbol): Bool = {
     self.modules.contains_key(name)
   }
 
-  def module_id(&self, name: Symbol): Option[ModuleId] = {
+  def module_id(&self, name: Symbol): Option[PackageModuleId] = {
     self.modules.get(name)
+  }
+
+  def imports_for(&self, name: Symbol): Vec[Symbol] = {
+    val maybe_imports = self.edges.get(name);
+    maybe_imports match {
+      case Option[Vec[Symbol]]::Some(imports) => {
+        imports
+      }
+      case Option[Vec[Symbol]]::None => {
+        Vec[Symbol]()
+      }
+    }
   }
 }
 
 def empty_module_graph(): ModuleGraph = {
-  ModuleGraph(Map[Symbol, ModuleId](), Set[Symbol]())
+  ModuleGraph(Map[Symbol, PackageModuleId](), Set[Symbol](), Map[Symbol, Vec[Symbol]]())
+}
+
+def package_metadata_error(code: String, message: String): PackageMetadataError = {
+  PackageMetadataError(code, message)
+}
+
+def module_graph_diagnostic(code: String, message: String, source: Symbol, import_path: Symbol): ModuleGraphDiagnostic = {
+  ModuleGraphDiagnostic(code, message, source, import_path)
+}
+
+def load_cosmo1_package_metadata_json(text: String): Result[Cosmo1PackageMetadata, PackageMetadataError] = {
+  val parsed = core0_json().parse(text);
+  parsed match {
+    case Result[JsonValue, JsonParseError]::Ok(value) => {
+      load_cosmo1_package_metadata_value(value)
+    }
+    case Result[JsonValue, JsonParseError]::Err(error) => {
+      Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata", error.message)
+      )
+    }
+  }
+}
+
+def load_cosmo1_package_metadata_value(value: JsonValue): Result[Cosmo1PackageMetadata, PackageMetadataError] = {
+  val name = json_required_string(value, "name") match {
+    case Result[String, PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[String, PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val version = json_required_string(value, "version") match {
+    case Result[String, PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[String, PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val target = json_optional_string(value, "target") match {
+    case Result[Option[String], PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[Option[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val root = json_optional_string(value, "root") match {
+    case Result[Option[String], PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[Option[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val stage_profile = json_optional_string(value, "stageProfile") match {
+    case Result[Option[String], PackageMetadataError]::Ok(text) => {
+      text
+    }
+    case Result[Option[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  val sources = json_source_list(value) match {
+    case Result[Vec[String], PackageMetadataError]::Ok(items) => {
+      items
+    }
+    case Result[Vec[String], PackageMetadataError]::Err(error) => {
+      return Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error)
+    }
+  };
+
+  Result[Cosmo1PackageMetadata, PackageMetadataError]::Ok(
+    Cosmo1PackageMetadata(
+      name,
+      version,
+      target,
+      package_source_root_or_default(root),
+      stage_profile,
+      sources
+    )
+  )
+}
+
+def package_source_root_or_default(value: Option[String]): String = {
+  value match {
+    case Option[String]::Some(root) => {
+      root
+    }
+    case Option[String]::None => {
+      "src"
+    }
+  }
+}
+
+def json_required_string(value: JsonValue, field: String): Result[String, PackageMetadataError] = {
+  val maybe_field = value.field(field);
+  maybe_field match {
+    case Option[JsonValue]::Some(field_value) => {
+      json_string_value(field_value, field.concat(" must be a string"))
+    }
+    case Option[JsonValue]::None => {
+      Result[String, PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.missing-metadata-field", field.concat(" is required"))
+      )
+    }
+  }
+}
+
+def json_optional_string(value: JsonValue, field: String): Result[Option[String], PackageMetadataError] = {
+  val maybe_field = value.field(field);
+  maybe_field match {
+    case Option[JsonValue]::Some(field_value) => {
+      json_optional_string_value(field_value, field.concat(" must be a string"))
+    }
+    case Option[JsonValue]::None => {
+      Result[Option[String], PackageMetadataError]::Ok(Option[String]::None)
+    }
+  }
+}
+
+def json_source_list(value: JsonValue): Result[Vec[String], PackageMetadataError] = {
+  val maybe_sources = value.field("sources");
+  maybe_sources match {
+    case Option[JsonValue]::Some(source_value) => {
+      json_source_array(source_value)
+    }
+    case Option[JsonValue]::None => {
+      Result[Vec[String], PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.missing-metadata-field", "sources is required")
+      )
+    }
+  }
+}
+
+def json_string_value(value: JsonValue, message: String): Result[String, PackageMetadataError] = {
+  val maybe_text = value.as_string();
+  maybe_text match {
+    case Option[String]::Some(text) => {
+      Result[String, PackageMetadataError]::Ok(text)
+    }
+    case Option[String]::None => {
+      Result[String, PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata-field", message)
+      )
+    }
+  }
+}
+
+def json_optional_string_value(value: JsonValue, message: String): Result[Option[String], PackageMetadataError] = {
+  val text_result = json_string_value(value, message);
+  text_result match {
+    case Result[String, PackageMetadataError]::Ok(text) => {
+      Result[Option[String], PackageMetadataError]::Ok(Option[String]::Some(text))
+    }
+    case Result[String, PackageMetadataError]::Err(error) => {
+      Result[Option[String], PackageMetadataError]::Err(error)
+    }
+  }
+}
+
+def json_source_array(value: JsonValue): Result[Vec[String], PackageMetadataError] = {
+  val maybe_len = value.array_len();
+  maybe_len match {
+    case Option[usize]::Some(len) => {
+      json_source_array_items(value, len)
+    }
+    case Option[usize]::None => {
+      Result[Vec[String], PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata-field", "sources must be an array")
+      )
+    }
+  }
+}
+
+def json_source_array_items(value: JsonValue, len: usize): Result[Vec[String], PackageMetadataError] = {
+  val sources = Vec[String]();
+  var index: usize = 0;
+  while (index < len) {
+    val item_result = json_source_array_item(value, index);
+    item_result match {
+      case Result[String, PackageMetadataError]::Ok(text) => {
+        if (!is_valid_package_source_path(text)) {
+          return Result[Vec[String], PackageMetadataError]::Err(
+            package_metadata_error(
+              "cosmo1.package.invalid-source",
+              "source entries must be relative .cos paths inside the source root"
+            )
+          )
+        }
+        sources.push(text)
+      }
+      case Result[String, PackageMetadataError]::Err(error) => {
+        return Result[Vec[String], PackageMetadataError]::Err(error)
+      }
+    }
+    index = index + 1;
+  }
+
+  if (sources.is_empty()) {
+    Result[Vec[String], PackageMetadataError]::Err(
+      package_metadata_error("cosmo1.package.no-sources", "sources must list at least one .cos file")
+    )
+  } else {
+    Result[Vec[String], PackageMetadataError]::Ok(sources)
+  }
+}
+
+def json_source_array_item(value: JsonValue, index: usize): Result[String, PackageMetadataError] = {
+  val maybe_item = value.array_get(index);
+  maybe_item match {
+    case Option[JsonValue]::Some(item) => {
+      json_string_value(item, "sources must contain strings")
+    }
+    case Option[JsonValue]::None => {
+      Result[String, PackageMetadataError]::Err(
+        package_metadata_error("cosmo1.package.invalid-metadata-field", "sources array item is missing")
+      )
+    }
+  }
+}
+
+def is_valid_package_source_path(path: String): Bool = {
+  !path.is_empty() and
+    string_ends_with(path, ".cos") and
+    !string_starts_with(path, "/") and
+    !string_starts_with(path, "\\") and
+    !string_contains_parent_segment(path)
+}
+
+def string_starts_with(text: String, prefix: String): Bool = {
+  if (text.len() < prefix.len()) {
+    false
+  } else {
+    text.slice(0, prefix.len()) == prefix
+  }
+}
+
+def string_ends_with(text: String, suffix: String): Bool = {
+  if (text.len() < suffix.len()) {
+    false
+  } else {
+    text.slice(text.len() - suffix.len(), text.len()) == suffix
+  }
+}
+
+def string_contains_parent_segment(text: String): Bool = {
+  if (text == ".." or string_starts_with(text, "../") or string_ends_with(text, "/..")) {
+    return true
+  }
+  var offset: usize = 0;
+  while (offset + 4 <= text.len()) {
+    if (text.slice(offset, offset + 4) == "/../") {
+      return true
+    }
+    offset = offset + 1
+  }
+  false
+}
+
+def module_key_from_source_path(path: String): Symbol = {
+  if (string_ends_with(path, ".cos")) {
+    symbol_from_string(path.slice(0, path.len() - 4))
+  } else {
+    symbol_from_string(path)
+  }
+}
+
+def module_key_from_import_path(path: String): Symbol = {
+  var output = "";
+  var offset: usize = 0;
+  while (offset < path.len()) {
+    if (path.byte_at(offset) == a".") {
+      output = output.concat("/")
+    } else {
+      output = output.concat(path.slice(offset, offset + 1))
+    }
+    offset = offset + 1
+  }
+  symbol_from_string(output)
+}
+
+def import_edges_from_syntax_module(arenas: SyntaxArenas, id: ModuleId): Vec[Symbol] = {
+  val syntax_module = arenas.module_value(id);
+  val imports = Vec[Symbol]();
+  for (decl_id in syntax_module.declarations) {
+    val decl = arenas.decl_value(decl_id);
+    val path = import_path_or_empty(decl);
+    if (!path.is_empty()) {
+      imports.push(module_key_from_import_path(path))
+    }
+  }
+  imports
+}
+
+def import_path_or_empty(decl: SyntaxDecl): String = {
+  decl match {
+    case SyntaxDecl.Import(path, span) => {
+      path
+    }
+    case SyntaxDecl.AEmpty => {
+      ""
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      ""
+    }
+    case SyntaxDecl.Class(name, members, span) => {
+      ""
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      ""
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      ""
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      ""
+    }
+  }
+}
+
+def plan_package_modules(arenas: SyntaxArenas, modules: Vec[PackageSyntaxModule]): ModuleGraphPlan = {
+  var package_modules = Arena[PackageModule]();
+  var graph = empty_module_graph();
+  for (source_module in modules) {
+    val id = package_modules.alloc(PackageModule(source_module.name));
+    graph.add_root(source_module.name, id);
+    graph.add_edges(source_module.name, import_edges_from_syntax_module(arenas, source_module.syntax_id));
+  }
+  module_graph_order(graph)
+}
+
+def module_graph_order(graph: ModuleGraph): ModuleGraphPlan = {
+  var diagnostics = collect_missing_imports(graph);
+  if (!diagnostics.is_empty()) {
+    return ModuleGraphPlan(Vec[Symbol](), diagnostics)
+  }
+
+  var order = Vec[Symbol]();
+  var emitted = Set[Symbol]();
+  var progress = true;
+  while (order.len() < graph.modules.len() and progress) {
+    progress = false;
+    for (name in graph.modules) {
+      if (!emitted.contains(name) and imports_are_emitted(graph, name, emitted)) {
+        emitted.insert(name);
+        order.push(name);
+        progress = true
+      }
+    }
+  }
+
+  if (order.len() != graph.modules.len()) {
+    diagnostics.push(
+      module_graph_diagnostic(
+        "cosmo1.package.import-cycle",
+        "module import cycle is unsupported",
+        symbol_from_string(""),
+        symbol_from_string("")
+      )
+    )
+  }
+
+  if (!diagnostics.is_empty()) {
+    ModuleGraphPlan(Vec[Symbol](), diagnostics)
+  } else {
+    ModuleGraphPlan(order, diagnostics)
+  }
+}
+
+def collect_missing_imports(graph: ModuleGraph): Vec[ModuleGraphDiagnostic] = {
+  val diagnostics = Vec[ModuleGraphDiagnostic]();
+  for (name in graph.modules) {
+    val imports = graph.imports_for(name);
+    for (imported in imports) {
+      if (!graph.has_module(imported)) {
+        diagnostics.push(
+          module_graph_diagnostic(
+            "cosmo1.package.missing-import",
+            "module ".concat(symbol_text(name)).concat(" imports missing module ").concat(symbol_text(imported)),
+            name,
+            imported
+          )
+        )
+      }
+    }
+  }
+  diagnostics
+}
+
+def imports_are_emitted(graph: ModuleGraph, name: Symbol, emitted: Set[Symbol]): Bool = {
+  val imports = graph.imports_for(name);
+  for (imported in imports) {
+    if (!emitted.contains(imported)) {
+      return false
+    }
+  }
+  true
 }

@@ -1,9 +1,103 @@
 import package.module_graph
+import source.span
+import syntax.ast
 
 def module_graph_test_uses_deterministic_maps(): Bool = {
-  var arena = Arena[Module]();
-  val id = arena.alloc(Module(symbol_from_string("main")));
+  var arena = Arena[PackageModule]();
+  val id = arena.alloc(PackageModule(symbol_from_string("main")));
   var graph = empty_module_graph();
   val previous = graph.add_root(symbol_from_string("main"), id);
   previous.is_none() and graph.has_module(symbol_from_string("main")) and graph.module_id(symbol_from_string("main")).is_some()
+}
+
+def module_graph_test_loads_explicit_sources(): Bool = {
+  val json = "{ \"name\": \"@cosmo/compiler\", \"version\": \"0.0.0\", \"target\": \"cosmo0\", \"stageProfile\": \"cosmo1.stage1\", \"sources\": [\"parser.cos\", \"syntax/ast.cos\"] }";
+  val loaded = load_cosmo1_package_metadata_json(json);
+  loaded match {
+    case Result[Cosmo1PackageMetadata, PackageMetadataError]::Ok(metadata) => {
+      metadata.name == "@cosmo/compiler" and
+        metadata.version == "0.0.0" and
+        metadata.source_root == "src" and
+        metadata.target.is_some() and
+        metadata.stage_profile.is_some() and
+        metadata.sources.len() == 2 and
+        metadata.sources.get(0) == "parser.cos" and
+        module_key_from_source_path(metadata.sources.get(1)) == symbol_from_string("syntax/ast")
+    }
+    case Result[Cosmo1PackageMetadata, PackageMetadataError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def module_graph_test_extracts_import_edges(): Bool = {
+  var arenas = syntax_arenas();
+  val first = arenas.make_import_decl("source.span", make_span(0, 18));
+  val second = arenas.make_import_decl("syntax.ast", make_span(19, 36));
+  val decls = Vec[DeclId]();
+  decls.push(first);
+  decls.push(second);
+  val root = arenas.make_module(decls, make_span(0, 36));
+  val edges = import_edges_from_syntax_module(arenas, root);
+  edges.len() == 2 and
+    edges.get(0) == symbol_from_string("source/span") and
+    edges.get(1) == symbol_from_string("syntax/ast")
+}
+
+def module_graph_test_orders_dependencies_first(): Bool = {
+  var arenas = syntax_arenas();
+
+  val util_decls = Vec[DeclId]();
+  val util = arenas.make_module(util_decls, make_span(0, 0));
+
+  val main_decls = Vec[DeclId]();
+  main_decls.push(arenas.make_import_decl("util", make_span(0, 11)));
+  val main = arenas.make_module(main_decls, make_span(0, 11));
+
+  val modules = Vec[PackageSyntaxModule]();
+  modules.push(PackageSyntaxModule(symbol_from_string("main"), main));
+  modules.push(PackageSyntaxModule(symbol_from_string("util"), util));
+
+  val plan = plan_package_modules(arenas, modules);
+  plan.is_ok() and
+    plan.should_run_name_resolution() and
+    plan.order.len() == 2 and
+    plan.order.get(0) == symbol_from_string("util") and
+    plan.order.get(1) == symbol_from_string("main")
+}
+
+def module_graph_test_reports_missing_import(): Bool = {
+  var arenas = syntax_arenas();
+  val decls = Vec[DeclId]();
+  decls.push(arenas.make_import_decl("missing", make_span(0, 14)));
+  val main = arenas.make_module(decls, make_span(0, 14));
+
+  val modules = Vec[PackageSyntaxModule]();
+  modules.push(PackageSyntaxModule(symbol_from_string("main"), main));
+
+  val plan = plan_package_modules(arenas, modules);
+  !plan.is_ok() and
+    !plan.should_run_name_resolution() and
+    plan.first_diagnostic_code() == "cosmo1.package.missing-import"
+}
+
+def module_graph_test_reports_cycle(): Bool = {
+  var arenas = syntax_arenas();
+
+  val a_decls = Vec[DeclId]();
+  a_decls.push(arenas.make_import_decl("b", make_span(0, 8)));
+  val a = arenas.make_module(a_decls, make_span(0, 8));
+
+  val b_decls = Vec[DeclId]();
+  b_decls.push(arenas.make_import_decl("a", make_span(0, 8)));
+  val b = arenas.make_module(b_decls, make_span(0, 8));
+
+  val modules = Vec[PackageSyntaxModule]();
+  modules.push(PackageSyntaxModule(symbol_from_string("a"), a));
+  modules.push(PackageSyntaxModule(symbol_from_string("b"), b));
+
+  val plan = plan_package_modules(arenas, modules);
+  !plan.is_ok() and
+    !plan.should_run_name_resolution() and
+    plan.first_diagnostic_code() == "cosmo1.package.import-cycle"
 }

@@ -1,0 +1,657 @@
+import names.resolution
+import names.scope
+import source.span
+import syntax.ast
+import types.model
+
+class DeclarationResolutionDiagnostic {
+  val code: String
+  val message: String
+  val span: Span
+}
+
+class ParameterSignature {
+  val definition: DefId
+  val typ: TypeId
+  val mutable: Bool
+  val is_receiver: Bool
+}
+
+class CallableSignature {
+  val definition: DefId
+  val params: Vec[ParamId]
+  val return_type: TypeId
+  val receiver: Option[ParamId]
+}
+
+class FieldSignature {
+  val definition: DefId
+  val typ: TypeId
+  val mutable: Bool
+}
+
+class AliasSignature {
+  val definition: DefId
+  val target: TypeId
+}
+
+class ValueSignature {
+  val definition: DefId
+  val typ: TypeId
+  val mutable: Bool
+}
+
+class ClassSignature {
+  val definition: DefId
+  val members: Vec[MemberId]
+}
+
+class DeclarationResolution {
+  val types: TypeStore
+  val diagnostics: Vec[DeclarationResolutionDiagnostic]
+  val type_expr_types: Map[TypeExprId, TypeId]
+  val param_signatures: Map[ParamId, ParameterSignature]
+  val function_signatures: Map[DeclId, CallableSignature]
+  val method_signatures: Map[MemberId, CallableSignature]
+  val field_signatures: Map[MemberId, FieldSignature]
+  val alias_signatures: Map[DefId, AliasSignature]
+  val value_signatures: Map[DeclId, ValueSignature]
+  val class_signatures: Map[DeclId, ClassSignature]
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def first_diagnostic_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      ""
+    } else {
+      self.diagnostics.get(0).code
+    }
+  }
+}
+
+class DeclarationResolver {
+  val arenas: SyntaxArenas
+  val names: NameResolution
+  var types: TypeStore
+  var diagnostics: Vec[DeclarationResolutionDiagnostic]
+  var type_expr_types: Map[TypeExprId, TypeId]
+  var param_signatures: Map[ParamId, ParameterSignature]
+  var function_signatures: Map[DeclId, CallableSignature]
+  var method_signatures: Map[MemberId, CallableSignature]
+  var field_signatures: Map[MemberId, FieldSignature]
+  var alias_signatures: Map[DefId, AliasSignature]
+  var value_signatures: Map[DeclId, ValueSignature]
+  var class_signatures: Map[DeclId, ClassSignature]
+  var alias_targets: Map[DefId, TypeExprId]
+
+  def collect_alias_targets(&mut self, module_id: ModuleId): Unit = {
+    val module_value = self.arenas.module_value(module_id);
+    for (decl_id in module_value.declarations) {
+      self.collect_decl_alias_target(decl_id)
+    }
+  }
+
+  def collect_decl_alias_target(&mut self, id: DeclId): Unit = {
+    val decl = self.arenas.decl_value(id);
+    decl match {
+      case SyntaxDecl.Class(name, members, span) => {
+        for (member_id in members) {
+          self.collect_member_alias_target(member_id)
+        }
+      }
+      case SyntaxDecl.TypeAlias(name, typ, span) => {
+        self.record_decl_alias_target(id, typ)
+      }
+      case SyntaxDecl.AEmpty => {
+      }
+      case SyntaxDecl.Unsupported(text, span) => {
+      }
+      case SyntaxDecl.Import(path, span) => {
+      }
+      case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      }
+      case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      }
+    }
+  }
+
+  def collect_member_alias_target(&mut self, id: MemberId): Unit = {
+    val member = self.arenas.member_value(id);
+    member match {
+      case SyntaxMember.TypeAlias(name, typ, span) => {
+        self.record_member_alias_target(id, typ)
+      }
+      case SyntaxMember.AEmpty => {
+      }
+      case SyntaxMember.Unsupported(text, span) => {
+      }
+      case SyntaxMember.Field(name, mutable, typ, span) => {
+      }
+      case SyntaxMember.Method(name, params, return_type, body, span) => {
+      }
+      case SyntaxMember.Variant(name, fields, span) => {
+      }
+    }
+  }
+
+  def record_decl_alias_target(&mut self, id: DeclId, typ: TypeExprId): Unit = {
+    val maybe_def = self.names.decl_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        self.alias_targets.insert(definition, typ);
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def record_member_alias_target(&mut self, id: MemberId, typ: TypeExprId): Unit = {
+    val maybe_def = self.names.member_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        self.alias_targets.insert(definition, typ);
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_module(&mut self, module_id: ModuleId): Unit = {
+    val module_value = self.arenas.module_value(module_id);
+    for (decl_id in module_value.declarations) {
+      self.resolve_decl(decl_id)
+    }
+  }
+
+  def resolve_decl(&mut self, id: DeclId): Unit = {
+    val decl = self.arenas.decl_value(id);
+    decl match {
+      case SyntaxDecl.Class(name, members, span) => {
+        self.resolve_class_decl(id, members)
+      }
+      case SyntaxDecl.Function(name, params, return_type, body, span) => {
+        self.resolve_function_decl(id, params, return_type)
+      }
+      case SyntaxDecl.TypeAlias(name, typ, span) => {
+        self.resolve_decl_alias(id)
+      }
+      case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+        self.resolve_value_decl(id, mutable, typ)
+      }
+      case SyntaxDecl.AEmpty => {
+      }
+      case SyntaxDecl.Unsupported(text, span) => {
+      }
+      case SyntaxDecl.Import(path, span) => {
+      }
+    }
+  }
+
+  def resolve_class_decl(&mut self, id: DeclId, members: Vec[MemberId]): Unit = {
+    val maybe_def = self.names.decl_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        self.class_signatures.insert(id, ClassSignature(definition, members));
+        for (member_id in members) {
+          self.resolve_member(member_id, definition)
+        }
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_member(&mut self, id: MemberId, class_def: DefId): Unit = {
+    val member = self.arenas.member_value(id);
+    member match {
+      case SyntaxMember.Field(name, mutable, typ, span) => {
+        self.resolve_field_member(id, mutable, typ)
+      }
+      case SyntaxMember.Method(name, params, return_type, body, span) => {
+        self.resolve_method_member(id, params, return_type, class_def)
+      }
+      case SyntaxMember.TypeAlias(name, typ, span) => {
+        self.resolve_member_alias(id)
+      }
+      case SyntaxMember.Variant(name, fields, span) => {
+        for (field_type in fields) {
+          val ignored = self.resolve_type_expr(field_type, Vec[usize]());
+        }
+      }
+      case SyntaxMember.AEmpty => {
+      }
+      case SyntaxMember.Unsupported(text, span) => {
+      }
+    }
+  }
+
+  def resolve_function_decl(&mut self, id: DeclId, params: Vec[ParamId], return_type: TypeExprId): Unit = {
+    val maybe_def = self.names.decl_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val receiver = self.resolve_params(params, Option[DefId]::None);
+        val resolved_return = self.resolve_type_expr(return_type, Vec[usize]());
+        self.function_signatures.insert(id, CallableSignature(definition, params, resolved_return, receiver));
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_method_member(&mut self, id: MemberId, params: Vec[ParamId], return_type: TypeExprId, class_def: DefId): Unit = {
+    val maybe_def = self.names.member_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val receiver = self.resolve_params(params, Option[DefId]::Some(class_def));
+        val resolved_return = self.resolve_type_expr(return_type, Vec[usize]());
+        self.method_signatures.insert(id, CallableSignature(definition, params, resolved_return, receiver));
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_decl_alias(&mut self, id: DeclId): Unit = {
+    val maybe_def = self.names.decl_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val ignored = self.resolve_alias_definition(definition, Vec[usize]());
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_member_alias(&mut self, id: MemberId): Unit = {
+    val maybe_def = self.names.member_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val ignored = self.resolve_alias_definition(definition, Vec[usize]());
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_value_decl(&mut self, id: DeclId, mutable: Bool, typ: TypeExprId): Unit = {
+    val maybe_def = self.names.decl_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val resolved = self.resolve_type_expr(typ, Vec[usize]());
+        self.value_signatures.insert(id, ValueSignature(definition, resolved, mutable));
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_field_member(&mut self, id: MemberId, mutable: Bool, typ: TypeExprId): Unit = {
+    val maybe_def = self.names.member_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        val resolved = self.resolve_type_expr(typ, Vec[usize]());
+        self.field_signatures.insert(id, FieldSignature(definition, resolved, mutable));
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_params(&mut self, params: Vec[ParamId], current_class: Option[DefId]): Option[ParamId] = {
+    var receiver = Option[ParamId]::None;
+    var index: usize = 0;
+    for (param_id in params) {
+      val param = self.arenas.param_value(param_id);
+      param match {
+        case SyntaxParam.Self(mutable, span) => {
+          if (index != 0) {
+            self.diagnostic("cosmo1.type.invalid-receiver", "receiver must be the first parameter", span);
+          }
+          if (receiver.is_some()) {
+            self.diagnostic("cosmo1.type.invalid-receiver", "method can only declare one receiver", span);
+          }
+          val receiver_type = self.resolve_receiver_type(current_class, mutable, span);
+          self.record_param_signature(param_id, receiver_type, mutable, true);
+          if (receiver.is_none()) {
+            receiver = Option[ParamId]::Some(param_id)
+          }
+        }
+        case SyntaxParam.Named(name, typ, default_value, span) => {
+          val resolved = self.resolve_type_expr(typ, Vec[usize]());
+          self.record_param_signature(param_id, resolved, false, false)
+        }
+        case SyntaxParam.AEmpty => {
+        }
+      }
+      index = index + 1
+    }
+    receiver
+  }
+
+  def resolve_receiver_type(&mut self, current_class: Option[DefId], mutable: Bool, span: Span): TypeId = {
+    current_class match {
+      case Option[DefId]::Some(class_def) => {
+        val class_type = self.types.alloc_user(self.definition_name(class_def));
+        self.types.alloc_reference(mutable, class_type)
+      }
+      case Option[DefId]::None => {
+        self.diagnostic("cosmo1.type.invalid-receiver", "receiver is only valid on methods", span);
+        self.types.alloc_error()
+      }
+    }
+  }
+
+  def record_param_signature(&mut self, id: ParamId, typ: TypeId, mutable: Bool, is_receiver: Bool): Unit = {
+    val maybe_def = self.names.param_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        self.param_signatures.insert(id, ParameterSignature(definition, typ, mutable, is_receiver));
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_type_expr(&mut self, id: TypeExprId, alias_stack: Vec[usize]): TypeId = {
+    val cached = self.type_expr_types.get(id);
+    cached match {
+      case Option[TypeId]::Some(existing) => {
+        existing
+      }
+      case Option[TypeId]::None => {
+        val resolved = self.resolve_type_expr_uncached(id, alias_stack);
+        self.type_expr_types.insert(id, resolved);
+        resolved
+      }
+    }
+  }
+
+  def resolve_type_expr_uncached(&mut self, id: TypeExprId, alias_stack: Vec[usize]): TypeId = {
+    val typ = self.arenas.type_value(id);
+    typ match {
+      case SyntaxType.Name(name, span) => {
+        self.resolve_name_type_expr(id, name, span, alias_stack)
+      }
+      case SyntaxType.Generic(base, args, span) => {
+        self.resolve_generic_type_expr(id, base, args, alias_stack)
+      }
+      case SyntaxType.Ref(mutable, inner, span) => {
+        val inner_type = self.resolve_type_expr(inner, alias_stack);
+        if (self.type_id_is_error(inner_type)) {
+          self.types.alloc_error()
+        } else {
+          self.types.alloc_reference(mutable, inner_type)
+        }
+      }
+      case SyntaxType.AEmpty => {
+        self.types.alloc_error()
+      }
+      case SyntaxType.Missing(span) => {
+        self.types.alloc_error()
+      }
+    }
+  }
+
+  def resolve_name_type_expr(&mut self, id: TypeExprId, name: String, span: Span, alias_stack: Vec[usize]): TypeId = {
+    val maybe_def = self.names.type_definitions.get(id);
+    maybe_def match {
+      case Option[DefId]::Some(definition) => {
+        self.resolve_definition_type(definition, name, span, alias_stack)
+      }
+      case Option[DefId]::None => {
+        self.unknown_type(name, span)
+      }
+    }
+  }
+
+  def resolve_generic_type_expr(&mut self, id: TypeExprId, base: TypeExprId, args: Vec[TypeExprId], alias_stack: Vec[usize]): TypeId = {
+    val base_type = self.resolve_type_expr(base, alias_stack);
+    if (self.type_id_is_error(base_type)) {
+      return self.types.alloc_error()
+    }
+
+    var has_error = false;
+    for (arg in args) {
+      val arg_type = self.resolve_type_expr(arg, alias_stack);
+      if (self.type_id_is_error(arg_type)) {
+        has_error = true
+      }
+    }
+    if (has_error) {
+      return self.types.alloc_error()
+    }
+
+    var arenas = self.arenas;
+    self.types.alloc_user(type_expr_text(arenas, id))
+  }
+
+  def resolve_definition_type(&mut self, definition: DefId, name: String, span: Span, alias_stack: Vec[usize]): TypeId = {
+    val node = self.names.env.definition(definition);
+    node.kind match {
+      case DefinitionKind.Prelude => {
+        self.resolve_prelude_type(node.name, span)
+      }
+      case DefinitionKind.Class => {
+        self.types.alloc_user(node.name)
+      }
+      case DefinitionKind.TypeAlias => {
+        self.resolve_alias_definition(definition, alias_stack)
+      }
+      case DefinitionKind.Module => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Function => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Value => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Field => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Method => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Variant => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Parameter => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Local => {
+        self.unknown_type(name, span)
+      }
+      case DefinitionKind.Self => {
+        self.unknown_type(name, span)
+      }
+    }
+  }
+
+  def resolve_prelude_type(&mut self, name: String, span: Span): TypeId = {
+    if (prelude_is_primitive_type(name)) {
+      return self.types.alloc_primitive(name)
+    }
+    if (prelude_is_named_type(name)) {
+      return self.types.alloc_user(name)
+    }
+    self.unknown_type(name, span)
+  }
+
+  def resolve_alias_definition(&mut self, definition: DefId, alias_stack: Vec[usize]): TypeId = {
+    val cached = self.alias_signatures.get(definition);
+    cached match {
+      case Option[AliasSignature]::Some(signature) => {
+        return signature.target
+      }
+      case Option[AliasSignature]::None => {
+      }
+    }
+
+    val key = self.definition_key(definition);
+    if (alias_stack_contains(alias_stack, key)) {
+      val error = self.types.alloc_error();
+      val name = self.definition_name(definition);
+      val span = self.names.env.definition(definition).span;
+      self.diagnostic("cosmo1.type.alias-cycle", "alias cycle involving ".concat(name), span);
+      self.alias_signatures.insert(definition, AliasSignature(definition, error));
+      return error
+    }
+
+    val maybe_target = self.alias_targets.get(definition);
+    maybe_target match {
+      case Option[TypeExprId]::Some(target) => {
+        val resolved = self.resolve_type_expr(target, alias_stack_push(alias_stack, key));
+        self.alias_signatures.insert(definition, AliasSignature(definition, resolved));
+        resolved
+      }
+      case Option[TypeExprId]::None => {
+        val error = self.types.alloc_error();
+        self.alias_signatures.insert(definition, AliasSignature(definition, error));
+        error
+      }
+    }
+  }
+
+  def type_id_is_error(&self, id: TypeId): Bool = {
+    type_is_error(self.types.type_value(id))
+  }
+
+  def definition_name(&self, id: DefId): String = {
+    self.names.env.definition(id).name
+  }
+
+  def definition_key(&self, id: DefId): usize = {
+    self.names.env.definition(id).span.start
+  }
+
+  def unknown_type(&mut self, name: String, span: Span): TypeId = {
+    self.diagnostic("cosmo1.type.unknown-type", "unknown type ".concat(name), span);
+    self.types.alloc_error()
+  }
+
+  def diagnostic(&mut self, code: String, message: String, span: Span): Unit = {
+    self.diagnostics.push(DeclarationResolutionDiagnostic(code, message, span))
+  }
+
+  def finish(&self): DeclarationResolution = {
+    DeclarationResolution(
+      self.types,
+      self.diagnostics,
+      self.type_expr_types,
+      self.param_signatures,
+      self.function_signatures,
+      self.method_signatures,
+      self.field_signatures,
+      self.alias_signatures,
+      self.value_signatures,
+      self.class_signatures
+    )
+  }
+}
+
+def resolve_module_declarations(arenas: SyntaxArenas, module_id: ModuleId): DeclarationResolution = {
+  val names = resolve_module_names(arenas, module_id);
+  resolve_module_declarations_with_names(arenas, module_id, names)
+}
+
+def resolve_module_declarations_with_names(
+  arenas: SyntaxArenas,
+  module_id: ModuleId,
+  names: NameResolution
+): DeclarationResolution = {
+  var resolver = DeclarationResolver(
+    arenas,
+    names,
+    type_store(),
+    Vec[DeclarationResolutionDiagnostic](),
+    Map[TypeExprId, TypeId](),
+    Map[ParamId, ParameterSignature](),
+    Map[DeclId, CallableSignature](),
+    Map[MemberId, CallableSignature](),
+    Map[MemberId, FieldSignature](),
+    Map[DefId, AliasSignature](),
+    Map[DeclId, ValueSignature](),
+    Map[DeclId, ClassSignature](),
+    Map[DefId, TypeExprId]()
+  );
+  resolver.collect_alias_targets(module_id);
+  resolver.resolve_module(module_id);
+  resolver.finish()
+}
+
+def prelude_is_primitive_type(name: String): Bool = {
+  name == "Unit" or
+    name == "Bool" or
+    name == "Char" or
+    name == "String" or
+    name == "i32" or
+    name == "u8" or
+    name == "usize"
+}
+
+def prelude_is_named_type(name: String): Bool = {
+  name == "Option" or
+    name == "Result" or
+    name == "Vec" or
+    name == "Map" or
+    name == "Set" or
+    name == "Arena" or
+    name == "Id"
+}
+
+def alias_stack_contains(stack: Vec[usize], target: usize): Bool = {
+  for (definition in stack) {
+    if (definition == target) {
+      return true
+    }
+  }
+  false
+}
+
+def alias_stack_push(stack: Vec[usize], target: usize): Vec[usize] = {
+  val next = Vec[usize]();
+  for (definition in stack) {
+    next.push(definition)
+  }
+  next.push(target);
+  next
+}
+
+def type_expr_text(arenas: SyntaxArenas, id: TypeExprId): String = {
+  type_expr_node_text(arenas, arenas.type_value(id))
+}
+
+def type_expr_node_text(arenas: SyntaxArenas, typ: SyntaxType): String = {
+  typ match {
+    case SyntaxType.Name(name, span) => {
+      name
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      var text = type_expr_text(arenas, base).concat("[");
+      var index: usize = 0;
+      while (index < args.len()) {
+        if (index > 0) {
+          text = text.concat(", ")
+        }
+        text = text.concat(type_expr_text(arenas, args.get(index)));
+        index = index + 1
+      }
+      text.concat("]")
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      if (mutable) {
+        "&mut ".concat(type_expr_text(arenas, inner))
+      } else {
+        "&".concat(type_expr_text(arenas, inner))
+      }
+    }
+    case SyntaxType.AEmpty => {
+      "<empty>"
+    }
+    case SyntaxType.Missing(span) => {
+      "<missing>"
+    }
+  }
+}

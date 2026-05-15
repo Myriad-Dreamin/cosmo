@@ -1,0 +1,782 @@
+import names.scope
+import names.symbol
+import source.span
+import syntax.ast
+
+class NameResolutionDiagnostic {
+  val code: String
+  val message: String
+  val span: Span
+}
+
+class NameResolution {
+  val module_scope: ScopeId
+  val env: NameEnvironment
+  val diagnostics: Vec[NameResolutionDiagnostic]
+  val decl_definitions: Map[DeclId, DefId]
+  val member_definitions: Map[MemberId, DefId]
+  val param_definitions: Map[ParamId, DefId]
+  val local_definitions: Map[ExprId, DefId]
+  val expr_definitions: Map[ExprId, DefId]
+  val type_definitions: Map[TypeExprId, DefId]
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def definition_len(&self): usize = {
+    self.env.definition_len()
+  }
+
+  def scope_len(&self): usize = {
+    self.env.scope_len()
+  }
+
+  def resolved_expr_len(&self): usize = {
+    self.expr_definitions.len()
+  }
+
+  def resolved_type_len(&self): usize = {
+    self.type_definitions.len()
+  }
+
+  def first_diagnostic_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      ""
+    } else {
+      self.diagnostics.get(0).code
+    }
+  }
+}
+
+class NameResolver {
+  val arenas: SyntaxArenas
+  var symbols: SymbolInterner
+  var env: NameEnvironment
+  val module_scope: ScopeId
+  var diagnostics: Vec[NameResolutionDiagnostic]
+  var decl_definitions: Map[DeclId, DefId]
+  var decl_scopes: Map[DeclId, ScopeId]
+  var member_definitions: Map[MemberId, DefId]
+  var member_scopes: Map[MemberId, ScopeId]
+  var param_definitions: Map[ParamId, DefId]
+  var local_definitions: Map[ExprId, DefId]
+  var expr_definitions: Map[ExprId, DefId]
+  var type_definitions: Map[TypeExprId, DefId]
+  var class_scopes: Map[DefId, ScopeId]
+
+  def install_prelude(&mut self, prelude_scope: ScopeId): Unit = {
+    self.define_prelude(prelude_scope, "Unit");
+    self.define_prelude(prelude_scope, "Bool");
+    self.define_prelude(prelude_scope, "Char");
+    self.define_prelude(prelude_scope, "String");
+    self.define_prelude(prelude_scope, "i32");
+    self.define_prelude(prelude_scope, "u8");
+    self.define_prelude(prelude_scope, "usize");
+    self.define_prelude(prelude_scope, "Option");
+    self.define_prelude(prelude_scope, "Some");
+    self.define_prelude(prelude_scope, "None");
+    self.define_prelude(prelude_scope, "Result");
+    self.define_prelude(prelude_scope, "Ok");
+    self.define_prelude(prelude_scope, "Err");
+    self.define_prelude(prelude_scope, "Vec");
+    self.define_prelude(prelude_scope, "Map");
+    self.define_prelude(prelude_scope, "Set");
+    self.define_prelude(prelude_scope, "Arena");
+    self.define_prelude(prelude_scope, "Id");
+    self.define_prelude(prelude_scope, "read_file");
+    self.define_prelude(prelude_scope, "print");
+    self.define_prelude(prelude_scope, "println");
+  }
+
+  def define_prelude(&mut self, scope_id: ScopeId, text: String): DefId = {
+    val name = self.symbols.intern(text);
+    self.env.define(scope_id, name, DefinitionKind.Prelude, make_span(0, 0), Option[DefId]::None).id
+  }
+
+  def collect_module(&mut self, id: ModuleId): Unit = {
+    val syntax_module = self.arenas.module_value(id);
+    for (decl_id in syntax_module.declarations) {
+      self.collect_decl(decl_id)
+    }
+  }
+
+  def collect_decl(&mut self, id: DeclId): Unit = {
+    val decl = self.arenas.decl_value(id);
+    decl match {
+      case SyntaxDecl.AEmpty => {
+      }
+      case SyntaxDecl.Unsupported(text, span) => {
+      }
+      case SyntaxDecl.Import(path, span) => {
+        self.collect_import_decl(id, path, span)
+      }
+      case SyntaxDecl.Class(name, members, span) => {
+        self.collect_class_decl(id, name, members, span)
+      }
+      case SyntaxDecl.Function(name, params, return_type, body, span) => {
+        self.collect_function_decl(id, name, params, span)
+      }
+      case SyntaxDecl.TypeAlias(name, typ, span) => {
+        self.collect_plain_decl(id, name, DefinitionKind.TypeAlias, span);
+      }
+      case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+        self.collect_plain_decl(id, name, DefinitionKind.Value, span);
+      }
+    }
+  }
+
+  def collect_import_decl(&mut self, id: DeclId, path: String, span: Span): Unit = {
+    val import_name = name_resolution_last_path_segment(path);
+    if (!import_name.is_empty()) {
+      self.collect_plain_decl(id, import_name, DefinitionKind.Module, span);
+    }
+  }
+
+  def collect_plain_decl(&mut self, id: DeclId, name: String, kind: DefinitionKind, span: Span): DefId = {
+    val result = self.define(self.module_scope, name, kind, span, Option[DefId]::None);
+    self.decl_definitions.insert(id, result.id);
+    result.id
+  }
+
+  def collect_class_decl(&mut self, id: DeclId, name: String, members: Vec[MemberId], span: Span): Unit = {
+    val result = self.define(self.module_scope, name, DefinitionKind.Class, span, Option[DefId]::None);
+    self.decl_definitions.insert(id, result.id);
+
+    val class_scope = self.env.add_scope(
+      ScopeKind.Class,
+      Option[ScopeId]::Some(self.module_scope),
+      Option[DefId]::Some(result.id)
+    );
+    self.decl_scopes.insert(id, class_scope);
+    self.class_scopes.insert(result.id, class_scope);
+
+    for (member_id in members) {
+      self.collect_member(member_id, class_scope, result.id)
+    }
+  }
+
+  def collect_function_decl(&mut self, id: DeclId, name: String, params: Vec[ParamId], span: Span): Unit = {
+    val result = self.define(self.module_scope, name, DefinitionKind.Function, span, Option[DefId]::None);
+    self.decl_definitions.insert(id, result.id);
+
+    val function_scope = self.env.add_scope(
+      ScopeKind.Function,
+      Option[ScopeId]::Some(self.module_scope),
+      Option[DefId]::Some(result.id)
+    );
+    self.decl_scopes.insert(id, function_scope);
+    self.collect_params(params, function_scope, result.id)
+  }
+
+  def collect_member(&mut self, id: MemberId, class_scope: ScopeId, class_def: DefId): Unit = {
+    val member = self.arenas.member_value(id);
+    member match {
+      case SyntaxMember.AEmpty => {
+      }
+      case SyntaxMember.Unsupported(text, span) => {
+      }
+      case SyntaxMember.Field(name, mutable, typ, span) => {
+        self.collect_plain_member(id, class_scope, class_def, name, DefinitionKind.Field, span);
+      }
+      case SyntaxMember.Method(name, params, return_type, body, span) => {
+        self.collect_method_member(id, class_scope, class_def, name, params, span)
+      }
+      case SyntaxMember.TypeAlias(name, typ, span) => {
+        self.collect_plain_member(id, class_scope, class_def, name, DefinitionKind.TypeAlias, span);
+      }
+      case SyntaxMember.Variant(name, fields, span) => {
+        self.collect_plain_member(id, class_scope, class_def, name, DefinitionKind.Variant, span);
+      }
+    }
+  }
+
+  def collect_plain_member(
+    &mut self,
+    id: MemberId,
+    class_scope: ScopeId,
+    class_def: DefId,
+    name: String,
+    kind: DefinitionKind,
+    span: Span
+  ): DefId = {
+    val result = self.define(class_scope, name, kind, span, Option[DefId]::Some(class_def));
+    self.member_definitions.insert(id, result.id);
+    result.id
+  }
+
+  def collect_method_member(
+    &mut self,
+    id: MemberId,
+    class_scope: ScopeId,
+    class_def: DefId,
+    name: String,
+    params: Vec[ParamId],
+    span: Span
+  ): Unit = {
+    val result = self.define(class_scope, name, DefinitionKind.Method, span, Option[DefId]::Some(class_def));
+    self.member_definitions.insert(id, result.id);
+
+    val method_scope = self.env.add_scope(
+      ScopeKind.Function,
+      Option[ScopeId]::Some(class_scope),
+      Option[DefId]::Some(result.id)
+    );
+    self.member_scopes.insert(id, method_scope);
+    self.collect_params(params, method_scope, result.id)
+  }
+
+  def collect_params(&mut self, params: Vec[ParamId], scope_id: ScopeId, owner: DefId): Unit = {
+    for (param_id in params) {
+      val param = self.arenas.param_value(param_id);
+      param match {
+        case SyntaxParam.AEmpty => {
+        }
+        case SyntaxParam.Self(mutable, span) => {
+          val result = self.define(scope_id, "self", DefinitionKind.Self, span, Option[DefId]::Some(owner));
+          self.param_definitions.insert(param_id, result.id);
+        }
+        case SyntaxParam.Named(name, typ, default_value, span) => {
+          val result = self.define(scope_id, name, DefinitionKind.Parameter, span, Option[DefId]::Some(owner));
+          self.param_definitions.insert(param_id, result.id);
+        }
+      }
+    }
+  }
+
+  def resolve_module(&mut self, id: ModuleId): Unit = {
+    val syntax_module = self.arenas.module_value(id);
+    for (decl_id in syntax_module.declarations) {
+      self.resolve_decl(decl_id)
+    }
+  }
+
+  def resolve_decl(&mut self, id: DeclId): Unit = {
+    val decl = self.arenas.decl_value(id);
+    decl match {
+      case SyntaxDecl.AEmpty => {
+      }
+      case SyntaxDecl.Unsupported(text, span) => {
+      }
+      case SyntaxDecl.Import(path, span) => {
+      }
+      case SyntaxDecl.Class(name, members, span) => {
+        self.resolve_class_decl(id, members)
+      }
+      case SyntaxDecl.Function(name, params, return_type, body, span) => {
+        self.resolve_function_decl(id, params, return_type, body)
+      }
+      case SyntaxDecl.TypeAlias(name, typ, span) => {
+        self.resolve_type(typ, self.module_scope)
+      }
+      case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+        self.resolve_type(typ, self.module_scope);
+        self.resolve_expr(init, self.module_scope, Option[DefId]::None)
+      }
+    }
+  }
+
+  def resolve_class_decl(&mut self, id: DeclId, members: Vec[MemberId]): Unit = {
+    val class_scope = self.decl_scopes.get(id);
+    class_scope match {
+      case Option[ScopeId]::Some(scope_id) => {
+        val class_def = self.decl_definitions.get(id);
+        class_def match {
+          case Option[DefId]::Some(owner) => {
+            for (member_id in members) {
+              self.resolve_member(member_id, scope_id, owner)
+            }
+          }
+          case Option[DefId]::None => {
+          }
+        }
+      }
+      case Option[ScopeId]::None => {
+      }
+    }
+  }
+
+  def resolve_function_decl(&mut self, id: DeclId, params: Vec[ParamId], return_type: TypeExprId, body: ExprId): Unit = {
+    val function_scope = self.decl_scopes.get(id);
+    function_scope match {
+      case Option[ScopeId]::Some(scope_id) => {
+        self.resolve_params(params, scope_id, Option[DefId]::None);
+        self.resolve_type(return_type, scope_id);
+        self.resolve_expr(body, scope_id, Option[DefId]::None)
+      }
+      case Option[ScopeId]::None => {
+      }
+    }
+  }
+
+  def resolve_member(&mut self, id: MemberId, class_scope: ScopeId, class_def: DefId): Unit = {
+    val member = self.arenas.member_value(id);
+    member match {
+      case SyntaxMember.AEmpty => {
+      }
+      case SyntaxMember.Unsupported(text, span) => {
+      }
+      case SyntaxMember.Field(name, mutable, typ, span) => {
+        self.resolve_type(typ, class_scope)
+      }
+      case SyntaxMember.Method(name, params, return_type, body, span) => {
+        self.resolve_method_member(id, params, return_type, body, class_def)
+      }
+      case SyntaxMember.TypeAlias(name, typ, span) => {
+        self.resolve_type(typ, class_scope)
+      }
+      case SyntaxMember.Variant(name, fields, span) => {
+        for (field_type in fields) {
+          self.resolve_type(field_type, class_scope)
+        }
+      }
+    }
+  }
+
+  def resolve_method_member(
+    &mut self,
+    id: MemberId,
+    params: Vec[ParamId],
+    return_type: TypeExprId,
+    body: ExprId,
+    class_def: DefId
+  ): Unit = {
+    val method_scope = self.member_scopes.get(id);
+    method_scope match {
+      case Option[ScopeId]::Some(scope_id) => {
+        self.resolve_params(params, scope_id, Option[DefId]::Some(class_def));
+        self.resolve_type(return_type, scope_id);
+        self.resolve_expr(body, scope_id, Option[DefId]::Some(class_def))
+      }
+      case Option[ScopeId]::None => {
+      }
+    }
+  }
+
+  def resolve_params(&mut self, params: Vec[ParamId], scope_id: ScopeId, current_class: Option[DefId]): Unit = {
+    for (param_id in params) {
+      val param = self.arenas.param_value(param_id);
+      param match {
+        case SyntaxParam.AEmpty => {
+        }
+        case SyntaxParam.Self(mutable, span) => {
+        }
+        case SyntaxParam.Named(name, typ, default_value, span) => {
+          self.resolve_type(typ, scope_id);
+          self.resolve_expr(default_value, scope_id, current_class)
+        }
+      }
+    }
+  }
+
+  def resolve_type(&mut self, id: TypeExprId, scope_id: ScopeId): Unit = {
+    val typ = self.arenas.type_value(id);
+    typ match {
+      case SyntaxType.AEmpty => {
+      }
+      case SyntaxType.Missing(span) => {
+      }
+      case SyntaxType.Name(name, span) => {
+        val resolved = self.resolve_name_text(scope_id, name, span);
+        resolved match {
+          case Option[DefId]::Some(def_id) => {
+            self.type_definitions.insert(id, def_id);
+          }
+          case Option[DefId]::None => {
+          }
+        }
+      }
+      case SyntaxType.Generic(base, args, span) => {
+        self.resolve_type(base, scope_id);
+        for (arg in args) {
+          self.resolve_type(arg, scope_id)
+        }
+      }
+      case SyntaxType.Ref(mutable, inner, span) => {
+        self.resolve_type(inner, scope_id)
+      }
+    }
+  }
+
+  def resolve_expr(&mut self, id: ExprId, scope_id: ScopeId, current_class: Option[DefId]): Unit = {
+    val expr = self.arenas.expr_value(id);
+    expr match {
+      case SyntaxExpr.AEmpty => {
+      }
+      case SyntaxExpr.Missing(span) => {
+      }
+      case SyntaxExpr.Name(name, span) => {
+        self.resolve_name_expr(id, scope_id, name, span)
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+      }
+      case SyntaxExpr.Block(items, span) => {
+        self.resolve_block_expr(items, scope_id, current_class)
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        self.resolve_local_expr(id, name, typ, init, span, scope_id, current_class)
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+        self.resolve_expr(target, scope_id, current_class);
+        self.resolve_expr(value, scope_id, current_class)
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        self.resolve_expr(callee, scope_id, current_class);
+        for (arg in args) {
+          self.resolve_expr(arg, scope_id, current_class)
+        }
+      }
+      case SyntaxExpr.Select(receiver, field, span) => {
+        self.resolve_expr(receiver, scope_id, current_class);
+        self.resolve_select_expr(id, receiver, field, scope_id, current_class, span)
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        self.resolve_expr(left, scope_id, current_class);
+        self.resolve_expr(right, scope_id, current_class)
+      }
+      case SyntaxExpr.Unary(op, value, span) => {
+        self.resolve_expr(value, scope_id, current_class)
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        self.resolve_expr(condition, scope_id, current_class);
+        self.resolve_expr(then_body, scope_id, current_class);
+        self.resolve_expr(else_body, scope_id, current_class)
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        self.resolve_expr(condition, scope_id, current_class);
+        self.resolve_expr(body, scope_id, current_class)
+      }
+      case SyntaxExpr.Return(value, span) => {
+        self.resolve_expr(value, scope_id, current_class)
+      }
+    }
+  }
+
+  def resolve_block_expr(&mut self, items: Vec[ExprId], parent_scope: ScopeId, current_class: Option[DefId]): Unit = {
+    val block_scope = self.env.add_scope(ScopeKind.Block, Option[ScopeId]::Some(parent_scope), Option[DefId]::None);
+    for (item in items) {
+      self.resolve_expr(item, block_scope, current_class)
+    }
+  }
+
+  def resolve_local_expr(
+    &mut self,
+    id: ExprId,
+    name: String,
+    typ: TypeExprId,
+    init: ExprId,
+    span: Span,
+    scope_id: ScopeId,
+    current_class: Option[DefId]
+  ): Unit = {
+    self.resolve_type(typ, scope_id);
+    self.resolve_expr(init, scope_id, current_class);
+
+    val result = self.define(scope_id, name, DefinitionKind.Local, span, Option[DefId]::None);
+    self.local_definitions.insert(id, result.id);
+  }
+
+  def resolve_name_expr(&mut self, id: ExprId, scope_id: ScopeId, name: String, span: Span): Unit = {
+    val resolved = self.resolve_name_text(scope_id, name, span);
+    resolved match {
+      case Option[DefId]::Some(def_id) => {
+        self.expr_definitions.insert(id, def_id);
+      }
+      case Option[DefId]::None => {
+      }
+    }
+  }
+
+  def resolve_select_expr(
+    &mut self,
+    id: ExprId,
+    receiver: ExprId,
+    field: String,
+    scope_id: ScopeId,
+    current_class: Option[DefId],
+    span: Span
+  ): Unit = {
+    val self_member = self.resolve_self_member(receiver, field, current_class);
+    if (!self.record_expr_definition(id, self_member)) {
+      val class_member = self.resolve_class_member(receiver, field);
+      if (!self.record_expr_definition(id, class_member)) {
+        if (self.should_report_missing_member(receiver, current_class)) {
+          self.diagnostic(
+            "cosmo1.name.unresolved-name",
+            "unresolved member ".concat(field),
+            span
+          )
+        }
+      }
+    }
+  }
+
+  def record_expr_definition(&mut self, id: ExprId, resolved: Option[DefId]): Bool = {
+    resolved match {
+      case Option[DefId]::Some(def_id) => {
+        self.expr_definitions.insert(id, def_id);
+        true
+      }
+      case Option[DefId]::None => {
+        false
+      }
+    }
+  }
+
+  def resolve_self_member(&mut self, receiver: ExprId, field: String, current_class: Option[DefId]): Option[DefId] = {
+    if (!self.receiver_is_name(receiver, "self")) {
+      return Option[DefId]::None
+    }
+
+    current_class match {
+      case Option[DefId]::Some(class_def) => {
+        self.lookup_class_member(class_def, field)
+      }
+      case Option[DefId]::None => {
+        Option[DefId]::None
+      }
+    }
+  }
+
+  def resolve_class_member(&mut self, receiver: ExprId, field: String): Option[DefId] = {
+    val receiver_def = self.expr_definitions.get(receiver);
+    receiver_def match {
+      case Option[DefId]::Some(def_id) => {
+        val definition = self.env.definition(def_id);
+        if (definition_kind_is_class(definition.kind)) {
+          self.lookup_class_member(def_id, field)
+        } else {
+          Option[DefId]::None
+        }
+      }
+      case Option[DefId]::None => {
+        Option[DefId]::None
+      }
+    }
+  }
+
+  def lookup_class_member(&mut self, class_def: DefId, field: String): Option[DefId] = {
+    val maybe_scope = self.class_scopes.get(class_def);
+    maybe_scope match {
+      case Option[ScopeId]::Some(scope_id) => {
+        val name = self.symbols.intern(field);
+        self.env.resolve_local(scope_id, name)
+      }
+      case Option[ScopeId]::None => {
+        Option[DefId]::None
+      }
+    }
+  }
+
+  def should_report_missing_member(&self, receiver: ExprId, current_class: Option[DefId]): Bool = {
+    if (self.receiver_is_name(receiver, "self")) {
+      return current_class.is_some()
+    }
+
+    val receiver_def = self.expr_definitions.get(receiver);
+    receiver_def match {
+      case Option[DefId]::Some(def_id) => {
+        val definition = self.env.definition(def_id);
+        definition_kind_is_class(definition.kind)
+      }
+      case Option[DefId]::None => {
+        false
+      }
+    }
+  }
+
+  def receiver_is_name(&self, receiver: ExprId, expected: String): Bool = {
+    val expr = self.arenas.expr_value(receiver);
+    expr match {
+      case SyntaxExpr.Name(name, span) => {
+        name == expected
+      }
+      case SyntaxExpr.AEmpty => {
+        false
+      }
+      case SyntaxExpr.Missing(span) => {
+        false
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+        false
+      }
+      case SyntaxExpr.Block(items, span) => {
+        false
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        false
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+        false
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        false
+      }
+      case SyntaxExpr.Select(value, field, span) => {
+        false
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        false
+      }
+      case SyntaxExpr.Unary(op, value, span) => {
+        false
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        false
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        false
+      }
+      case SyntaxExpr.Return(value, span) => {
+        false
+      }
+    }
+  }
+
+  def resolve_name_text(&mut self, scope_id: ScopeId, text: String, span: Span): Option[DefId] = {
+    val exact = self.symbols.intern(text);
+    val exact_match = self.env.resolve(scope_id, exact);
+    if (exact_match.is_some()) {
+      return exact_match
+    }
+
+    val lookup = name_resolution_lookup_name(text);
+    if (lookup != text) {
+      val symbol = self.symbols.intern(lookup);
+      val resolved = self.env.resolve(scope_id, symbol);
+      if (resolved.is_some()) {
+        return resolved
+      }
+    }
+
+    self.diagnostic("cosmo1.name.unresolved-name", "unresolved name ".concat(text), span);
+    Option[DefId]::None
+  }
+
+  def define(
+    &mut self,
+    scope_id: ScopeId,
+    text: String,
+    kind: DefinitionKind,
+    span: Span,
+    owner: Option[DefId]
+  ): DefineResult = {
+    val name = self.symbols.intern(text);
+    val result = self.env.define(scope_id, name, kind, span, owner);
+    if (result.is_duplicate()) {
+      self.diagnostic("cosmo1.name.duplicate-definition", "duplicate definition ".concat(text), span)
+    }
+    result
+  }
+
+  def diagnostic(&mut self, code: String, message: String, span: Span): Unit = {
+    self.diagnostics.push(NameResolutionDiagnostic(code, message, span))
+  }
+
+  def finish(&self): NameResolution = {
+    NameResolution(
+      self.module_scope,
+      self.env,
+      self.diagnostics,
+      self.decl_definitions,
+      self.member_definitions,
+      self.param_definitions,
+      self.local_definitions,
+      self.expr_definitions,
+      self.type_definitions
+    )
+  }
+}
+
+def resolve_module_names(arenas: SyntaxArenas, module_id: ModuleId): NameResolution = {
+  var env = name_environment();
+  val prelude_scope = env.add_scope(ScopeKind.Prelude, Option[ScopeId]::None, Option[DefId]::None);
+  val module_scope = env.add_scope(ScopeKind.Module, Option[ScopeId]::Some(prelude_scope), Option[DefId]::None);
+  var resolver = NameResolver(
+    arenas,
+    symbol_interner(),
+    env,
+    module_scope,
+    Vec[NameResolutionDiagnostic](),
+    Map[DeclId, DefId](),
+    Map[DeclId, ScopeId](),
+    Map[MemberId, DefId](),
+    Map[MemberId, ScopeId](),
+    Map[ParamId, DefId](),
+    Map[ExprId, DefId](),
+    Map[ExprId, DefId](),
+    Map[TypeExprId, DefId](),
+    Map[DefId, ScopeId]()
+  );
+  resolver.install_prelude(prelude_scope);
+  resolver.collect_module(module_id);
+  resolver.resolve_module(module_id);
+  resolver.finish()
+}
+
+def name_resolution_lookup_name(text: String): String = {
+  val start = name_resolution_last_segment_start(text);
+  val end = name_resolution_base_end(text, start);
+  if (end <= start) {
+    text
+  } else {
+    text.slice(start, end)
+  }
+}
+
+def name_resolution_last_path_segment(text: String): String = {
+  val start = name_resolution_last_segment_start(text);
+  if (start >= text.len()) {
+    text
+  } else {
+    text.slice(start, text.len())
+  }
+}
+
+def name_resolution_last_segment_start(text: String): usize = {
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset < text.len()) {
+    if (offset + 2 <= text.len() and text.slice(offset, offset + 2) == "::") {
+      start = offset + 2;
+      offset = offset + 2
+    } else {
+      if (text.byte_at(offset) == a".") {
+        start = offset + 1
+      }
+      offset = offset + 1
+    }
+  }
+  start
+}
+
+def name_resolution_base_end(text: String, start: usize): usize = {
+  var offset = start;
+  while (offset < text.len()) {
+    if (text.byte_at(offset) == a"[") {
+      return offset
+    }
+    offset = offset + 1
+  }
+  text.len()
+}

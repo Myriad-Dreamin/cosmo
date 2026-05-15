@@ -378,6 +378,10 @@ final class SourceTyper(
         case value: UntypedIntLiteral =>
           val valueType = expected.filter(SourceType.isInteger).getOrElse(SourceType.I32)
           ExprInfo(TypedIntLiteral(value.value, valueType, value.span), false, false)
+        case value: UntypedAsciiLiteral =>
+          ExprInfo(TypedIntLiteral(asciiLiteralValue(value.value, value.span), SourceType.Byte, value.span), false, false)
+        case value: UntypedRuneLiteral =>
+          ExprInfo(TypedIntLiteral(runeLiteralValue(value.value, value.span), SourceType.Rune, value.span), false, false)
         case value: UntypedFloatLiteral =>
           val valueType = expected.filter(SourceType.isFloat).getOrElse(SourceType.F64)
           ExprInfo(TypedFloatLiteral(value.value, valueType, value.span), false, false)
@@ -1143,6 +1147,14 @@ final class SourceTyper(
           if !SourceType.isInteger(expectedType) then
             invalidPatternType(value.span, expectedType, valueType)
           TypedIntLiteral(value.value, valueType, value.span)
+        case value: UntypedAsciiLiteral =>
+          if !SourceType.same(expectedType, SourceType.Byte) then
+            invalidPatternType(value.span, expectedType, SourceType.Byte)
+          TypedIntLiteral(asciiLiteralValue(value.value, value.span), SourceType.Byte, value.span)
+        case value: UntypedRuneLiteral =>
+          if !SourceType.same(expectedType, SourceType.Rune) then
+            invalidPatternType(value.span, expectedType, SourceType.Rune)
+          TypedIntLiteral(runeLiteralValue(value.value, value.span), SourceType.Rune, value.span)
         case value: UntypedFloatLiteral =>
           val valueType =
             if SourceType.isFloat(expectedType) then expectedType else SourceType.F64
@@ -1477,6 +1489,42 @@ final class SourceTyper(
         case SourceType.Ref(_, mutable) => mutable
         case SourceType.Never | SourceType.Error => false
         case _ => true
+
+    private def asciiLiteralValue(value: String, span: SourceSpan): BigInt =
+      singleCodePoint(value, "ascii", span) match
+        case Some(codePoint) if codePoint <= 0x7f =>
+          BigInt(codePoint)
+        case Some(_) =>
+          error(
+            "cosmo0.type.invalid-ascii-literal",
+            "ASCII literals must contain exactly one ASCII code point",
+            span,
+          )
+          BigInt(0)
+        case None =>
+          BigInt(0)
+
+    private def runeLiteralValue(value: String, span: SourceSpan): BigInt =
+      singleCodePoint(value, "rune", span).fold(BigInt(0))(BigInt(_))
+
+    private def singleCodePoint(value: String, name: String, span: SourceSpan): Option[Int] =
+      if value.isEmpty || value.codePointCount(0, value.length) != 1 then
+        error(
+          s"cosmo0.type.invalid-$name-literal",
+          s"$name literals must contain exactly one Unicode code point",
+          span,
+        )
+        None
+      else
+        val codePoint = value.codePointAt(0)
+        if value.length == 1 && Character.isSurrogate(value.charAt(0)) then
+          error(
+            s"cosmo0.type.invalid-$name-literal",
+            s"$name literals must contain a valid Unicode scalar value",
+            span,
+          )
+          None
+        else Some(codePoint)
 
     private def error(
         code: String,
