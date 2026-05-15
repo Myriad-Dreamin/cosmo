@@ -38,7 +38,6 @@ final class SourceTyper(
       expr: TypedExpr,
       mutableBinding: Boolean,
       mutationAllowed: Boolean,
-      definitelyReturns: Boolean = false,
   )
 
   private final case class FieldInfo(
@@ -264,7 +263,7 @@ final class SourceTyper(
         TypedParam(param.name, param.valueType, default, param.span)
       }
       val body = info.body.map(expr(_, fnScope, Some(info.returnType), context))
-      body.foreach(checkFunctionBody(_, info))
+      body.foreach(checkAssignable(_, info.returnType, info.span, "cosmo0.type.return-mismatch"))
       TypedFunction(
         info.name,
         typedParams,
@@ -403,11 +402,10 @@ final class SourceTyper(
           if index == node.items.length - 1 then expected else None
         blockItem(item, scope, itemExpected, context)
       }
-      val blockReturns = items.exists(definitelyReturns)
-      val valueType = if blockReturns then SourceType.Never else items.lastOption match
+      val valueType = items.lastOption match
         case Some(expr: TypedExpr) => expr.valueType
         case _                     => SourceType.Unit
-      ExprInfo(TypedBlock(items, valueType, node.span), mutableBinding = false, mutationAllowed = true, blockReturns)
+      ExprInfo(TypedBlock(items, valueType, node.span), mutableBinding = false, mutationAllowed = true)
 
     private def blockItem(
         item: UntypedBlockItem,
@@ -1034,14 +1032,18 @@ final class SourceTyper(
       requireBool(cond, node.cond.span)
       val thenBranch = expr(node.thenBranch, scope.child, expected, context)
       val elseBranch = node.elseBranch.map(expr(_, scope.child, expected, context))
-      val valueType = ifValueType(thenBranch.expr.valueType, elseBranch.map(_.expr.valueType), node.span)
-      val definitelyReturns = elseBranch.exists(_.definitelyReturns) && thenBranch.definitelyReturns
-      ExprInfo(
-        TypedIf(cond.expr, thenBranch.expr, elseBranch.map(_.expr), valueType, node.span),
-        false,
-        mutationCapability(valueType),
-        definitelyReturns,
-      )
+      val valueType = elseBranch match
+        case Some(other) if SourceType.same(thenBranch.expr.valueType, other.expr.valueType) =>
+          thenBranch.expr.valueType
+        case Some(other) =>
+          error(
+            "cosmo0.type.branch-mismatch",
+            s"if branches have types ${thenBranch.expr.valueType.display} and ${other.expr.valueType.display}",
+            node.span,
+          )
+          SourceType.Error
+        case None => SourceType.Unit
+      ExprInfo(TypedIf(cond.expr, thenBranch.expr, elseBranch.map(_.expr), valueType, node.span), false, mutationCapability(valueType))
 
     private def forExpr(
         node: UntypedFor,
@@ -1106,7 +1108,7 @@ final class SourceTyper(
               s"return has type ${value.expr.valueType.display}, expected ${returnType.display}",
               node.span,
             )
-          ExprInfo(TypedReturn(value.expr, SourceType.Never, node.span), false, false, definitelyReturns = true)
+          ExprInfo(TypedReturn(value.expr, SourceType.Never, node.span), false, false)
         case FunctionContext.None =>
           val value = expr(node.value, scope, None, context)
           error(
@@ -1114,7 +1116,7 @@ final class SourceTyper(
             "return can only appear inside a function",
             node.span,
           )
-          ExprInfo(TypedReturn(value.expr, SourceType.Never, node.span), false, false, definitelyReturns = true)
+          ExprInfo(TypedReturn(value.expr, SourceType.Never, node.span), false, false)
 
     private def pattern(
         node: UntypedPattern,
@@ -1434,62 +1436,6 @@ final class SourceTyper(
           s"expected ${expected.display}, got ${actual.expr.valueType.display}",
           span,
         )
-
-    private def checkFunctionBody(actual: ExprInfo, info: FunctionInfo): Unit =
-      if SourceType.assignable(actual.expr.valueType, info.returnType) then return
-      if shouldReportMissingReturn(actual, info.returnType) then
-        error(
-          "cosmo0.type.missing-return",
-          s"function ${info.name} must return ${info.returnType.display}",
-          info.span,
-        )
-        return
-      checkAssignable(actual, info.returnType, info.span, "cosmo0.type.return-mismatch")
-
-    private def shouldReportMissingReturn(actual: ExprInfo, returnType: SourceType): Boolean =
-      !actual.definitelyReturns
-        && isUnit(actual.expr.valueType)
-        && !isUnit(returnType)
-
-    private def ifValueType(
-        thenType: SourceType,
-        elseType: Option[SourceType],
-        span: SourceSpan,
-    ): SourceType =
-      elseType match
-        case Some(other) if SourceType.same(thenType, other) =>
-          nonNeverType(thenType, other)
-        case Some(other) =>
-          error(
-            "cosmo0.type.branch-mismatch",
-            s"if branches have types ${thenType.display} and ${other.display}",
-            span,
-          )
-          SourceType.Error
-        case None => SourceType.Unit
-
-    private def nonNeverType(left: SourceType, right: SourceType): SourceType =
-      if isNever(left) then right
-      else left
-
-    private def definitelyReturns(item: TypedBlockItem): Boolean =
-      item match
-        case TypedReturn(_, _, _) =>
-          true
-        case TypedIf(_, thenBranch, Some(elseBranch), _, _) =>
-          definitelyReturns(thenBranch) && definitelyReturns(elseBranch)
-        case TypedBlock(items, _, _) =>
-          items.exists(definitelyReturns)
-        case TypedExprStmt(expr, _) =>
-          definitelyReturns(expr)
-        case _ =>
-          false
-
-    private def isNever(valueType: SourceType): Boolean =
-      SourceType.dealias(valueType) == SourceType.Never
-
-    private def isUnit(valueType: SourceType): Boolean =
-      SourceType.dealias(valueType) == SourceType.Unit
 
     private def checkReceiverMutation(
         receiver: ExprInfo,
