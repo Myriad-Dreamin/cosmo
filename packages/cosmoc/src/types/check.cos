@@ -19,6 +19,8 @@ class TypedExprKind {
   case BoolLiteral(Bool)
   case Block(Vec[ExprId])
   case Local(Bool, ExprId)
+  case Select(ExprId, String)
+  case Call(ExprId, Vec[ExprId])
   case Assign(ExprId, ExprId)
   case Binary(String, ExprId, ExprId)
   case Return(ExprId)
@@ -35,6 +37,11 @@ class LocalBinding {
   val definition: DefId
   val typ: TypeId
   val mutable: Bool
+}
+
+class IntrinsicSignature {
+  val params: Vec[TypeId]
+  val return_type: TypeId
 }
 
 class ExpressionCheckResult {
@@ -57,6 +64,7 @@ class ExpressionCheckResult {
 
 class ExpressionChecker {
   val arenas: SyntaxArenas
+  val module_id: ModuleId
   val names: NameResolution
   val declarations: DeclarationResolution
   var types: TypeStore
@@ -359,10 +367,10 @@ class ExpressionChecker {
         self.unsupported_expr(id, "rune literals are out of scope in basic expression checking", span)
       }
       case SyntaxExpr.Call(callee, args, span) => {
-        self.unsupported_expr(id, "call expressions are out of scope in basic expression checking", span)
+        self.check_call_expr(id, callee, args, bindings, return_type, span)
       }
       case SyntaxExpr.Select(receiver, field, span) => {
-        self.unsupported_expr(id, "member selection is out of scope in basic expression checking", span)
+        self.check_select_expr(id, receiver, field, bindings, return_type, span)
       }
       case SyntaxExpr.Unary(op, value, span) => {
         self.unsupported_expr(id, "unary operators are out of scope in basic expression checking", span)
@@ -654,7 +662,7 @@ class ExpressionChecker {
         Option[LocalBinding]::None
       }
       case SyntaxExpr.Select(receiver, field, span) => {
-        Option[LocalBinding]::None
+        self.field_assignment_binding(target, receiver, field, bindings, span)
       }
       case SyntaxExpr.Binary(op, left, right, span) => {
         Option[LocalBinding]::None
@@ -674,6 +682,452 @@ class ExpressionChecker {
     }
   }
 
+  def field_assignment_binding(
+    &mut self,
+    id: ExprId,
+    receiver: ExprId,
+    field: String,
+    bindings: Vec[LocalBinding],
+    span: Span
+  ): Option[LocalBinding] = {
+    val receiver_type = self.check_expr(receiver, bindings, Option[TypeId]::None, Option[TypeId]::None);
+    val maybe_field = self.field_signature_for_type(receiver_type, field);
+    maybe_field match {
+      case Option[FieldSignature]::Some(signature) => {
+        val receiver_mutable = self.receiver_allows_mutation(receiver, bindings, receiver_type);
+        Option[LocalBinding]::Some(LocalBinding(signature.definition, signature.typ, signature.mutable and receiver_mutable))
+      }
+      case Option[FieldSignature]::None => {
+        Option[LocalBinding]::None
+      }
+    }
+  }
+
+  def check_select_expr(
+    &mut self,
+    id: ExprId,
+    receiver: ExprId,
+    field: String,
+    bindings: Vec[LocalBinding],
+    return_type: Option[TypeId],
+    span: Span
+  ): TypeId = {
+    val receiver_type = self.check_expr(receiver, bindings, Option[TypeId]::None, return_type);
+    val maybe_field = self.field_signature_for_type(receiver_type, field);
+    maybe_field match {
+      case Option[FieldSignature]::Some(signature) => {
+        return self.record_typed_expr(id, TypedExprKind.Select(receiver, field), signature.typ)
+      }
+      case Option[FieldSignature]::None => {
+      }
+    }
+
+    val maybe_method = self.method_signature_for_type(receiver_type, field);
+    maybe_method match {
+      case Option[CallableSignature]::Some(signature) => {
+        val callable = self.callable_type_without_receiver(signature);
+        return self.record_typed_expr(id, TypedExprKind.Select(receiver, field), callable)
+      }
+      case Option[CallableSignature]::None => {
+      }
+    }
+
+    val intrinsic = self.string_intrinsic_signature(receiver_type, field, span);
+    intrinsic match {
+      case Option[IntrinsicSignature]::Some(signature) => {
+        val callable = self.callable_type_from_types(signature.params, signature.return_type);
+        return self.record_typed_expr(id, TypedExprKind.Select(receiver, field), callable)
+      }
+      case Option[IntrinsicSignature]::None => {
+      }
+    }
+
+    self.diagnostic(
+      "cosmo1.type.invalid-member",
+      "type ".concat(expression_type_display(self.types, receiver_type)).concat(" has no member ").concat(field),
+      span
+    );
+    self.record_typed_expr(id, TypedExprKind.Error, self.error_type())
+  }
+
+  def check_call_expr(
+    &mut self,
+    id: ExprId,
+    callee: ExprId,
+    args: Vec[ExprId],
+    bindings: Vec[LocalBinding],
+    return_type: Option[TypeId],
+    span: Span
+  ): TypeId = {
+    val callee_expr = self.arenas.expr_value(callee);
+    callee_expr match {
+      case SyntaxExpr.Select(receiver, field, select_span) => {
+        return self.check_method_call_expr(id, callee, receiver, field, args, bindings, return_type, span, select_span)
+      }
+      case SyntaxExpr.AEmpty => {
+      }
+      case SyntaxExpr.Missing(missing_span) => {
+      }
+      case SyntaxExpr.Name(name, name_span) => {
+      }
+      case SyntaxExpr.NumericLiteral(value, literal_span) => {
+      }
+      case SyntaxExpr.StringLiteral(value, literal_span) => {
+      }
+      case SyntaxExpr.AsciiLiteral(value, literal_span) => {
+      }
+      case SyntaxExpr.RuneLiteral(value, literal_span) => {
+      }
+      case SyntaxExpr.BoolLiteral(value, literal_span) => {
+      }
+      case SyntaxExpr.Block(items, block_span) => {
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, local_span) => {
+      }
+      case SyntaxExpr.Assign(target, value, assign_span) => {
+      }
+      case SyntaxExpr.Call(inner_callee, inner_args, call_span) => {
+      }
+      case SyntaxExpr.Binary(op, left, right, binary_span) => {
+      }
+      case SyntaxExpr.Unary(op, value, unary_span) => {
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, if_span) => {
+      }
+      case SyntaxExpr.While(condition, body, while_span) => {
+      }
+      case SyntaxExpr.Return(value, return_span) => {
+      }
+    }
+
+    val callee_type = self.check_expr(callee, bindings, Option[TypeId]::None, return_type);
+    val callee_node = self.types.type_value(callee_type);
+    callee_node match {
+      case CosmoType.Function(params, result) => {
+        self.check_call_args(args, params, bindings, return_type, span);
+        self.record_typed_expr(id, TypedExprKind.Call(callee, args), result)
+      }
+      case CosmoType.Error => {
+        self.record_typed_expr(id, TypedExprKind.Call(callee, args), self.error_type())
+      }
+      case CosmoType.Primitive(name) => {
+        self.invalid_call_expr(id, callee, args, span)
+      }
+      case CosmoType.User(name) => {
+        self.invalid_call_expr(id, callee, args, span)
+      }
+      case CosmoType.Reference(mutable, inner) => {
+        self.invalid_call_expr(id, callee, args, span)
+      }
+      case CosmoType.Never => {
+        self.invalid_call_expr(id, callee, args, span)
+      }
+    }
+  }
+
+  def check_method_call_expr(
+    &mut self,
+    id: ExprId,
+    callee: ExprId,
+    receiver: ExprId,
+    field: String,
+    args: Vec[ExprId],
+    bindings: Vec[LocalBinding],
+    return_type: Option[TypeId],
+    span: Span,
+    select_span: Span
+  ): TypeId = {
+    val receiver_type = self.check_expr(receiver, bindings, Option[TypeId]::None, return_type);
+    val method = self.method_signature_for_type(receiver_type, field);
+    method match {
+      case Option[CallableSignature]::Some(signature) => {
+        self.check_receiver_mutability(receiver, bindings, receiver_type, signature, select_span);
+        val params = self.callable_params_without_receiver(signature);
+        self.check_call_args(args, params, bindings, return_type, span);
+        val callee_type = self.callable_type_from_types(params, signature.return_type);
+        val ignored = self.record_typed_expr(callee, TypedExprKind.Select(receiver, field), callee_type);
+        return self.record_typed_expr(id, TypedExprKind.Call(callee, args), signature.return_type)
+      }
+      case Option[CallableSignature]::None => {
+      }
+    }
+
+    val intrinsic = self.string_intrinsic_signature(receiver_type, field, select_span);
+    intrinsic match {
+      case Option[IntrinsicSignature]::Some(signature) => {
+        self.check_call_args(args, signature.params, bindings, return_type, span);
+        val callee_type = self.callable_type_from_types(signature.params, signature.return_type);
+        val ignored = self.record_typed_expr(callee, TypedExprKind.Select(receiver, field), callee_type);
+        return self.record_typed_expr(id, TypedExprKind.Call(callee, args), signature.return_type)
+      }
+      case Option[IntrinsicSignature]::None => {
+      }
+    }
+
+    val callee_type = self.check_select_expr(callee, receiver, field, bindings, return_type, select_span);
+    self.invalid_call_expr(id, callee, args, span)
+  }
+
+  def check_call_args(
+    &mut self,
+    args: Vec[ExprId],
+    params: Vec[TypeId],
+    bindings: Vec[LocalBinding],
+    return_type: Option[TypeId],
+    span: Span
+  ): Unit = {
+    if (args.len() != params.len()) {
+      self.diagnostic(
+        "cosmo1.type.call-arity",
+        "call argument count does not match callable signature",
+        span
+      )
+    }
+
+    var index: usize = 0;
+    while (index < args.len()) {
+      val arg = args.get(index);
+      var expected = Option[TypeId]::None;
+      if (index < params.len()) {
+        expected = Option[TypeId]::Some(params.get(index))
+      }
+      val actual = self.check_expr(arg, bindings, expected, return_type);
+      if (index < params.len()) {
+        val ignored = self.expect_assignable(self.arenas.expr_span(arg), params.get(index), actual);
+      }
+      index = index + 1
+    }
+  }
+
+  def invalid_call_expr(&mut self, id: ExprId, callee: ExprId, args: Vec[ExprId], span: Span): TypeId = {
+    self.diagnostic("cosmo1.type.invalid-call", "callee is not callable", span);
+    self.record_typed_expr(id, TypedExprKind.Call(callee, args), self.error_type())
+  }
+
+  def field_signature_for_type(&self, receiver_type: TypeId, field: String): Option[FieldSignature] = {
+    val members = self.members_for_type(receiver_type);
+    members match {
+      case Option[Vec[MemberId]]::Some(member_ids) => {
+        for (member_id in member_ids) {
+          val member = self.arenas.member_value(member_id);
+          member match {
+            case SyntaxMember.Field(name, mutable, typ, span) => {
+              if (name == field) {
+                return self.declarations.field_signatures.get(member_id)
+              }
+            }
+            case SyntaxMember.AEmpty => {
+            }
+            case SyntaxMember.Unsupported(text, span) => {
+            }
+            case SyntaxMember.Method(name, params, return_type, body, span) => {
+            }
+            case SyntaxMember.TypeAlias(name, typ, span) => {
+            }
+            case SyntaxMember.Variant(name, fields, span) => {
+            }
+          }
+        }
+      }
+      case Option[Vec[MemberId]]::None => {
+      }
+    }
+    Option[FieldSignature]::None
+  }
+
+  def method_signature_for_type(&self, receiver_type: TypeId, field: String): Option[CallableSignature] = {
+    val members = self.members_for_type(receiver_type);
+    members match {
+      case Option[Vec[MemberId]]::Some(member_ids) => {
+        for (member_id in member_ids) {
+          val member = self.arenas.member_value(member_id);
+          member match {
+            case SyntaxMember.Method(name, params, return_type, body, span) => {
+              if (name == field) {
+                return self.declarations.method_signatures.get(member_id)
+              }
+            }
+            case SyntaxMember.AEmpty => {
+            }
+            case SyntaxMember.Unsupported(text, span) => {
+            }
+            case SyntaxMember.Field(name, mutable, typ, span) => {
+            }
+            case SyntaxMember.TypeAlias(name, typ, span) => {
+            }
+            case SyntaxMember.Variant(name, fields, span) => {
+            }
+          }
+        }
+      }
+      case Option[Vec[MemberId]]::None => {
+      }
+    }
+    Option[CallableSignature]::None
+  }
+
+  def members_for_type(&self, receiver_type: TypeId): Option[Vec[MemberId]] = {
+    val name = self.user_type_name(receiver_type);
+    name match {
+      case Option[String]::Some(type_name) => {
+        val module_value = self.arenas.module_value(self.module_id);
+        for (decl_id in module_value.declarations) {
+          val decl = self.arenas.decl_value(decl_id);
+          decl match {
+            case SyntaxDecl.Class(name, members, span) => {
+              if (name == type_name) {
+                return Option[Vec[MemberId]]::Some(members)
+              }
+            }
+            case SyntaxDecl.AEmpty => {
+            }
+            case SyntaxDecl.Unsupported(text, span) => {
+            }
+            case SyntaxDecl.Import(path, span) => {
+            }
+            case SyntaxDecl.Function(name, params, return_type, body, span) => {
+            }
+            case SyntaxDecl.TypeAlias(name, typ, span) => {
+            }
+            case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+            }
+          }
+        }
+      }
+      case Option[String]::None => {
+      }
+    }
+    Option[Vec[MemberId]]::None
+  }
+
+  def user_type_name(&self, id: TypeId): Option[String] = {
+    val value = self.types.type_value(id);
+    value match {
+      case CosmoType.User(name) => {
+        Option[String]::Some(name)
+      }
+      case CosmoType.Reference(mutable, inner) => {
+        self.user_type_name(inner)
+      }
+      case CosmoType.Primitive(name) => {
+        Option[String]::None
+      }
+      case CosmoType.Function(params, return_type) => {
+        Option[String]::None
+      }
+      case CosmoType.Never => {
+        Option[String]::None
+      }
+      case CosmoType.Error => {
+        Option[String]::None
+      }
+    }
+  }
+
+  def string_intrinsic_signature(&mut self, receiver_type: TypeId, field: String, span: Span): Option[IntrinsicSignature] = {
+    if (!self.type_is_named_primitive(receiver_type, "String")) {
+      return Option[IntrinsicSignature]::None
+    }
+
+    if (field == "len" or field == "size") {
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(Vec[TypeId](), self.usize_type()))
+    }
+    if (field == "byte_at") {
+      val value_params = Vec[TypeId]();
+      value_params.push(self.usize_type());
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(value_params, self.u8_type()))
+    }
+    if (field == "slice") {
+      val value_params = Vec[TypeId]();
+      value_params.push(self.usize_type());
+      value_params.push(self.usize_type());
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(value_params, self.string_type()))
+    }
+    Option[IntrinsicSignature]::None
+  }
+
+  def callable_type_without_receiver(&mut self, signature: CallableSignature): TypeId = {
+    val params = self.callable_params_without_receiver(signature);
+    self.callable_type_from_types(params, signature.return_type)
+  }
+
+  def callable_type_from_types(&mut self, params: Vec[TypeId], return_type: TypeId): TypeId = {
+    var types = self.types;
+    val callable_type = types.alloc_function(params, return_type);
+    self.types = types;
+    callable_type
+  }
+
+  def callable_params_without_receiver(&self, signature: CallableSignature): Vec[TypeId] = {
+    val result = Vec[TypeId]();
+    for (param_id in signature.params) {
+      if (!self.param_is_receiver(signature, param_id)) {
+        val maybe_signature = self.declarations.param_signatures.get(param_id);
+        maybe_signature match {
+          case Option[ParameterSignature]::Some(param) => {
+            result.push(param.typ)
+          }
+          case Option[ParameterSignature]::None => {
+          }
+        }
+      }
+    }
+    result
+  }
+
+  def param_is_receiver(&self, signature: CallableSignature, param_id: ParamId): Bool = {
+    signature.receiver match {
+      case Option[ParamId]::Some(receiver) => {
+        self.param_key(receiver) == self.param_key(param_id)
+      }
+      case Option[ParamId]::None => {
+        false
+      }
+    }
+  }
+
+  def param_key(&self, id: ParamId): usize = {
+    self.arenas.param_span(id).start
+  }
+
+  def check_receiver_mutability(
+    &mut self,
+    receiver: ExprId,
+    bindings: Vec[LocalBinding],
+    receiver_type: TypeId,
+    signature: CallableSignature,
+    span: Span
+  ): Unit = {
+    signature.receiver match {
+      case Option[ParamId]::Some(receiver_param) => {
+        val maybe_param = self.declarations.param_signatures.get(receiver_param);
+        maybe_param match {
+          case Option[ParameterSignature]::Some(param) => {
+            if (param.mutable and !self.receiver_allows_mutation(receiver, bindings, receiver_type)) {
+              self.diagnostic("cosmo1.type.immutable-receiver", "method requires a mutable receiver", span)
+            }
+          }
+          case Option[ParameterSignature]::None => {
+          }
+        }
+      }
+      case Option[ParamId]::None => {
+      }
+    }
+  }
+
+  def receiver_allows_mutation(&mut self, receiver: ExprId, bindings: Vec[LocalBinding], receiver_type: TypeId): Bool = {
+    val binding = self.assignment_binding(receiver, bindings);
+    binding match {
+      case Option[LocalBinding]::Some(local) => {
+        local.mutable
+      }
+      case Option[LocalBinding]::None => {
+        self.type_is_mutable_reference(receiver_type)
+      }
+    }
+  }
+
   def check_binary_expr(
     &mut self,
     id: ExprId,
@@ -684,6 +1138,15 @@ class ExpressionChecker {
     expected: Option[TypeId],
     return_type: Option[TypeId]
   ): TypeId = {
+    if (binary_is_bool(op)) {
+      val bool_type = self.bool_type();
+      val left_type = self.check_expr(left, bindings, Option[TypeId]::Some(bool_type), return_type);
+      val right_type = self.check_expr(right, bindings, Option[TypeId]::Some(bool_type), return_type);
+      if (!self.type_is_named_primitive(left_type, "Bool") or !self.type_is_named_primitive(right_type, "Bool")) {
+        return self.invalid_binary_expr(id, op, left, right, self.arenas.expr_span(id))
+      }
+      return self.record_typed_expr(id, TypedExprKind.Binary(op, left, right), bool_type)
+    }
     val left_first = self.binary_left_type(op, left, right, bindings, expected, return_type);
     val right_expected = self.binary_right_expected(op, left_first, expected);
     val right_type = self.binary_right_type(op, left, right, bindings, right_expected, return_type);
@@ -990,12 +1453,68 @@ class ExpressionChecker {
     }
   }
 
+  def type_is_named_primitive(&self, id: TypeId, expected: String): Bool = {
+    val value = self.types.type_value(id);
+    value match {
+      case CosmoType.Primitive(name) => {
+        name == expected
+      }
+      case CosmoType.Reference(mutable, inner) => {
+        self.type_is_named_primitive(inner, expected)
+      }
+      case CosmoType.User(name) => {
+        false
+      }
+      case CosmoType.Function(params, return_type) => {
+        false
+      }
+      case CosmoType.Never => {
+        false
+      }
+      case CosmoType.Error => {
+        false
+      }
+    }
+  }
+
+  def type_is_mutable_reference(&self, id: TypeId): Bool = {
+    val value = self.types.type_value(id);
+    value match {
+      case CosmoType.Reference(mutable, inner) => {
+        mutable
+      }
+      case CosmoType.Primitive(name) => {
+        false
+      }
+      case CosmoType.User(name) => {
+        false
+      }
+      case CosmoType.Function(params, return_type) => {
+        false
+      }
+      case CosmoType.Never => {
+        false
+      }
+      case CosmoType.Error => {
+        false
+      }
+    }
+  }
+
   def bool_type(&mut self): TypeId = {
     self.alloc_primitive_type("Bool")
   }
 
   def i32_type(&mut self): TypeId = {
     self.alloc_primitive_type("i32")
+  }
+
+  def u8_type(&mut self): TypeId = {
+    self.alloc_primitive_type("u8")
+  }
+
+  def usize_type(&mut self): TypeId = {
+    self.alloc_primitive_type("usize")
   }
 
   def string_type(&mut self): TypeId = {
@@ -1172,6 +1691,10 @@ def binary_is_equality(op: String): Bool = {
   op == "==" or op == "!="
 }
 
+def binary_is_bool(op: String): Bool = {
+  op == "and" or op == "or"
+}
+
 def block_item_expected(is_last: Bool, expected: Option[TypeId]): Option[TypeId] = {
   if (is_last) {
     expected
@@ -1223,6 +1746,7 @@ def check_module_basic_expressions_with_resolution(
 ): ExpressionCheckResult = {
   var checker = ExpressionChecker(
     arenas,
+    module_id,
     names,
     declarations,
     declarations.types,

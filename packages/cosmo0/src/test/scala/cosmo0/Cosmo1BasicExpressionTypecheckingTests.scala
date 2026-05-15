@@ -43,9 +43,12 @@ class Cosmo1BasicExpressionTypecheckingTests extends munit.FunSuite:
     assert(output.contains("inline bool basic_expression_checker_reports_assignment_mismatch()"))
     assert(output.contains("inline bool basic_expression_checker_reports_return_mismatch()"))
     assert(output.contains("inline bool basic_expression_checker_rejects_invalid_binary_operands()"))
+    assert(output.contains("inline bool member_call_checker_types_parser_state_patterns()"))
+    assert(output.contains("inline bool member_call_checker_rejects_immutable_self_mutation()"))
     assert(output.contains("int main()"))
     assert(output.contains("cosmo1.type.immutable-assignment"))
     assert(output.contains("cosmo1.type.invalid-binary-op"))
+    assert(output.contains("cosmo1.type.immutable-receiver"))
     assert(output.contains("cosmo1.type.mismatch"))
 
   private def combineSources(paths: List[String]): String =
