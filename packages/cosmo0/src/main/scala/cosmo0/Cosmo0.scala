@@ -1,10 +1,15 @@
 package cosmo0
 
+import scala.scalajs.js
+import scala.scalajs.js.annotation.JSExport
+import scala.scalajs.js.annotation.JSExportAll
+import scala.scalajs.js.annotation.JSExportTopLevel
 import scala.util.control.NonFatal
 
 import fastparse.Parsed
 import fastparse.parse as fastParse
 
+@JSExportTopLevel("Cosmo0")
 final class Cosmo0:
   private val packagePipeline = PackagePipeline(this)
 
@@ -168,6 +173,88 @@ final class Cosmo0:
           case failed =>
             Result.failure(Phase.Compile, failed.diagnostics)
 
+  def checkRunnablePackage(rootPath: String): Result[CheckedPackage] =
+    checkPackage(rootPath) match
+      case checked if checked.isSuccess =>
+        validateRunnableEntrypoint(checked.value.get)
+      case failed =>
+        Result(
+          Phase.Check,
+          failed.status,
+          None,
+          failed.diagnostics,
+        )
+
+  def compileRunnablePackage(rootPath: String): Result[CompiledPackage] =
+    checkRunnablePackage(rootPath) match
+      case checked if checked.isFailure =>
+        Result.failure(Phase.Compile, checked.diagnostics)
+      case checked if checked.isUnsupported =>
+        Result(
+          Phase.Compile,
+          PhaseStatus.Unsupported,
+          None,
+          checked.diagnostics,
+        )
+      case checked =>
+        val checkedPackage = checked.value.get
+        CppBackend().emit(checkedPackage.lowered.lir) match
+          case emitted if emitted.isSuccess =>
+            Result.success(
+              Phase.Compile,
+              CompiledPackage(checkedPackage, emitted.value.get),
+            )
+          case failed =>
+            Result.failure(Phase.Compile, failed.diagnostics)
+
+  @JSExport
+  def compileRunnablePackageForHost(rootPath: String): Cosmo0HostCompileResult =
+    Cosmo0HostCompileResult.fromResult(compileRunnablePackage(rootPath))
+
+  private def validateRunnableEntrypoint(pkg: CheckedPackage): Result[CheckedPackage] =
+    runnableEntrypoint(pkg) match
+      case Some(main) if isRunnableEntrypoint(main) =>
+        Result.success(Phase.Check, pkg)
+      case Some(main) =>
+        Result.failure(
+          Phase.Check,
+          List(
+            Diagnostic(
+              Phase.Check,
+              DiagnosticSeverity.Error,
+              "cosmo0.package.invalid-run-entrypoint",
+              s"cosmo0 package ${pkg.metadata.name} run entrypoint must be a body-backed top-level zero-argument main returning Unit or an integer",
+              Some(main.span),
+            ),
+          ),
+        )
+      case None =>
+        Result.failure(
+          Phase.Check,
+          List(
+            Diagnostic(
+              Phase.Check,
+              DiagnosticSeverity.Error,
+              "cosmo0.package.missing-run-entrypoint",
+              s"cosmo0 package ${pkg.metadata.name} does not expose a top-level zero-argument main run entrypoint",
+            ),
+          ),
+        )
+
+  private def runnableEntrypoint(pkg: CheckedPackage): Option[TypedFunction] =
+    pkg.checked.typed.declarations.collectFirst {
+      case fn: TypedFunction if fn.owner.isEmpty && fn.name == "main" => fn
+    }
+
+  private def isRunnableEntrypoint(fn: TypedFunction): Boolean =
+    fn.params.isEmpty &&
+      fn.externBinding.isEmpty &&
+      fn.body.nonEmpty &&
+      runnableReturnType(fn.returnType)
+
+  private def runnableReturnType(valueType: SourceType): Boolean =
+    SourceType.same(valueType, SourceType.Unit) || SourceType.isInteger(valueType)
+
   private def parseFailureDiagnostic(
       source: SourceFile,
       failure: Parsed.Failure,
@@ -194,3 +281,47 @@ final class Cosmo0:
 
 object Cosmo0:
   def apply(): Cosmo0 = new Cosmo0()
+
+@JSExportAll
+final class Cosmo0HostDiagnostic(
+    val phase: String,
+    val severity: String,
+    val code: String,
+    val message: String,
+    val fileName: String,
+    val line: Int,
+    val column: Int,
+)
+
+object Cosmo0HostDiagnostic:
+  def fromDiagnostic(diagnostic: Diagnostic): Cosmo0HostDiagnostic =
+    val position = diagnostic.span.map(_.start)
+    new Cosmo0HostDiagnostic(
+      diagnostic.phase.toString,
+      diagnostic.severity.toString,
+      diagnostic.code,
+      diagnostic.message,
+      diagnostic.span.map(_.fileName).getOrElse(""),
+      position.map(_.line).getOrElse(0),
+      position.map(_.column).getOrElse(0),
+    )
+
+@JSExportAll
+final class Cosmo0HostCompileResult(
+    val ok: Boolean,
+    val status: String,
+    val moduleName: String,
+    val output: String,
+    val diagnostics: js.Array[Cosmo0HostDiagnostic],
+)
+
+object Cosmo0HostCompileResult:
+  def fromResult(result: Result[CompiledPackage]): Cosmo0HostCompileResult =
+    val output = result.value.map(_.output)
+    new Cosmo0HostCompileResult(
+      result.isSuccess,
+      result.status.toString,
+      output.map(_.moduleName).getOrElse(""),
+      output.map(_.source).getOrElse(""),
+      js.Array(result.diagnostics.map(Cosmo0HostDiagnostic.fromDiagnostic)*),
+    )

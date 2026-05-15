@@ -10,6 +10,7 @@
     "console": "sbt run",
     "compile": "sbt fullLinkJS",
     "test": "sbt test",
+    "test:cli": "node --test cmd/cosmo/*.test.mjs",
     "watch": "sbt ~fullLinkJS",
     "watch:test": "sbt ~test",
     "compile:dev": "sbt fastLinkJS",
