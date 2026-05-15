@@ -168,6 +168,12 @@ final case class LirDerefValue(
     valueType: LirTypeRef,
 ) extends LirValue
 
+final case class LirFieldRef(
+    receiver: LirValue,
+    field: String,
+    valueType: LirTypeRef,
+) extends LirValue
+
 sealed trait LirPlace:
   def valueType: LirTypeRef
 
@@ -520,6 +526,8 @@ object LirDebugRenderer:
         s"fn $id"
       case LirDerefValue(value, _) =>
         s"*${renderValue(value)}"
+      case LirFieldRef(receiver, field, _) =>
+        s"${renderValue(receiver)}.$field"
 
   private def renderType(valueType: LirTypeRef): String =
     valueType.display

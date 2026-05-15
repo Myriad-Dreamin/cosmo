@@ -940,6 +940,16 @@ final class LirTypeChecker(
                 s"${env.function.id} cannot dereference non-reference value ${other.display}",
               )
 
+        case LirFieldRef(receiver, field, valueType) =>
+          checkValue(receiver, env, defined)
+          fieldInfo(receiver.valueType, field, env).foreach { fieldInfo =>
+            if !sameType(valueType, fieldInfo.valueType) then
+              error(
+                "cosmo0.lir.assignment-mismatch",
+                s"${env.function.id} field reference $field has type ${valueType.display}, expected ${fieldInfo.valueType.display}",
+              )
+          }
+
     private def checkModuleValue(value: LirValue, declarations: DeclEnv): Unit =
       value match
         case LirGlobalRef(id, valueType) =>
@@ -960,6 +970,8 @@ final class LirTypeChecker(
           }
         case LirDerefValue(inner, _) =>
           checkModuleValue(inner, declarations)
+        case LirFieldRef(receiver, _, _) =>
+          checkModuleValue(receiver, declarations)
         case _ =>
 
     private def defineOutput(
@@ -1147,6 +1159,8 @@ final class LirTypeChecker(
             env.declarations.globals.get(id).exists(global => global.mutable || global.mutationAllowed)
           case LirDerefValue(inner, _) =>
             SourceType.refMutable(inner.valueType.source).contains(true)
+          case LirFieldRef(receiver, field, _) =>
+            fieldInfo(receiver.valueType, field, env).exists(_ => mutableValue(receiver, env))
           case _                   => false
         )
 
@@ -1197,6 +1211,7 @@ final class LirTypeChecker(
         case LirGlobalRef(id, _)   => id.toString
         case LirFunctionRef(id, _) => id.toString
         case LirDerefValue(inner, _) => s"*${valueDescription(inner)}"
+        case LirFieldRef(receiver, field, _) => s"${valueDescription(receiver)}.$field"
         case _                     => value.valueType.display
 
     private def signatureDisplay(signature: LirCallableSignature): String =

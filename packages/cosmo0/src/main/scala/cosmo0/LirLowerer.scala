@@ -109,6 +109,7 @@ final class LirLowerer(
     private sealed trait PatternCondition
     private case object AlwaysPattern extends PatternCondition
     private final case class ConditionalPattern(condition: LirValue) extends PatternCondition
+    private final case class MutableReceiver(value: LirValue, copyBack: Option[() => Unit])
 
     private val scopes = mutable.ArrayBuffer.empty[mutable.LinkedHashMap[String, Binding]]
     private val localOrdinals = mutable.LinkedHashMap.empty[String, Int]
@@ -317,36 +318,38 @@ final class LirLowerer(
                   None
 
         case select: TypedSelect =>
-          lowerExpr(select.receiver) match
+          lowerCallReceiver(select.receiver, call.signature.receiver.exists(_.mutable)) match
             case Some(receiver) =>
               val args = call.args.flatMap(lowerExpr)
               if args.length != call.args.length then None
               else
-                descriptorRefForMethod(receiver.valueType.source, select.field) match
+                descriptorRefForMethod(receiver.value.valueType.source, select.field) match
                   case Some(descriptor) =>
                     emit(
                       LirDescriptorIntrinsic(
                         output.map(_.id),
                         descriptor,
                         select.field,
-                        receiver :: args,
+                        receiver.value :: args,
                         Some(Lir.t(call.valueType)),
                       ),
                     )
+                    receiver.copyBack.foreach(copyBack => copyBack())
                     callResult(output, call.valueType)
-                  case None if isDescriptorBacked(receiver.valueType.source) =>
-                    unsupportedDescriptor(call, descriptorName(receiver.valueType.source).getOrElse("<unknown>"), select.field)
+                  case None if isDescriptorBacked(receiver.value.valueType.source) =>
+                    unsupportedDescriptor(call, descriptorName(receiver.value.valueType.source).getOrElse("<unknown>"), select.field)
                     None
                   case None =>
                     emit(
                       LirLoweredMethodCall(
                         output.map(_.id),
-                        receiver,
+                        receiver.value,
                         select.field,
                         args,
                         LirCallableSignature.fromSource(call.signature),
                       ),
                     )
+                    receiver.copyBack.foreach(copyBack => copyBack())
                     callResult(output, call.valueType)
             case None =>
               None
@@ -384,7 +387,18 @@ final class LirLowerer(
                 lowerDescriptorConstructor(constructor, output, args, call.valueType)
         case other =>
           unsupported(other, "indirect function call")
-          None
+              None
+
+    private def lowerCallReceiver(expr: TypedExpr, mutableReceiver: Boolean): Option[MutableReceiver] =
+      if !mutableReceiver then lowerExpr(expr).map(value => MutableReceiver(value, None))
+      else
+        expr match
+          case select: TypedSelect if !isFunctionType(select.valueType) =>
+            lowerExpr(select.receiver).map { owner =>
+              MutableReceiver(LirFieldRef(owner, select.field, Lir.t(select.valueType)), None)
+            }
+          case _ =>
+            lowerExpr(expr).map(value => MutableReceiver(value, None))
 
     private def lowerUserConstructor(
         constructor: TypedTypeConstructorExpr,

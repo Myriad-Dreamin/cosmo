@@ -362,35 +362,94 @@ def ir_control_flow_lowerer_accepts_parser_style_flow(): Bool = {
     ir_lowered_function_has_returning_block(ir_module, "parser_flow")
 }
 
+def ir_self_compile_parser_source_runs(): Bool = {
+  val source = read_file("packages/cosmoc/src/source/span.cos")
+    .concat("\n")
+    .concat(read_file("packages/cosmoc/src/syntax/ast.cos"))
+    .concat("\n")
+    .concat(read_file("packages/cosmoc/src/parser.cos"));
+  val parsed = parse_source_ast(source);
+  if (!parsed.is_ok()) {
+    println(parsed.first_diagnostic_code());
+    return false
+  }
+
+  val names = resolve_module_names(parsed.arenas, parsed.root);
+  val resolved = resolve_module_declarations_with_names(parsed.arenas, parsed.root, names);
+  val checked = check_module_basic_expressions_with_resolution(parsed.arenas, parsed.root, names, resolved);
+  if (!names.is_ok()) {
+    println(names.first_diagnostic_code());
+    return false
+  }
+  if (!resolved.is_ok()) {
+    println(resolved.first_diagnostic_code());
+    return false
+  }
+  if (!checked.is_ok()) {
+    println(checked.first_diagnostic_code());
+    println(checked.first_diagnostic_message());
+    return false
+  }
+
+  val ir_module = lower_module_declarations(parsed.arenas, parsed.root, names, resolved);
+  val verified = verify_ir_module(checked.types, ir_module);
+  if (!verified.is_ok()) {
+    println(verified.first_code());
+    return false
+  }
+
+  val first_render = render_ir_module(checked.types, ir_module);
+  val second_render = render_ir_module(checked.types, ir_module);
+  first_render == second_render and
+    first_render != "" and
+    ir_declaration_has_type(ir_module, "Span") and
+    ir_declaration_has_type(ir_module, "SyntaxParserResult") and
+    ir_lowered_function_has_call(ir_module, "parse_source_ast", "SyntaxParser.finish")
+}
+
 def main(): i32 = {
   if (!ir_verifier_accepts_valid_function()) {
+    println("ir_verifier_accepts_valid_function");
     return 1
   }
   if (!ir_verifier_rejects_missing_block()) {
+    println("ir_verifier_rejects_missing_block");
     return 1
   }
   if (!ir_verifier_rejects_use_before_definition()) {
+    println("ir_verifier_rejects_use_before_definition");
     return 1
   }
   if (!ir_verifier_rejects_invalid_call_shape()) {
+    println("ir_verifier_rejects_invalid_call_shape");
     return 1
   }
   if (!ir_verifier_rejects_return_type_mismatch()) {
+    println("ir_verifier_rejects_return_type_mismatch");
     return 1
   }
   if (!ir_debug_renderer_is_deterministic()) {
+    println("ir_debug_renderer_is_deterministic");
     return 1
   }
   if (!ir_declaration_lowerer_records_parser_state_and_helpers()) {
+    println("ir_declaration_lowerer_records_parser_state_and_helpers");
     return 1
   }
   if (!ir_basic_expression_lowerer_accepts_simple_parser_source()) {
+    println("ir_basic_expression_lowerer_accepts_simple_parser_source");
     return 1
   }
   if (!ir_member_intrinsic_lowerer_accepts_parser_state_methods()) {
+    println("ir_member_intrinsic_lowerer_accepts_parser_state_methods");
     return 1
   }
   if (!ir_control_flow_lowerer_accepts_parser_style_flow()) {
+    println("ir_control_flow_lowerer_accepts_parser_style_flow");
+    return 1
+  }
+  if (!ir_self_compile_parser_source_runs()) {
+    println("ir_self_compile_parser_source_runs");
     return 1
   }
   0
@@ -607,6 +666,21 @@ def declaration_fixture_has_stable_order(ir_module: IrModule): Bool = {
     declaration_id(ir_module.declarations.get(4)).value == "parse_source"
 }
 
+def ir_declaration_has_type(ir_module: IrModule, id: String): Bool = {
+  for (declaration in ir_module.declarations) {
+    declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        if (type_decl.id.value == id) {
+          return true
+        }
+      }
+      case IrDeclaration.Function(fn_value) => {
+      }
+    }
+  }
+  false
+}
+
 def declaration_fixture_has_field(types: TypeStore, type_decl: IrTypeDecl, name: String, expected_type: String): Bool = {
   for (field in type_decl.fields) {
     if (field.name == name and ir_type_display(types, field.typ) == expected_type) {
@@ -702,6 +776,8 @@ def ir_lowered_function_has_intrinsic(ir_module: IrModule, id: String, name: Str
             }
             case IrOperation.Assign(target, value) => {
             }
+            case IrOperation.ConstructType(output, owner, fields) => {
+            }
             case IrOperation.DirectCall(output, callee, args, signature) => {
             }
             case IrOperation.FieldGet(output, receiver, field, result_type) => {
@@ -736,6 +812,8 @@ def ir_lowered_function_has_field_get(ir_module: IrModule, id: String, name: Str
             case IrOperation.InitLocal(target, value) => {
             }
             case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.ConstructType(output, owner, fields) => {
             }
             case IrOperation.DirectCall(output, callee, args, signature) => {
             }
@@ -772,6 +850,8 @@ def ir_lowered_function_has_field_set(ir_module: IrModule, id: String, name: Str
             }
             case IrOperation.Assign(target, value) => {
             }
+            case IrOperation.ConstructType(output, owner, fields) => {
+            }
             case IrOperation.DirectCall(output, callee, args, signature) => {
             }
             case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
@@ -806,6 +886,8 @@ def ir_lowered_function_has_call(ir_module: IrModule, id: String, callee_id: Str
             case IrOperation.InitLocal(target, value) => {
             }
             case IrOperation.Assign(target, value) => {
+            }
+            case IrOperation.ConstructType(output, owner, fields) => {
             }
             case IrOperation.IntrinsicCall(output, intrinsic_name, args, signature) => {
             }

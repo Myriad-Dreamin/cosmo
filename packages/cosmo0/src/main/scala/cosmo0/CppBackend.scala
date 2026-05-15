@@ -448,8 +448,58 @@ final class CppBackend(
       if lines.isEmpty then Nil else lines :+ ""
 
     private def typeDefinitions: List[String] =
-      val lines = env.typesById.values.toList.sortBy(_.id.value).map(renderTypeDecl)
+      val lines = orderedTypeDefinitions.map(renderTypeDecl)
       if lines.isEmpty then Nil else intersperseBlank(lines) :+ ""
+
+    private def orderedTypeDefinitions: List[LirTypeDecl] =
+      val types = env.typesById.values.toList.sortBy(_.id.value)
+      val byId = types.map(ty => ty.id -> ty).toMap
+      val pending = mutable.LinkedHashMap.from(types.map(ty => ty.id -> ty))
+      val emitted = mutable.LinkedHashSet.empty[LirDeclId]
+      val result = ListBuffer.empty[LirTypeDecl]
+
+      while pending.nonEmpty do
+        val ready = pending.values.find(ty => typeDependencies(ty).forall(emitted.contains))
+        ready match
+          case Some(ty) =>
+            result += ty
+            emitted += ty.id
+            pending.remove(ty.id)
+          case None =>
+            val next = pending.values.toList.sortBy(_.id.value).head
+            result += next
+            emitted += next.id
+            pending.remove(next.id)
+
+      result.toList
+
+    private def typeDependencies(ty: LirTypeDecl): Set[LirDeclId] =
+      val fieldDeps = ty.fields.flatMap(field => concreteTypeDependencies(field.valueType.source))
+      val variantDeps = ty.variants.flatMap { variant =>
+        variant.payload.flatMap(payload => concreteTypeDependencies(payload.valueType.source))
+      }
+      (fieldDeps ++ variantDeps).filterNot(_ == ty.id).toSet
+
+    private def concreteTypeDependencies(valueType: SourceType): Set[LirDeclId] =
+      SourceType.dealias(valueType) match
+        case SourceType.User(name) =>
+          env.typesByName.get(name).map(ty => Set(ty.id)).getOrElse(Set.empty)
+        case SourceType.Alias(name, _) =>
+          env.aliasesByName.get(name).map(alias => concreteTypeDependencies(alias.target.source)).getOrElse(Set.empty)
+        case SourceType.Standard("Id", _ :: Nil) =>
+          Set.empty
+        case SourceType.Standard("Ptr", _ :: Nil) =>
+          Set.empty
+        case SourceType.Standard("Box", _ :: Nil) =>
+          Set.empty
+        case SourceType.Ref(_, _) =>
+          Set.empty
+        case SourceType.Standard(_, args) =>
+          args.flatMap(concreteTypeDependencies).toSet
+        case SourceType.Function(params, returnType) =>
+          (params :+ returnType).flatMap(concreteTypeDependencies).toSet
+        case _ =>
+          Set.empty
 
     private def renderTypeDecl(ty: LirTypeDecl): String =
       val typeName = names.typeName(ty.id)
@@ -485,7 +535,7 @@ final class CppBackend(
           body += line(2, "};")
         }
         val variantTypes = variants.map(variant => variantStructName(variant.name)).mkString(", ")
-        body += line(2, s"std::variant<$variantTypes> data{};")
+        body += line(2, s"std::variant<$variantTypes> data;")
         body += line(2, "int32_t tag() const { return static_cast<int32_t>(data.index()); }")
         variants.foreach { variant =>
           val variantName = variantStructName(variant.name)
@@ -513,13 +563,15 @@ final class CppBackend(
 
       val params = fields.map(field => s"${valueType(field.valueType)} arg_${fieldName(field.name)}")
       val constructor =
-        if fields.isEmpty then Nil
+        if fields.isEmpty && variants.isEmpty then Nil
         else
-          val init = fields.map(field => s"${fieldName(field.name)}(std::move(arg_${fieldName(field.name)}))").mkString(", ")
-          List(
-            line(2, s"$typeName() = default;"),
-            line(2, s"$typeName(${params.mkString(", ")}) : $init {}"),
-          )
+          val variantInit = variants.headOption.map(variant => s"data(${variantStructName(variant.name)}{})")
+          val fieldInits = fields.map(field => s"${fieldName(field.name)}(std::move(arg_${fieldName(field.name)}))")
+          val init = (fieldInits ++ variantInit.toList).mkString(", ")
+          val defaultInit = variantInit.fold("")(value => s" : $value")
+          val defaultConstructor = line(2, s"$typeName()$defaultInit {}")
+          if fields.isEmpty then List(defaultConstructor)
+          else List(defaultConstructor, line(2, s"$typeName(${params.mkString(", ")}) : $init {}"))
 
       val allLines = ListBuffer.empty[String]
       allLines += s"struct $typeName {"
@@ -760,6 +812,8 @@ final class CppBackend(
           names.functionName(id)
         case LirDerefValue(value, _) =>
           s"(*${renderValue(value, locals)})"
+        case LirFieldRef(receiver, field, _) =>
+          fieldAccess(receiver, field, locals)
 
     private def defaultValue(valueType: LirTypeRef): String =
       SourceType.dealias(valueType.source) match
