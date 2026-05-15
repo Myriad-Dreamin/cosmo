@@ -1,0 +1,231 @@
+import ir.model
+import types.model
+
+class IrFixture {
+  val types: TypeStore
+  val ir_module: IrModule
+}
+
+def ir_verifier_accepts_valid_function(): Bool = {
+  val fixture = valid_ir_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  result.is_ok()
+}
+
+def ir_verifier_rejects_missing_block(): Bool = {
+  val fixture = invalid_branch_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.invalid-branch"
+}
+
+def ir_verifier_rejects_use_before_definition(): Bool = {
+  val fixture = use_before_definition_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.use-before-definition"
+}
+
+def ir_verifier_rejects_invalid_call_shape(): Bool = {
+  val fixture = invalid_call_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.invalid-call"
+}
+
+def ir_verifier_rejects_return_type_mismatch(): Bool = {
+  val fixture = return_mismatch_fixture();
+  var types = fixture.types;
+  val result = verify_ir_module(types, fixture.ir_module);
+  !result.is_ok() and result.first_code() == "cosmo1.ir.invalid-return"
+}
+
+def ir_debug_renderer_is_deterministic(): Bool = {
+  val fixture = valid_ir_fixture();
+  var types = fixture.types;
+  val first = render_ir_module(types, fixture.ir_module);
+  val second = render_ir_module(types, fixture.ir_module);
+  first == second and first != ""
+}
+
+def valid_ir_fixture(): IrFixture = {
+  var types = type_store();
+  val unit_type = types.alloc_primitive("Unit");
+  val bool_type = types.alloc_primitive("Bool");
+  val i32_type = types.alloc_primitive("i32");
+
+  val identity_param_types = Vec[TypeId]();
+  identity_param_types.push(i32_type);
+  val identity_signature = ir_signature(identity_param_types, i32_type);
+  val identity_params = Vec[IrParam]();
+  identity_params.push(IrParam(ir_local_id("value"), "value", i32_type));
+  val identity_blocks = Vec[IrBlock]();
+  identity_blocks.push(IrBlock(
+    ir_block_id("entry"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.Local(ir_local_id("value"), i32_type)))
+  ));
+  val identity = IrFunction(
+    ir_decl_id("identity"),
+    "identity",
+    identity_params,
+    i32_type,
+    Vec[IrLocal](),
+    identity_blocks,
+    Option[IrDeclId]::None
+  );
+
+  val main_params = Vec[IrParam]();
+  val main_locals = Vec[IrLocal]();
+  main_locals.push(IrLocal(ir_local_id("tmp0"), "tmp0", i32_type, false));
+  val args = Vec[IrValue]();
+  args.push(IrValue.NumericLiteral("1", i32_type));
+  val operations = Vec[IrOperation]();
+  operations.push(IrOperation.DirectCall(
+    Option[IrLocalId]::Some(ir_local_id("tmp0")),
+    ir_decl_id("identity"),
+    args,
+    identity_signature
+  ));
+  val main_blocks = Vec[IrBlock]();
+  main_blocks.push(IrBlock(
+    ir_block_id("entry"),
+    operations,
+    IrTerminator.CondBranch(
+      IrValue.BoolLiteral(true, bool_type),
+      ir_block_id("exit"),
+      ir_block_id("trap")
+    )
+  ));
+  main_blocks.push(IrBlock(
+    ir_block_id("exit"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.NumericLiteral("1", i32_type)))
+  ));
+  main_blocks.push(IrBlock(
+    ir_block_id("trap"),
+    Vec[IrOperation](),
+    IrTerminator.Unreachable("fixture")
+  ));
+  val main = IrFunction(
+    ir_decl_id("main"),
+    "main",
+    main_params,
+    i32_type,
+    main_locals,
+    main_blocks,
+    Option[IrDeclId]::None
+  );
+
+  val declarations = Vec[IrDeclaration]();
+  declarations.push(IrDeclaration.Function(identity));
+  declarations.push(IrDeclaration.Function(main));
+  IrFixture(types, IrModule("fixture", declarations))
+}
+
+def invalid_branch_fixture(): IrFixture = {
+  var types = type_store();
+  val unit_type = types.alloc_primitive("Unit");
+  val declarations = Vec[IrDeclaration]();
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(ir_block_id("entry"), Vec[IrOperation](), IrTerminator.Branch(ir_block_id("missing"))));
+  val fn_value = IrFunction(
+    ir_decl_id("bad_branch"),
+    "bad_branch",
+    Vec[IrParam](),
+    unit_type,
+    Vec[IrLocal](),
+    blocks,
+    Option[IrDeclId]::None
+  );
+  declarations.push(IrDeclaration.Function(fn_value));
+  IrFixture(types, IrModule("bad_branch", declarations))
+}
+
+def use_before_definition_fixture(): IrFixture = {
+  var types = type_store();
+  val i32_type = types.alloc_primitive("i32");
+  val locals = Vec[IrLocal]();
+  locals.push(IrLocal(ir_local_id("tmp0"), "tmp0", i32_type, false));
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(
+    ir_block_id("entry"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.Local(ir_local_id("tmp0"), i32_type)))
+  ));
+  val fn_value = IrFunction(
+    ir_decl_id("bad_use"),
+    "bad_use",
+    Vec[IrParam](),
+    i32_type,
+    locals,
+    blocks,
+    Option[IrDeclId]::None
+  );
+  val declarations = Vec[IrDeclaration]();
+  declarations.push(IrDeclaration.Function(fn_value));
+  IrFixture(types, IrModule("bad_use", declarations))
+}
+
+def invalid_call_fixture(): IrFixture = {
+  val fixture = valid_ir_fixture();
+  var types = fixture.types;
+  val i32_type = types.alloc_primitive("i32");
+  val args = Vec[IrValue]();
+  args.push(IrValue.NumericLiteral("1", i32_type));
+  args.push(IrValue.NumericLiteral("2", i32_type));
+  val param_types = Vec[TypeId]();
+  param_types.push(i32_type);
+  val operations = Vec[IrOperation]();
+  operations.push(IrOperation.DirectCall(
+    Option[IrLocalId]::Some(ir_local_id("tmp0")),
+    ir_decl_id("identity"),
+    args,
+    ir_signature(param_types, i32_type)
+  ));
+  val locals = Vec[IrLocal]();
+  locals.push(IrLocal(ir_local_id("tmp0"), "tmp0", i32_type, false));
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(
+    ir_block_id("entry"),
+    operations,
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.Local(ir_local_id("tmp0"), i32_type)))
+  ));
+  val bad = IrFunction(
+    ir_decl_id("bad_call"),
+    "bad_call",
+    Vec[IrParam](),
+    i32_type,
+    locals,
+    blocks,
+    Option[IrDeclId]::None
+  );
+  val declarations = fixture.ir_module.declarations;
+  declarations.push(IrDeclaration.Function(bad));
+  IrFixture(types, IrModule("bad_call", declarations))
+}
+
+def return_mismatch_fixture(): IrFixture = {
+  var types = type_store();
+  val bool_type = types.alloc_primitive("Bool");
+  val i32_type = types.alloc_primitive("i32");
+  val blocks = Vec[IrBlock]();
+  blocks.push(IrBlock(
+    ir_block_id("entry"),
+    Vec[IrOperation](),
+    IrTerminator.Return(Option[IrValue]::Some(IrValue.BoolLiteral(false, bool_type)))
+  ));
+  val fn_value = IrFunction(
+    ir_decl_id("bad_return"),
+    "bad_return",
+    Vec[IrParam](),
+    i32_type,
+    Vec[IrLocal](),
+    blocks,
+    Option[IrDeclId]::None
+  );
+  val declarations = Vec[IrDeclaration]();
+  declarations.push(IrDeclaration.Function(fn_value));
+  IrFixture(types, IrModule("bad_return", declarations))
+}
