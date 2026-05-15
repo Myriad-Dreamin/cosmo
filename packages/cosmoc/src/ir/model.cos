@@ -82,6 +82,7 @@ class IrOperation {
   case InitLocal(IrLocalId, IrValue)
   case Assign(IrLocalId, IrValue)
   case DirectCall(Option[IrLocalId], IrDeclId, Vec[IrValue], IrFunctionSignature)
+  case Binary(IrLocalId, String, IrValue, IrValue, TypeId)
 }
 
 class IrTerminator {
@@ -352,7 +353,33 @@ def verify_ir_operation(
     case IrOperation.DirectCall(output, callee, args, signature) => {
       verify_call(types, ir_module, fn_value, env, output, callee, args, signature, diagnostics)
     }
+    case IrOperation.Binary(output, op, left, right, result_type) => {
+      verify_binary(types, fn_value, env, output, op, left, right, result_type, diagnostics)
+    }
   }
+}
+
+def verify_binary(
+  types: TypeStore,
+  fn_value: IrFunction,
+  env: IrFunctionEnv,
+  output: IrLocalId,
+  op: String,
+  left: IrValue,
+  right: IrValue,
+  result_type: TypeId,
+  diagnostics: Vec[IrDiagnostic]
+): Unit = {
+  verify_value(types, fn_value, env, left, diagnostics);
+  verify_value(types, fn_value, env, right, diagnostics);
+  if (!ir_type_equals(types, ir_value_type(left), ir_value_type(right))) {
+    ir_error(diagnostics, "cosmo1.ir.invalid-binary", "binary operand type mismatch for ".concat(op))
+  }
+  if (!ir_binary_result_matches(types, op, ir_value_type(left), result_type)) {
+    ir_error(diagnostics, "cosmo1.ir.invalid-binary", "binary result type mismatch for ".concat(op))
+  }
+  verify_defined_local_type(types, fn_value, output, result_type, diagnostics);
+  define_local(env, output)
 }
 
 def verify_call(
@@ -587,6 +614,28 @@ def is_unit_type(types: TypeStore, id: TypeId): Bool = {
   ir_type_display(types, id) == "Unit"
 }
 
+def ir_binary_result_matches(types: TypeStore, op: String, operand_type: TypeId, result_type: TypeId): Bool = {
+  if (ir_binary_is_arithmetic(op)) {
+    return ir_type_equals(types, operand_type, result_type)
+  }
+  if (ir_binary_is_comparison(op) or ir_binary_is_equality(op)) {
+    return ir_type_display(types, result_type) == "Bool"
+  }
+  false
+}
+
+def ir_binary_is_arithmetic(op: String): Bool = {
+  op == "+" or op == "-" or op == "*" or op == "/" or op == "%"
+}
+
+def ir_binary_is_comparison(op: String): Bool = {
+  op == "<" or op == "<=" or op == ">" or op == ">="
+}
+
+def ir_binary_is_equality(op: String): Bool = {
+  op == "==" or op == "!="
+}
+
 def ir_error(diagnostics: Vec[IrDiagnostic], code: String, message: String): Unit = {
   diagnostics.push(IrDiagnostic(code, message))
 }
@@ -736,6 +785,17 @@ def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
     }
     case IrOperation.DirectCall(output, callee, args, signature) => {
       render_ir_call(types, output, callee, args, signature)
+    }
+    case IrOperation.Binary(output, op, left, right, result_type) => {
+      "%".concat(output.value)
+        .concat(" = ")
+        .concat(render_ir_value(types, left))
+        .concat(" ")
+        .concat(op)
+        .concat(" ")
+        .concat(render_ir_value(types, right))
+        .concat(" -> ")
+        .concat(ir_type_display(types, result_type))
     }
   }
 }
