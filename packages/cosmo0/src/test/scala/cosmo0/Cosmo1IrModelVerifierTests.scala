@@ -1,5 +1,8 @@
 package cosmo0
 
+import scala.scalajs.js
+import scala.scalajs.js.annotation.JSImport
+
 class Cosmo1IrModelVerifierTests extends munit.FunSuite:
   private val spanPath = "packages/cosmoc/src/source/span.cos"
   private val astPath = "packages/cosmoc/src/syntax/ast.cos"
@@ -64,6 +67,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assert(output.contains("inline bool ir_member_intrinsic_lowerer_accepts_parser_state_methods()"))
     assert(output.contains("inline bool ir_control_flow_lowerer_accepts_parser_style_flow()"))
     assert(output.contains("int main()"))
+    assertCxxAccepts(output)
 
   private def combineSources(paths: List[String]): String =
     paths.map(readCosmoSource).mkString("\n")
@@ -74,4 +78,39 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
       .linesIterator
       .filterNot(_.startsWith("import "))
       .mkString("\n")
+
+  private def assertCxxAccepts(source: String): Unit =
+    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo1 IR C++ acceptance test"))
+    val result = IrNodeSpawnSync(
+      compiler,
+      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", "-fsyntax-only", "-x", "c++", "-"),
+      js.Dynamic.literal(input = source, encoding = "utf8"),
+    )
+    assertEquals(
+      result.status.toOption,
+      Some(0),
+      s"C++ compiler rejected cosmo1 IR verifier output with ${compiler}\n${result.stderr.getOrElse("")}",
+    )
+
+  private def cxxCompiler(): Option[String] =
+    List("c++", "g++", "clang++").find { command =>
+      val result = IrNodeSpawnSync(
+        command,
+        js.Array("--version"),
+        js.Dynamic.literal(encoding = "utf8"),
+      )
+      result.status.toOption.contains(0)
+    }
+
 end Cosmo1IrModelVerifierTests
+
+@js.native
+@JSImport("node:child_process", "spawnSync")
+private object IrNodeSpawnSync extends js.Object:
+  def apply(command: String, args: js.Array[String], options: js.Any): IrNodeSpawnSyncResult = js.native
+
+@js.native
+private trait IrNodeSpawnSyncResult extends js.Object:
+  val status: js.UndefOr[Int] = js.native
+  val stdout: js.UndefOr[String] = js.native
+  val stderr: js.UndefOr[String] = js.native
