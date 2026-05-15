@@ -1,6 +1,6 @@
 ## 1. Typed Expressions
 
-- [ ] 1.1 Add typed expression data for literals, names, locals, blocks, assignments, returns, and binary/unary operations.
+- [x] 1.1 Add typed expression data for literals, names, locals, blocks, assignments, returns, and binary/unary operations.
 - [x] 1.2 Add scope handling for block-local bindings.
 
 ## 2. Type Rules
