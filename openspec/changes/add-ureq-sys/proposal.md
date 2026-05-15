@@ -21,5 +21,5 @@ Repository tools and future generators need deterministic blocking HTTP without 
 ## Impact
 
 - Future implementation will add `packages/ureq-sys/`, `crates/ureq-sys/`, and Cosmo declarations over the Rust wrapper.
-- Makes network-backed tooling possible without changing the core language-server critical path.
-- Implementation should land after `add-rust-ffi-support-library-pipeline`; no later proposal in the initial language-server chain depends on it directly.
+- Makes network-backed tooling possible for metamodel and generator workflows that need network downloads.
+- Implementation should land after `add-rust-ffi-support-library-pipeline` and before `add-lsp-types-generator-core-subset`.
