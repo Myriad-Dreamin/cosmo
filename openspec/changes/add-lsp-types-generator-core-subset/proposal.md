@@ -1,18 +1,18 @@
 ## Why
 
-The official LSP metamodel is too large and change-prone to model by hand. Cosmo needs a deterministic generator that consumes the checked-in `lsprotocol` metamodel and emits the initial protocol types required by the first language-server slice.
+The official LSP metamodel is too large and change-prone to model by hand. Cosmo needs a deterministic generator that consumes the upstream full `lsprotocol` metamodel and emits the complete protocol type surface used by language-server work.
 
 ## What Changes
 
-- Add `packages/lsp-types` with a checked-in `lsprotocol` metamodel input and a Cosmo generator pipeline.
-- Generate only the initial core session subset needed by server bootstrap: positions, ranges, locations, diagnostics, hover, initialize, shutdown, exit, and core text-document notifications.
-- Keep the first generator slice deterministic and offline; network fetching and full protocol coverage stay out of scope.
+- Add `packages/lsp-types` with a Cosmo-owned full LSP metamodel generator pipeline.
+- Download the upstream full metamodel through `ureq-sys` and keep that downloaded input ignored by git.
+- Generate checked-in full-spec output split into `lspt`-style modules: `base`, `type_aliases`, `enums`, `structs`, `request`, and `notification`.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `lsp-types-generator-core-subset`: Defines deterministic Cosmo generation for the initial LSP metamodel subset.
+- `lsp-types-generator-core-subset`: Defines deterministic Cosmo generation for the full LSP metamodel output surface.
 
 ### Modified Capabilities
 
@@ -20,6 +20,6 @@ None.
 
 ## Impact
 
-- Future implementation will add `packages/lsp-types/`, checked-in metamodel input, generator sources, and generated outputs.
+- Future implementation will add `packages/lsp-types/`, generator sources, ignored downloaded metamodel input, and checked-in generated outputs.
 - Establishes the type boundary consumed by later `ls-base` and `packages/cosmos` work.
 - Implementation should land after `add-cosmo-package-run-cli` and `add-ureq-sys`, and before `add-ls-base-jsonrpc-core`.

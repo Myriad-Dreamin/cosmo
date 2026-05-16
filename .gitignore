@@ -9,3 +9,4 @@ cmake-build-*
 *.log
 
 config.json
+packages/lsp-types/metamodel/metaModel.full.json

@@ -1,17 +1,17 @@
 ## 1. Metamodel Input
 
-- [x] 1.1 Check in the `lsprotocol` metamodel input used by the generator.
-- [x] 1.2 Model references, arrays, maps, unions, and literal object shapes needed by the initial subset.
-- [x] 1.3 Keep generation deterministic and offline.
+- [x] 1.1 Download the full `lsprotocol` metamodel through `ureq-sys`.
+- [x] 1.2 Keep the downloaded full metamodel ignored by git.
+- [x] 1.3 Model references, arrays, maps, unions, null unions, and literal object shapes needed by the full generated surface.
 
-## 2. Generated Core Subset
+## 2. Generated Full Surface
 
-- [x] 2.1 Emit common data structures such as `Position`, `Range`, `Location`, `Diagnostic`, `MarkupContent`, and `Hover`.
-- [x] 2.2 Emit the initial session messages for `initialize`, `initialized`, `shutdown`, `exit`, and core text-document notifications.
-- [x] 2.3 Emit a stable package layout under `packages/lsp-types/`.
+- [x] 2.1 Emit full generated type aliases, enums, structures, requests, and notifications.
+- [x] 2.2 Follow `lspt`-style flavors for `Uri`, `HashMap`, `UnionN`, request, and notification modules.
+- [x] 2.3 Emit a stable package layout under `packages/lsp-types/src/lsp/full/`.
 
 ## 3. Validation
 
 - [x] 3.1 Add deterministic regeneration tests or snapshots.
-- [x] 3.2 Compile the generated package as part of validation.
-- [x] 3.3 Document how the generator is invoked through `cosmo -p <package> run`.
+- [x] 3.2 Compile the Cosmo generator package as part of validation.
+- [x] 3.3 Document how the generator is invoked through `cosmo -p <package> run` and `yarn gen:lsp-types`.

@@ -9,4 +9,5 @@ name = "cosmo_ureq_sys"
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
+serde_json = "1.0"
 ureq = "2.12.1"

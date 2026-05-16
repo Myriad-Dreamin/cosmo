@@ -2,35 +2,34 @@
 
 ## ADDED Requirements
 
-### Requirement: Offline LSP Metamodel Input
+### Requirement: Downloaded Full LSP Metamodel Input
 
-The repository SHALL provide a checked-in LSP metamodel subset for deterministic
-generation of the initial language-server protocol types.
+The repository SHALL provide a `ureq-sys` backed command for downloading the
+upstream full LSP metamodel used by the generator.
 
-#### Scenario: Metamodel subset is available without network access
+#### Scenario: Full metamodel is downloaded and ignored
 
 - **WHEN** the LSP types generator package is inspected
-- **THEN** the metamodel input is present under `packages/lsp-types/metamodel/`
-- **AND** generator execution does not fetch protocol metadata from the network
-- **AND** the checked-in input covers references, arrays, maps, unions, and literal object shapes used by the initial subset
+- **THEN** a repository script downloads the full metamodel through `ureq-sys`
+- **AND** the downloaded input path is `packages/lsp-types/metamodel/metaModel.full.json`
+- **AND** that downloaded full metamodel is ignored by git
 
-### Requirement: Generated Core Protocol Types
+### Requirement: Generated Full Protocol Types
 
-The repository SHALL provide a generated Cosmo source module containing the
-initial core LSP data structures and message shapes needed by early server
-bootstrap work.
+The repository SHALL provide checked-in generated Cosmo source modules for the
+full LSP data structures, type aliases, enums, requests, and notifications.
 
-#### Scenario: Core data structures are generated
+#### Scenario: Full protocol modules are generated
 
-- **WHEN** `packages/lsp-types/src/lsp/core.cos` is inspected
-- **THEN** it contains generated definitions for `Position`, `Range`, `Location`, `Diagnostic`, `MarkupContent`, and `Hover`
-- **AND** generated field shapes preserve optional values, arrays, maps, references, unions, and string literal fields used by those definitions
+- **WHEN** `packages/lsp-types/src/lsp/full/` is inspected
+- **THEN** it contains `base.cos`, `type_aliases.cos`, `enums.cos`, `structs.cos`, `request.cos`, and `notification.cos`
+- **AND** generated field shapes preserve optional values, arrays, maps, references, unions, null unions, and literal object shapes used by the full metamodel
 
-#### Scenario: Session message types are generated
+#### Scenario: lspt-style protocol flavors are generated
 
-- **WHEN** `packages/lsp-types/src/lsp/core.cos` is inspected
-- **THEN** it contains generated initialize, initialized, shutdown, and exit message shapes
-- **AND** it contains generated core text-document notification shapes required by the initial language-server lifecycle
+- **WHEN** the generated full protocol modules are inspected
+- **THEN** base output contains `Uri`, `HashMap`, and `UnionN` helper flavors
+- **AND** request and notification output are split into dedicated modules with generated message classes and parameter/result aliases
 
 ### Requirement: Deterministic Generator Validation
 
@@ -41,10 +40,10 @@ both package compilation and deterministic regeneration.
 
 - **WHEN** the LSP types generator validation command is run
 - **THEN** it executes `cosmo -p packages/lsp-types run`
-- **AND** it fails if stdout differs from `packages/lsp-types/src/lsp/core.cos`
+- **AND** it fails if generated file blocks differ from checked-in files under `packages/lsp-types/src/lsp/full/`
 
 #### Scenario: Generator package compiles through Cosmo0
 
 - **WHEN** the focused LSP types package test is run
 - **THEN** the package loads successfully with the Cosmo stage1 profile
-- **AND** compiling the runnable package emits host output containing the generated LSP core structures
+- **AND** compiling the runnable package emits host output containing the full metamodel generator

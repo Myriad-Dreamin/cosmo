@@ -1,21 +1,31 @@
 # @cosmo/lsp-types
 
-`packages/lsp-types` owns the checked-in LSP core subset used by early Cosmo language-server work.
+`packages/lsp-types` owns the Cosmo generator and checked-in full LSP type surface used by language-server work.
 
-The generator consumes `metamodel/lsp-core-subset.metamodel.json`, a curated offline subset derived from the official LSP 3.17 metamodel:
+## Full Metamodel
 
-https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.17/metaModel/metaModel.json
+The full LSP 3.17 metamodel is downloaded on demand with the repository `ureq-sys` crate and is intentionally ignored by git:
 
-Regenerate and inspect the checked-in protocol types with:
+```sh
+yarn fetch:lsp-types
+```
+
+That writes `metamodel/metaModel.full.json`. Generate the checked-in lspt-flavored full-spec type surface with:
+
+```sh
+yarn gen:lsp-types
+```
+
+Or run both steps:
+
+```sh
+yarn generate:lsp-types
+```
+
+The full output lives under `src/lsp/full/` and mirrors the `lspt` crate shape: `base`, `type_aliases`, `enums`, `structs`, `request`, and `notification`, with `Uri`, `HashMap`, and `UnionN` helper flavors.
+
+The generator logic is written in Cosmo under `src/generator/`. `scripts/genLspTypesFromMetamodel.js` is only a file-writing wrapper around:
 
 ```sh
 yarn cosmo -p packages/lsp-types run
 ```
-
-The command writes the deterministic generated `src/lsp/core.cos` content to stdout. To refresh the checked-in output:
-
-```sh
-yarn cosmo -p packages/lsp-types run > packages/lsp-types/src/lsp/core.cos
-```
-
-Validation is covered by the Cosmo0 package tests and `yarn validate:lsp-types`. They compile the package and compare the generator stdout with `src/lsp/core.cos`.

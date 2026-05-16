@@ -8,9 +8,8 @@
     "core0/text_output.cos",
     "core0/path_fs.cos",
     "core0/json.cos",
-    "lsp/core.cos",
     "generator/metamodel.cos",
-    "generator/emit.cos",
+    "generator/full_emit.cos",
     "main.cos"
   ]
 }
