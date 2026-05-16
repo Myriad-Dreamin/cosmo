@@ -47,9 +47,66 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
       fn.name -> fn.externBinding.flatMap(_.supportLibrary)
     }
-    assert(functions.contains("ureq_sys_request_new" -> Some("ureq-sys")))
-    assert(functions.contains("ureq_sys_response_body_bytes" -> Some("ureq-sys")))
-    assert(functions.contains("ureq_sys_error_release" -> Some("ureq-sys")))
+    assert(functions.contains("ureq_request" -> None))
+    assert(functions.contains("ureq_byte_slice" -> None))
+    assert(functions.contains("unsafe_ureq_sys_request_new" -> Some("ureq-sys")))
+    assert(functions.contains("unsafe_ureq_sys_response_body_bytes" -> Some("ureq-sys")))
+    assert(functions.contains("unsafe_ureq_sys_error_release" -> Some("ureq-sys")))
+
+    val source = ParserFixtureManifest.readFile("packages/ureq-sys/src/ureq_sys.cos")
+    val elaborated = Cosmo0().elaborate(SourceFile("ureq_sys.cos", source))
+    assert(
+      elaborated.isSuccess,
+      s"ureq-sys elaboration failed with diagnostics: ${elaborated.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val declarations = elaborated.value.get.declarations
+    val publicFunctions = declarations.collect {
+      case fn: UntypedFunction if fn.visibility == UntypedVisibility.Public => fn.name
+    }
+    val unsafeExterns = declarations.collect {
+      case fn: UntypedFunction if fn.name.startsWith("unsafe_ureq_sys_") =>
+        fn.name -> (fn.visibility, fn.externBinding.flatMap(_.supportLibrary))
+    }
+    val publicClasses = declarations.collect {
+      case cls: UntypedClass if cls.visibility == UntypedVisibility.Public => cls.name
+    }
+    val privateClasses = declarations.collect {
+      case cls: UntypedClass if cls.visibility == UntypedVisibility.Private => cls.name
+    }
+
+    assert(publicFunctions.contains("ureq_request"))
+    assert(publicFunctions.contains("ureq_byte_slice"))
+    assert(!publicFunctions.exists(_.startsWith("unsafe_ureq_sys_")))
+    assert(unsafeExterns.nonEmpty)
+    assert(
+      unsafeExterns.forall { case (_, (visibility, supportLibrary)) =>
+        visibility == UntypedVisibility.Private && supportLibrary.contains("ureq-sys")
+      },
+      s"unsafe extern visibility/linkage mismatch: $unsafeExterns",
+    )
+
+    assert(publicClasses.contains("UreqByteSlice"))
+    assert(publicClasses.contains("UreqOwnedBytes"))
+    assert(publicClasses.contains("UreqError"))
+    assert(publicClasses.contains("UreqRequest"))
+    assert(publicClasses.contains("UreqResponse"))
+    assert(!publicClasses.exists(_.startsWith("UreqSys")))
+    assert(privateClasses.contains("UreqSysRawRequest"))
+    assert(privateClasses.contains("UreqSysRawResponse"))
+    assert(privateClasses.contains("UreqSysRawError"))
+    assert(privateClasses.contains("UreqSysBytes"))
+
+    val privateRawWrappers = Set("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse")
+    val rawFieldVisibility = declarations.collect { case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
+      cls.name -> cls.members.collectFirst { case field: UntypedValueDecl if field.name == "raw" =>
+        field.visibility
+      }
+    }
+    assertEquals(
+      rawFieldVisibility.toMap,
+      privateRawWrappers.map(_ -> Some(UntypedVisibility.Private)).toMap,
+    )
 
   test("extern supportLibrary metadata uses shared identifier validation"):
     val accepted = Cosmo0().elaborate(

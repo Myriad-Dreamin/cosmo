@@ -293,6 +293,11 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_release(response: *mut CosmoUre
 }
 
 #[no_mangle]
+pub extern "C" fn cosmo_ureq_sys_error_ptr_is_some(error: *const CosmoUreqSysError) -> u8 {
+    u8::from(!error.is_null())
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn cosmo_ureq_sys_error_kind(error: *const CosmoUreqSysError) -> u32 {
     catch_scalar(|| {
         let error = error_handle(error)?;
@@ -748,6 +753,8 @@ mod tests {
     #[test]
     fn invalid_inputs_map_to_stable_error_kinds_without_network_io() {
         unsafe {
+            assert_eq!(cosmo_ureq_sys_error_ptr_is_some(ptr::null()), 0);
+
             let invalid_url = [0xffu8];
             let invalid_utf8 = cosmo_ureq_sys_request_new(
                 b"GET".as_ptr(),
@@ -755,6 +762,7 @@ mod tests {
                 invalid_url.as_ptr(),
                 invalid_url.len(),
             );
+            assert_eq!(cosmo_ureq_sys_error_ptr_is_some(invalid_utf8.error), 1);
             assert_error_kind(invalid_utf8.error, COSMO_UREQ_SYS_ERROR_INVALID_UTF8);
             assert!(invalid_utf8.request.is_null());
 

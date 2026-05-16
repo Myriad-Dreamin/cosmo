@@ -46,3 +46,9 @@ blocking HTTP support-library ABI.
 - **WHEN** the Cosmo ureq system declarations bind to exported C ABI symbols
 - **THEN** each extern declaration records `supportLibrary = "ureq-sys"`
 - **AND** backend support-library link planning can resolve the `ureq-sys` artifact path through the shared Rust pipeline
+
+#### Scenario: Declarations expose safe wrappers instead of raw ABI helpers
+
+- **WHEN** external Cosmo modules import the ureq system package
+- **THEN** the public surface provides request, response, error, and owned byte wrapper types
+- **AND** raw `unsafe_ureq_sys_*` extern declarations are private implementation details

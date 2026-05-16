@@ -448,7 +448,7 @@ final class UntypedElaborator(
         pathFromNode(destNode, Some(span)).map(Some(_))
       }
       path.zip(dest).map { case (p, d) =>
-        UntypedImport(p, d, span)
+        UntypedImport(p, d, span, declarationVisibility(node))
       }
 
     private def classDecl(node: Class): Option[UntypedClass] =
@@ -472,7 +472,7 @@ final class UntypedElaborator(
         )
       else
         val members = classMembers(node.body)
-        sequence(members).map(UntypedClass(node.name.name, _, nodeSpan(node)))
+        sequence(members).map(UntypedClass(node.name.name, _, nodeSpan(node), declarationVisibility(node)))
 
     private def classMembers(node: syntax.Node): List[Option[UntypedClassMember]] =
       unwrapSemi(node) match
@@ -543,7 +543,7 @@ final class UntypedElaborator(
           expr(rhs).map(Some(_))
         }
         params.zip(returnType).zip(body).map { case ((ps, rt), b) =>
-          UntypedFunction(node.name.name, ps, rt, b, span, externBinding)
+          UntypedFunction(node.name.name, ps, rt, b, span, externBinding, declarationVisibility(node))
         }
 
     private def valueDecl(
@@ -558,7 +558,7 @@ final class UntypedElaborator(
         expr(value).map(Some(_))
       }
       valueType.zip(init).map { case (t, i) =>
-        UntypedValueDecl(kind, node.name.name, t, i, span)
+        UntypedValueDecl(kind, node.name.name, t, i, span, declarationVisibility(node))
       }
 
     private def valueDecl(
@@ -573,14 +573,14 @@ final class UntypedElaborator(
         expr(value).map(Some(_))
       }
       valueType.zip(init).map { case (t, i) =>
-        UntypedValueDecl(kind, node.name.name, t, i, span)
+        UntypedValueDecl(kind, node.name.name, t, i, span, declarationVisibility(node))
       }
 
     private def typeAlias(node: Typ): Option[UntypedTypeAlias] =
       node.init.orElse(node.ty) match
         case Some(targetNode) =>
           typeFromNode(targetNode, Some(nodeSpan(node))).map(target =>
-            UntypedTypeAlias(node.name.name, target, nodeSpan(node)),
+            UntypedTypeAlias(node.name.name, target, nodeSpan(node), declarationVisibility(node)),
           )
         case None =>
           unsupported(
@@ -997,6 +997,18 @@ final class UntypedElaborator(
     ): SourceSpan =
       if node.offset >= 0 && node.end >= node.offset then source.span(node.offset, node.end)
       else fallbackSpan.getOrElse(source.span(0, 0))
+
+    private def declarationVisibility(node: syntax.Node): UntypedVisibility =
+      val start = node.offset.max(0).min(source.text.length)
+      val text = source.text.drop(start).dropWhile(_.isWhitespace)
+      if startsWithWord(text, "private") then UntypedVisibility.Private
+      else UntypedVisibility.Public
+
+    private def startsWithWord(text: String, word: String): Boolean =
+      text.startsWith(word) && text.lift(word.length).forall(ch => !isIdentContinue(ch))
+
+    private def isIdentContinue(char: Char): Boolean =
+      char.isLetterOrDigit || char == '_'
 
     private def unwrapSemi(node: syntax.Node): Option[syntax.Node] =
       node match
