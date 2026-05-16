@@ -1,0 +1,340 @@
+import core0.json
+
+class GeneratorUnionItem {
+  val name: String
+  val typ: String
+}
+
+class GeneratorField {
+  val name: String
+  val optional: Bool
+  val typ: String
+}
+
+class GeneratorAlias {
+  val name: String
+  val kind: String
+  val typ: String
+  val union_items: Vec[GeneratorUnionItem]
+  val fields: Vec[GeneratorField]
+}
+
+class GeneratorEnum {
+  val name: String
+  val cases: Vec[String]
+}
+
+class GeneratorStructure {
+  val name: String
+  val fields: Vec[GeneratorField]
+}
+
+class GeneratorModel {
+  val version: String
+  val aliases: Vec[GeneratorAlias]
+  val enums: Vec[GeneratorEnum]
+  val structures: Vec[GeneratorStructure]
+}
+
+def generator_string(value: Option[JsonValue]): String = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      json.as_string() match {
+        case Option[String]::Some(text) => {
+          text
+        }
+        case Option[String]::None => {
+          ""
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      ""
+    }
+  }
+}
+
+def generator_bool(value: Option[JsonValue]): Bool = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      json.as_bool() match {
+        case Option[Bool]::Some(flag) => {
+          flag
+        }
+        case Option[Bool]::None => {
+          false
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def generator_array_len(value: JsonValue): usize = {
+  value.array_len() match {
+    case Option[usize]::Some(len) => {
+      len
+    }
+    case Option[usize]::None => {
+      0
+    }
+  }
+}
+
+def generator_type_text_from_json(value: Option[JsonValue]): String = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      generator_type_text_from_value(json)
+    }
+    case Option[JsonValue]::None => {
+      "String"
+    }
+  }
+}
+
+def generator_type_text_from_value(json: JsonValue): String = {
+  val kind = generator_string(json.field("kind"));
+
+  if (kind == "base") {
+    return generator_string(json.field("name"))
+  }
+  if (kind == "reference") {
+    return generator_string(json.field("name"))
+  }
+  if (kind == "array") {
+    return "Vec[".concat(generator_type_text_from_json(json.field("element"))).concat("]")
+  }
+  if (kind == "map") {
+    return "Map[String, ".concat(generator_type_text_from_json(json.field("value"))).concat("]")
+  }
+  if (kind == "union") {
+    return "String"
+  }
+  if (kind == "literal") {
+    return "String"
+  }
+  if (kind == "stringLiteral") {
+    return "String"
+  }
+
+  "String"
+}
+
+def generator_union_items_from_json(value: Option[JsonValue]): Vec[GeneratorUnionItem] = {
+  val items = Vec[GeneratorUnionItem]();
+
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      var index: usize = 0;
+      while (index < generator_array_len(json)) {
+        json.array_get(index) match {
+          case Option[JsonValue]::Some(item) => {
+            items.push(GeneratorUnionItem(
+              generator_string(item.field("name")),
+              generator_type_text_from_json(item.field("type"))
+            ))
+          }
+          case Option[JsonValue]::None => {
+          }
+        }
+        index = index + 1
+      }
+    }
+    case Option[JsonValue]::None => {
+    }
+  }
+
+  items
+}
+
+def generator_fields_from_json(value: Option[JsonValue]): Vec[GeneratorField] = {
+  val fields = Vec[GeneratorField]();
+
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      var index: usize = 0;
+      while (index < generator_array_len(json)) {
+        json.array_get(index) match {
+          case Option[JsonValue]::Some(field) => {
+            fields.push(GeneratorField(
+              generator_string(field.field("name")),
+              generator_bool(field.field("optional")),
+              generator_type_text_from_json(field.field("type"))
+            ))
+          }
+          case Option[JsonValue]::None => {
+          }
+        }
+        index = index + 1
+      }
+    }
+    case Option[JsonValue]::None => {
+    }
+  }
+
+  fields
+}
+
+def generator_aliases_from_json(value: Option[JsonValue]): Vec[GeneratorAlias] = {
+  val aliases = Vec[GeneratorAlias]();
+
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      var index: usize = 0;
+      while (index < generator_array_len(json)) {
+        json.array_get(index) match {
+          case Option[JsonValue]::Some(alias) => {
+            val alias_type = alias.field("type");
+            val kind = generator_alias_kind(alias_type);
+            aliases.push(GeneratorAlias(
+              generator_string(alias.field("name")),
+              kind,
+              generator_type_text_from_json(alias_type),
+              generator_alias_union_items(alias_type),
+              generator_alias_fields(alias_type)
+            ))
+          }
+          case Option[JsonValue]::None => {
+          }
+        }
+        index = index + 1
+      }
+    }
+    case Option[JsonValue]::None => {
+    }
+  }
+
+  aliases
+}
+
+def generator_alias_kind(value: Option[JsonValue]): String = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      generator_string(json.field("kind"))
+    }
+    case Option[JsonValue]::None => {
+      ""
+    }
+  }
+}
+
+def generator_alias_union_items(value: Option[JsonValue]): Vec[GeneratorUnionItem] = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      generator_union_items_from_json(json.field("items"))
+    }
+    case Option[JsonValue]::None => {
+      Vec[GeneratorUnionItem]()
+    }
+  }
+}
+
+def generator_alias_fields(value: Option[JsonValue]): Vec[GeneratorField] = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      generator_fields_from_json(json.field("fields"))
+    }
+    case Option[JsonValue]::None => {
+      Vec[GeneratorField]()
+    }
+  }
+}
+
+def generator_cases_from_json(value: Option[JsonValue]): Vec[String] = {
+  val enum_item_names = Vec[String]();
+
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      var index: usize = 0;
+      while (index < generator_array_len(json)) {
+        json.array_get(index) match {
+          case Option[JsonValue]::Some(item) => {
+            enum_item_names.push(generator_string(Option[JsonValue]::Some(item)))
+          }
+          case Option[JsonValue]::None => {
+          }
+        }
+        index = index + 1
+      }
+    }
+    case Option[JsonValue]::None => {
+    }
+  }
+
+  enum_item_names
+}
+
+def generator_enums_from_json(value: Option[JsonValue]): Vec[GeneratorEnum] = {
+  val enums = Vec[GeneratorEnum]();
+
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      var index: usize = 0;
+      while (index < generator_array_len(json)) {
+        json.array_get(index) match {
+          case Option[JsonValue]::Some(item) => {
+            enums.push(GeneratorEnum(
+              generator_string(item.field("name")),
+              generator_cases_from_json(item.field("cases"))
+            ))
+          }
+          case Option[JsonValue]::None => {
+          }
+        }
+        index = index + 1
+      }
+    }
+    case Option[JsonValue]::None => {
+    }
+  }
+
+  enums
+}
+
+def generator_structures_from_json(value: Option[JsonValue]): Vec[GeneratorStructure] = {
+  val structures = Vec[GeneratorStructure]();
+
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      var index: usize = 0;
+      while (index < generator_array_len(json)) {
+        json.array_get(index) match {
+          case Option[JsonValue]::Some(item) => {
+            structures.push(GeneratorStructure(
+              generator_string(item.field("name")),
+              generator_fields_from_json(item.field("fields"))
+            ))
+          }
+          case Option[JsonValue]::None => {
+          }
+        }
+        index = index + 1
+      }
+    }
+    case Option[JsonValue]::None => {
+    }
+  }
+
+  structures
+}
+
+def generator_model_from_json(root: JsonValue): GeneratorModel = {
+  val meta = root.field("metaData");
+  val version = meta match {
+    case Option[JsonValue]::Some(value) => {
+      generator_string(value.field("version"))
+    }
+    case Option[JsonValue]::None => {
+      ""
+    }
+  };
+
+  GeneratorModel(
+    version,
+    generator_aliases_from_json(root.field("aliases")),
+    generator_enums_from_json(root.field("enums")),
+    generator_structures_from_json(root.field("structures"))
+  )
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@cosmo/lsp-types",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "sources": [
+    "core0/text.cos",
+    "core0/text_output.cos",
+    "core0/path_fs.cos",
+    "core0/json.cos",
+    "lsp/core.cos",
+    "generator/metamodel.cos",
+    "generator/emit.cos",
+    "main.cos"
+  ]
+}

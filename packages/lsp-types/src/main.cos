@@ -1,0 +1,31 @@
+import core0.json
+import core0.path_fs
+import core0.text_output
+import generator.emit
+import generator.metamodel
+
+def main(): i32 = {
+  val path = core0_path_from_string("metamodel/lsp-core-subset.metamodel.json");
+  val loaded = core0_fs().read_to_string(path);
+
+  loaded match {
+    case Result[String, IoError]::Ok(source) => {
+      val parsed = core0_json().parse(source);
+      parsed match {
+        case Result[JsonValue, JsonParseError]::Ok(root) => {
+          val output = generator_emit_model(generator_model_from_json(root));
+          core0_stdout_write(output.slice(0, output.len() - 1));
+          0
+        }
+        case Result[JsonValue, JsonParseError]::Err(error) => {
+          core0_stdout_write(error.message);
+          1
+        }
+      }
+    }
+    case Result[String, IoError]::Err(error) => {
+      core0_stdout_write(error.message);
+      1
+    }
+  }
+}
