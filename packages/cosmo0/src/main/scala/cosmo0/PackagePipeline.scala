@@ -13,6 +13,12 @@ private[cosmo0] object PackagePipeline:
 private[cosmo0] final class PackagePipeline(
     compiler: Cosmo0,
 ):
+  private final case class PackageLoadData(
+      rootPath: String,
+      metadata: Cosmo0PackageMetadata,
+      modules: List[Cosmo0PackageModule],
+  )
+
   private final case class AnalyzedModule(
       pkgModule: Cosmo0PackageModule,
       untyped: UntypedModule,
@@ -59,8 +65,12 @@ private[cosmo0] final class PackagePipeline(
           metadata.diagnostics,
         )
       case metadata =>
-        val meta = metadata.value.get
-        val modules = discoverSources(normalizedRoot, meta)
+        val loaded = loadPackageData(normalizedRoot, metadata.value.get, Set.empty)
+        if loaded.isFailure then return Result.failure(Phase.Check, loaded.diagnostics)
+
+        val data = loaded.value.get
+        val meta = data.metadata
+        val modules = distinctModules(data.modules)
         if modules.isEmpty then
           Result.failure(
             Phase.Check,
@@ -76,6 +86,77 @@ private[cosmo0] final class PackagePipeline(
             Phase.Check,
             Cosmo0Package(normalizedRoot, meta, modules.sortBy(module => moduleKey(module.modulePath))),
           )
+
+  private def loadPackageData(
+      rootPath: String,
+      metadata: Cosmo0PackageMetadata,
+      visiting: Set[String],
+  ): Result[PackageLoadData] =
+    if visiting.contains(rootPath) then
+      return Result.failure(
+        Phase.Check,
+        List(
+          diagnostic(
+            "cosmo0.package.dependency-cycle",
+            s"cosmo0 package dependency cycle includes $rootPath",
+          ),
+        ),
+      )
+
+    val dependencyModules = ListBuffer.empty[Cosmo0PackageModule]
+    metadata.dependencies.foreach { dependency =>
+      val dependencyRoot = PackageNodePath.normalize(PackageNodePath.join(rootPath, dependency))
+      val dependencyMetadataPath = PackageNodePath.join(dependencyRoot, "cosmo.json")
+      if !PackageNodeFs.existsSync(dependencyMetadataPath) then
+        return Result.failure(
+          Phase.Check,
+          List(
+            diagnostic(
+              "cosmo0.package.missing-dependency",
+              s"cosmo0 package dependency metadata not found at $dependencyMetadataPath",
+            ),
+          ),
+        )
+
+      readMetadata(dependencyMetadataPath) match
+        case dependencyMetadata if dependencyMetadata.isFailure =>
+          return Result.failure(Phase.Check, dependencyMetadata.diagnostics)
+        case dependencyMetadata if dependencyMetadata.isUnsupported =>
+          return Result(
+            Phase.Check,
+            PhaseStatus.Unsupported,
+            None,
+            dependencyMetadata.diagnostics,
+          )
+        case dependencyMetadata =>
+          loadPackageData(dependencyRoot, dependencyMetadata.value.get, visiting + rootPath) match
+            case loadedDependency if loadedDependency.isFailure =>
+              return Result.failure(Phase.Check, loadedDependency.diagnostics)
+            case loadedDependency if loadedDependency.isUnsupported =>
+              return Result(
+                Phase.Check,
+                PhaseStatus.Unsupported,
+                None,
+                loadedDependency.diagnostics,
+              )
+            case loadedDependency =>
+              dependencyModules ++= loadedDependency.value.get.modules
+    }
+
+    val ownModules = discoverSources(rootPath, metadata)
+    Result.success(
+      Phase.Check,
+      PackageLoadData(rootPath, metadata, dependencyModules.toList ::: ownModules),
+    )
+
+  private def distinctModules(modules: List[Cosmo0PackageModule]): List[Cosmo0PackageModule] =
+    val seen = mutable.LinkedHashSet.empty[String]
+    modules.filter { module =>
+      if seen.contains(module.source.name) then false
+      else
+        seen += module.source.name
+        true
+    }
 
   def check(pkg: Cosmo0Package): Result[CheckedPackage] =
     val elaborated = pkg.modules.map(module => module -> compiler.elaborate(module.source))
@@ -186,6 +267,7 @@ private[cosmo0] final class PackagePipeline(
     val target = optionalString(parsed, "target")
     val stageProfile = optionalString(parsed, "stageProfile")
     val sourceFiles = optionalStringList(parsed, "sources", metadataPath, errors)
+    val dependencies = optionalStringList(parsed, "dependencies", metadataPath, errors).getOrElse(Nil)
 
     if errors.nonEmpty then
       Result.failure(Phase.Check, errors.toList)
@@ -215,6 +297,7 @@ private[cosmo0] final class PackagePipeline(
                   target,
                   stageProfile,
                   sourceFiles,
+                  dependencies,
                 ),
               )
 

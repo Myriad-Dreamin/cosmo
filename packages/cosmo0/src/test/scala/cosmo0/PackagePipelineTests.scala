@@ -169,11 +169,11 @@ class PackagePipelineTests extends munit.FunSuite:
       loaded.value.get.metadata.sourceFiles,
       Some(
         List(
-          "core0/text.cos",
-          "core0/text_output.cos",
-          "core0/path_fs.cos",
-          "core0/char_class.cos",
-          "core0/char_class_test.cos",
+          "std/text.cos",
+          "std/text_output.cos",
+          "std/path_fs.cos",
+          "std/char_class.cos",
+          "std/char_class_test.cos",
           "driver/config.cos",
           "driver/diagnostic.cos",
           "driver/diagnostic_test.cos",
@@ -226,11 +226,11 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       checked.value.get.moduleOrder,
       List(
-        "core0/char_class",
-        "core0/char_class_test",
-        "core0/path_fs",
-        "core0/text",
-        "core0/text_output",
+        "std/char_class",
+        "std/char_class_test",
+        "std/path_fs",
+        "std/text",
+        "std/text_output",
         "driver/config",
         "source/source",
         "source/source_map",

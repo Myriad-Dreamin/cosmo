@@ -1,4 +1,4 @@
-import core0.map_set
+import std.map_set
 
 def map_set_test_insert_lookup(): Bool = {
   var values = Map[String, String]();

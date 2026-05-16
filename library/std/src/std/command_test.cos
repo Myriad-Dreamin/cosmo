@@ -1,5 +1,5 @@
-import core0.command
-import core0.path_fs
+import std.command
+import std.path_fs
 
 def command_construction_smoke(): Bool = {
   val command = core0_command(core0_path_from_string("c++"));

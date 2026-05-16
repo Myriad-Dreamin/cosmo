@@ -357,10 +357,10 @@ class CppBackendTests extends munit.FunSuite:
   test("core0 json_test executable passes through nlohmann runtime bridge"):
     val lowered = Cosmo0().lower(
       SourceFile(
-        "packages/cosmoc/src/core0/json_test.cos",
+        "library/std/src/std/json_test.cos",
         List(
-          ParserFixtureManifest.readFile("packages/cosmoc/src/core0/json.cos"),
-          ParserFixtureManifest.readFile("packages/cosmoc/src/core0/json_test.cos"),
+          ParserFixtureManifest.readFile("library/std/src/std/json.cos"),
+          ParserFixtureManifest.readFile("library/std/src/std/json_test.cos"),
         ).mkString("\n"),
       ),
     )

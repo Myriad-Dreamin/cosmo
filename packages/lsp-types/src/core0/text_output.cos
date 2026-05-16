@@ -1,6 +1,0 @@
-def print(value: String): Unit
-def println(value: String): Unit
-
-def core0_stdout_write(value: String): Unit = {
-  print(value)
-}

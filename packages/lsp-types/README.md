@@ -10,7 +10,7 @@ The full LSP 3.17 metamodel is downloaded on demand with the repository `ureq-sy
 yarn fetch:lsp-types
 ```
 
-That writes `metamodel/metaModel.full.json`. Generate the checked-in lspt-flavored full-spec type surface with:
+That writes `metamodel/metaModel.json`. Generate the checked-in lspt-flavored full-spec type surface with:
 
 ```sh
 yarn gen:lsp-types
@@ -22,7 +22,7 @@ Or run both steps:
 yarn generate:lsp-types
 ```
 
-The full output lives under `src/lsp/full/` and mirrors the `lspt` crate shape: `base`, `type_aliases`, `enums`, `structs`, `request`, and `notification`, with `Uri`, `HashMap`, and `UnionN` helper flavors.
+The full output lives under `src/lsp/` and mirrors the `lspt` crate shape: `base`, `type_aliases`, `enums`, `structs`, `request`, and `notification`, with `Uri`, `HashMap`, and `UnionN` helper flavors.
 
 The generator logic is written in Cosmo under `src/generator/`. `scripts/genLspTypesFromMetamodel.js` is only a file-writing wrapper around:
 

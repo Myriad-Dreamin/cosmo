@@ -284,6 +284,26 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_body_bytes(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn cosmo_ureq_sys_get_text(
+    url_ptr: *const u8,
+    url_len: usize,
+) -> CosmoUreqSysBytesResult {
+    catch_bytes_result(|| {
+        let url = ffi_str(url_ptr, url_len, "url")?;
+        let response = ureq::get(url)
+            .timeout(Duration::from_secs(30))
+            .call()
+            .or_any_status()
+            .map_err(error_from_transport)?;
+        let mut reader = response.into_reader();
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut reader, &mut bytes)
+            .map_err(|error| error_value(COSMO_UREQ_SYS_ERROR_IO, 0, error.to_string()))?;
+        Ok(bytes_from_vec(bytes))
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_release(response: *mut CosmoUreqSysResponse) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !response.is_null() {

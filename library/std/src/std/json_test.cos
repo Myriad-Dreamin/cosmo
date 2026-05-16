@@ -1,4 +1,4 @@
-import core0.json
+import std.json
 
 def json_test_smoke(): Bool = {
   val parsed = core0_json().parse("{\"kind\":\"ident\",\"ok\":true,\"missing\":null,\"items\":[42,\"name\"]}");

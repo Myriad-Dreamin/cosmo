@@ -312,6 +312,7 @@ final class Cosmo0HostCompileResult(
     val status: String,
     val moduleName: String,
     val output: String,
+    val supportLibraryLinkArguments: js.Array[String],
     val diagnostics: js.Array[Cosmo0HostDiagnostic],
 )
 
@@ -323,5 +324,6 @@ object Cosmo0HostCompileResult:
       result.status.toString,
       output.map(_.moduleName).getOrElse(""),
       output.map(_.source).getOrElse(""),
+      js.Array(output.map(_.supportLibraryLinkArguments).getOrElse(Nil)*),
       js.Array(result.diagnostics.map(Cosmo0HostDiagnostic.fromDiagnostic)*),
     )

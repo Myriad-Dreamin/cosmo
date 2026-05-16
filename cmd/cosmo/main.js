@@ -2,10 +2,11 @@ import { spawn, spawnSync } from "child_process";
 import {
   existsSync,
   mkdirSync,
+  copyFileSync,
   readFileSync,
   writeFileSync,
 } from "fs";
-import { join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { pathToFileURL } from "url";
 import repl from "repl";
 
@@ -124,11 +125,13 @@ function compilePackageExecutable(packageRoot, compiled) {
   }
 
   ensureNlohmannJsonDependency();
+  ensureSupportLibraries(compiled.supportLibraryLinkArguments ?? []);
   const jsonInclude = resolve(nlohmannJsonDependency.includeDir);
   const compileArgs = [
     "-std=c++17",
     `-I${jsonInclude}`,
     paths.sourcePath,
+    ...compiled.supportLibraryLinkArguments,
     "-o",
     paths.executablePath,
   ];
@@ -151,6 +154,42 @@ function compilePackageExecutable(packageRoot, compiled) {
   throw new CliError(
     `cosmo package run C++ compile failed; log written to ${paths.logPath}`,
   );
+}
+
+function ensureSupportLibraries(linkArguments) {
+  for (const argument of linkArguments) {
+    if (existsSync(argument)) {
+      continue;
+    }
+
+    const id = supportLibraryIdFromPath(argument);
+    const target = `cosmo_${id.replaceAll("-", "_")}`;
+    const result = spawnSync("cargo", ["build", "--release", "-p", id], {
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new CliError(
+        [`cargo build --release -p ${id} failed`, result.stdout, result.stderr]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+
+    const source = join("target", "release", `lib${target}.a`);
+    if (!existsSync(source)) {
+      throw new CliError(`support library build did not produce ${source}`);
+    }
+    mkdirSync(dirname(argument), { recursive: true });
+    copyFileSync(source, argument);
+  }
+}
+
+function supportLibraryIdFromPath(path) {
+  const parent = basename(dirname(path));
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(parent)) {
+    throw new CliError(`cannot infer support-library id from ${path}`);
+  }
+  return parent;
 }
 
 export function ensureNlohmannJsonDependency() {

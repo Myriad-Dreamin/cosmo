@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const outputDir = process.argv[3] ?? process.argv[2] ?? "packages/lsp-types/src/lsp/full";
+const outputDir = process.argv[2] ?? "packages/lsp-types/src/lsp";
 const generated = execFileSync(
   "node",
   ["cmd/cosmo/main.js", "-p", "packages/lsp-types", "run"],
