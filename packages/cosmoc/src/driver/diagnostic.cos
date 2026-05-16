@@ -1,5 +1,5 @@
-import core0.text
-import core0.text_output
+import std.text
+import std.text_output
 import source.source
 import source.source_map
 

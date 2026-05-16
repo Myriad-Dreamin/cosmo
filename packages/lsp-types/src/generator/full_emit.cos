@@ -1,5 +1,5 @@
-import core0.json
-import core0.text
+import std.json
+import std.text
 import generator.metamodel
 
 def lsp_full_emit(root: JsonValue): String = {

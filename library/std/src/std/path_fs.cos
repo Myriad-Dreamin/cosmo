@@ -15,6 +15,10 @@ class Fs {
   def read_to_string(&self, path: Path): Result[String, IoError] = {
     core0_fs_read_to_string(path)
   }
+
+  def write_string(&self, path: Path, content: String): Unit = {
+    write_file(core0_path_display(path), content)
+  }
 }
 
 def core0_path_from_string(text: String): Path = {
@@ -36,3 +40,9 @@ def core0_fs(): Fs = {
 def core0_fs_read_to_string(path: Path): Result[String, IoError] = {
   Result[String, IoError]::Ok(read_file(core0_path_display(path)))
 }
+
+def core0_fs_write_string(path: Path, content: String): Unit = {
+  core0_fs().write_string(path, content)
+}
+
+def write_file(path: String, content: String): Unit

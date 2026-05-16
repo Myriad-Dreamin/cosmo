@@ -1,3 +1,5 @@
+import std.bytes
+
 pub trait Drop {
   def drop(&self): Unit
 }
@@ -5,6 +7,15 @@ pub trait Drop {
 pub class UreqByteSlice {
   val ptr: Ptr[u8]
   val len: usize
+}
+
+pub class UreqStringSlice {
+  val text: String
+
+  def as_slice(&self): UreqByteSlice = {
+    val slice = std_string_byte_slice(self.text);
+    UreqByteSlice(slice.ptr, slice.len)
+  }
 }
 
 pub class UreqOwnedBytes {
@@ -16,6 +27,10 @@ pub class UreqOwnedBytes {
 
   def as_slice(&self): UreqByteSlice = {
     UreqByteSlice(self.raw.ptr, self.raw.len)
+  }
+
+  def to_string(&self): String = {
+    std_string_from_bytes(ByteSlice(self.raw.ptr, self.raw.len))
   }
 }
 
@@ -119,9 +134,29 @@ pub def ureq_byte_slice(ptr: Ptr[u8], len: usize): UreqByteSlice = {
   UreqByteSlice(ptr, len)
 }
 
+pub def ureq_string_slice(value: String): UreqByteSlice = {
+  val slice = std_string_byte_slice(value);
+  UreqByteSlice(slice.ptr, slice.len)
+}
+
 pub def ureq_request(method: UreqByteSlice, url: UreqByteSlice): Result[UreqRequest, UreqError] = {
   ureq_request_result(unsafe_ureq_sys_request_new(method.ptr, method.len, url.ptr, url.len))
 }
+
+pub def ureq_get_text(url: String): Result[String, UreqError] = {
+  val body = ureq_bytes_result(unsafe_ureq_sys_get_text(string_data(url), string_len(url)));
+  body match {
+    case Result[UreqOwnedBytes, UreqError]::Ok(bytes) => {
+      Result[String, UreqError]::Ok(bytes.to_string())
+    }
+    case Result[UreqOwnedBytes, UreqError]::Err(error) => {
+      Result[String, UreqError]::Err(error)
+    }
+  }
+}
+
+@extern("c", name = "cosmo_ureq_sys_get_text", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_get_text(url_ptr: Ptr[u8], url_len: usize): UreqSysBytesResult
 
 private class UreqSysAbiStatus {
   val abi_version: u32

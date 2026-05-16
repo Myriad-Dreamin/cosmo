@@ -1,10 +1,10 @@
-import core0.json
-import core0.path_fs
-import core0.text_output
+import std.json
+import std.path_fs
+import std.text_output
 import generator.full_emit
 
 def main(): i32 = {
-  val path = core0_path_from_string("metamodel/metaModel.full.json");
+  val path = core0_path_from_string("metamodel/metaModel.json");
   val loaded = core0_fs().read_to_string(path);
 
   loaded match {

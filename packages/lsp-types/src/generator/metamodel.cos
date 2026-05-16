@@ -1,4 +1,4 @@
-import core0.json
+import std.json
 
 class GeneratorUnionItem {
   val name: String

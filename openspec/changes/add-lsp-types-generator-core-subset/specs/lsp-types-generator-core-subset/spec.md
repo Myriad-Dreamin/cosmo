@@ -11,7 +11,7 @@ upstream full LSP metamodel used by the generator.
 
 - **WHEN** the LSP types generator package is inspected
 - **THEN** a repository script downloads the full metamodel through `ureq-sys`
-- **AND** the downloaded input path is `packages/lsp-types/metamodel/metaModel.full.json`
+- **AND** the downloaded input path is `packages/lsp-types/metamodel/metaModel.json`
 - **AND** that downloaded full metamodel is ignored by git
 
 ### Requirement: Generated Full Protocol Types
@@ -21,7 +21,7 @@ full LSP data structures, type aliases, enums, requests, and notifications.
 
 #### Scenario: Full protocol modules are generated
 
-- **WHEN** `packages/lsp-types/src/lsp/full/` is inspected
+- **WHEN** `packages/lsp-types/src/lsp/` is inspected
 - **THEN** it contains `base.cos`, `type_aliases.cos`, `enums.cos`, `structs.cos`, `request.cos`, and `notification.cos`
 - **AND** generated field shapes preserve optional values, arrays, maps, references, unions, null unions, and literal object shapes used by the full metamodel
 
@@ -40,7 +40,7 @@ both package compilation and deterministic regeneration.
 
 - **WHEN** the LSP types generator validation command is run
 - **THEN** it executes `cosmo -p packages/lsp-types run`
-- **AND** it fails if generated file blocks differ from checked-in files under `packages/lsp-types/src/lsp/full/`
+- **AND** it fails if generated file blocks differ from checked-in files under `packages/lsp-types/src/lsp/`
 
 #### Scenario: Generator package compiles through Cosmo0
 

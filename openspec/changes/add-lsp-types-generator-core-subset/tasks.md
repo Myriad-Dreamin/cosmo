@@ -8,7 +8,7 @@
 
 - [x] 2.1 Emit full generated type aliases, enums, structures, requests, and notifications.
 - [x] 2.2 Follow `lspt`-style flavors for `Uri`, `HashMap`, `UnionN`, request, and notification modules.
-- [x] 2.3 Emit a stable package layout under `packages/lsp-types/src/lsp/full/`.
+- [x] 2.3 Emit a stable package layout under `packages/lsp-types/src/lsp/`.
 
 ## 3. Validation
 

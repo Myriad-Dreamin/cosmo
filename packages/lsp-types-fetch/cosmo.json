@@ -1,15 +1,13 @@
 {
-  "name": "@cosmo/lsp-types",
+  "name": "@cosmo/lsp-types-fetch",
   "version": "0.0.0",
   "target": "cosmo0",
   "stageProfile": "cosmo1.stage1",
   "dependencies": [
-    "../../library/std"
+    "../../library/std",
+    "../ureq-sys"
   ],
   "sources": [
-    "generator/metamodel.cos",
-    "generator/full_emit.cos",
-    "types_test.cos",
     "main.cos"
   ]
 }
