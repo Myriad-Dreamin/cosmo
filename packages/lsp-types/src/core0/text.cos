@@ -1,6 +1,10 @@
 class TextBuilder {
   var text: String
 
+  def len(&self): usize = {
+    self.text.len()
+  }
+
   def push(&mut self, value: String): Unit = {
     self.text = self.text.concat(value)
   }

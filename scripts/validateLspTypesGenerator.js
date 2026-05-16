@@ -1,21 +1,39 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const generatedPath = "packages/lsp-types/src/lsp/core.cos";
+const fullMetamodelPath = "packages/lsp-types/metamodel/metaModel.full.json";
+const fullOutputDir = "packages/lsp-types/src/lsp/full";
 
-const actual = execFileSync(
-  "node",
-  ["cmd/cosmo/main.js", "-p", "packages/lsp-types", "run"],
-  {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
-  },
+assert(
+  existsSync(fullMetamodelPath),
+  `${fullMetamodelPath} is missing; run: yarn fetch:lsp-types`,
 );
-const expected = readFileSync(generatedPath, "utf8");
 
-assert.equal(
-  actual,
-  expected,
-  `${generatedPath} is out of date; run: yarn cosmo -p packages/lsp-types run > ${generatedPath}`,
-);
+const tempDir = mkdtempSync(join(tmpdir(), "cosmo-lsp-types-"));
+try {
+  execFileSync(
+    "node",
+    ["scripts/genLspTypesFromMetamodel.js", fullMetamodelPath, tempDir],
+    { stdio: "inherit" },
+  );
+
+  for (const name of [
+    "base.cos",
+    "type_aliases.cos",
+    "enums.cos",
+    "structs.cos",
+    "request.cos",
+    "notification.cos",
+  ]) {
+    assert.equal(
+      readFileSync(join(tempDir, name), "utf8"),
+      readFileSync(join(fullOutputDir, name), "utf8"),
+      `${join(fullOutputDir, name)} is out of date; run: yarn gen:lsp-types`,
+    );
+  }
+} finally {
+  rmSync(tempDir, { recursive: true, force: true });
+}
