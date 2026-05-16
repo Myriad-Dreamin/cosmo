@@ -1,0 +1,322 @@
+{
+  "metaData": {
+    "version": "3.17.0",
+    "source": "https://github.com/microsoft/language-server-protocol/blob/gh-pages/_specifications/lsp/3.17/metaModel/metaModel.json",
+    "description": "Curated offline core subset for Cosmo language-server bootstrap."
+  },
+  "aliases": [
+    { "name": "DocumentUri", "type": { "kind": "base", "name": "String" } },
+    { "name": "URI", "type": { "kind": "base", "name": "String" } },
+    { "name": "LSPAny", "type": { "kind": "base", "name": "String" } },
+    {
+      "name": "LSPObject",
+      "type": {
+        "kind": "map",
+        "key": { "kind": "base", "name": "String" },
+        "value": { "kind": "reference", "name": "LSPAny" }
+      }
+    },
+    {
+      "name": "DiagnosticCode",
+      "type": {
+        "kind": "union",
+        "items": [
+          { "name": "StringValue", "type": { "kind": "base", "name": "String" } },
+          { "name": "NumberValue", "type": { "kind": "base", "name": "u32" } }
+        ]
+      }
+    },
+    {
+      "name": "MarkedString",
+      "type": {
+        "kind": "union",
+        "items": [
+          { "name": "StringValue", "type": { "kind": "base", "name": "String" } },
+          { "name": "MarkupContentValue", "type": { "kind": "reference", "name": "MarkupContent" } }
+        ]
+      }
+    },
+    {
+      "name": "HoverContents",
+      "type": {
+        "kind": "union",
+        "items": [
+          { "name": "MarkupContentValue", "type": { "kind": "reference", "name": "MarkupContent" } },
+          { "name": "MarkedStringValue", "type": { "kind": "reference", "name": "MarkedString" } },
+          {
+            "name": "MarkedStringArray",
+            "type": {
+              "kind": "array",
+              "element": { "kind": "reference", "name": "MarkedString" }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "enums": [
+    { "name": "DiagnosticSeverity", "cases": ["Error", "Warning", "Information", "Hint"] },
+    { "name": "MarkupKind", "cases": ["PlainText", "Markdown"] },
+    { "name": "TextDocumentSyncKind", "cases": ["None", "Full", "Incremental"] }
+  ],
+  "structures": [
+    {
+      "name": "Position",
+      "fields": [
+        { "name": "line", "type": { "kind": "base", "name": "u32" } },
+        { "name": "character", "type": { "kind": "base", "name": "u32" } }
+      ]
+    },
+    {
+      "name": "Range",
+      "fields": [
+        { "name": "start", "type": { "kind": "reference", "name": "Position" } },
+        { "name": "end", "type": { "kind": "reference", "name": "Position" } }
+      ]
+    },
+    {
+      "name": "Location",
+      "fields": [
+        { "name": "uri", "type": { "kind": "reference", "name": "DocumentUri" } },
+        { "name": "range", "type": { "kind": "reference", "name": "Range" } }
+      ]
+    },
+    {
+      "name": "DiagnosticRelatedInformation",
+      "fields": [
+        { "name": "location", "type": { "kind": "reference", "name": "Location" } },
+        { "name": "message", "type": { "kind": "base", "name": "String" } }
+      ]
+    },
+    {
+      "name": "CodeDescription",
+      "fields": [
+        { "name": "href", "type": { "kind": "reference", "name": "URI" } }
+      ]
+    },
+    {
+      "name": "Diagnostic",
+      "fields": [
+        { "name": "range", "type": { "kind": "reference", "name": "Range" } },
+        { "name": "severity", "optional": true, "type": { "kind": "reference", "name": "DiagnosticSeverity" } },
+        { "name": "code", "optional": true, "type": { "kind": "reference", "name": "DiagnosticCode" } },
+        { "name": "codeDescription", "optional": true, "type": { "kind": "reference", "name": "CodeDescription" } },
+        { "name": "source", "optional": true, "type": { "kind": "base", "name": "String" } },
+        { "name": "message", "type": { "kind": "base", "name": "String" } },
+        {
+          "name": "relatedInformation",
+          "optional": true,
+          "type": {
+            "kind": "array",
+            "element": { "kind": "reference", "name": "DiagnosticRelatedInformation" }
+          }
+        },
+        { "name": "data", "optional": true, "type": { "kind": "reference", "name": "LSPAny" } }
+      ]
+    },
+    {
+      "name": "MarkupContent",
+      "fields": [
+        { "name": "kind", "type": { "kind": "reference", "name": "MarkupKind" } },
+        { "name": "value", "type": { "kind": "base", "name": "String" } }
+      ]
+    },
+    {
+      "name": "Hover",
+      "fields": [
+        { "name": "contents", "type": { "kind": "reference", "name": "HoverContents" } },
+        { "name": "range", "optional": true, "type": { "kind": "reference", "name": "Range" } }
+      ]
+    },
+    {
+      "name": "TextDocumentIdentifier",
+      "fields": [
+        { "name": "uri", "type": { "kind": "reference", "name": "DocumentUri" } }
+      ]
+    },
+    {
+      "name": "VersionedTextDocumentIdentifier",
+      "fields": [
+        { "name": "uri", "type": { "kind": "reference", "name": "DocumentUri" } },
+        { "name": "version", "type": { "kind": "base", "name": "i32" } }
+      ]
+    },
+    {
+      "name": "TextDocumentItem",
+      "fields": [
+        { "name": "uri", "type": { "kind": "reference", "name": "DocumentUri" } },
+        { "name": "languageId", "type": { "kind": "base", "name": "String" } },
+        { "name": "version", "type": { "kind": "base", "name": "i32" } },
+        { "name": "text", "type": { "kind": "base", "name": "String" } }
+      ]
+    },
+    {
+      "name": "TextDocumentContentChangeEvent",
+      "fields": [
+        { "name": "range", "optional": true, "type": { "kind": "reference", "name": "Range" } },
+        { "name": "rangeLength", "optional": true, "type": { "kind": "base", "name": "u32" } },
+        { "name": "text", "type": { "kind": "base", "name": "String" } }
+      ]
+    },
+    {
+      "name": "DidOpenTextDocumentParams",
+      "fields": [
+        { "name": "textDocument", "type": { "kind": "reference", "name": "TextDocumentItem" } }
+      ]
+    },
+    {
+      "name": "DidChangeTextDocumentParams",
+      "fields": [
+        { "name": "textDocument", "type": { "kind": "reference", "name": "VersionedTextDocumentIdentifier" } },
+        {
+          "name": "contentChanges",
+          "type": {
+            "kind": "array",
+            "element": { "kind": "reference", "name": "TextDocumentContentChangeEvent" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "DidCloseTextDocumentParams",
+      "fields": [
+        { "name": "textDocument", "type": { "kind": "reference", "name": "TextDocumentIdentifier" } }
+      ]
+    },
+    {
+      "name": "DidSaveTextDocumentParams",
+      "fields": [
+        { "name": "textDocument", "type": { "kind": "reference", "name": "TextDocumentIdentifier" } },
+        { "name": "text", "optional": true, "type": { "kind": "base", "name": "String" } }
+      ]
+    },
+    {
+      "name": "TextDocumentSyncOptions",
+      "fields": [
+        { "name": "openClose", "optional": true, "type": { "kind": "base", "name": "Bool" } },
+        { "name": "change", "optional": true, "type": { "kind": "reference", "name": "TextDocumentSyncKind" } },
+        { "name": "willSave", "optional": true, "type": { "kind": "base", "name": "Bool" } },
+        { "name": "willSaveWaitUntil", "optional": true, "type": { "kind": "base", "name": "Bool" } },
+        { "name": "save", "optional": true, "type": { "kind": "base", "name": "Bool" } }
+      ]
+    },
+    {
+      "name": "ServerCapabilities",
+      "fields": [
+        { "name": "positionEncoding", "optional": true, "type": { "kind": "base", "name": "String" } },
+        { "name": "textDocumentSync", "optional": true, "type": { "kind": "reference", "name": "TextDocumentSyncOptions" } },
+        { "name": "hoverProvider", "optional": true, "type": { "kind": "base", "name": "Bool" } }
+      ]
+    },
+    {
+      "name": "WorkspaceFolder",
+      "fields": [
+        { "name": "uri", "type": { "kind": "reference", "name": "URI" } },
+        { "name": "name", "type": { "kind": "base", "name": "String" } }
+      ]
+    },
+    {
+      "name": "InitializeParams",
+      "fields": [
+        { "name": "processId", "optional": true, "type": { "kind": "base", "name": "i32" } },
+        { "name": "rootUri", "optional": true, "type": { "kind": "reference", "name": "DocumentUri" } },
+        { "name": "capabilities", "type": { "kind": "reference", "name": "LSPObject" } },
+        { "name": "trace", "optional": true, "type": { "kind": "base", "name": "String" } },
+        {
+          "name": "workspaceFolders",
+          "optional": true,
+          "type": {
+            "kind": "array",
+            "element": { "kind": "reference", "name": "WorkspaceFolder" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "InitializeResult",
+      "fields": [
+        { "name": "capabilities", "type": { "kind": "reference", "name": "ServerCapabilities" } },
+        { "name": "serverInfo", "optional": true, "type": { "kind": "reference", "name": "LSPObject" } }
+      ]
+    },
+    {
+      "name": "InitializedParams",
+      "fields": []
+    },
+    {
+      "name": "PublishDiagnosticsParams",
+      "fields": [
+        { "name": "uri", "type": { "kind": "reference", "name": "DocumentUri" } },
+        { "name": "version", "optional": true, "type": { "kind": "base", "name": "i32" } },
+        {
+          "name": "diagnostics",
+          "type": {
+            "kind": "array",
+            "element": { "kind": "reference", "name": "Diagnostic" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "InitializeRequest",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "initialize" } },
+        { "name": "params", "type": { "kind": "reference", "name": "InitializeParams" } }
+      ]
+    },
+    {
+      "name": "InitializedNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "initialized" } },
+        { "name": "params", "type": { "kind": "reference", "name": "InitializedParams" } }
+      ]
+    },
+    {
+      "name": "ShutdownRequest",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "shutdown" } }
+      ]
+    },
+    {
+      "name": "ExitNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "exit" } }
+      ]
+    },
+    {
+      "name": "DidOpenTextDocumentNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "textDocument/didOpen" } },
+        { "name": "params", "type": { "kind": "reference", "name": "DidOpenTextDocumentParams" } }
+      ]
+    },
+    {
+      "name": "DidChangeTextDocumentNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "textDocument/didChange" } },
+        { "name": "params", "type": { "kind": "reference", "name": "DidChangeTextDocumentParams" } }
+      ]
+    },
+    {
+      "name": "DidCloseTextDocumentNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "textDocument/didClose" } },
+        { "name": "params", "type": { "kind": "reference", "name": "DidCloseTextDocumentParams" } }
+      ]
+    },
+    {
+      "name": "DidSaveTextDocumentNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "textDocument/didSave" } },
+        { "name": "params", "type": { "kind": "reference", "name": "DidSaveTextDocumentParams" } }
+      ]
+    },
+    {
+      "name": "PublishDiagnosticsNotification",
+      "fields": [
+        { "name": "method", "type": { "kind": "stringLiteral", "value": "textDocument/publishDiagnostics" } },
+        { "name": "params", "type": { "kind": "reference", "name": "PublishDiagnosticsParams" } }
+      ]
+    }
+  ]
+}

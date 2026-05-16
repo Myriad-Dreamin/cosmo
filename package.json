@@ -11,6 +11,7 @@
     "compile": "sbt fullLinkJS",
     "test": "sbt test",
     "test:cli": "node --test cmd/cosmo/*.test.mjs",
+    "validate:lsp-types": "node scripts/validateLspTypesGenerator.js",
     "watch": "sbt ~fullLinkJS",
     "watch:test": "sbt ~test",
     "compile:dev": "sbt fastLinkJS",
