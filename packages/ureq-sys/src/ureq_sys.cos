@@ -1,0 +1,307 @@
+pub trait Drop {
+  def drop(&self): Unit
+}
+
+pub class UreqByteSlice {
+  val ptr: Ptr[u8]
+  val len: usize
+}
+
+pub class UreqOwnedBytes {
+  private val raw: UreqSysBytes
+
+  def len(&self): usize = {
+    self.raw.len
+  }
+
+  def as_slice(&self): UreqByteSlice = {
+    UreqByteSlice(self.raw.ptr, self.raw.len)
+  }
+}
+
+pub class UreqError {
+  private val raw: Ptr[UreqSysRawError]
+
+  def kind(&self): u32 = {
+    unsafe_ureq_sys_error_kind(self.raw)
+  }
+
+  def status(&self): u16 = {
+    unsafe_ureq_sys_error_status(self.raw)
+  }
+
+  def message(&self): UreqOwnedBytes = {
+    UreqOwnedBytes(unsafe_ureq_sys_error_message(self.raw))
+  }
+}
+
+pub class UreqRequest {
+  private val raw: Ptr[UreqSysRawRequest]
+
+  def set_header(&self, name: UreqByteSlice, value: UreqByteSlice): Option[UreqError] = {
+    ureq_error_option(
+      unsafe_ureq_sys_request_set_header(
+        self.raw,
+        name.ptr,
+        name.len,
+        value.ptr,
+        value.len
+      )
+    )
+  }
+
+  def set_timeout_ms(&self, timeout_ms: u64): Option[UreqError] = {
+    ureq_error_option(unsafe_ureq_sys_request_set_timeout_ms(self.raw, timeout_ms))
+  }
+
+  def call(&self): Result[UreqResponse, UreqError] = {
+    ureq_response_result(unsafe_ureq_sys_request_call(self.raw))
+  }
+
+  def send_text(&self, body: UreqByteSlice): Result[UreqResponse, UreqError] = {
+    ureq_response_result(unsafe_ureq_sys_request_send_text(self.raw, body.ptr, body.len))
+  }
+
+  def send_bytes(&self, body: UreqByteSlice): Result[UreqResponse, UreqError] = {
+    ureq_response_result(unsafe_ureq_sys_request_send_bytes(self.raw, body.ptr, body.len))
+  }
+}
+
+pub class UreqResponse {
+  private val raw: Ptr[UreqSysRawResponse]
+
+  def status(&self): u16 = {
+    unsafe_ureq_sys_response_status(self.raw)
+  }
+
+  def status_text(&self): Result[UreqOwnedBytes, UreqError] = {
+    ureq_bytes_result(unsafe_ureq_sys_response_status_text(self.raw))
+  }
+
+  def header(&self, name: UreqByteSlice): Result[Option[UreqOwnedBytes], UreqError] = {
+    ureq_header_result(unsafe_ureq_sys_response_header(self.raw, name.ptr, name.len))
+  }
+
+  def body_text(&self): Result[UreqOwnedBytes, UreqError] = {
+    ureq_bytes_result(unsafe_ureq_sys_response_body_text(self.raw))
+  }
+
+  def body_bytes(&self, max_bytes: usize): Result[UreqOwnedBytes, UreqError] = {
+    ureq_bytes_result(unsafe_ureq_sys_response_body_bytes(self.raw, max_bytes))
+  }
+}
+
+impl Drop for UreqOwnedBytes {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_bytes_release(self.raw)
+  }
+}
+
+impl Drop for UreqError {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_error_release(self.raw)
+  }
+}
+
+impl Drop for UreqRequest {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_request_release(self.raw)
+  }
+}
+
+impl Drop for UreqResponse {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_response_release(self.raw)
+  }
+}
+
+pub def ureq_byte_slice(ptr: Ptr[u8], len: usize): UreqByteSlice = {
+  UreqByteSlice(ptr, len)
+}
+
+pub def ureq_request(method: UreqByteSlice, url: UreqByteSlice): Result[UreqRequest, UreqError] = {
+  ureq_request_result(unsafe_ureq_sys_request_new(method.ptr, method.len, url.ptr, url.len))
+}
+
+private class UreqSysAbiStatus {
+  val abi_version: u32
+  val value: i32
+}
+
+private class UreqSysBytes {
+  val capacity: usize
+  val len: usize
+  val ptr: Ptr[u8]
+}
+
+private class UreqSysRawError {}
+
+private class UreqSysRawRequest {}
+
+private class UreqSysRawResponse {}
+
+private class UreqSysRequestResult {
+  val error: Ptr[UreqSysRawError]
+  val request: Ptr[UreqSysRawRequest]
+}
+
+private class UreqSysResponseResult {
+  val error: Ptr[UreqSysRawError]
+  val response: Ptr[UreqSysRawResponse]
+}
+
+private class UreqSysBytesResult {
+  val bytes: UreqSysBytes
+  val error: Ptr[UreqSysRawError]
+}
+
+private class UreqSysHeaderResult {
+  val error: Ptr[UreqSysRawError]
+  val found: u8
+  val value: UreqSysBytes
+}
+
+private def ureq_error_option(error: Ptr[UreqSysRawError]): Option[UreqError] = {
+  if (unsafe_ureq_sys_error_ptr_is_some(error) == 1) {
+    Option[UreqError]::Some(UreqError(error))
+  } else {
+    Option[UreqError]::None
+  }
+}
+
+private def ureq_request_result(result: UreqSysRequestResult): Result[UreqRequest, UreqError] = {
+  val error = ureq_error_option(result.error);
+  error match {
+    case Option[UreqError]::Some(value) => {
+      Result[UreqRequest, UreqError]::Err(value)
+    }
+    case Option[UreqError]::None => {
+      Result[UreqRequest, UreqError]::Ok(UreqRequest(result.request))
+    }
+  }
+}
+
+private def ureq_response_result(result: UreqSysResponseResult): Result[UreqResponse, UreqError] = {
+  val error = ureq_error_option(result.error);
+  error match {
+    case Option[UreqError]::Some(value) => {
+      Result[UreqResponse, UreqError]::Err(value)
+    }
+    case Option[UreqError]::None => {
+      Result[UreqResponse, UreqError]::Ok(UreqResponse(result.response))
+    }
+  }
+}
+
+private def ureq_bytes_result(result: UreqSysBytesResult): Result[UreqOwnedBytes, UreqError] = {
+  val error = ureq_error_option(result.error);
+  error match {
+    case Option[UreqError]::Some(value) => {
+      Result[UreqOwnedBytes, UreqError]::Err(value)
+    }
+    case Option[UreqError]::None => {
+      Result[UreqOwnedBytes, UreqError]::Ok(UreqOwnedBytes(result.bytes))
+    }
+  }
+}
+
+private def ureq_header_result(result: UreqSysHeaderResult): Result[Option[UreqOwnedBytes], UreqError] = {
+  val error = ureq_error_option(result.error);
+  error match {
+    case Option[UreqError]::Some(value) => {
+      Result[Option[UreqOwnedBytes], UreqError]::Err(value)
+    }
+    case Option[UreqError]::None => {
+      if (result.found == 1) {
+        Result[Option[UreqOwnedBytes], UreqError]::Ok(
+          Option[UreqOwnedBytes]::Some(UreqOwnedBytes(result.value))
+        )
+      } else {
+        Result[Option[UreqOwnedBytes], UreqError]::Ok(Option[UreqOwnedBytes]::None)
+      }
+    }
+  }
+}
+
+@extern("c", name = "cosmo_ureq_sys_abi_status", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_abi_status(): UreqSysAbiStatus
+
+@extern("c", name = "cosmo_ureq_sys_request_new", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_new(
+  method_ptr: Ptr[u8],
+  method_len: usize,
+  url_ptr: Ptr[u8],
+  url_len: usize
+): UreqSysRequestResult
+
+@extern("c", name = "cosmo_ureq_sys_request_set_header", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_set_header(
+  request: Ptr[UreqSysRawRequest],
+  name_ptr: Ptr[u8],
+  name_len: usize,
+  value_ptr: Ptr[u8],
+  value_len: usize
+): Ptr[UreqSysRawError]
+
+@extern("c", name = "cosmo_ureq_sys_request_set_timeout_ms", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_set_timeout_ms(request: Ptr[UreqSysRawRequest], timeout_ms: u64): Ptr[UreqSysRawError]
+
+@extern("c", name = "cosmo_ureq_sys_request_call", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_call(request: Ptr[UreqSysRawRequest]): UreqSysResponseResult
+
+@extern("c", name = "cosmo_ureq_sys_request_send_text", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_send_text(
+  request: Ptr[UreqSysRawRequest],
+  body_ptr: Ptr[u8],
+  body_len: usize
+): UreqSysResponseResult
+
+@extern("c", name = "cosmo_ureq_sys_request_send_bytes", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_send_bytes(
+  request: Ptr[UreqSysRawRequest],
+  body_ptr: Ptr[u8],
+  body_len: usize
+): UreqSysResponseResult
+
+@extern("c", name = "cosmo_ureq_sys_request_release", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_request_release(request: Ptr[UreqSysRawRequest]): Unit
+
+@extern("c", name = "cosmo_ureq_sys_response_status", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_response_status(response: Ptr[UreqSysRawResponse]): u16
+
+@extern("c", name = "cosmo_ureq_sys_response_status_text", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_response_status_text(response: Ptr[UreqSysRawResponse]): UreqSysBytesResult
+
+@extern("c", name = "cosmo_ureq_sys_response_header", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_response_header(
+  response: Ptr[UreqSysRawResponse],
+  name_ptr: Ptr[u8],
+  name_len: usize
+): UreqSysHeaderResult
+
+@extern("c", name = "cosmo_ureq_sys_response_body_text", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_response_body_text(response: Ptr[UreqSysRawResponse]): UreqSysBytesResult
+
+@extern("c", name = "cosmo_ureq_sys_response_body_bytes", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_response_body_bytes(response: Ptr[UreqSysRawResponse], max_bytes: usize): UreqSysBytesResult
+
+@extern("c", name = "cosmo_ureq_sys_response_release", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_response_release(response: Ptr[UreqSysRawResponse]): Unit
+
+@extern("c", name = "cosmo_ureq_sys_error_ptr_is_some", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_error_ptr_is_some(error: Ptr[UreqSysRawError]): u8
+
+@extern("c", name = "cosmo_ureq_sys_error_kind", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_error_kind(error: Ptr[UreqSysRawError]): u32
+
+@extern("c", name = "cosmo_ureq_sys_error_status", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_error_status(error: Ptr[UreqSysRawError]): u16
+
+@extern("c", name = "cosmo_ureq_sys_error_message", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_error_message(error: Ptr[UreqSysRawError]): UreqSysBytes
+
+@extern("c", name = "cosmo_ureq_sys_error_release", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_error_release(error: Ptr[UreqSysRawError]): Unit
+
+@extern("c", name = "cosmo_ureq_sys_bytes_release", supportLibrary = "ureq-sys")
+private def unsafe_ureq_sys_bytes_release(bytes: UreqSysBytes): Unit

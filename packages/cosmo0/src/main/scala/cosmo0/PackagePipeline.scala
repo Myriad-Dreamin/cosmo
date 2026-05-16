@@ -19,11 +19,14 @@ private[cosmo0] final class PackagePipeline(
   ):
     def key: String = moduleKey(pkgModule.modulePath)
 
-    def publicDeclarations: List[UntypedDecl] =
+    def localDeclarations: List[UntypedDecl] =
       untyped.declarations.filter {
         case _: UntypedImport => false
         case _                => true
       }
+
+    def publicDeclarations: List[UntypedDecl] =
+      localDeclarations.filter(_.visibility == UntypedVisibility.Public)
 
   private final case class ImportEdge(
       from: String,
@@ -116,7 +119,7 @@ private[cosmo0] final class PackagePipeline(
     if stageDiagnostics.nonEmpty then return Result.failure(Phase.Check, stageDiagnostics)
 
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
-    val declarations = ordered.flatMap(_.publicDeclarations)
+    val declarations = ordered.flatMap(_.localDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
     val combinedModule =
       UntypedModule(
@@ -307,7 +310,7 @@ private[cosmo0] final class PackagePipeline(
   ): List[Diagnostic] =
     modules
       .flatMap(module =>
-        module.publicDeclarations.map(declaration =>
+        module.localDeclarations.map(declaration =>
           declaration.name -> (module.key, declaration.span),
         ),
       )

@@ -86,9 +86,9 @@ final class CppBackend(
       body += ""
       body ++= typeForwardDeclarations
       body ++= typeAliasDeclarations
+      body ++= functionForwardDeclarations
       body ++= typeDefinitions
       body ++= globalDefinitions
-      body ++= functionForwardDeclarations
       body ++= functionDefinitions
       body += ""
       namespace.reverse.foreach(part => body += s"} // namespace $part")
@@ -514,7 +514,10 @@ final class CppBackend(
       val fields = ty.fields.sortBy(_.name)
       val variants = ty.variants.sortBy(_.name)
       val body = ListBuffer.empty[String]
+      val drop = dropFunction(ty)
+      val ownership = drop.map(renderDropOwnership(ty, fields, _)).getOrElse(Nil)
 
+      if drop.nonEmpty then body += line(2, "mutable bool __cosmo0_drop_active = true;")
       fields.foreach { field =>
         body += line(2, s"${valueType(field.valueType)} ${fieldName(field.name)}{};")
       }
@@ -584,10 +587,78 @@ final class CppBackend(
       val allLines = ListBuffer.empty[String]
       allLines += s"struct $typeName {"
       allLines ++= constructor
-      if constructor.nonEmpty && body.nonEmpty then allLines += ""
+      if constructor.nonEmpty && (ownership.nonEmpty || body.nonEmpty) then allLines += ""
+      allLines ++= ownership
+      if ownership.nonEmpty && body.nonEmpty then allLines += ""
       allLines ++= body
       allLines += "};"
       allLines.mkString("\n")
+
+    private def renderDropOwnership(
+        ty: LirTypeDecl,
+        fields: List[LirField],
+        drop: LirFunction,
+    ): List[String] =
+      val typeName = names.typeName(ty.id)
+      val dropName = names.functionName(drop.id)
+      val copyInits = ("__cosmo0_drop_active(other.__cosmo0_drop_active)" +:
+        fields.map(field => s"${fieldName(field.name)}(other.${fieldName(field.name)})")).mkString(", ")
+      val moveInits = ("__cosmo0_drop_active(other.__cosmo0_drop_active)" +:
+        fields.map(field => s"${fieldName(field.name)}(std::move(other.${fieldName(field.name)}))")).mkString(", ")
+      val copyAssignments = fields.map(field => s"${fieldName(field.name)} = other.${fieldName(field.name)};")
+      val moveAssignments = fields.map(field => s"${fieldName(field.name)} = std::move(other.${fieldName(field.name)});")
+
+      List(
+        line(2, s"$typeName(const $typeName &other) : $copyInits {"),
+        line(4, s"const_cast<$typeName &>(other).__cosmo0_drop_active = false;"),
+        line(2, "}"),
+        "",
+        line(2, s"$typeName($typeName &&other) noexcept : $moveInits {"),
+        line(4, "other.__cosmo0_drop_active = false;"),
+        line(2, "}"),
+        "",
+        line(2, s"$typeName &operator=(const $typeName &other) {"),
+        line(4, "if (this != &other) {"),
+        line(6, "if (__cosmo0_drop_active) {"),
+        line(8, s"$dropName(this);"),
+        line(6, "}"),
+      ) ++
+        copyAssignments.map(line(6, _)) ++
+        List(
+          line(6, "__cosmo0_drop_active = other.__cosmo0_drop_active;"),
+          line(6, s"const_cast<$typeName &>(other).__cosmo0_drop_active = false;"),
+          line(4, "}"),
+          line(4, "return *this;"),
+          line(2, "}"),
+          "",
+          line(2, s"$typeName &operator=($typeName &&other) noexcept {"),
+          line(4, "if (this != &other) {"),
+          line(6, "if (__cosmo0_drop_active) {"),
+          line(8, s"$dropName(this);"),
+          line(6, "}"),
+        ) ++
+        moveAssignments.map(line(6, _)) ++
+        List(
+          line(6, "__cosmo0_drop_active = other.__cosmo0_drop_active;"),
+          line(6, "other.__cosmo0_drop_active = false;"),
+          line(4, "}"),
+          line(4, "return *this;"),
+          line(2, "}"),
+          "",
+          line(2, s"~$typeName() {"),
+          line(4, "if (__cosmo0_drop_active) {"),
+          line(6, s"$dropName(this);"),
+          line(4, "}"),
+          line(2, "}"),
+        )
+
+    private def dropFunction(ty: LirTypeDecl): Option[LirFunction] =
+      env.functions.values.find(function =>
+        function.owner.contains(ty.id) &&
+          function.name == "drop" &&
+          function.externBinding.isEmpty &&
+          function.returnType.source == SourceType.Unit,
+      )
 
     private def globalDefinitions: List[String] =
       val lines = env.globals.values.toList.sortBy(_.id.value).map { global =>

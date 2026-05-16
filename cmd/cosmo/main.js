@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "child_process";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
@@ -10,6 +11,14 @@ import repl from "repl";
 
 const linkedCompilerModule =
   "../../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js";
+const nlohmannJsonDependency = {
+  repoUrl: "https://github.com/nlohmann/json.git",
+  version: "v3.11.3",
+  revision: "9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03",
+  rootDir: "target/cosmo/externals/json",
+  includeDir: "target/cosmo/externals/json/single_include",
+  headerPath: "target/cosmo/externals/json/single_include/nlohmann/json.hpp",
+};
 
 class CliError extends Error {
   constructor(message, exitCode = 1) {
@@ -114,7 +123,8 @@ function compilePackageExecutable(packageRoot, compiled) {
     );
   }
 
-  const jsonInclude = resolve("target/cosmo/externals/json/single_include");
+  ensureNlohmannJsonDependency();
+  const jsonInclude = resolve(nlohmannJsonDependency.includeDir);
   const compileArgs = [
     "-std=c++17",
     `-I${jsonInclude}`,
@@ -141,6 +151,115 @@ function compilePackageExecutable(packageRoot, compiled) {
   throw new CliError(
     `cosmo package run C++ compile failed; log written to ${paths.logPath}`,
   );
+}
+
+export function ensureNlohmannJsonDependency() {
+  if (existsSync(nlohmannJsonDependency.headerPath)) {
+    return nlohmannJsonDependency.includeDir;
+  }
+
+  mkdirSync("target/cosmo/externals", { recursive: true });
+  if (
+    existsSync(nlohmannJsonDependency.rootDir) &&
+    !existsSync(`${nlohmannJsonDependency.rootDir}/.git`)
+  ) {
+    throw new CliError(
+      `nlohmann/json dependency path exists but is not a git checkout: ${nlohmannJsonDependency.rootDir}`,
+    );
+  }
+
+  if (!existsSync(`${nlohmannJsonDependency.rootDir}/.git`)) {
+    cloneNlohmannJsonDependency();
+  }
+  if (!hasNlohmannJsonRevision()) {
+    fetchNlohmannJsonPinnedTag();
+  }
+
+  runGit(
+    [
+      "-C",
+      nlohmannJsonDependency.rootDir,
+      "checkout",
+      "--detach",
+      "--force",
+      nlohmannJsonDependency.revision,
+    ],
+    `checkout nlohmann/json ${nlohmannJsonDependency.version} (${nlohmannJsonDependency.revision})`,
+  );
+
+  if (existsSync(nlohmannJsonDependency.headerPath)) {
+    return nlohmannJsonDependency.includeDir;
+  }
+
+  throw new CliError(
+    `nlohmann/json checkout did not provide ${nlohmannJsonDependency.headerPath} at ${nlohmannJsonDependency.version} (${nlohmannJsonDependency.revision})`,
+  );
+}
+
+function cloneNlohmannJsonDependency() {
+  runGit(
+    [
+      "clone",
+      "--filter=blob:none",
+      "--depth=1",
+      "--branch",
+      nlohmannJsonDependency.version,
+      "--single-branch",
+      nlohmannJsonDependency.repoUrl,
+      nlohmannJsonDependency.rootDir,
+    ],
+    `clone nlohmann/json ${nlohmannJsonDependency.version}`,
+  );
+}
+
+function fetchNlohmannJsonPinnedTag() {
+  runGit(
+    [
+      "-C",
+      nlohmannJsonDependency.rootDir,
+      "fetch",
+      "--filter=blob:none",
+      "--depth=1",
+      "origin",
+      "tag",
+      nlohmannJsonDependency.version,
+    ],
+    `fetch nlohmann/json ${nlohmannJsonDependency.version}`,
+  );
+}
+
+function hasNlohmannJsonRevision() {
+  const result = spawnSync(
+    "git",
+    [
+      "-C",
+      nlohmannJsonDependency.rootDir,
+      "cat-file",
+      "-e",
+      `${nlohmannJsonDependency.revision}^{commit}`,
+    ],
+    { encoding: "utf8" },
+  );
+  return result.status === 0;
+}
+
+function runGit(args, action) {
+  const result = spawnSync("git", args, { encoding: "utf8" });
+  if (result.status === 0) {
+    return;
+  }
+
+  const log = [
+    `failed to ${action}`,
+    `command: git ${args.join(" ")}`,
+    `status: ${result.status ?? "unknown"}`,
+    result.stdout?.trim() ?? "",
+    result.stderr?.trim() ?? "",
+    result.error?.message ?? "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  throw new CliError(log);
 }
 
 function findCxxCompiler() {
