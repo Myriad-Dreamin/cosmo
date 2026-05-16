@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/support-smoke",
+  "crates/uri-sys",
   "crates/ureq-sys",
 ]
 
