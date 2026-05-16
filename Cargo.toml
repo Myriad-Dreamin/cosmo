@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/support-smoke",
+]
+
+[workspace.package]
+edition = "2021"
+
+[workspace.metadata.cosmo.support_libraries]
+artifact-root = "target/cosmo/support-libraries"
+abi-version = 1
