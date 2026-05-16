@@ -5,6 +5,7 @@ import scala.scalajs.js
 import cosmo.system._
 import cosmo.{Package, Transpiler, FileId, NodePath}
 import cosmo.{debugln, logln}
+import cosmo0.NlohmannJsonDependency
 
 class CmakeLinker(system: CosmoSystem) extends Linker {
   lazy val buildDir = "cmake-build-relwithdebinfo";
@@ -21,6 +22,7 @@ class CmakeLinker(system: CosmoSystem) extends Linker {
       relReleaseDir: String,
   ): Unit = {
     val start = System.currentTimeMillis()
+    NlohmannJsonDependency.ensureAvailable()
     headOnlyPkg(
       pkg,
       t,
@@ -57,6 +59,8 @@ target_link_libraries(cosmo_json INTERFACE cosmo_std)
       t: cosmo.Transpiler,
       relReleaseDir: String,
   ): Option[String] = {
+    NlohmannJsonDependency.ensureAvailable()
+
     def inRelPath(path: String) = NodePath.resolve(relReleaseDir, path)
 
     val start = System.currentTimeMillis()

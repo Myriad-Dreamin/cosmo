@@ -334,7 +334,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -393,7 +393,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -437,7 +437,7 @@ class CppBackendTests extends munit.FunSuite:
     val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo0 backend acceptance test"))
     val result = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", "-fsyntax-only", "-x", "c++", "-"),
+      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, "-fsyntax-only", "-x", "c++", "-"),
       js.Dynamic.literal(input = source, encoding = "utf8"),
     )
     assertEquals(

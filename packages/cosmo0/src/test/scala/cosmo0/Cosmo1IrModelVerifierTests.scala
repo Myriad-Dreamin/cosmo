@@ -70,7 +70,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
 
     val compile = IrNodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -191,7 +191,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo1 IR C++ acceptance test"))
     val result = IrNodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-Itarget/cosmo/externals/json/single_include", "-fsyntax-only", "-x", "c++", "-"),
+      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, "-fsyntax-only", "-x", "c++", "-"),
       js.Dynamic.literal(input = source, encoding = "utf8"),
     )
     assertEquals(
