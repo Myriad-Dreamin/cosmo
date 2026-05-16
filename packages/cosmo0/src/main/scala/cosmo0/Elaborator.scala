@@ -60,12 +60,7 @@ final class UntypedElaborator(
         case Some(valueNode: Val)     => valueDecl(valueNode, UntypedValueKind.Val)
         case Some(valueNode: Var)     => valueDecl(valueNode, UntypedValueKind.Var)
         case Some(typeNode: Typ)      => typeAlias(typeNode)
-        case Some(implNode: Impl) =>
-          unsupported(
-            implNode,
-            "cosmo0.elaborate.unsupported.impl",
-            "impl declarations are outside the initial cosmo0 subset",
-          )
+        case Some(implNode: Impl)     => implDecl(implNode)
         case Some(decorated: Decorate) => decoratedModuleDecl(decorated)
         case Some(caseNode: Case) =>
           unsupported(
@@ -451,14 +446,12 @@ final class UntypedElaborator(
         UntypedImport(p, d, span, declarationVisibility(node))
       }
 
-    private def classDecl(node: Class): Option[UntypedClass] =
-      if node.ab then
-        unsupported(
-          node,
-          "cosmo0.elaborate.unsupported.trait",
-          "traits are outside the initial cosmo0 subset",
-        )
-      else if hasExplicitTypeParams(node.ps) then
+    private def classDecl(node: Class): Option[UntypedDecl] =
+      if node.ab then traitDecl(node)
+      else concreteClassDecl(node)
+
+    private def concreteClassDecl(node: Class): Option[UntypedClass] =
+      if hasExplicitTypeParams(node.ps) then
         unsupported(
           node,
           "cosmo0.elaborate.unsupported.generic-class",
@@ -473,6 +466,57 @@ final class UntypedElaborator(
       else
         val members = classMembers(node.body)
         sequence(members).map(UntypedClass(node.name.name, _, nodeSpan(node), declarationVisibility(node)))
+
+    private def traitDecl(node: Class): Option[UntypedTrait] =
+      if hasExplicitTypeParams(node.ps) then
+        unsupported(
+          node,
+          "cosmo0.elaborate.unsupported.generic-trait",
+          "generic traits are outside the initial cosmo0 subset",
+        )
+      else if node.ps.exists(_.nonEmpty) then
+        unsupported(
+          node,
+          "cosmo0.elaborate.unsupported.trait-params",
+          "trait parameter lists are outside the initial cosmo0 subset",
+        )
+      else
+        val members = traitMembers(node.body)
+        sequence(members).map(UntypedTrait(node.name.name, _, nodeSpan(node), declarationVisibility(node)))
+
+    private def traitMembers(node: syntax.Node): List[Option[UntypedFunction]] =
+      unwrapSemi(node) match
+        case None => Nil
+        case Some(block: Block) =>
+          block.stmts.map(traitMember)
+        case Some(other) =>
+          List(
+            unsupported(
+              other,
+              "cosmo0.elaborate.unsupported.trait-body",
+              "cosmo0 trait bodies must be blocks containing method signatures",
+            ),
+          )
+
+    private def traitMember(node: syntax.Node): Option[UntypedFunction] =
+      unwrapSemi(node) match
+        case None => None
+        case Some(defNode: Def) =>
+          functionDecl(defNode).flatMap { fn =>
+            if fn.body.nonEmpty then
+              unsupported(
+                defNode,
+                "cosmo0.elaborate.unsupported.trait-method-body",
+                "cosmo0 trait methods cannot define bodies",
+              )
+            else Some(fn)
+          }
+        case Some(other) =>
+          unsupported(
+            other,
+            "cosmo0.elaborate.unsupported.trait-member",
+            s"${constructName(other)} is not a supported cosmo0 trait member",
+          )
 
     private def classMembers(node: syntax.Node): List[Option[UntypedClassMember]] =
       unwrapSemi(node) match
@@ -588,6 +632,60 @@ final class UntypedElaborator(
             "cosmo0.elaborate.unsupported.type-alias-target",
             "cosmo0 type aliases must name a concrete target type",
           )
+
+    private def implDecl(node: Impl): Option[UntypedImpl] =
+      if node.params.exists(_.nonEmpty) then
+        return unsupported(
+          node,
+          "cosmo0.elaborate.unsupported.impl",
+          "generic impl declarations are outside the initial cosmo0 subset",
+        )
+
+      val traitPath = node.lhs match
+        case Some(traitNode) =>
+          pathFromNode(traitNode, Some(nodeSpan(traitNode)))
+        case None =>
+          return unsupported(
+            node,
+            "cosmo0.elaborate.unsupported.impl",
+            "cosmo0 impl declarations must name a trait and target type",
+          )
+
+      val targetPath = pathFromNode(node.rhs, Some(nodeSpan(node.rhs)))
+      if targetPath.exists(_.parts.length != 1) then
+        return unsupported(
+          node.rhs,
+          "cosmo0.elaborate.unsupported.impl",
+          "impl targets must be local concrete types",
+        )
+
+      val members = sequence(classMembers(node.body))
+      traitPath.zip(targetPath).zip(members).flatMap { case ((traitName, target), implMembers) =>
+        validateTraitImplMembers(node, implMembers).map(_ =>
+          UntypedImpl(traitName, target, implMembers, nodeSpan(node), UntypedVisibility.Private),
+        )
+      }
+
+    private def validateTraitImplMembers(
+        node: Impl,
+        members: List[UntypedClassMember],
+    ): Option[Unit] =
+      val functions = members.collect { case fn: UntypedFunction => fn }
+      if functions.length != members.length then
+        return unsupported(
+          node,
+          "cosmo0.elaborate.unsupported.impl",
+          "trait impl declarations may only contain methods",
+        )
+      functions.find(_.body.isEmpty) match
+        case Some(_) =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported.impl",
+            "trait impl methods must define bodies",
+          )
+        case None =>
+          Some(())
 
     private def variantDecl(node: Case): Option[UntypedVariant] =
       if node.body.nonEmpty then

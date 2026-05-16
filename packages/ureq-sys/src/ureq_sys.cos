@@ -1,3 +1,7 @@
+pub trait Drop {
+  def drop(&self): Unit
+}
+
 pub class UreqByteSlice {
   val ptr: Ptr[u8]
   val len: usize
@@ -12,10 +16,6 @@ pub class UreqOwnedBytes {
 
   def as_slice(&self): UreqByteSlice = {
     UreqByteSlice(self.raw.ptr, self.raw.len)
-  }
-
-  def release(&self): Unit = {
-    unsafe_ureq_sys_bytes_release(self.raw)
   }
 }
 
@@ -32,10 +32,6 @@ pub class UreqError {
 
   def message(&self): UreqOwnedBytes = {
     UreqOwnedBytes(unsafe_ureq_sys_error_message(self.raw))
-  }
-
-  def release(&self): Unit = {
-    unsafe_ureq_sys_error_release(self.raw)
   }
 }
 
@@ -69,10 +65,6 @@ pub class UreqRequest {
   def send_bytes(&self, body: UreqByteSlice): Result[UreqResponse, UreqError] = {
     ureq_response_result(unsafe_ureq_sys_request_send_bytes(self.raw, body.ptr, body.len))
   }
-
-  def release(&self): Unit = {
-    unsafe_ureq_sys_request_release(self.raw)
-  }
 }
 
 pub class UreqResponse {
@@ -97,8 +89,28 @@ pub class UreqResponse {
   def body_bytes(&self, max_bytes: usize): Result[UreqOwnedBytes, UreqError] = {
     ureq_bytes_result(unsafe_ureq_sys_response_body_bytes(self.raw, max_bytes))
   }
+}
 
-  def release(&self): Unit = {
+impl Drop for UreqOwnedBytes {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_bytes_release(self.raw)
+  }
+}
+
+impl Drop for UreqError {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_error_release(self.raw)
+  }
+}
+
+impl Drop for UreqRequest {
+  def drop(&self): Unit = {
+    unsafe_ureq_sys_request_release(self.raw)
+  }
+}
+
+impl Drop for UreqResponse {
+  def drop(&self): Unit = {
     unsafe_ureq_sys_response_release(self.raw)
   }
 }

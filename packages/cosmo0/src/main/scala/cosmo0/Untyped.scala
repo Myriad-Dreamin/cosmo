@@ -53,6 +53,13 @@ final case class UntypedClass(
     visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
 
+final case class UntypedTrait(
+    name: String,
+    methods: List[UntypedFunction],
+    span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
+) extends UntypedDecl
+
 final case class UntypedFunction(
     name: String,
     params: List[UntypedParam],
@@ -81,6 +88,15 @@ final case class UntypedTypeAlias(
     visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
     with UntypedClassMember
+
+final case class UntypedImpl(
+    traitName: UntypedPath,
+    target: UntypedPath,
+    members: List[UntypedClassMember],
+    span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Private,
+) extends UntypedDecl:
+  def name: String = s"${traitName.text} for ${target.text}"
 
 final case class UntypedVariant(
     name: String,

@@ -47,11 +47,24 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
       fn.name -> fn.externBinding.flatMap(_.supportLibrary)
     }
+    val classes = checked.value.get.checked.typed.declarations.collect { case cls: TypedClass =>
+      cls.name -> cls.methods.map(_.name)
+    }.toMap
     assert(functions.contains("ureq_request" -> None))
     assert(functions.contains("ureq_byte_slice" -> None))
     assert(functions.contains("unsafe_ureq_sys_request_new" -> Some("ureq-sys")))
     assert(functions.contains("unsafe_ureq_sys_response_body_bytes" -> Some("ureq-sys")))
     assert(functions.contains("unsafe_ureq_sys_error_release" -> Some("ureq-sys")))
+    List("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse").foreach { name =>
+      assert(
+        classes.get(name).exists(_.contains("drop")),
+        s"$name is missing Drop.drop in ${classes.get(name)}",
+      )
+      assert(
+        !classes.get(name).exists(_.contains("release")),
+        s"$name still exposes release in ${classes.get(name)}",
+      )
+    }
 
     val source = ParserFixtureManifest.readFile("packages/ureq-sys/src/ureq_sys.cos")
     val elaborated = Cosmo0().elaborate(SourceFile("ureq_sys.cos", source))
@@ -70,6 +83,9 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     }
     val publicClasses = declarations.collect {
       case cls: UntypedClass if cls.visibility == UntypedVisibility.Public => cls.name
+    }
+    val publicTraits = declarations.collect {
+      case trt: UntypedTrait if trt.visibility == UntypedVisibility.Public => trt.name
     }
     val privateClasses = declarations.collect {
       case cls: UntypedClass if cls.visibility == UntypedVisibility.Private => cls.name
@@ -92,6 +108,7 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(publicClasses.contains("UreqRequest"))
     assert(publicClasses.contains("UreqResponse"))
     assert(!publicClasses.exists(_.startsWith("UreqSys")))
+    assert(publicTraits.contains("Drop"))
     assert(privateClasses.contains("UreqSysRawRequest"))
     assert(privateClasses.contains("UreqSysRawResponse"))
     assert(privateClasses.contains("UreqSysRawError"))

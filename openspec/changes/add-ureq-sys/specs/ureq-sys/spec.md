@@ -52,3 +52,4 @@ blocking HTTP support-library ABI.
 - **WHEN** external Cosmo modules import the ureq system package
 - **THEN** the public surface provides request, response, error, and owned byte wrapper types
 - **AND** raw `unsafe_ureq_sys_*` extern declarations are private implementation details
+- **AND** Rust-owned wrapper resources expose `Drop.drop` implementations instead of public `release` methods
