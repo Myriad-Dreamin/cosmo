@@ -17,6 +17,8 @@ class LsBasePackageTests extends munit.FunSuite:
         List("jsonrpc", "core"),
         List("jsonrpc", "core_test"),
         List("jsonrpc", "session"),
+        List("lsp", "lifecycle"),
+        List("lsp", "lifecycle_test"),
         List("main"),
         List("std", "bytes"),
         List("std", "char_class"),
@@ -44,3 +46,5 @@ class LsBasePackageTests extends munit.FunSuite:
     assert(output.source.contains("inline cosmo0_runtime::Result<JsonRpcMessage, JsonRpcDecodeError> jsonrpc_decode_message("))
     assert(output.source.contains("inline JsonRpcSession jsonrpc_session()"))
     assert(output.source.contains("inline bool jsonrpc_test_session_correlation()"))
+    assert(output.source.contains("inline LspServer lsp_server()"))
+    assert(output.source.contains("inline bool lsp_test_lifecycle_transitions()"))

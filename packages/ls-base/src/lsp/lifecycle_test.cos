@@ -1,0 +1,250 @@
+import jsonrpc.core
+import lsp.lifecycle
+
+def lsp_test_lifecycle_transitions(): Bool = {
+  val server = lsp_server();
+  if (!lsp_state_is_created(server.state)) {
+    return false
+  }
+
+  val initialized = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
+  if (!lsp_dispatch_ok(initialized, "initialize")) {
+    return false
+  }
+  if (!lsp_state_is_initialize_result_sent(server.state)) {
+    return false
+  }
+  if (server.outbound_len() != 1) {
+    return false
+  }
+
+  val ready = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}");
+  if (!lsp_dispatch_ok(ready, "initialized")) {
+    return false
+  }
+  if (!lsp_state_is_ready(server.state)) {
+    return false
+  }
+
+  val shutdown = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"shutdown\"}");
+  if (!lsp_dispatch_ok(shutdown, "shutdown")) {
+    return false
+  }
+  if (!lsp_state_is_shutdown(server.state)) {
+    return false
+  }
+
+  val exit = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}");
+  lsp_dispatch_ok(exit, "exit") and lsp_state_is_exited(server.state)
+}
+
+def lsp_test_document_routing(): Bool = {
+  val server = lsp_server();
+  val opened = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file:///main.cos\"}}}");
+  val changed = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didChange\",\"params\":{\"textDocument\":{\"uri\":\"file:///main.cos\"},\"contentChanges\":[]}}");
+  val closed = server.dispatch_text("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didClose\",\"params\":{\"textDocument\":{\"uri\":\"file:///main.cos\"}}}");
+
+  if (!lsp_dispatch_ok(opened, "textDocument/didOpen")) {
+    return false
+  }
+  if (!lsp_dispatch_ok(changed, "textDocument/didChange")) {
+    return false
+  }
+  if (!lsp_dispatch_ok(closed, "textDocument/didClose")) {
+    return false
+  }
+  if (server.document_event_len() != 3) {
+    return false
+  }
+
+  lsp_document_event_is_open(server.document_events.get(0), "file:///main.cos") and
+    lsp_document_event_is_change(server.document_events.get(1), "file:///main.cos") and
+    lsp_document_event_is_close(server.document_events.get(2), "file:///main.cos")
+}
+
+def lsp_test_publish_diagnostics(): Bool = {
+  val server = lsp_server();
+  server.publish_diagnostics("file:///main.cos", "[]");
+  if (server.outbound_len() != 1) {
+    return false
+  }
+  server.session.outbound.get(0) == "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"uri\":\"file:///main.cos\",\"diagnostics\":[]}}"
+}
+
+def lsp_test_capability_shape(): Bool = {
+  val json = lsp_initialize_result_json(lsp_server_capabilities());
+  json == "{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":2},\"hoverProvider\":false},\"serverInfo\":{\"name\":\"cosmo-ls-base\"}}"
+}
+
+def lsp_test_handler_registration(): Bool = {
+  val server = lsp_server();
+  server.register_request_handler("textDocument/hover");
+  server.register_request_handler("textDocument/hover");
+  server.register_notification_handler("workspace/didChangeConfiguration");
+  server.register_notification_handler("workspace/didChangeConfiguration");
+  server.has_request_handler("textDocument/hover") and
+    server.has_notification_handler("workspace/didChangeConfiguration") and
+    server.request_handlers.size() == 3 and
+    server.notification_handlers.size() == 6
+}
+
+def lsp_dispatch_ok(result: Result[LspDispatchResult, JsonRpcDecodeError], method: String): Bool = {
+  result match {
+    case Result[LspDispatchResult, JsonRpcDecodeError]::Ok(value) => {
+      value.handled and value.method == method
+    }
+    case Result[LspDispatchResult, JsonRpcDecodeError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def lsp_state_is_created(state: LspLifecycleState): Bool = {
+  state match {
+    case LspLifecycleState.Created => {
+      true
+    }
+    case LspLifecycleState.InitializeResultSent => {
+      false
+    }
+    case LspLifecycleState.Ready => {
+      false
+    }
+    case LspLifecycleState.Shutdown => {
+      false
+    }
+    case LspLifecycleState.Exited => {
+      false
+    }
+  }
+}
+
+def lsp_state_is_initialize_result_sent(state: LspLifecycleState): Bool = {
+  state match {
+    case LspLifecycleState.Created => {
+      false
+    }
+    case LspLifecycleState.InitializeResultSent => {
+      true
+    }
+    case LspLifecycleState.Ready => {
+      false
+    }
+    case LspLifecycleState.Shutdown => {
+      false
+    }
+    case LspLifecycleState.Exited => {
+      false
+    }
+  }
+}
+
+def lsp_state_is_ready(state: LspLifecycleState): Bool = {
+  state match {
+    case LspLifecycleState.Created => {
+      false
+    }
+    case LspLifecycleState.InitializeResultSent => {
+      false
+    }
+    case LspLifecycleState.Ready => {
+      true
+    }
+    case LspLifecycleState.Shutdown => {
+      false
+    }
+    case LspLifecycleState.Exited => {
+      false
+    }
+  }
+}
+
+def lsp_state_is_shutdown(state: LspLifecycleState): Bool = {
+  state match {
+    case LspLifecycleState.Created => {
+      false
+    }
+    case LspLifecycleState.InitializeResultSent => {
+      false
+    }
+    case LspLifecycleState.Ready => {
+      false
+    }
+    case LspLifecycleState.Shutdown => {
+      true
+    }
+    case LspLifecycleState.Exited => {
+      false
+    }
+  }
+}
+
+def lsp_state_is_exited(state: LspLifecycleState): Bool = {
+  state match {
+    case LspLifecycleState.Created => {
+      false
+    }
+    case LspLifecycleState.InitializeResultSent => {
+      false
+    }
+    case LspLifecycleState.Ready => {
+      false
+    }
+    case LspLifecycleState.Shutdown => {
+      false
+    }
+    case LspLifecycleState.Exited => {
+      true
+    }
+  }
+}
+
+def lsp_document_event_is_open(event: LspDocumentEvent, uri: String): Bool = {
+  event match {
+    case LspDocumentEvent.DidOpen(value) => {
+      value == uri
+    }
+    case LspDocumentEvent.DidChange(value) => {
+      false
+    }
+    case LspDocumentEvent.DidClose(value) => {
+      false
+    }
+  }
+}
+
+def lsp_document_event_is_change(event: LspDocumentEvent, uri: String): Bool = {
+  event match {
+    case LspDocumentEvent.DidOpen(value) => {
+      false
+    }
+    case LspDocumentEvent.DidChange(value) => {
+      value == uri
+    }
+    case LspDocumentEvent.DidClose(value) => {
+      false
+    }
+  }
+}
+
+def lsp_document_event_is_close(event: LspDocumentEvent, uri: String): Bool = {
+  event match {
+    case LspDocumentEvent.DidOpen(value) => {
+      false
+    }
+    case LspDocumentEvent.DidChange(value) => {
+      false
+    }
+    case LspDocumentEvent.DidClose(value) => {
+      value == uri
+    }
+  }
+}
+
+def lsp_all_tests(): Bool = {
+  lsp_test_lifecycle_transitions() and
+    lsp_test_document_routing() and
+    lsp_test_publish_diagnostics() and
+    lsp_test_capability_shape() and
+    lsp_test_handler_registration()
+}
