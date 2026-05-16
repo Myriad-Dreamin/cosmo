@@ -1,0 +1,5 @@
+import hidden_value from hidden
+
+def entry(): i32 = {
+  hidden_value()
+}

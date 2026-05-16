@@ -12,6 +12,10 @@ final case class UntypedModule(
 
 sealed trait UntypedDecl extends UntypedNode:
   def name: String
+  def visibility: UntypedVisibility
+
+enum UntypedVisibility:
+  case Public, Private
 
 sealed trait UntypedClassMember extends UntypedNode
 
@@ -38,6 +42,7 @@ final case class UntypedImport(
     path: UntypedPath,
     dest: Option[UntypedPath],
     span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl:
   def name: String = dest.orElse(Some(path)).fold("<import>")(_.text)
 
@@ -45,6 +50,14 @@ final case class UntypedClass(
     name: String,
     members: List[UntypedClassMember],
     span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
+) extends UntypedDecl
+
+final case class UntypedTrait(
+    name: String,
+    methods: List[UntypedFunction],
+    span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
 
 final case class UntypedFunction(
@@ -54,6 +67,7 @@ final case class UntypedFunction(
     body: Option[UntypedExpr],
     span: SourceSpan,
     externBinding: Option[SourceExternBinding] = None,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -63,6 +77,7 @@ final case class UntypedValueDecl(
     valueType: Option[UntypedType],
     init: Option[UntypedExpr],
     span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -70,8 +85,18 @@ final case class UntypedTypeAlias(
     name: String,
     target: UntypedType,
     span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
     with UntypedClassMember
+
+final case class UntypedImpl(
+    traitName: UntypedPath,
+    target: UntypedPath,
+    members: List[UntypedClassMember],
+    span: SourceSpan,
+    visibility: UntypedVisibility = UntypedVisibility.Private,
+) extends UntypedDecl:
+  def name: String = s"${traitName.text} for ${target.text}"
 
 final case class UntypedVariant(
     name: String,

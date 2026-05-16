@@ -1,5 +1,5 @@
-import core0.text
-import core0.path_fs
+import std.text
+import std.path_fs
 import source.source
 
 def source_text_helpers_smoke(): Bool = {

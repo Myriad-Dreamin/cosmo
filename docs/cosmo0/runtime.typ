@@ -154,6 +154,39 @@ The C++ backend tracks runtime requirements independently from descriptor operat
 
 The backend SHALL emit a diagnostic when a lowered extern binding names a missing runtime symbol. The diagnostic must occur at compile/backend time before a generated C++ artifact is treated as valid.
 
+== Rust Support Libraries
+
+Rust-backed support libraries are repository-owned crates under `crates/<support-library-id>/`. The id is the same kebab-case value used by extern metadata and backend requirements:
+
+```cos
+@extern("c", name = "cosmo_support_smoke_add", supportLibrary = "support-smoke")
+def support_smoke_add(lhs: i32, rhs: i32): i32
+```
+
+The lowered backend requirement is:
+
+```text
+support-library:support-smoke
+```
+
+Support-library ids use lowercase kebab-case and map to Rust library targets by replacing hyphens with underscores and prefixing `cosmo_`. The id `support-smoke` maps to Rust target `cosmo_support_smoke`, C symbol prefix `cosmo_support_smoke_`, and a static artifact named `libcosmo_support_smoke.a` on Linux and macOS.
+
+The shared artifact staging layout is:
+
+```text
+target/cosmo/support-libraries/<profile>/<support-library-id>/<artifact>
+```
+
+For the smoke crate in release mode, the expected static artifact path is:
+
+```text
+target/cosmo/support-libraries/release/support-smoke/libcosmo_support_smoke.a
+```
+
+The C++ backend consumes `support-library:*` requirements by adding them to the typed backend requirements and by producing a support-library link plan. Artifact existence and ABI compatibility are validated against the link plan before the host linker is invoked. Missing artifacts report `cosmo0.support-library.missing-artifact`; ABI version mismatches report `cosmo0.support-library.incompatible-artifact`.
+
+The shared Rust C ABI version is `1`. Rust exports use `extern "C"` functions, fixed-width scalar types, `#[repr(C)]` structs for aggregate values, and opaque handles for Rust-owned state. Rust-owned allocations must be released by the same support library, and panics must not unwind across the C ABI boundary.
+
 == Determinism
 
 Placeholder for stable output ordering, unique runtime support emission, and deterministic behavior across repeated package compiles.

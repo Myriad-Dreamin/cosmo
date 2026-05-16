@@ -1,0 +1,125 @@
+import std.json
+
+def json_test_smoke(): Bool = {
+  val parsed = core0_json().parse("{\"kind\":\"ident\",\"ok\":true,\"missing\":null,\"items\":[42,\"name\"]}");
+  parsed match {
+    case Result[JsonValue, JsonParseError]::Ok(root) => {
+      json_test_object(root)
+    }
+    case Result[JsonValue, JsonParseError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def json_test_rejects_invalid(): Bool = {
+  val parsed = core0_json().parse("{\"kind\":");
+  parsed.is_err()
+}
+
+def json_test_object(root: JsonValue): Bool = {
+  val kind = root.field("kind");
+  val ok = root.field("ok");
+  val missing = root.field("missing");
+  val items = root.field("items");
+
+  json_test_string_equals(kind, "ident") and
+    json_test_bool_equals(ok, true) and
+    json_test_is_null(missing) and
+    json_test_array(items)
+}
+
+def json_test_string_equals(value: Option[JsonValue], expected: String): Bool = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      val text = json.as_string();
+      text match {
+        case Option[String]::Some(actual) => {
+          actual == expected
+        }
+        case Option[String]::None => {
+          false
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def json_test_bool_equals(value: Option[JsonValue], expected: Bool): Bool = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      val flag = json.as_bool();
+      flag match {
+        case Option[Bool]::Some(actual) => {
+          actual == expected
+        }
+        case Option[Bool]::None => {
+          false
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def json_test_is_null(value: Option[JsonValue]): Bool = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      json.is_null()
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def json_test_array(value: Option[JsonValue]): Bool = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      val len = json.array_len();
+      val first = json.array_get(0);
+      val second = json.array_get(1);
+      json_test_len_equals(len, 2) and
+        json_test_number_equals(first, "42") and
+        json_test_string_equals(second, "name")
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def json_test_len_equals(value: Option[usize], expected: usize): Bool = {
+  value match {
+    case Option[usize]::Some(actual) => {
+      actual == expected
+    }
+    case Option[usize]::None => {
+      false
+    }
+  }
+}
+
+def json_test_number_equals(value: Option[JsonValue], expected: String): Bool = {
+  value match {
+    case Option[JsonValue]::Some(json) => {
+      val text = json.as_number_text();
+      text match {
+        case Option[String]::Some(actual) => {
+          actual == expected
+        }
+        case Option[String]::None => {
+          false
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}

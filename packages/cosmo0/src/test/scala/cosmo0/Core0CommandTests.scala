@@ -1,9 +1,9 @@
 package cosmo0
 
 class Core0CommandTests extends munit.FunSuite:
-  private val pathFsPath = "packages/cosmoc/src/core0/path_fs.cos"
-  private val commandPath = "packages/cosmoc/src/core0/command.cos"
-  private val commandTestPath = "packages/cosmoc/src/core0/command_test.cos"
+  private val pathFsPath = "library/std/src/std/path_fs.cos"
+  private val commandPath = "library/std/src/std/command.cos"
+  private val commandTestPath = "library/std/src/std/command_test.cos"
   private val linkCommandPath = "packages/cosmoc/src/link/command.cos"
   private val driverConfigPath = "packages/cosmoc/src/driver/config.cos"
 

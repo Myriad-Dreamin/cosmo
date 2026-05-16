@@ -1,4 +1,4 @@
-import core0.text
+import std.text
 import source.source
 import source.source_map
 

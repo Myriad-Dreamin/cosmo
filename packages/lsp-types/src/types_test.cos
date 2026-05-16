@@ -1,0 +1,53 @@
+import std.json
+import std.path_fs
+import generator.full_emit
+
+def lsp_types_test(): Bool = {
+  val root = lsp_types_test_root();
+  root match {
+    case Option[JsonValue]::Some(value) => {
+      val version = lsp_version(value);
+      lsp_types_file_matches("src/lsp/base.cos", lsp_emit_base(version)) and
+        lsp_types_file_matches("src/lsp/type_aliases.cos", lsp_emit_type_aliases(value, version)) and
+        lsp_types_file_matches("src/lsp/enums.cos", lsp_emit_enums(value, version)) and
+        lsp_types_file_matches("src/lsp/structs.cos", lsp_emit_structs(value, version)) and
+        lsp_types_file_matches("src/lsp/request.cos", lsp_emit_requests(value, version)) and
+        lsp_types_file_matches("src/lsp/notification.cos", lsp_emit_notifications(value, version))
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def lsp_types_test_root(): Option[JsonValue] = {
+  val loaded = core0_fs().read_to_string(core0_path_from_string("metamodel/metaModel.json"));
+  loaded match {
+    case Result[String, IoError]::Ok(source) => {
+      val parsed = core0_json().parse(source);
+      parsed match {
+        case Result[JsonValue, JsonParseError]::Ok(root) => {
+          Option[JsonValue]::Some(root)
+        }
+        case Result[JsonValue, JsonParseError]::Err(error) => {
+          Option[JsonValue]::None
+        }
+      }
+    }
+    case Result[String, IoError]::Err(error) => {
+      Option[JsonValue]::None
+    }
+  }
+}
+
+def lsp_types_file_matches(path: String, expected: String): Bool = {
+  val loaded = core0_fs().read_to_string(core0_path_from_string(path));
+  loaded match {
+    case Result[String, IoError]::Ok(actual) => {
+      actual == expected
+    }
+    case Result[String, IoError]::Err(error) => {
+      false
+    }
+  }
+}

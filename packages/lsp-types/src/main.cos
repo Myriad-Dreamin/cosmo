@@ -1,0 +1,29 @@
+import std.json
+import std.path_fs
+import std.text_output
+import generator.full_emit
+
+def main(): i32 = {
+  val path = core0_path_from_string("metamodel/metaModel.json");
+  val loaded = core0_fs().read_to_string(path);
+
+  loaded match {
+    case Result[String, IoError]::Ok(source) => {
+      val parsed = core0_json().parse(source);
+      parsed match {
+        case Result[JsonValue, JsonParseError]::Ok(root) => {
+          core0_stdout_write(lsp_full_emit(root));
+          0
+        }
+        case Result[JsonValue, JsonParseError]::Err(error) => {
+          core0_stdout_write(error.message);
+          1
+        }
+      }
+    }
+    case Result[String, IoError]::Err(error) => {
+      core0_stdout_write(error.message);
+      1
+    }
+  }
+}

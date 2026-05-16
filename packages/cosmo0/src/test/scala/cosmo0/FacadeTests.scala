@@ -256,7 +256,6 @@ class FacadeTests extends munit.FunSuite:
 
   test("elaborate rejects unsupported full-language constructs deterministically"):
     val cases = List(
-      "trait Display {}" -> "cosmo0.elaborate.unsupported.trait",
       "class Arena[T] {}" -> "cosmo0.elaborate.unsupported.generic-class",
       "def id[T](x: T): T = x" -> "cosmo0.elaborate.unsupported.generic-function",
       "impl Display {}" -> "cosmo0.elaborate.unsupported.impl",
@@ -283,11 +282,11 @@ class FacadeTests extends munit.FunSuite:
     }
 
   test("check stops on unsupported subset constructs"):
-    val result = Cosmo0().check("trait Display {}")
+    val result = Cosmo0().check("trait Display[T] {}")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Unsupported)
-    assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.trait")
+    assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.generic-trait")
 
   test("check resolves aliases, constructors, descriptor methods, and match bindings"):
     val result = Cosmo0().check(
@@ -477,9 +476,9 @@ class FacadeTests extends munit.FunSuite:
     assert(result.diagnostics.isEmpty)
 
   test("compile stops on unsupported subset constructs"):
-    val result = Cosmo0().compile("trait Display {}")
+    val result = Cosmo0().compile("trait Display[T] {}")
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Unsupported)
     assert(result.value.isEmpty)
-    assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.trait")
+    assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.generic-trait")

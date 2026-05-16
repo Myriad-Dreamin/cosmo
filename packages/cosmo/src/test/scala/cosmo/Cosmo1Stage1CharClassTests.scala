@@ -2,8 +2,8 @@ package cosmo
 
 class Cosmo1Stage1CharClassTest extends TestBase:
   private val sourceFiles = List(
-    "packages/cosmoc/src/core0/char_class.cos",
-    "packages/cosmoc/src/core0/char_class_test.cos",
+    "library/std/src/std/char_class.cos",
+    "library/std/src/std/char_class_test.cos",
     "packages/cosmoc/src/lex/lexer.cos",
     "packages/cosmoc/src/lex/lexer_test.cos",
   )
@@ -20,8 +20,8 @@ class Cosmo1Stage1CharClassTest extends TestBase:
     val manifest =
       NodeFs.readFileSync("packages/cosmoc/cosmo.json", "utf8").asInstanceOf[String]
 
-    assert(manifest.contains("\"core0/char_class.cos\""))
-    assert(manifest.contains("\"core0/char_class_test.cos\""))
+    assert(manifest.contains("\"std/char_class.cos\""))
+    assert(manifest.contains("\"std/char_class_test.cos\""))
     assert(manifest.contains("\"lex/lexer.cos\""))
     assert(manifest.contains("\"lex/lexer_test.cos\""))
   }

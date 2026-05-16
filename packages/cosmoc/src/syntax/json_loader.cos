@@ -1,4 +1,4 @@
-import core0.json
+import std.json
 import source.span
 import syntax.ast
 

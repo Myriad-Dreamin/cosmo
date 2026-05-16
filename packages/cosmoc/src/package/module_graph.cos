@@ -1,4 +1,4 @@
-import core0.json
+import std.json
 import names.symbol
 import syntax.ast
 

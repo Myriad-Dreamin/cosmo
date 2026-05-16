@@ -1,0 +1,9 @@
+[package]
+name = "support-smoke"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "cosmo_support_smoke"
+crate-type = ["rlib", "staticlib", "cdylib"]

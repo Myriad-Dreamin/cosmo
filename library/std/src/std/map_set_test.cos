@@ -1,0 +1,55 @@
+import std.map_set
+
+def map_set_test_insert_lookup(): Bool = {
+  var values = Map[String, String]();
+  val first = values.insert("b", "two");
+  val second = values.insert("a", "one");
+  val replace = values.insert("b", "deux");
+  first.is_none() and
+    second.is_none() and
+    replace.is_some() and
+    core0_map_contains_string(values, "a") and
+    core0_map_get_string(values, "b").is_some()
+}
+
+def map_set_test_set_contains(): Bool = {
+  var values = Set[String]();
+  values.insert("module");
+  core0_set_contains_string(values, "module") and !core0_set_contains_string(values, "missing")
+}
+
+def map_set_test_iteration_is_key_sorted(): Bool = {
+  var values = Map[String, String]();
+  values.insert("b", "two");
+  values.insert("a", "one");
+
+  var index: usize = 0;
+  var ok = true;
+  for (key in values) {
+    if (index == 0) {
+      ok = ok and key == "a"
+    } else {
+      ok = ok and key == "b"
+    }
+    index = index + 1;
+  }
+  ok and index == 2
+}
+
+def map_set_test_set_iteration_is_sorted(): Bool = {
+  var values = Set[String]();
+  values.insert("b");
+  values.insert("a");
+
+  var index: usize = 0;
+  var ok = true;
+  for (value in values) {
+    if (index == 0) {
+      ok = ok and value == "a"
+    } else {
+      ok = ok and value == "b"
+    }
+    index = index + 1;
+  }
+  ok and index == 2
+}

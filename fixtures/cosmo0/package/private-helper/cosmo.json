@@ -1,0 +1,9 @@
+{
+  "name": "@cosmo0/package-private-helper",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "sources": [
+    "hidden.cos",
+    "main.cos"
+  ]
+}

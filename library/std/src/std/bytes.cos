@@ -1,0 +1,16 @@
+class ByteSlice {
+  val ptr: Ptr[u8]
+  val len: usize
+}
+
+def std_string_byte_slice(value: String): ByteSlice = {
+  ByteSlice(string_data(value), string_len(value))
+}
+
+def std_string_from_bytes(value: ByteSlice): String = {
+  string_from_bytes(value.ptr, value.len)
+}
+
+def string_data(value: String): Ptr[u8]
+def string_len(value: String): usize
+def string_from_bytes(ptr: Ptr[u8], len: usize): String

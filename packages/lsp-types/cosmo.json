@@ -1,0 +1,15 @@
+{
+  "name": "@cosmo/lsp-types",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "dependencies": [
+    "../../library/std"
+  ],
+  "sources": [
+    "generator/metamodel.cos",
+    "generator/full_emit.cos",
+    "types_test.cos",
+    "main.cos"
+  ]
+}

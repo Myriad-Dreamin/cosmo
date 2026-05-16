@@ -1,0 +1,5 @@
+import visible_value from hidden
+
+def entry(): i32 = {
+  visible_value()
+}

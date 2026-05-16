@@ -80,6 +80,12 @@ final class SourceTyper(
       externBinding: Option[SourceExternBinding],
   )
 
+  private final case class TraitInfo(
+      name: String,
+      methods: Map[String, FunctionInfo],
+      span: SourceSpan,
+  )
+
   private final case class ClassInfo(
       name: String,
       fields: List[FieldInfo],
@@ -101,13 +107,16 @@ final class SourceTyper(
       module.declarations.collect { case decl: UntypedClass => decl.name }.toSet
     private val rawAliases = mutable.LinkedHashMap.empty[String, UntypedType]
     private val aliasTypes = mutable.LinkedHashMap.empty[String, SourceType]
+    private val traits = mutable.LinkedHashMap.empty[String, TraitInfo]
     private val classes = mutable.LinkedHashMap.empty[String, ClassInfo]
     private val functions = mutable.LinkedHashMap.empty[String, FunctionInfo]
 
     def check(): Result[TypedModule] =
       collectAliases()
       rawAliases.keys.foreach(resolveAlias)
+      collectTraits()
       collectClasses()
+      collectImpls()
       collectFunctions()
 
       val globalScope = new Scope(None)
@@ -142,6 +151,20 @@ final class SourceTyper(
             case _ =>
           }
         case _ =>
+      }
+
+    private def collectTraits(): Unit =
+      module.declarations.collect { case trt: UntypedTrait => trt }.foreach { trt =>
+        val methods = trt.methods.map(method => functionInfo(method, Some(trt.name)))
+        duplicateMethodNames(methods, trt.name, trt.span)
+        traits.update(
+          trt.name,
+          TraitInfo(
+            trt.name,
+            methods.groupBy(_.name).view.mapValues(_.head).toMap,
+            trt.span,
+          ),
+        )
       }
 
     private def collectClasses(): Unit =
@@ -185,6 +208,156 @@ final class SourceTyper(
         )
       }
 
+    private def collectImpls(): Unit =
+      module.declarations.collect { case impl: UntypedImpl => impl }.foreach(collectImpl)
+
+    private def collectImpl(impl: UntypedImpl): Unit =
+      val targetName = impl.target.parts.headOption.getOrElse(impl.target.text)
+      val traitName = impl.traitName.text
+      val traitInfo = traits.get(traitName)
+      val classInfo = classes.get(targetName)
+
+      if traitInfo.isEmpty then
+        error(
+          "cosmo0.type.unknown-trait",
+          s"impl trait $traitName is not a known trait",
+          impl.traitName.span,
+        )
+      if classInfo.isEmpty then
+        error(
+          "cosmo0.type.unknown-type",
+          s"impl target ${impl.target.text} is not a known class",
+          impl.target.span,
+        )
+      if traitInfo.isEmpty || classInfo.isEmpty then return
+
+      val target = classInfo.get
+      val methods = impl.members.collect { case fn: UntypedFunction =>
+        functionInfo(fn, Some(targetName))
+      }
+      validateTraitImplementation(impl, traitInfo.get, target, methods)
+
+      val freshMethods = methods.filterNot(method =>
+        target.methods.contains(method.name),
+      )
+      val mergedMethods = target.methods ++ freshMethods.map(method => method.name -> method)
+      classes.update(targetName, target.copy(methods = mergedMethods))
+
+    private def validateTraitImplementation(
+        impl: UntypedImpl,
+        traitInfo: TraitInfo,
+        targetInfo: ClassInfo,
+        methods: List[FunctionInfo],
+    ): Unit =
+      duplicateMethodNames(methods, s"${impl.traitName.text} impl for ${targetInfo.name}", impl.span)
+
+      methods.foreach { method =>
+        if targetInfo.methods.contains(method.name) then
+          error(
+            "cosmo0.type.duplicate-method",
+            s"type ${targetInfo.name} already defines method ${method.name}",
+            method.span,
+          )
+        if !traitInfo.methods.contains(method.name) then
+          error(
+            "cosmo0.type.impl-extra-method",
+            s"trait ${traitInfo.name} does not declare method ${method.name}",
+            method.span,
+          )
+      }
+
+      traitInfo.methods.values.foreach { expected =>
+        methods.find(_.name == expected.name) match
+          case Some(actual) =>
+            val specialized = specializeSignature(expected.signature, traitInfo.name, targetInfo.name)
+            if !sameCallableSignature(actual.signature, specialized) then
+              error(
+                "cosmo0.type.impl-signature-mismatch",
+                s"impl ${traitInfo.name} for ${targetInfo.name} method ${actual.name} does not match the trait signature",
+                actual.span,
+              )
+          case None =>
+            error(
+              "cosmo0.type.impl-missing-method",
+              s"impl ${traitInfo.name} for ${targetInfo.name} is missing method ${expected.name}",
+              impl.span,
+            )
+      }
+
+    private def duplicateMethodNames(
+        methods: List[FunctionInfo],
+        ownerName: String,
+        span: SourceSpan,
+    ): Unit =
+      methods
+        .groupBy(_.name)
+        .toList
+        .filter(_._2.length > 1)
+        .foreach { case (name, duplicates) =>
+          error(
+            "cosmo0.type.duplicate-method",
+            s"$ownerName declares method $name multiple times",
+            duplicates.headOption.map(_.span).getOrElse(span),
+          )
+        }
+
+    private def specializeSignature(
+        signature: CallableSignature,
+        traitName: String,
+        targetName: String,
+    ): CallableSignature =
+      CallableSignature(
+        signature.name,
+        signature.params.map(param =>
+          CallableParam(param.name, specializeSelfType(param.valueType, traitName, targetName), param.span),
+        ),
+        specializeSelfType(signature.returnType, traitName, targetName),
+        signature.receiver.map(receiver =>
+          CallableReceiver(
+            specializeSelfType(receiver.valueType, traitName, targetName),
+            receiver.mutable,
+          ),
+        ),
+      )
+
+    private def specializeSelfType(
+        valueType: SourceType,
+        traitName: String,
+        targetName: String,
+    ): SourceType =
+      valueType match
+        case SourceType.User(name) if name == traitName =>
+          SourceType.User(targetName)
+        case SourceType.Ref(target, mutable) =>
+          SourceType.Ref(specializeSelfType(target, traitName, targetName), mutable)
+        case SourceType.Standard(name, args) =>
+          SourceType.Standard(name, args.map(specializeSelfType(_, traitName, targetName)))
+        case SourceType.Function(params, returnType) =>
+          SourceType.Function(
+            params.map(specializeSelfType(_, traitName, targetName)),
+            specializeSelfType(returnType, traitName, targetName),
+          )
+        case SourceType.Alias(name, target) =>
+          SourceType.Alias(name, specializeSelfType(target, traitName, targetName))
+        case other =>
+          other
+
+    private def sameCallableSignature(left: CallableSignature, right: CallableSignature): Boolean =
+      left.name == right.name &&
+        sameReceiver(left.receiver, right.receiver) &&
+        left.params.length == right.params.length &&
+        left.params.zip(right.params).forall { case (l, r) => SourceType.same(l.valueType, r.valueType) } &&
+        SourceType.same(left.returnType, right.returnType)
+
+    private def sameReceiver(left: Option[CallableReceiver], right: Option[CallableReceiver]): Boolean =
+      (left, right) match
+        case (None, None) =>
+          true
+        case (Some(l), Some(r)) =>
+          l.mutable == r.mutable && SourceType.same(l.valueType, r.valueType)
+        case _ =>
+          false
+
     private def collectFunctions(): Unit =
       module.declarations.collect { case fn: UntypedFunction => fn }.foreach { fn =>
         val info = functionInfo(fn, None)
@@ -205,8 +378,12 @@ final class SourceTyper(
           typed
         case fn: UntypedFunction =>
           functions.get(fn.name).map(info => typedFunction(info, scope))
+        case _: UntypedTrait =>
+          None
         case cls: UntypedClass =>
           classes.get(cls.name).map(info => typedClass(info, scope))
+        case _: UntypedImpl =>
+          None
 
     private def typedClass(info: ClassInfo, globalScope: Scope): TypedClass =
       val classScope = globalScope.child

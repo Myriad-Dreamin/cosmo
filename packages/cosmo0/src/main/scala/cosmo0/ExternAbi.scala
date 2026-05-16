@@ -108,6 +108,14 @@ object TrustedExternAbi:
     CppQualifiedSymbol.global("cosmo0_runtime", "println")
   private val readFileSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "read_file")
+  private val writeFileSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "write_file")
+  private val stringDataSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "string_data")
+  private val stringLenSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "string_len")
+  private val stringFromBytesSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "string_from_bytes")
   private val commandRunSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "command_run")
   private val jsonParseSymbol =
@@ -123,6 +131,7 @@ object TrustedExternAbi:
   private val boolOptionType = SourceType.Standard("Option", List(SourceType.Bool))
   private val stringOptionType = SourceType.Standard("Option", List(SourceType.String))
   private val usizeOptionType = SourceType.Standard("Option", List(SourceType.Usize))
+  private val u8PtrType = SourceType.Standard("Ptr", List(SourceType.Byte))
 
   private final case class TrustedBinding(
       sourceName: String,
@@ -196,6 +205,46 @@ object TrustedExternAbi:
         List(
           BackendRequirement.runtimeSymbol(readFileSymbol),
           BackendRequirement.include("<fstream>"),
+        ),
+      ),
+      TrustedBinding(
+        "write_file",
+        List(SourceType.String, SourceType.String),
+        SourceType.Unit,
+        writeFileSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(writeFileSymbol),
+          BackendRequirement.include("<fstream>"),
+        ),
+      ),
+      TrustedBinding(
+        "string_data",
+        List(SourceType.String),
+        u8PtrType,
+        stringDataSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(stringDataSymbol),
+          BackendRequirement.include("<string>"),
+        ),
+      ),
+      TrustedBinding(
+        "string_len",
+        List(SourceType.String),
+        SourceType.Usize,
+        stringLenSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(stringLenSymbol),
+          BackendRequirement.include("<string>"),
+        ),
+      ),
+      TrustedBinding(
+        "string_from_bytes",
+        List(u8PtrType, SourceType.Usize),
+        SourceType.String,
+        stringFromBytesSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(stringFromBytesSymbol),
+          BackendRequirement.include("<string>"),
         ),
       ),
       TrustedBinding(

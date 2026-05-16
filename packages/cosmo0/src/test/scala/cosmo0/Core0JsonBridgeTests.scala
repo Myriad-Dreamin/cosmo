@@ -1,8 +1,8 @@
 package cosmo0
 
 class Core0JsonBridgeTests extends munit.FunSuite:
-  private val core0JsonPath = "packages/cosmoc/src/core0/json.cos"
-  private val core0JsonTestPath = "packages/cosmoc/src/core0/json_test.cos"
+  private val core0JsonPath = "library/std/src/std/json.cos"
+  private val core0JsonTestPath = "library/std/src/std/json_test.cos"
   private val spanPath = "packages/cosmoc/src/source/span.cos"
   private val astPath = "packages/cosmoc/src/syntax/ast.cos"
   private val loaderPath = "packages/cosmoc/src/syntax/json_loader.cos"
