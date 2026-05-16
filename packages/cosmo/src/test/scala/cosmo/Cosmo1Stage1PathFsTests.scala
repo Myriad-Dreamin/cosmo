@@ -2,7 +2,7 @@ package cosmo
 
 class Cosmo1Stage1PathFsTest extends TestBase:
   private val sourceFiles = List(
-    "packages/cosmoc/src/core0/path_fs.cos",
+    "library/std/src/std/path_fs.cos",
     "packages/cosmoc/src/driver/config.cos",
     "packages/cosmoc/src/source/source.cos",
     "packages/cosmoc/src/source/source_test.cos",
@@ -20,7 +20,7 @@ class Cosmo1Stage1PathFsTest extends TestBase:
     val manifest =
       NodeFs.readFileSync("packages/cosmoc/cosmo.json", "utf8").asInstanceOf[String]
 
-    assert(manifest.contains("\"core0/path_fs.cos\""))
+    assert(manifest.contains("\"std/path_fs.cos\""))
     assert(manifest.contains("\"driver/config.cos\""))
     assert(manifest.contains("\"source/source.cos\""))
   }

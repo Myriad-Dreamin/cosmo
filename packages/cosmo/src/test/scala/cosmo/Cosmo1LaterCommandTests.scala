@@ -2,8 +2,8 @@ package cosmo
 
 class Cosmo1LaterCommandTest extends TestBase:
   private val sourceFiles = List(
-    "packages/cosmoc/src/core0/command.cos",
-    "packages/cosmoc/src/core0/command_test.cos",
+    "library/std/src/std/command.cos",
+    "library/std/src/std/command_test.cos",
     "packages/cosmoc/src/link/command.cos",
   )
 
@@ -19,8 +19,8 @@ class Cosmo1LaterCommandTest extends TestBase:
     val manifest =
       NodeFs.readFileSync("packages/cosmoc/cosmo.json", "utf8").asInstanceOf[String]
 
-    assert(!manifest.contains("\"core0/command.cos\""))
-    assert(!manifest.contains("\"core0/command_test.cos\""))
+    assert(!manifest.contains("\"std/command.cos\""))
+    assert(!manifest.contains("\"std/command_test.cos\""))
     assert(!manifest.contains("\"link/command.cos\""))
   }
 

@@ -1,0 +1,12 @@
+[package]
+name = "ureq-sys"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "cosmo_ureq_sys"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+ureq = "2.12.1"

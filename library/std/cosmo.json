@@ -1,5 +1,18 @@
 {
   "name": "@cosmo/std",
   "version": "0.0.0",
-  "no_std": true
+  "no_std": true,
+  "target": "cosmo0",
+  "sources": [
+    "std/bytes.cos",
+    "std/char_class.cos",
+    "std/char_class_test.cos",
+    "std/json.cos",
+    "std/json_test.cos",
+    "std/map_set.cos",
+    "std/map_set_test.cos",
+    "std/path_fs.cos",
+    "std/text.cos",
+    "std/text_output.cos"
+  ]
 }
