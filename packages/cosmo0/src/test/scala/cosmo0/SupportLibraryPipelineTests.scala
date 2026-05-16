@@ -14,6 +14,43 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       "target/cosmo/support-libraries/release/uri-sys/libcosmo_uri_sys.a",
     )
 
+  test("ureq-sys support-library id maps through the shared Rust pipeline"):
+    val id = SupportLibraryId.parse("ureq-sys").fold(fail(_), identity)
+    val artifact = SupportLibraryArtifact(id)
+    val plan = SupportLibraryLinkPlan
+      .fromBackendRequirements(List(BackendRequirement.supportLibrary(id.value)))
+      .fold(diagnostics => fail(diagnostics.map(_.message).mkString("\n")), identity)
+
+    assertEquals(id.crateDirectory, "crates/ureq-sys")
+    assertEquals(id.rustLibraryTarget, "cosmo_ureq_sys")
+    assertEquals(id.cSymbolPrefix, "cosmo_ureq_sys_")
+    assertEquals(artifact.fileName, "libcosmo_ureq_sys.a")
+    assertEquals(
+      artifact.path,
+      "target/cosmo/support-libraries/release/ureq-sys/libcosmo_ureq_sys.a",
+    )
+    assertEquals(
+      plan.linkArguments,
+      List("target/cosmo/support-libraries/release/ureq-sys/libcosmo_ureq_sys.a"),
+    )
+
+  test("ureq-sys package declarations check as a cosmo0 support-library surface"):
+    val checked = Cosmo0().checkPackage("packages/ureq-sys")
+
+    assert(
+      checked.isSuccess,
+      s"ureq-sys package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(checked.value.get.metadata.name, "@cosmo/ureq-sys")
+    assertEquals(checked.value.get.moduleOrder, List("ureq_sys"))
+
+    val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
+      fn.name -> fn.externBinding.flatMap(_.supportLibrary)
+    }
+    assert(functions.contains("ureq_sys_request_new" -> Some("ureq-sys")))
+    assert(functions.contains("ureq_sys_response_body_bytes" -> Some("ureq-sys")))
+    assert(functions.contains("ureq_sys_error_release" -> Some("ureq-sys")))
+
   test("extern supportLibrary metadata uses shared identifier validation"):
     val accepted = Cosmo0().elaborate(
       """@extern("c", name = "cosmo_support_smoke_add", supportLibrary = "support-smoke")

@@ -1,0 +1,117 @@
+class UreqSysAbiStatus {
+  val abi_version: u32
+  val value: i32
+}
+
+class UreqSysBytes {
+  val capacity: usize
+  val len: usize
+  val ptr: Ptr[u8]
+}
+
+class UreqSysRawError {}
+
+class UreqSysRawRequest {}
+
+class UreqSysRawResponse {}
+
+class UreqSysRequestResult {
+  val error: Ptr[UreqSysRawError]
+  val request: Ptr[UreqSysRawRequest]
+}
+
+class UreqSysResponseResult {
+  val error: Ptr[UreqSysRawError]
+  val response: Ptr[UreqSysRawResponse]
+}
+
+class UreqSysBytesResult {
+  val bytes: UreqSysBytes
+  val error: Ptr[UreqSysRawError]
+}
+
+class UreqSysHeaderResult {
+  val error: Ptr[UreqSysRawError]
+  val found: u8
+  val value: UreqSysBytes
+}
+
+@extern("c", name = "cosmo_ureq_sys_abi_status", supportLibrary = "ureq-sys")
+def ureq_sys_abi_status(): UreqSysAbiStatus
+
+@extern("c", name = "cosmo_ureq_sys_request_new", supportLibrary = "ureq-sys")
+def ureq_sys_request_new(
+  method_ptr: Ptr[u8],
+  method_len: usize,
+  url_ptr: Ptr[u8],
+  url_len: usize
+): UreqSysRequestResult
+
+@extern("c", name = "cosmo_ureq_sys_request_set_header", supportLibrary = "ureq-sys")
+def ureq_sys_request_set_header(
+  request: Ptr[UreqSysRawRequest],
+  name_ptr: Ptr[u8],
+  name_len: usize,
+  value_ptr: Ptr[u8],
+  value_len: usize
+): Ptr[UreqSysRawError]
+
+@extern("c", name = "cosmo_ureq_sys_request_set_timeout_ms", supportLibrary = "ureq-sys")
+def ureq_sys_request_set_timeout_ms(request: Ptr[UreqSysRawRequest], timeout_ms: u64): Ptr[UreqSysRawError]
+
+@extern("c", name = "cosmo_ureq_sys_request_call", supportLibrary = "ureq-sys")
+def ureq_sys_request_call(request: Ptr[UreqSysRawRequest]): UreqSysResponseResult
+
+@extern("c", name = "cosmo_ureq_sys_request_send_text", supportLibrary = "ureq-sys")
+def ureq_sys_request_send_text(
+  request: Ptr[UreqSysRawRequest],
+  body_ptr: Ptr[u8],
+  body_len: usize
+): UreqSysResponseResult
+
+@extern("c", name = "cosmo_ureq_sys_request_send_bytes", supportLibrary = "ureq-sys")
+def ureq_sys_request_send_bytes(
+  request: Ptr[UreqSysRawRequest],
+  body_ptr: Ptr[u8],
+  body_len: usize
+): UreqSysResponseResult
+
+@extern("c", name = "cosmo_ureq_sys_request_release", supportLibrary = "ureq-sys")
+def ureq_sys_request_release(request: Ptr[UreqSysRawRequest]): Unit
+
+@extern("c", name = "cosmo_ureq_sys_response_status", supportLibrary = "ureq-sys")
+def ureq_sys_response_status(response: Ptr[UreqSysRawResponse]): u16
+
+@extern("c", name = "cosmo_ureq_sys_response_status_text", supportLibrary = "ureq-sys")
+def ureq_sys_response_status_text(response: Ptr[UreqSysRawResponse]): UreqSysBytesResult
+
+@extern("c", name = "cosmo_ureq_sys_response_header", supportLibrary = "ureq-sys")
+def ureq_sys_response_header(
+  response: Ptr[UreqSysRawResponse],
+  name_ptr: Ptr[u8],
+  name_len: usize
+): UreqSysHeaderResult
+
+@extern("c", name = "cosmo_ureq_sys_response_body_text", supportLibrary = "ureq-sys")
+def ureq_sys_response_body_text(response: Ptr[UreqSysRawResponse]): UreqSysBytesResult
+
+@extern("c", name = "cosmo_ureq_sys_response_body_bytes", supportLibrary = "ureq-sys")
+def ureq_sys_response_body_bytes(response: Ptr[UreqSysRawResponse], max_bytes: usize): UreqSysBytesResult
+
+@extern("c", name = "cosmo_ureq_sys_response_release", supportLibrary = "ureq-sys")
+def ureq_sys_response_release(response: Ptr[UreqSysRawResponse]): Unit
+
+@extern("c", name = "cosmo_ureq_sys_error_kind", supportLibrary = "ureq-sys")
+def ureq_sys_error_kind(error: Ptr[UreqSysRawError]): u32
+
+@extern("c", name = "cosmo_ureq_sys_error_status", supportLibrary = "ureq-sys")
+def ureq_sys_error_status(error: Ptr[UreqSysRawError]): u16
+
+@extern("c", name = "cosmo_ureq_sys_error_message", supportLibrary = "ureq-sys")
+def ureq_sys_error_message(error: Ptr[UreqSysRawError]): UreqSysBytes
+
+@extern("c", name = "cosmo_ureq_sys_error_release", supportLibrary = "ureq-sys")
+def ureq_sys_error_release(error: Ptr[UreqSysRawError]): Unit
+
+@extern("c", name = "cosmo_ureq_sys_bytes_release", supportLibrary = "ureq-sys")
+def ureq_sys_bytes_release(bytes: UreqSysBytes): Unit
