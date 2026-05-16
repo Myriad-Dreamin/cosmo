@@ -42,6 +42,19 @@ Requirements:
 yarn compile && node cmd/cosmo/main.js run samples/HelloWorld/main.cos
 ```
 
+Package-owned tools can be run from a cosmo0 package root when the package
+exposes a top-level zero-argument `main` entrypoint:
+
+```
+yarn compile && node cmd/cosmo/main.js -p fixtures/cosmo0/package/run-smoke run -- --example-arg
+```
+
+The package executable is built under the selected package's `target/` directory,
+executes with the package root as its working directory, and receives all
+arguments after `run` (or after `--`) as process arguments.
+It uses the cosmo0 C++ backend, so host execution needs the backend's C++17 and
+`nlohmann/json.hpp` include setup available locally.
+
 ## Implementation Note
 
 Demonstration:
