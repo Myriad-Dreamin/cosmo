@@ -1,0 +1,452 @@
+import std.json
+import std.text
+
+class JsonRpcId {
+  case Number(String)
+  case String(String)
+  case Null
+}
+
+class JsonRpcError {
+  val code: i32
+  val message: String
+  val data: Option[JsonValue]
+}
+
+class JsonRpcRequest {
+  val id: JsonRpcId
+  val method: String
+  val params: Option[JsonValue]
+}
+
+class JsonRpcNotification {
+  val method: String
+  val params: Option[JsonValue]
+}
+
+class JsonRpcResponse {
+  val id: JsonRpcId
+  val result: Option[JsonValue]
+  val error: Option[JsonRpcError]
+}
+
+class JsonRpcMessage {
+  case Request(JsonRpcRequest)
+  case Response(JsonRpcResponse)
+  case Notification(JsonRpcNotification)
+}
+
+class JsonRpcDecodeError {
+  val code: i32
+  val message: String
+}
+
+class JsonRpcOutboundRequest {
+  val id: JsonRpcId
+  val method: String
+  val params_json: Option[String]
+}
+
+class JsonRpcOutboundNotification {
+  val method: String
+  val params_json: Option[String]
+}
+
+class JsonRpcOutboundResponse {
+  val id: JsonRpcId
+  val result_json: Option[String]
+  val error: Option[JsonRpcOutboundError]
+}
+
+class JsonRpcOutboundError {
+  val code: i32
+  val message: String
+  val data_json: Option[String]
+}
+
+def jsonrpc_parse_error(message: String): JsonRpcDecodeError = {
+  JsonRpcDecodeError(-32700, message)
+}
+
+def jsonrpc_invalid_request(message: String): JsonRpcDecodeError = {
+  JsonRpcDecodeError(-32600, message)
+}
+
+def jsonrpc_number_id(value: String): JsonRpcId = {
+  JsonRpcId.Number(value)
+}
+
+def jsonrpc_string_id(value: String): JsonRpcId = {
+  JsonRpcId.String(value)
+}
+
+def jsonrpc_null_id(): JsonRpcId = {
+  JsonRpcId.Null()
+}
+
+def jsonrpc_encode_request(request: JsonRpcOutboundRequest): String = {
+  val builder = jsonrpc_envelope_builder();
+  builder.push(",\"id\":");
+  builder.push(jsonrpc_encode_id(request.id));
+  builder.push(",\"method\":");
+  builder.push(jsonrpc_quote(request.method));
+  request.params_json match {
+    case Option[String]::Some(raw) => {
+      builder.push(",\"params\":");
+      builder.push(raw)
+    }
+    case Option[String]::None => {
+    }
+  }
+  builder.push("}");
+  builder.finish()
+}
+
+def jsonrpc_encode_notification(notification: JsonRpcOutboundNotification): String = {
+  val builder = jsonrpc_envelope_builder();
+  builder.push(",\"method\":");
+  builder.push(jsonrpc_quote(notification.method));
+  notification.params_json match {
+    case Option[String]::Some(raw) => {
+      builder.push(",\"params\":");
+      builder.push(raw)
+    }
+    case Option[String]::None => {
+    }
+  }
+  builder.push("}");
+  builder.finish()
+}
+
+def jsonrpc_encode_response(response: JsonRpcOutboundResponse): String = {
+  val builder = jsonrpc_envelope_builder();
+  builder.push(",\"id\":");
+  builder.push(jsonrpc_encode_id(response.id));
+  response.error match {
+    case Option[JsonRpcOutboundError]::Some(error) => {
+      builder.push(",\"error\":");
+      builder.push(jsonrpc_encode_error(error))
+    }
+    case Option[JsonRpcOutboundError]::None => {
+      response.result_json match {
+        case Option[String]::Some(result) => {
+          builder.push(",\"result\":");
+          builder.push(result)
+        }
+        case Option[String]::None => {
+          builder.push(",\"result\":null")
+        }
+      }
+    }
+  }
+  builder.push("}");
+  builder.finish()
+}
+
+def jsonrpc_decode_message(text: String): Result[JsonRpcMessage, JsonRpcDecodeError] = {
+  val parsed = core0_json().parse(text);
+  parsed match {
+    case Result[JsonValue, JsonParseError]::Ok(value) => {
+      jsonrpc_decode_value(value)
+    }
+    case Result[JsonValue, JsonParseError]::Err(error) => {
+      Result[JsonRpcMessage, JsonRpcDecodeError]::Err(jsonrpc_parse_error(error.message))
+    }
+  }
+}
+
+def jsonrpc_i32_text(value: i32): String = {
+  if (value == -32700) { return "-32700" }
+  if (value == -32600) { return "-32600" }
+  if (value == -32601) { return "-32601" }
+  if (value == -32602) { return "-32602" }
+  if (value == -32603) { return "-32603" }
+  if (value == -32002) { return "-32002" }
+  if (value == -32001) { return "-32001" }
+  if (value == 0) { return "0" }
+  "0"
+}
+
+def jsonrpc_decode_value(value: JsonValue): Result[JsonRpcMessage, JsonRpcDecodeError] = {
+  value.array_len() match {
+    case Option[usize]::Some(len) => {
+      return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(jsonrpc_invalid_request("JSON-RPC batch messages are not supported"))
+    }
+    case Option[usize]::None => {
+    }
+  }
+
+  val version = jsonrpc_required_string(value, "jsonrpc") match {
+    case Result[String, JsonRpcDecodeError]::Ok(text) => {
+      text
+    }
+    case Result[String, JsonRpcDecodeError]::Err(error) => {
+      return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error)
+    }
+  };
+  if (version != "2.0") {
+    return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(jsonrpc_invalid_request("jsonrpc must be \"2.0\""))
+  }
+
+  val maybe_method = value.field("method");
+  maybe_method match {
+    case Option[JsonValue]::Some(method_value) => {
+      jsonrpc_decode_method_message(value, method_value)
+    }
+    case Option[JsonValue]::None => {
+      jsonrpc_decode_response(value)
+    }
+  }
+}
+
+def jsonrpc_decode_method_message(value: JsonValue, method_value: JsonValue): Result[JsonRpcMessage, JsonRpcDecodeError] = {
+  val method = jsonrpc_string_value(method_value, "method must be a string") match {
+    case Result[String, JsonRpcDecodeError]::Ok(text) => {
+      text
+    }
+    case Result[String, JsonRpcDecodeError]::Err(error) => {
+      return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error)
+    }
+  };
+
+  val params = value.field("params");
+  value.field("id") match {
+    case Option[JsonValue]::Some(id_value) => {
+      val id = jsonrpc_decode_id(id_value) match {
+        case Result[JsonRpcId, JsonRpcDecodeError]::Ok(decoded) => {
+          decoded
+        }
+        case Result[JsonRpcId, JsonRpcDecodeError]::Err(error) => {
+          return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error)
+        }
+      };
+      Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(JsonRpcMessage.Request(JsonRpcRequest(id, method, params)))
+    }
+    case Option[JsonValue]::None => {
+      Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(JsonRpcMessage.Notification(JsonRpcNotification(method, params)))
+    }
+  }
+}
+
+def jsonrpc_decode_response(value: JsonValue): Result[JsonRpcMessage, JsonRpcDecodeError] = {
+  val id_value = value.field("id") match {
+    case Option[JsonValue]::Some(decoded) => {
+      decoded
+    }
+    case Option[JsonValue]::None => {
+      return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(jsonrpc_invalid_request("response id is required"))
+    }
+  };
+  val id = jsonrpc_decode_id(id_value) match {
+    case Result[JsonRpcId, JsonRpcDecodeError]::Ok(decoded) => {
+      decoded
+    }
+    case Result[JsonRpcId, JsonRpcDecodeError]::Err(error) => {
+      return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error)
+    }
+  };
+
+  val result = value.field("result");
+  val error = value.field("error") match {
+    case Option[JsonValue]::Some(error_value) => {
+      jsonrpc_decode_error(error_value) match {
+        case Result[JsonRpcError, JsonRpcDecodeError]::Ok(decoded) => {
+          Option[JsonRpcError]::Some(decoded)
+        }
+        case Result[JsonRpcError, JsonRpcDecodeError]::Err(error) => {
+          return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error)
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      Option[JsonRpcError]::None
+    }
+  };
+
+  if (jsonrpc_has_result(result) == jsonrpc_has_error(error)) {
+    return Result[JsonRpcMessage, JsonRpcDecodeError]::Err(jsonrpc_invalid_request("response must contain exactly one of result or error"))
+  }
+  Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(JsonRpcMessage.Response(JsonRpcResponse(id, result, error)))
+}
+
+def jsonrpc_decode_error(value: JsonValue): Result[JsonRpcError, JsonRpcDecodeError] = {
+  val code = jsonrpc_required_number_text(value, "code") match {
+    case Result[String, JsonRpcDecodeError]::Ok(text) => {
+      text
+    }
+    case Result[String, JsonRpcDecodeError]::Err(error) => {
+      return Result[JsonRpcError, JsonRpcDecodeError]::Err(error)
+    }
+  };
+  val message = jsonrpc_required_string(value, "message") match {
+    case Result[String, JsonRpcDecodeError]::Ok(text) => {
+      text
+    }
+    case Result[String, JsonRpcDecodeError]::Err(error) => {
+      return Result[JsonRpcError, JsonRpcDecodeError]::Err(error)
+    }
+  };
+  val numeric_code = jsonrpc_error_code_from_text(code) match {
+    case Result[i32, JsonRpcDecodeError]::Ok(value) => {
+      value
+    }
+    case Result[i32, JsonRpcDecodeError]::Err(error) => {
+      return Result[JsonRpcError, JsonRpcDecodeError]::Err(error)
+    }
+  };
+  Result[JsonRpcError, JsonRpcDecodeError]::Ok(JsonRpcError(numeric_code, message, value.field("data")))
+}
+
+def jsonrpc_decode_id(value: JsonValue): Result[JsonRpcId, JsonRpcDecodeError] = {
+  val string_id = value.as_string();
+  string_id match {
+    case Option[String]::Some(text) => {
+      return Result[JsonRpcId, JsonRpcDecodeError]::Ok(JsonRpcId.String(text))
+    }
+    case Option[String]::None => {
+    }
+  }
+  val number_id = value.as_number_text();
+  number_id match {
+    case Option[String]::Some(text) => {
+      return Result[JsonRpcId, JsonRpcDecodeError]::Ok(JsonRpcId.Number(text))
+    }
+    case Option[String]::None => {
+    }
+  }
+  if (value.is_null()) {
+    Result[JsonRpcId, JsonRpcDecodeError]::Ok(JsonRpcId.Null())
+  } else {
+    Result[JsonRpcId, JsonRpcDecodeError]::Err(jsonrpc_invalid_request("id must be a string, number, or null"))
+  }
+}
+
+def jsonrpc_required_string(value: JsonValue, field: String): Result[String, JsonRpcDecodeError] = {
+  value.field(field) match {
+    case Option[JsonValue]::Some(field_value) => {
+      jsonrpc_string_value(field_value, field.concat(" must be a string"))
+    }
+    case Option[JsonValue]::None => {
+      Result[String, JsonRpcDecodeError]::Err(jsonrpc_invalid_request(field.concat(" is required")))
+    }
+  }
+}
+
+def jsonrpc_required_number_text(value: JsonValue, field: String): Result[String, JsonRpcDecodeError] = {
+  value.field(field) match {
+    case Option[JsonValue]::Some(field_value) => {
+      field_value.as_number_text() match {
+        case Option[String]::Some(text) => {
+          Result[String, JsonRpcDecodeError]::Ok(text)
+        }
+        case Option[String]::None => {
+          Result[String, JsonRpcDecodeError]::Err(jsonrpc_invalid_request(field.concat(" must be a number")))
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      Result[String, JsonRpcDecodeError]::Err(jsonrpc_invalid_request(field.concat(" is required")))
+    }
+  }
+}
+
+def jsonrpc_string_value(value: JsonValue, message: String): Result[String, JsonRpcDecodeError] = {
+  value.as_string() match {
+    case Option[String]::Some(text) => {
+      Result[String, JsonRpcDecodeError]::Ok(text)
+    }
+    case Option[String]::None => {
+      Result[String, JsonRpcDecodeError]::Err(jsonrpc_invalid_request(message))
+    }
+  }
+}
+
+def jsonrpc_has_result(value: Option[JsonValue]): Bool = {
+  value match {
+    case Option[JsonValue]::Some(result) => {
+      true
+    }
+    case Option[JsonValue]::None => {
+      false
+    }
+  }
+}
+
+def jsonrpc_has_error(value: Option[JsonRpcError]): Bool = {
+  value match {
+    case Option[JsonRpcError]::Some(error) => {
+      true
+    }
+    case Option[JsonRpcError]::None => {
+      false
+    }
+  }
+}
+
+def jsonrpc_envelope_builder(): TextBuilder = {
+  core0_text_builder_from("{\"jsonrpc\":\"2.0\"")
+}
+
+def jsonrpc_encode_id(id: JsonRpcId): String = {
+  id match {
+    case JsonRpcId.Number(value) => {
+      value
+    }
+    case JsonRpcId.String(value) => {
+      jsonrpc_quote(value)
+    }
+    case JsonRpcId.Null => {
+      "null"
+    }
+  }
+}
+
+def jsonrpc_encode_error(error: JsonRpcOutboundError): String = {
+  val builder = core0_text_builder_from("{\"code\":");
+  builder.push(jsonrpc_i32_text(error.code));
+  builder.push(",\"message\":");
+  builder.push(jsonrpc_quote(error.message));
+  error.data_json match {
+    case Option[String]::Some(raw) => {
+      builder.push(",\"data\":");
+      builder.push(raw)
+    }
+    case Option[String]::None => {
+    }
+  }
+  builder.push("}");
+  builder.finish()
+}
+
+def jsonrpc_quote(value: String): String = {
+  val builder = core0_text_builder_from("\"");
+  var offset: usize = 0;
+  while (offset < value.len()) {
+    builder.push(jsonrpc_escaped_byte(value, offset));
+    offset = offset + 1
+  }
+  builder.push("\"");
+  builder.finish()
+}
+
+def jsonrpc_escaped_byte(value: String, offset: usize): String = {
+  val byte = value.byte_at(offset);
+  if (byte == a"\"") { return "\\\"" }
+  if (byte == a"\\") { return "\\\\" }
+  if (byte == a"\n") { return "\\n" }
+  if (byte == a"\r") { return "\\r" }
+  if (byte == a"\t") { return "\\t" }
+  value.slice(offset, offset + 1)
+}
+
+def jsonrpc_error_code_from_text(text: String): Result[i32, JsonRpcDecodeError] = {
+  if (text == "-32700") { return Result[i32, JsonRpcDecodeError]::Ok(-32700) }
+  if (text == "-32600") { return Result[i32, JsonRpcDecodeError]::Ok(-32600) }
+  if (text == "-32601") { return Result[i32, JsonRpcDecodeError]::Ok(-32601) }
+  if (text == "-32602") { return Result[i32, JsonRpcDecodeError]::Ok(-32602) }
+  if (text == "-32603") { return Result[i32, JsonRpcDecodeError]::Ok(-32603) }
+  if (text == "-32002") { return Result[i32, JsonRpcDecodeError]::Ok(-32002) }
+  if (text == "-32001") { return Result[i32, JsonRpcDecodeError]::Ok(-32001) }
+  if (text == "0") { return Result[i32, JsonRpcDecodeError]::Ok(0) }
+  Result[i32, JsonRpcDecodeError]::Err(jsonrpc_invalid_request("unsupported error code"))
+}
