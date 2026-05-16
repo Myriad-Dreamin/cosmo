@@ -1,0 +1,302 @@
+import jsonrpc.core
+import jsonrpc.session
+import std.text
+
+class LspLifecycleState {
+  case Created
+  case InitializeResultSent
+  case Ready
+  case Shutdown
+  case Exited
+}
+
+class LspServerCapabilities {
+  val text_document_sync: i32
+  val hover_provider: Bool
+}
+
+class LspDocumentEvent {
+  case DidOpen(String)
+  case DidChange(String)
+  case DidClose(String)
+}
+
+class LspRequestHandlerRegistration {
+  val method: String
+}
+
+class LspNotificationHandlerRegistration {
+  val method: String
+}
+
+class LspDispatchResult {
+  val handled: Bool
+  val method: String
+}
+
+class LspServer {
+  var state: LspLifecycleState
+  var session: JsonRpcSession
+  var capabilities: LspServerCapabilities
+  var document_events: Vec[LspDocumentEvent]
+  var request_handlers: Vec[LspRequestHandlerRegistration]
+  var notification_handlers: Vec[LspNotificationHandlerRegistration]
+
+  def register_request_handler(&mut self, method: String): Unit = {
+    if (!self.has_request_handler(method)) {
+      self.request_handlers.push(LspRequestHandlerRegistration(method))
+    }
+  }
+
+  def register_notification_handler(&mut self, method: String): Unit = {
+    if (!self.has_notification_handler(method)) {
+      self.notification_handlers.push(LspNotificationHandlerRegistration(method))
+    }
+  }
+
+  def has_request_handler(&self, method: String): Bool = {
+    for (handler in self.request_handlers) {
+      if (handler.method == method) {
+        return true
+      }
+    }
+    false
+  }
+
+  def has_notification_handler(&self, method: String): Bool = {
+    for (handler in self.notification_handlers) {
+      if (handler.method == method) {
+        return true
+      }
+    }
+    false
+  }
+
+  def dispatch_text(&mut self, text: String): Result[LspDispatchResult, JsonRpcDecodeError] = {
+    var session = self.session;
+    val decoded = session.receive(text);
+    self.session = session;
+    decoded match {
+      case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+        Result[LspDispatchResult, JsonRpcDecodeError]::Ok(self.dispatch_message(message))
+      }
+      case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+        Result[LspDispatchResult, JsonRpcDecodeError]::Err(error)
+      }
+    }
+  }
+
+  def dispatch_message(&mut self, message: JsonRpcMessage): LspDispatchResult = {
+    message match {
+      case JsonRpcMessage.Request(request) => {
+        self.dispatch_request(request)
+      }
+      case JsonRpcMessage.Notification(notification) => {
+        self.dispatch_notification(notification)
+      }
+      case JsonRpcMessage.Response(response) => {
+        LspDispatchResult(false, "")
+      }
+    }
+  }
+
+  def dispatch_request(&mut self, request: JsonRpcRequest): LspDispatchResult = {
+    if (request.method == "initialize") {
+      self.state = LspLifecycleState.InitializeResultSent();
+      self.push_outbound(jsonrpc_encode_response(JsonRpcOutboundResponse(
+        request.id,
+        Option[String]::Some(lsp_initialize_result_json(self.capabilities)),
+        Option[JsonRpcOutboundError]::None
+      )));
+      return LspDispatchResult(true, request.method)
+    }
+
+    if (request.method == "shutdown") {
+      self.state = LspLifecycleState.Shutdown();
+      self.push_outbound(jsonrpc_encode_response(JsonRpcOutboundResponse(
+        request.id,
+        Option[String]::Some("null"),
+        Option[JsonRpcOutboundError]::None
+      )));
+      return LspDispatchResult(true, request.method)
+    }
+
+    if (self.has_request_handler(request.method)) {
+      return LspDispatchResult(true, request.method)
+    }
+
+    self.push_outbound(jsonrpc_encode_response(JsonRpcOutboundResponse(
+      request.id,
+      Option[String]::None,
+      Option[JsonRpcOutboundError]::Some(JsonRpcOutboundError(-32601, "method not found", Option[String]::None))
+    )));
+    LspDispatchResult(false, request.method)
+  }
+
+  def dispatch_notification(&mut self, notification: JsonRpcNotification): LspDispatchResult = {
+    if (notification.method == "initialized") {
+      self.state = LspLifecycleState.Ready();
+      return LspDispatchResult(true, notification.method)
+    }
+
+    if (notification.method == "exit") {
+      self.state = LspLifecycleState.Exited();
+      return LspDispatchResult(true, notification.method)
+    }
+
+    if (notification.method == "textDocument/didOpen") {
+      self.record_document_event(notification.method, notification.params, "textDocument", true);
+      return LspDispatchResult(true, notification.method)
+    }
+
+    if (notification.method == "textDocument/didChange") {
+      self.record_document_event(notification.method, notification.params, "textDocument", false);
+      return LspDispatchResult(true, notification.method)
+    }
+
+    if (notification.method == "textDocument/didClose") {
+      self.record_document_event(notification.method, notification.params, "textDocument", true);
+      return LspDispatchResult(true, notification.method)
+    }
+
+    if (self.has_notification_handler(notification.method)) {
+      return LspDispatchResult(true, notification.method)
+    }
+
+    LspDispatchResult(false, notification.method)
+  }
+
+  def record_document_event(&mut self, method: String, params: Option[JsonValue], document_field: String, required: Bool): Unit = {
+    val uri = lsp_params_document_uri(params, document_field);
+    uri match {
+      case Option[String]::Some(value) => {
+        self.push_document_event(method, value)
+      }
+      case Option[String]::None => {
+        if (required) {
+          self.push_document_event(method, "")
+        }
+      }
+    }
+  }
+
+  def push_document_event(&mut self, method: String, uri: String): Unit = {
+    if (method == "textDocument/didOpen") {
+      self.document_events.push(LspDocumentEvent.DidOpen(uri))
+    }
+    if (method == "textDocument/didChange") {
+      self.document_events.push(LspDocumentEvent.DidChange(uri))
+    }
+    if (method == "textDocument/didClose") {
+      self.document_events.push(LspDocumentEvent.DidClose(uri))
+    }
+  }
+
+  def publish_diagnostics(&mut self, uri: String, diagnostics_json: String): Unit = {
+    var session = self.session;
+    session.notify(
+      "textDocument/publishDiagnostics",
+      Option[String]::Some(lsp_publish_diagnostics_params_json(uri, diagnostics_json))
+    );
+    self.session = session
+  }
+
+  def document_event_len(&self): usize = {
+    self.document_events.size()
+  }
+
+  def outbound_len(&self): usize = {
+    self.session.outbound_len()
+  }
+
+  def push_outbound(&mut self, text: String): Unit = {
+    var session = self.session;
+    session.outbound.push(text);
+    self.session = session
+  }
+}
+
+def lsp_server(): LspServer = {
+  val server = LspServer(
+    LspLifecycleState.Created(),
+    jsonrpc_session(),
+    lsp_server_capabilities(),
+    Vec[LspDocumentEvent](),
+    Vec[LspRequestHandlerRegistration](),
+    Vec[LspNotificationHandlerRegistration]()
+  );
+  server.register_request_handler("initialize");
+  server.register_request_handler("shutdown");
+  server.register_notification_handler("initialized");
+  server.register_notification_handler("exit");
+  server.register_notification_handler("textDocument/didOpen");
+  server.register_notification_handler("textDocument/didChange");
+  server.register_notification_handler("textDocument/didClose");
+  server
+}
+
+def lsp_server_capabilities(): LspServerCapabilities = {
+  LspServerCapabilities(2, false)
+}
+
+def lsp_initialize_result_json(capabilities: LspServerCapabilities): String = {
+  "{\"capabilities\":".concat(lsp_server_capabilities_json(capabilities)).concat(",\"serverInfo\":{\"name\":\"cosmo-ls-base\"}}")
+}
+
+def lsp_server_capabilities_json(capabilities: LspServerCapabilities): String = {
+  val builder = core0_text_builder_from("{\"textDocumentSync\":{\"openClose\":true,\"change\":");
+  builder.push(lsp_text_document_sync_kind_text(capabilities.text_document_sync));
+  builder.push("},\"hoverProvider\":");
+  if (capabilities.hover_provider) {
+    builder.push("true")
+  } else {
+    builder.push("false")
+  }
+  builder.push("}");
+  builder.finish()
+}
+
+def lsp_text_document_sync_kind_text(value: i32): String = {
+  if (value == 0) { return "0" }
+  if (value == 1) { return "1" }
+  if (value == 2) { return "2" }
+  "0"
+}
+
+def lsp_params_document_uri(params: Option[JsonValue], document_field: String): Option[String] = {
+  params match {
+    case Option[JsonValue]::Some(value) => {
+      lsp_document_uri(value, document_field)
+    }
+    case Option[JsonValue]::None => {
+      Option[String]::None
+    }
+  }
+}
+
+def lsp_document_uri(value: JsonValue, document_field: String): Option[String] = {
+  value.field(document_field) match {
+    case Option[JsonValue]::Some(document) => {
+      document.field("uri") match {
+        case Option[JsonValue]::Some(uri_value) => {
+          uri_value.as_string()
+        }
+        case Option[JsonValue]::None => {
+          Option[String]::None
+        }
+      }
+    }
+    case Option[JsonValue]::None => {
+      Option[String]::None
+    }
+  }
+}
+
+def lsp_publish_diagnostics_params_json(uri: String, diagnostics_json: String): String = {
+  val builder = core0_text_builder_from("{\"uri\":");
+  builder.push(jsonrpc_quote(uri));
+  builder.push(",\"diagnostics\":");
+  builder.push(diagnostics_json);
+  builder.push("}");
+  builder.finish()
+}

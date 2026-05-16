@@ -1,11 +1,31 @@
 import jsonrpc.core_test
+import lsp.lifecycle_test
 import std.text_output
 
 def main(): i32 = {
-  if (jsonrpc_all_tests()) {
-    0
-  } else {
+  if (!jsonrpc_all_tests()) {
     core0_stdout_write("jsonrpc_all_tests failed\n");
-    1
+    return 1
   }
+  if (!lsp_test_lifecycle_transitions()) {
+    core0_stdout_write("lsp_test_lifecycle_transitions failed\n");
+    return 1
+  }
+  if (!lsp_test_document_routing()) {
+    core0_stdout_write("lsp_test_document_routing failed\n");
+    return 1
+  }
+  if (!lsp_test_publish_diagnostics()) {
+    core0_stdout_write("lsp_test_publish_diagnostics failed\n");
+    return 1
+  }
+  if (!lsp_test_capability_shape()) {
+    core0_stdout_write("lsp_test_capability_shape failed\n");
+    return 1
+  }
+  if (!lsp_test_handler_registration()) {
+    core0_stdout_write("lsp_test_handler_registration failed\n");
+    return 1
+  }
+  0
 }
