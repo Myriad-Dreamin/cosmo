@@ -1,0 +1,63 @@
+import lsp.document_events
+import lsp.lifecycle
+import workspace.documents
+import workspace.workspace
+
+def cosmos_test_workspace_selects_module_path(): Bool = {
+  val workspace = cosmos_workspace();
+  workspace.add_package_root("/repo/packages/app");
+  val selected = workspace.select_package_for_file("/repo/packages/app/src/driver/main.cos");
+  selected match {
+    case Option[CosmosPackageSelection]::Some(value) => {
+      value.package_root == "/repo/packages/app" and
+        value.source_root == "/repo/packages/app/src" and
+        value.module_path == "driver/main"
+    }
+    case Option[CosmosPackageSelection]::None => {
+      false
+    }
+  }
+}
+
+def cosmos_test_document_snapshots_change_and_close(): Bool = {
+  val documents = cosmos_open_documents();
+  documents.open("file:///repo/packages/app/src/main.cos", "/repo/packages/app/src/main.cos", 1, "def a(): Unit = {}", "/repo/packages/app", "main");
+  val changed = documents.change("file:///repo/packages/app/src/main.cos", 2, "def b(): Unit = {}");
+  if (!cosmos_snapshot_result_is_open(changed, 2, "def b(): Unit = {}")) {
+    return false
+  }
+
+  val closed = documents.close("file:///repo/packages/app/src/main.cos");
+  closed match {
+    case Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Ok(snapshot) => {
+      !snapshot.is_open and snapshot.version == 2 and snapshot.module_path == "main"
+    }
+    case Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def cosmos_test_package_session_cache_reuses_session(): Bool = {
+  val workspace = cosmos_workspace();
+  val first = workspace.session_for_root("/repo/packages/app");
+  val second = workspace.session_for_root("/repo/packages/app");
+  val other = workspace.session_for_root("/repo/packages/other");
+  first.id == second.id and other.id != first.id
+}
+
+def cosmos_test_lsp_event_bridge_keeps_uri(): Bool = {
+  val event = cosmos_lsp_document_event(LspDocumentEvent.DidChange("file:///repo/packages/app/src/main.cos"));
+  event.kind == "change" and event.uri == "file:///repo/packages/app/src/main.cos"
+}
+
+def cosmos_snapshot_result_is_open(result: Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError], version: i32, text: String): Bool = {
+  result match {
+    case Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Ok(snapshot) => {
+      snapshot.is_open and snapshot.version == version and snapshot.text == text
+    }
+    case Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(error) => {
+      false
+    }
+  }
+}

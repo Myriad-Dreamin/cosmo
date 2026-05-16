@@ -1,0 +1,9 @@
+class CosmosPackageSession {
+  val package_root: String
+  val source_root: String
+  val id: usize
+}
+
+def cosmos_package_session(package_root: String, source_root: String, id: usize): CosmosPackageSession = {
+  CosmosPackageSession(package_root, source_root, id)
+}
