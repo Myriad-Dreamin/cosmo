@@ -58,3 +58,9 @@ URI support-library ABI.
 - **AND** raw `unsafe_uri_sys_*` extern declarations are private implementation details
 - **AND** Rust-owned wrapper resources expose `Drop.drop` implementations instead of public `release` methods
 
+#### Scenario: Declarations expose package-consumable parse helpers
+
+- **WHEN** another Cosmo package needs to parse a document URI or convert a file path into a URI handle
+- **THEN** `packages/uri-sys` provides public safe top-level helpers for parsing URI strings and constructing URI handles from file path strings
+- **AND** those helpers still route through the private raw ABI declarations
+

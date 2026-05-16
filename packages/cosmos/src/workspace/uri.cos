@@ -1,0 +1,116 @@
+import std.text
+import uri_sys
+
+class CosmosWorkspaceError {
+  val code: String
+  val message: String
+}
+
+class CosmosDocumentLocation {
+  val uri: String
+  val file_path: String
+}
+
+def cosmos_workspace_error(code: String, message: String): CosmosWorkspaceError = {
+  CosmosWorkspaceError(code, message)
+}
+
+def cosmos_normalize_document_uri(text: String): Result[CosmosDocumentLocation, CosmosWorkspaceError] = {
+  val parsed = uri_sys_parse_string(text);
+  val uri = parsed match {
+    case Result[Uri, UriError]::Ok(value) => {
+      value
+    }
+    case Result[Uri, UriError]::Err(error) => {
+      return Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(
+        cosmos_uri_error("cosmos.uri.invalid", error)
+      )
+    }
+  };
+
+  val display = uri.display() match {
+    case Result[String, UriError]::Ok(value) => {
+      value
+    }
+    case Result[String, UriError]::Err(error) => {
+      return Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(
+        cosmos_uri_error("cosmos.uri.display-failed", error)
+      )
+    }
+  };
+
+  val path = uri.to_file_path() match {
+    case Result[String, UriError]::Ok(value) => {
+      value
+    }
+    case Result[String, UriError]::Err(error) => {
+      return Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(
+        cosmos_uri_error("cosmos.uri.not-file", error)
+      )
+    }
+  };
+
+  Result[CosmosDocumentLocation, CosmosWorkspaceError]::Ok(CosmosDocumentLocation(display, path))
+}
+
+def cosmos_uri_error(code: String, error: UriError): CosmosWorkspaceError = {
+  cosmos_workspace_error(code, error.message().to_string())
+}
+
+def cosmos_normalize_file_path(path: String): String = {
+  val uri = uri_sys_from_file_path_string(path) match {
+    case Result[Uri, UriError]::Ok(value) => {
+      value
+    }
+    case Result[Uri, UriError]::Err(error) => {
+      return path
+    }
+  };
+
+  uri.to_file_path() match {
+    case Result[String, UriError]::Ok(value) => {
+      value
+    }
+    case Result[String, UriError]::Err(error) => {
+      path
+    }
+  }
+}
+
+def cosmos_path_join(left: String, right: String): String = {
+  if (left.is_empty()) {
+    return right
+  }
+  if (right.is_empty()) {
+    return left
+  }
+  if (cosmos_string_ends_with(left, "/")) {
+    return left.concat(right)
+  }
+  left.concat("/").concat(right)
+}
+
+def cosmos_string_starts_with(text: String, prefix: String): Bool = {
+  core0_text_starts_with(text, 0, prefix)
+}
+
+def cosmos_string_ends_with(text: String, suffix: String): Bool = {
+  if (suffix.len() > text.len()) {
+    return false
+  }
+  text.slice(text.len() - suffix.len(), text.len()) == suffix
+}
+
+def cosmos_strip_prefix(text: String, prefix: String): Option[String] = {
+  if (!cosmos_string_starts_with(text, prefix)) {
+    return Option[String]::None
+  }
+  Option[String]::Some(text.slice(prefix.len(), text.len()))
+}
+
+def cosmos_strip_suffix(text: String, suffix: String): Option[String] = {
+  if (!cosmos_string_ends_with(text, suffix)) {
+    return Option[String]::None
+  }
+  Option[String]::Some(text.slice(0, text.len() - suffix.len()))
+}

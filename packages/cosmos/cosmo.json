@@ -1,0 +1,19 @@
+{
+  "name": "@cosmo/cosmos",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "dependencies": [
+    "../../library/std",
+    "../uri-sys",
+    "../ls-base"
+  ],
+  "sources": [
+    "workspace/uri.cos",
+    "workspace/documents.cos",
+    "workspace/session.cos",
+    "workspace/workspace.cos",
+    "lsp/document_events.cos",
+    "workspace/workspace_test.cos"
+  ]
+}

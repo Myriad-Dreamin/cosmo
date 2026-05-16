@@ -1,0 +1,106 @@
+import workspace.uri
+
+class CosmosTextDocumentSnapshot {
+  val uri: String
+  val file_path: String
+  val version: i32
+  val text: String
+  val package_root: String
+  val module_path: String
+  val is_open: Bool
+}
+
+class CosmosOpenDocuments {
+  var snapshots: Map[String, CosmosTextDocumentSnapshot]
+
+  def open(
+    &mut self,
+    uri: String,
+    file_path: String,
+    version: i32,
+    text: String,
+    package_root: String,
+    module_path: String
+  ): CosmosTextDocumentSnapshot = {
+    val snapshot = cosmos_text_document_snapshot(uri, file_path, version, text, package_root, module_path, true);
+    self.snapshots.insert(uri, snapshot);
+    snapshot
+  }
+
+  def change(&mut self, uri: String, version: i32, text: String): Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError] = {
+    val previous = self.snapshots.get(uri);
+    previous match {
+      case Option[CosmosTextDocumentSnapshot]::Some(snapshot) => {
+        if (!snapshot.is_open) {
+          return Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(
+            cosmos_workspace_error("cosmos.document.closed", uri)
+          )
+        }
+        val changed = cosmos_text_document_snapshot(
+          snapshot.uri,
+          snapshot.file_path,
+          version,
+          text,
+          snapshot.package_root,
+          snapshot.module_path,
+          true
+        );
+        self.snapshots.insert(uri, changed);
+        Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Ok(changed)
+      }
+      case Option[CosmosTextDocumentSnapshot]::None => {
+        Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(
+          cosmos_workspace_error("cosmos.document.not-open", uri)
+        )
+      }
+    }
+  }
+
+  def close(&mut self, uri: String): Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError] = {
+    val previous = self.snapshots.get(uri);
+    previous match {
+      case Option[CosmosTextDocumentSnapshot]::Some(snapshot) => {
+        val closed = cosmos_text_document_snapshot(
+          snapshot.uri,
+          snapshot.file_path,
+          snapshot.version,
+          snapshot.text,
+          snapshot.package_root,
+          snapshot.module_path,
+          false
+        );
+        self.snapshots.insert(uri, closed);
+        Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Ok(closed)
+      }
+      case Option[CosmosTextDocumentSnapshot]::None => {
+        Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(
+          cosmos_workspace_error("cosmos.document.not-open", uri)
+        )
+      }
+    }
+  }
+
+  def get(&self, uri: String): Option[CosmosTextDocumentSnapshot] = {
+    self.snapshots.get(uri)
+  }
+
+  def contains(&self, uri: String): Bool = {
+    self.snapshots.contains_key(uri)
+  }
+}
+
+def cosmos_open_documents(): CosmosOpenDocuments = {
+  CosmosOpenDocuments(Map[String, CosmosTextDocumentSnapshot]())
+}
+
+def cosmos_text_document_snapshot(
+  uri: String,
+  file_path: String,
+  version: i32,
+  text: String,
+  package_root: String,
+  module_path: String,
+  is_open: Bool
+): CosmosTextDocumentSnapshot = {
+  CosmosTextDocumentSnapshot(uri, file_path, version, text, package_root, module_path, is_open)
+}

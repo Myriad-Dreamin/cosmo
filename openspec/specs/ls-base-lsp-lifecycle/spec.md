@@ -42,6 +42,7 @@ TBD - created by archiving change add-ls-base-lsp-lifecycle. Update Purpose afte
 
 - **WHEN** the server receives `textDocument/didOpen`, `textDocument/didChange`, and `textDocument/didClose`
 - **THEN** it records typed document events with the text document URI
+- **AND** `packages/cosmos` can consume those typed events through its document-event bridge
 
 #### Scenario: Diagnostics publish as an outbound notification
 
