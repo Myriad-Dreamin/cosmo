@@ -1,0 +1,249 @@
+import std.bytes
+
+pub trait Drop {
+  def drop(&self): Unit
+}
+
+pub class UriByteSlice {
+  val ptr: Ptr[u8]
+  val len: usize
+}
+
+pub class UriStringSlice {
+  val text: String
+
+  def as_slice(&self): UriByteSlice = {
+    val slice = std_string_byte_slice(self.text);
+    UriByteSlice(slice.ptr, slice.len)
+  }
+}
+
+pub class UriOwnedBytes {
+  private val raw: UriSysBytes
+
+  def len(&self): usize = {
+    self.raw.len
+  }
+
+  def as_slice(&self): UriByteSlice = {
+    UriByteSlice(self.raw.ptr, self.raw.len)
+  }
+
+  def to_string(&self): String = {
+    std_string_from_bytes(ByteSlice(self.raw.ptr, self.raw.len))
+  }
+}
+
+pub class UriError {
+  private val raw: Ptr[UriSysRawError]
+
+  def kind(&self): u32 = {
+    unsafe_uri_sys_error_kind(self.raw)
+  }
+
+  def message(&self): UriOwnedBytes = {
+    UriOwnedBytes(unsafe_uri_sys_error_message(self.raw))
+  }
+}
+
+pub class Uri {
+  private val raw: Ptr[UriSysRawUri]
+
+  def parse(value: UriByteSlice): Result[Uri, UriError] = {
+    uri_result(unsafe_uri_sys_parse(value.ptr, value.len))
+  }
+
+  def parse_string(value: String): Result[Uri, UriError] = {
+    val slice = uri_string_slice(value);
+    uri_result(unsafe_uri_sys_parse(slice.ptr, slice.len))
+  }
+
+  def from_file_path(value: UriByteSlice): Result[Uri, UriError] = {
+    uri_result(unsafe_uri_sys_from_file_path(value.ptr, value.len))
+  }
+
+  def from_file_path_string(value: String): Result[Uri, UriError] = {
+    val slice = uri_string_slice(value);
+    uri_result(unsafe_uri_sys_from_file_path(slice.ptr, slice.len))
+  }
+
+  def display(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_display(self.raw))
+  }
+
+  def to_string(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_display(self.raw))
+  }
+
+  def join(&self, reference: UriByteSlice): Result[Uri, UriError] = {
+    uri_result(unsafe_uri_sys_join(self.raw, reference.ptr, reference.len))
+  }
+
+  def scheme(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_scheme(self.raw))
+  }
+
+  def authority(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_authority(self.raw))
+  }
+
+  def path(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_path(self.raw))
+  }
+
+  def query(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_query(self.raw))
+  }
+
+  def to_file_path(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_to_file_path(self.raw))
+  }
+}
+
+impl Drop for UriOwnedBytes {
+  def drop(&self): Unit = {
+    unsafe_uri_sys_bytes_release(self.raw)
+  }
+}
+
+impl Drop for UriError {
+  def drop(&self): Unit = {
+    unsafe_uri_sys_error_release(self.raw)
+  }
+}
+
+impl Drop for Uri {
+  def drop(&self): Unit = {
+    unsafe_uri_sys_uri_release(self.raw)
+  }
+}
+
+pub def uri_byte_slice(ptr: Ptr[u8], len: usize): UriByteSlice = {
+  UriByteSlice(ptr, len)
+}
+
+pub def uri_string_slice(value: String): UriByteSlice = {
+  val slice = std_string_byte_slice(value);
+  UriByteSlice(slice.ptr, slice.len)
+}
+
+private class UriSysAbiStatus {
+  val abi_version: u32
+  val value: i32
+}
+
+private class UriSysBytes {
+  val capacity: usize
+  val len: usize
+  val ptr: Ptr[u8]
+}
+
+private class UriSysRawError {}
+
+private class UriSysRawUri {}
+
+private class UriSysUriResult {
+  val error: Ptr[UriSysRawError]
+  val uri: Ptr[UriSysRawUri]
+}
+
+private class UriSysBytesResult {
+  val bytes: UriSysBytes
+  val error: Ptr[UriSysRawError]
+}
+
+private def uri_error_option(error: Ptr[UriSysRawError]): Option[UriError] = {
+  if (unsafe_uri_sys_error_ptr_is_some(error) == 1) {
+    Option[UriError]::Some(UriError(error))
+  } else {
+    Option[UriError]::None
+  }
+}
+
+private def uri_result(result: UriSysUriResult): Result[Uri, UriError] = {
+  val error = uri_error_option(result.error);
+  error match {
+    case Option[UriError]::Some(value) => {
+      Result[Uri, UriError]::Err(value)
+    }
+    case Option[UriError]::None => {
+      Result[Uri, UriError]::Ok(Uri(result.uri))
+    }
+  }
+}
+
+private def uri_bytes_result(result: UriSysBytesResult): Result[UriOwnedBytes, UriError] = {
+  val error = uri_error_option(result.error);
+  error match {
+    case Option[UriError]::Some(value) => {
+      Result[UriOwnedBytes, UriError]::Err(value)
+    }
+    case Option[UriError]::None => {
+      Result[UriOwnedBytes, UriError]::Ok(UriOwnedBytes(result.bytes))
+    }
+  }
+}
+
+private def uri_string_result(result: UriSysBytesResult): Result[String, UriError] = {
+  val bytes = uri_bytes_result(result);
+  bytes match {
+    case Result[UriOwnedBytes, UriError]::Ok(value) => {
+      Result[String, UriError]::Ok(value.to_string())
+    }
+    case Result[UriOwnedBytes, UriError]::Err(error) => {
+      Result[String, UriError]::Err(error)
+    }
+  }
+}
+
+@extern("c", name = "cosmo_uri_sys_abi_status", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_abi_status(): UriSysAbiStatus
+
+@extern("c", name = "cosmo_uri_sys_parse", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_parse(uri_ptr: Ptr[u8], uri_len: usize): UriSysUriResult
+
+@extern("c", name = "cosmo_uri_sys_join", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_join(
+  base: Ptr[UriSysRawUri],
+  reference_ptr: Ptr[u8],
+  reference_len: usize
+): UriSysUriResult
+
+@extern("c", name = "cosmo_uri_sys_from_file_path", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_from_file_path(path_ptr: Ptr[u8], path_len: usize): UriSysUriResult
+
+@extern("c", name = "cosmo_uri_sys_to_file_path", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_to_file_path(uri: Ptr[UriSysRawUri]): UriSysBytesResult
+
+@extern("c", name = "cosmo_uri_sys_display", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_display(uri: Ptr[UriSysRawUri]): UriSysBytesResult
+
+@extern("c", name = "cosmo_uri_sys_scheme", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_scheme(uri: Ptr[UriSysRawUri]): UriSysBytesResult
+
+@extern("c", name = "cosmo_uri_sys_authority", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_authority(uri: Ptr[UriSysRawUri]): UriSysBytesResult
+
+@extern("c", name = "cosmo_uri_sys_path", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_path(uri: Ptr[UriSysRawUri]): UriSysBytesResult
+
+@extern("c", name = "cosmo_uri_sys_query", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_query(uri: Ptr[UriSysRawUri]): UriSysBytesResult
+
+@extern("c", name = "cosmo_uri_sys_uri_release", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_uri_release(uri: Ptr[UriSysRawUri]): Unit
+
+@extern("c", name = "cosmo_uri_sys_error_ptr_is_some", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_error_ptr_is_some(error: Ptr[UriSysRawError]): u8
+
+@extern("c", name = "cosmo_uri_sys_error_kind", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_error_kind(error: Ptr[UriSysRawError]): u32
+
+@extern("c", name = "cosmo_uri_sys_error_message", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_error_message(error: Ptr[UriSysRawError]): UriSysBytes
+
+@extern("c", name = "cosmo_uri_sys_error_release", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_error_release(error: Ptr[UriSysRawError]): Unit
+
+@extern("c", name = "cosmo_uri_sys_bytes_release", supportLibrary = "uri-sys")
+private def unsafe_uri_sys_bytes_release(bytes: UriSysBytes): Unit

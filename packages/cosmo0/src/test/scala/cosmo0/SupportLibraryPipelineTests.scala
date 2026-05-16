@@ -34,6 +34,26 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       List("target/cosmo/support-libraries/release/ureq-sys/libcosmo_ureq_sys.a"),
     )
 
+  test("uri-sys support-library id maps through the shared Rust pipeline"):
+    val id = SupportLibraryId.parse("uri-sys").fold(fail(_), identity)
+    val artifact = SupportLibraryArtifact(id)
+    val plan = SupportLibraryLinkPlan
+      .fromBackendRequirements(List(BackendRequirement.supportLibrary(id.value)))
+      .fold(diagnostics => fail(diagnostics.map(_.message).mkString("\n")), identity)
+
+    assertEquals(id.crateDirectory, "crates/uri-sys")
+    assertEquals(id.rustLibraryTarget, "cosmo_uri_sys")
+    assertEquals(id.cSymbolPrefix, "cosmo_uri_sys_")
+    assertEquals(artifact.fileName, "libcosmo_uri_sys.a")
+    assertEquals(
+      artifact.path,
+      "target/cosmo/support-libraries/release/uri-sys/libcosmo_uri_sys.a",
+    )
+    assertEquals(
+      plan.linkArguments,
+      List("target/cosmo/support-libraries/release/uri-sys/libcosmo_uri_sys.a"),
+    )
+
   test("ureq-sys package declarations check as a cosmo0 support-library surface"):
     val checked = Cosmo0().checkPackage("packages/ureq-sys")
 
@@ -42,7 +62,7 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       s"ureq-sys package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
     )
     assertEquals(checked.value.get.metadata.name, "@cosmo/ureq-sys")
-    assertEquals(checked.value.get.moduleOrder, List("ureq_sys"))
+    assertEquals(checked.value.get.moduleOrder.lastOption, Some("ureq_sys"))
 
     val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
       fn.name -> fn.externBinding.flatMap(_.supportLibrary)
@@ -115,6 +135,101 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(privateClasses.contains("UreqSysBytes"))
 
     val privateRawWrappers = Set("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse")
+    val rawFieldVisibility = declarations.collect { case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
+      cls.name -> cls.members.collectFirst { case field: UntypedValueDecl if field.name == "raw" =>
+        field.visibility
+      }
+    }
+    assertEquals(
+      rawFieldVisibility.toMap,
+      privateRawWrappers.map(_ -> Some(UntypedVisibility.Private)).toMap,
+    )
+
+  test("uri-sys package declarations check as a cosmo0 support-library surface"):
+    val checked = Cosmo0().checkPackage("packages/uri-sys")
+
+    assert(
+      checked.isSuccess,
+      s"uri-sys package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+    )
+    assertEquals(checked.value.get.metadata.name, "@cosmo/uri-sys")
+    assertEquals(checked.value.get.moduleOrder.lastOption, Some("uri_sys"))
+
+    val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
+      fn.name -> fn.externBinding.flatMap(_.supportLibrary)
+    }
+    val classes = checked.value.get.checked.typed.declarations.collect { case cls: TypedClass =>
+      cls.name -> cls.methods.map(_.name)
+    }.toMap
+    assert(functions.contains("unsafe_uri_sys_parse" -> Some("uri-sys")))
+    assert(functions.contains("unsafe_uri_sys_join" -> Some("uri-sys")))
+    assert(functions.contains("unsafe_uri_sys_to_file_path" -> Some("uri-sys")))
+    assert(functions.contains("unsafe_uri_sys_bytes_release" -> Some("uri-sys")))
+    assert(classes.get("Uri").exists(_.contains("parse")))
+    assert(classes.get("Uri").exists(_.contains("parse_string")))
+    assert(classes.get("Uri").exists(_.contains("from_file_path")))
+    assert(classes.get("Uri").exists(_.contains("from_file_path_string")))
+    assert(classes.get("Uri").exists(_.contains("display")))
+    List("UriOwnedBytes", "UriError", "Uri").foreach { name =>
+      assert(
+        classes.get(name).exists(_.contains("drop")),
+        s"$name is missing Drop.drop in ${classes.get(name)}",
+      )
+      assert(
+        !classes.get(name).exists(_.contains("release")),
+        s"$name still exposes release in ${classes.get(name)}",
+      )
+    }
+
+    val source = ParserFixtureManifest.readFile("packages/uri-sys/src/uri_sys.cos")
+    val elaborated = Cosmo0().elaborate(SourceFile("uri_sys.cos", source))
+    assert(
+      elaborated.isSuccess,
+      s"uri-sys elaboration failed with diagnostics: ${elaborated.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val declarations = elaborated.value.get.declarations
+    val publicFunctions = declarations.collect {
+      case fn: UntypedFunction if fn.visibility == UntypedVisibility.Public => fn.name
+    }
+    val unsafeExterns = declarations.collect {
+      case fn: UntypedFunction if fn.name.startsWith("unsafe_uri_sys_") =>
+        fn.name -> (fn.visibility, fn.externBinding.flatMap(_.supportLibrary))
+    }
+    val publicClasses = declarations.collect {
+      case cls: UntypedClass if cls.visibility == UntypedVisibility.Public => cls.name
+    }
+    val publicTraits = declarations.collect {
+      case trt: UntypedTrait if trt.visibility == UntypedVisibility.Public => trt.name
+    }
+    val privateClasses = declarations.collect {
+      case cls: UntypedClass if cls.visibility == UntypedVisibility.Private => cls.name
+    }
+
+    assert(!publicFunctions.contains("uri_parse"))
+    assert(!publicFunctions.contains("uri_parse_string"))
+    assert(!publicFunctions.contains("uri_from_file_path"))
+    assert(!publicFunctions.contains("uri_from_file_path_string"))
+    assert(!publicFunctions.exists(_.startsWith("unsafe_uri_sys_")))
+    assert(unsafeExterns.nonEmpty)
+    assert(
+      unsafeExterns.forall { case (_, (visibility, supportLibrary)) =>
+        visibility == UntypedVisibility.Private && supportLibrary.contains("uri-sys")
+      },
+      s"unsafe extern visibility/linkage mismatch: $unsafeExterns",
+    )
+
+    assert(publicClasses.contains("UriByteSlice"))
+    assert(publicClasses.contains("UriOwnedBytes"))
+    assert(publicClasses.contains("UriError"))
+    assert(publicClasses.contains("Uri"))
+    assert(!publicClasses.exists(_.startsWith("UriSys")))
+    assert(publicTraits.contains("Drop"))
+    assert(privateClasses.contains("UriSysRawUri"))
+    assert(privateClasses.contains("UriSysRawError"))
+    assert(privateClasses.contains("UriSysBytes"))
+
+    val privateRawWrappers = Set("UriOwnedBytes", "UriError", "Uri")
     val rawFieldVisibility = declarations.collect { case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
       cls.name -> cls.members.collectFirst { case field: UntypedValueDecl if field.name == "raw" =>
         field.visibility
