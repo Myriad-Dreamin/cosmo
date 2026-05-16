@@ -31,6 +31,48 @@ class TraitSupportTests extends munit.FunSuite:
     assert(rendered.contains("fn @Owned.drop drop(%self self: &Owned) -> Unit owner @Owned"))
     assert(rendered.contains("method_call %value.drop() -> Unit"))
 
+  test("Drop impls emit C++ destructors that call lowered drop methods"):
+    val compiled = Cosmo0().compile(
+      """trait Drop {
+        |  def drop(&self): Unit
+        |}
+        |
+        |class Owned {
+        |  val id: i32
+        |}
+        |
+        |impl Drop for Owned {
+        |  def drop(&self): Unit = {}
+        |}
+        |
+        |def make_owned(): Owned = {
+        |  Owned(1)
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(compiled.phase, Phase.Compile)
+    assert(
+      compiled.isSuccess,
+      s"trait impl C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val source = compiled.value.get.output
+    val forwardDeclIndex = source.indexOf("inline void Owned_drop(const Owned * self);")
+    val structIndex = source.indexOf("struct Owned {")
+    assert(forwardDeclIndex >= 0, source)
+    assert(structIndex >= 0, source)
+    assert(
+      forwardDeclIndex < structIndex,
+      "drop forward declaration must appear before the struct destructor",
+    )
+    assert(source.contains("~Owned() {"))
+    assert(source.contains("mutable bool __cosmo0_drop_active = true;"))
+    assert(source.contains("Owned(const Owned &other)"))
+    assert(source.contains("Owned(Owned &&other) noexcept"))
+    assert(source.contains("Owned_drop(this);"))
+    assert(source.contains("inline void Owned_drop(const Owned * self)"))
+
   test("trait impls must implement the declared method signatures"):
     val mismatch = Cosmo0().check(
       """trait Drop {

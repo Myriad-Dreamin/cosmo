@@ -53,3 +53,4 @@ blocking HTTP support-library ABI.
 - **THEN** the public surface provides request, response, error, and owned byte wrapper types
 - **AND** raw `unsafe_ureq_sys_*` extern declarations are private implementation details
 - **AND** Rust-owned wrapper resources expose `Drop.drop` implementations instead of public `release` methods
+- **AND** compiled Drop wrappers use generated C++ destructors so normal C++ scope cleanup runs the release path
