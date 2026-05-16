@@ -375,14 +375,16 @@ final class UntypedElaborator(
         ok
       }
       val supportLibraryOk = values.supportLibrary.forall { value =>
-        val ok = isRequirementValue(value)
-        if !ok then
-          report(
-            node,
-            "cosmo0.elaborate.invalid-extern",
-            "extern supportLibrary must be a non-empty single-line string",
-          )
-        ok
+        SupportLibraryId.validate(value) match
+          case Some(message) =>
+            report(
+              node,
+              "cosmo0.elaborate.invalid-extern",
+              s"extern supportLibrary $message",
+            )
+            false
+          case None =>
+            true
       }
       nameOk && supportLibraryOk
 
