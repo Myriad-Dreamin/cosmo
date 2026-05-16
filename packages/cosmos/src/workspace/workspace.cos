@@ -1,0 +1,152 @@
+import workspace.documents
+import workspace.session
+import workspace.uri
+
+class CosmosPackageSelection {
+  val package_root: String
+  val source_root: String
+  val module_path: String
+}
+
+class CosmosWorkspace {
+  var package_roots: Vec[String]
+  var documents: CosmosOpenDocuments
+  var sessions: Map[String, CosmosPackageSession]
+  var next_session_id: usize
+
+  def add_package_root(&mut self, root: String): Unit = {
+    val normalized = cosmos_normalize_file_path(root);
+    if (!self.has_package_root(normalized)) {
+      self.package_roots.push(normalized)
+    }
+  }
+
+  def has_package_root(&self, root: String): Bool = {
+    for (candidate in self.package_roots) {
+      if (candidate == root) {
+        return true
+      }
+    }
+    false
+  }
+
+  def select_package_for_file(&self, file_path: String): Option[CosmosPackageSelection] = {
+    var selected = "";
+    for (root in self.package_roots) {
+      val source_root = cosmos_path_join(root, "src");
+      val prefix = source_root.concat("/");
+      if (cosmos_string_starts_with(file_path, prefix) and source_root.len() >= selected.len()) {
+        selected = source_root
+      }
+    }
+
+    if (selected.is_empty()) {
+      return Option[CosmosPackageSelection]::None
+    }
+
+    val relative = cosmos_strip_prefix(file_path, selected.concat("/")) match {
+      case Option[String]::Some(value) => {
+        value
+      }
+      case Option[String]::None => {
+        return Option[CosmosPackageSelection]::None
+      }
+    };
+
+    val module_path = cosmos_strip_suffix(relative, ".cos") match {
+      case Option[String]::Some(value) => {
+        value
+      }
+      case Option[String]::None => {
+        return Option[CosmosPackageSelection]::None
+      }
+    };
+
+    Option[CosmosPackageSelection]::Some(
+      CosmosPackageSelection(cosmos_source_root_package_root(selected), selected, module_path)
+    )
+  }
+
+  def session_for_root(&mut self, package_root: String): CosmosPackageSession = {
+    val existing = self.sessions.get(package_root);
+    existing match {
+      case Option[CosmosPackageSession]::Some(session) => {
+        session
+      }
+      case Option[CosmosPackageSession]::None => {
+        val session = cosmos_package_session(package_root, cosmos_path_join(package_root, "src"), self.next_session_id);
+        self.next_session_id = self.next_session_id + 1;
+        self.sessions.insert(package_root, session);
+        session
+      }
+    }
+  }
+
+  def open_document(&mut self, uri: String, version: i32, text: String): Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError] = {
+    val location = cosmos_normalize_document_uri(uri) match {
+      case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Ok(value) => {
+        value
+      }
+      case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(error) => {
+        return Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(error)
+      }
+    };
+
+    val selection = self.select_package_for_file(location.file_path) match {
+      case Option[CosmosPackageSelection]::Some(value) => {
+        value
+      }
+      case Option[CosmosPackageSelection]::None => {
+        return Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(
+          cosmos_workspace_error("cosmos.document.outside-package", location.file_path)
+        )
+      }
+    };
+
+    self.session_for_root(selection.package_root);
+    Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Ok(
+      self.documents.open(location.uri, location.file_path, version, text, selection.package_root, selection.module_path)
+    )
+  }
+
+  def change_document(&mut self, uri: String, version: i32, text: String): Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError] = {
+    val location = cosmos_normalize_document_uri(uri) match {
+      case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Ok(value) => {
+        value
+      }
+      case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(error) => {
+        return Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(error)
+      }
+    };
+    self.documents.change(location.uri, version, text)
+  }
+
+  def close_document(&mut self, uri: String): Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError] = {
+    val location = cosmos_normalize_document_uri(uri) match {
+      case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Ok(value) => {
+        value
+      }
+      case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(error) => {
+        return Result[CosmosTextDocumentSnapshot, CosmosWorkspaceError]::Err(error)
+      }
+    };
+    self.documents.close(location.uri)
+  }
+}
+
+def cosmos_workspace(): CosmosWorkspace = {
+  CosmosWorkspace(Vec[String](), cosmos_open_documents(), Map[String, CosmosPackageSession](), 0)
+}
+
+def cosmos_source_root_package_root(source_root: String): String = {
+  val suffix = "/src";
+  val stripped = cosmos_strip_suffix(source_root, suffix);
+  stripped match {
+    case Option[String]::Some(root) => {
+      root
+    }
+    case Option[String]::None => {
+      source_root
+    }
+  }
+}

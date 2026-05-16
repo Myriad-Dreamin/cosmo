@@ -1,0 +1,20 @@
+import lsp.lifecycle
+
+class CosmosLspDocumentEvent {
+  val kind: String
+  val uri: String
+}
+
+def cosmos_lsp_document_event(event: LspDocumentEvent): CosmosLspDocumentEvent = {
+  event match {
+    case LspDocumentEvent.DidOpen(uri) => {
+      CosmosLspDocumentEvent("open", uri)
+    }
+    case LspDocumentEvent.DidChange(uri) => {
+      CosmosLspDocumentEvent("change", uri)
+    }
+    case LspDocumentEvent.DidClose(uri) => {
+      CosmosLspDocumentEvent("close", uri)
+    }
+  }
+}

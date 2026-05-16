@@ -165,6 +165,8 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(functions.contains("unsafe_uri_sys_join" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_to_file_path" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_bytes_release" -> Some("uri-sys")))
+    assert(functions.contains("uri_sys_parse_string" -> None))
+    assert(functions.contains("uri_sys_from_file_path_string" -> None))
     assert(classes.get("Uri").exists(_.contains("parse")))
     assert(classes.get("Uri").exists(_.contains("parse_string")))
     assert(classes.get("Uri").exists(_.contains("from_file_path")))
@@ -210,6 +212,8 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(!publicFunctions.contains("uri_parse_string"))
     assert(!publicFunctions.contains("uri_from_file_path"))
     assert(!publicFunctions.contains("uri_from_file_path_string"))
+    assert(publicFunctions.contains("uri_sys_parse_string"))
+    assert(publicFunctions.contains("uri_sys_from_file_path_string"))
     assert(!publicFunctions.exists(_.startsWith("unsafe_uri_sys_")))
     assert(unsafeExterns.nonEmpty)
     assert(

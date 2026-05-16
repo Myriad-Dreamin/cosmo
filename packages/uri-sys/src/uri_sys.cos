@@ -127,6 +127,16 @@ pub def uri_string_slice(value: String): UriByteSlice = {
   UriByteSlice(slice.ptr, slice.len)
 }
 
+pub def uri_sys_parse_string(value: String): Result[Uri, UriError] = {
+  val slice = uri_string_slice(value);
+  uri_result(unsafe_uri_sys_parse(slice.ptr, slice.len))
+}
+
+pub def uri_sys_from_file_path_string(value: String): Result[Uri, UriError] = {
+  val slice = uri_string_slice(value);
+  uri_result(unsafe_uri_sys_from_file_path(slice.ptr, slice.len))
+}
+
 private class UriSysAbiStatus {
   val abi_version: u32
   val value: i32
