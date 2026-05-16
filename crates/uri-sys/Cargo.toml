@@ -1,0 +1,12 @@
+[package]
+name = "uri-sys"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+name = "cosmo_uri_sys"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+url = "2.5.8"

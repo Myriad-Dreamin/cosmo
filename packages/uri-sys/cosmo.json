@@ -1,0 +1,12 @@
+{
+  "name": "@cosmo/uri-sys",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "dependencies": [
+    "../../library/std"
+  ],
+  "sources": [
+    "uri_sys.cos"
+  ]
+}

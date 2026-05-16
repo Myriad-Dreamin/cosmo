@@ -436,6 +436,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "uri-sys"
+version = "0.1.0"
+dependencies = [
+ "url",
+]
+
+[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
