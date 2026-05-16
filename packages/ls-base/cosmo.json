@@ -1,0 +1,15 @@
+{
+  "name": "@cosmo/ls-base",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "stageProfile": "cosmo1.stage1",
+  "dependencies": [
+    "../../library/std"
+  ],
+  "sources": [
+    "jsonrpc/core.cos",
+    "jsonrpc/session.cos",
+    "jsonrpc/core_test.cos",
+    "main.cos"
+  ]
+}

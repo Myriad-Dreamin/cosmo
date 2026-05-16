@@ -1,0 +1,160 @@
+import jsonrpc.core
+import jsonrpc.session
+
+def jsonrpc_test_encode_request(): Bool = {
+  val encoded = jsonrpc_encode_request(
+    JsonRpcOutboundRequest(
+      jsonrpc_number_id("1"),
+      "textDocument/hover",
+      Option[String]::Some("{\"textDocument\":{\"uri\":\"file:///main.cos\"}}")
+    )
+  );
+  encoded == "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"textDocument/hover\",\"params\":{\"textDocument\":{\"uri\":\"file:///main.cos\"}}}"
+}
+
+def jsonrpc_test_encode_notification(): Bool = {
+  val encoded = jsonrpc_encode_notification(
+    JsonRpcOutboundNotification("initialized", Option[String]::None)
+  );
+  encoded == "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}"
+}
+
+def jsonrpc_test_encode_response(): Bool = {
+  val ok = jsonrpc_encode_response(
+    JsonRpcOutboundResponse(jsonrpc_string_id("abc"), Option[String]::Some("null"), Option[JsonRpcOutboundError]::None)
+  );
+  val err = jsonrpc_encode_response(
+    JsonRpcOutboundResponse(
+      jsonrpc_string_id("abc"),
+      Option[String]::None,
+      Option[JsonRpcOutboundError]::Some(JsonRpcOutboundError(-32601, "no method", Option[String]::None))
+    )
+  );
+  ok == "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"result\":null}" and
+    err == "{\"jsonrpc\":\"2.0\",\"id\":\"abc\",\"error\":{\"code\":-32601,\"message\":\"no method\"}}"
+}
+
+def jsonrpc_test_decode_request(): Bool = {
+  val decoded = jsonrpc_decode_message("{\"jsonrpc\":\"2.0\",\"id\":\"2\",\"method\":\"shutdown\",\"params\":null}");
+  decoded match {
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+      message match {
+        case JsonRpcMessage.Request(request) => {
+          request.method == "shutdown" and jsonrpc_id_equals(request.id, jsonrpc_string_id("2"))
+        }
+        case JsonRpcMessage.Response(response) => {
+          false
+        }
+        case JsonRpcMessage.Notification(notification) => {
+          false
+        }
+      }
+    }
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def jsonrpc_test_decode_notification(): Bool = {
+  val decoded = jsonrpc_decode_message("{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}");
+  decoded match {
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+      message match {
+        case JsonRpcMessage.Request(request) => {
+          false
+        }
+        case JsonRpcMessage.Response(response) => {
+          false
+        }
+        case JsonRpcMessage.Notification(notification) => {
+          notification.method == "initialized"
+        }
+      }
+    }
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def jsonrpc_test_decode_response(): Bool = {
+  val decoded = jsonrpc_decode_message("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}");
+  decoded match {
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+      message match {
+        case JsonRpcMessage.Request(request) => {
+          false
+        }
+        case JsonRpcMessage.Response(response) => {
+          jsonrpc_id_equals(response.id, jsonrpc_number_id("1"))
+        }
+        case JsonRpcMessage.Notification(notification) => {
+          false
+        }
+      }
+    }
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+      false
+    }
+  }
+}
+
+def jsonrpc_test_rejects_malformed_and_batch(): Bool = {
+  val malformed = jsonrpc_decode_message("{");
+  val batch = jsonrpc_decode_message("[{\"jsonrpc\":\"2.0\",\"method\":\"x\"}]");
+  jsonrpc_decode_failed_with(malformed, -32700) and jsonrpc_decode_failed_with(batch, -32600)
+}
+
+def jsonrpc_test_rejects_invalid_response_shape(): Bool = {
+  val both = jsonrpc_decode_message("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null,\"error\":{\"code\":-32603,\"message\":\"bad\"}}");
+  val neither = jsonrpc_decode_message("{\"jsonrpc\":\"2.0\",\"id\":1}");
+  jsonrpc_decode_failed_with(both, -32600) and jsonrpc_decode_failed_with(neither, -32600)
+}
+
+def jsonrpc_test_session_correlation(): Bool = {
+  val session = jsonrpc_session();
+  val first = session.request("workspace/configuration", Option[String]::Some("[]"));
+  val second = session.request("shutdown", Option[String]::None);
+  if (session.pending_len() != 2 or session.outbound_len() != 2) {
+    return false
+  }
+  val ignored = session.receive("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}");
+  ignored match {
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+    }
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+      return false
+    }
+  }
+  if (session.pending_len() != 1) {
+    return false
+  }
+  if (session.inbound_len() != 1) {
+    return false
+  }
+  jsonrpc_id_equals(session.pending.get(0).id, second)
+}
+
+def jsonrpc_decode_failed_with(result: Result[JsonRpcMessage, JsonRpcDecodeError], code: i32): Bool = {
+  result match {
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+      false
+    }
+    case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+      error.code == code
+    }
+  }
+}
+
+def jsonrpc_all_tests(): Bool = {
+  jsonrpc_test_encode_request() and
+    jsonrpc_test_encode_notification() and
+    jsonrpc_test_encode_response() and
+    jsonrpc_test_decode_request() and
+    jsonrpc_test_decode_notification() and
+    jsonrpc_test_decode_response() and
+    jsonrpc_test_rejects_malformed_and_batch() and
+    jsonrpc_test_rejects_invalid_response_shape() and
+    jsonrpc_test_session_correlation()
+}

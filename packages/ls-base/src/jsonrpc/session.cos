@@ -1,0 +1,137 @@
+import jsonrpc.core
+
+class JsonRpcPendingRequest {
+  val id: JsonRpcId
+  val method: String
+}
+
+class JsonRpcSession {
+  var next_number_id: usize
+  var pending: Vec[JsonRpcPendingRequest]
+  var inbound: Vec[JsonRpcMessage]
+  var outbound: Vec[String]
+
+  def request(&mut self, method: String, params_json: Option[String]): JsonRpcId = {
+    val id = JsonRpcId.Number(jsonrpc_usize_text(self.next_number_id));
+    self.next_number_id = self.next_number_id + 1;
+    self.pending.push(JsonRpcPendingRequest(id, method));
+    self.outbound.push(jsonrpc_encode_request(JsonRpcOutboundRequest(id, method, params_json)));
+    id
+  }
+
+  def notify(&mut self, method: String, params_json: Option[String]): Unit = {
+    self.outbound.push(jsonrpc_encode_notification(JsonRpcOutboundNotification(method, params_json)))
+  }
+
+  def receive(&mut self, text: String): Result[JsonRpcMessage, JsonRpcDecodeError] = {
+    val decoded = jsonrpc_decode_message(text);
+    decoded match {
+      case Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message) => {
+        self.inbound.push(message);
+        self.correlate(message);
+        Result[JsonRpcMessage, JsonRpcDecodeError]::Ok(message)
+      }
+      case Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error) => {
+        Result[JsonRpcMessage, JsonRpcDecodeError]::Err(error)
+      }
+    }
+  }
+
+  def pending_len(&self): usize = {
+    self.pending.size()
+  }
+
+  def inbound_len(&self): usize = {
+    self.inbound.size()
+  }
+
+  def outbound_len(&self): usize = {
+    self.outbound.size()
+  }
+
+  def correlate(&mut self, message: JsonRpcMessage): Unit = {
+    message match {
+      case JsonRpcMessage.Response(response) => {
+        self.remove_pending(response.id)
+      }
+      case JsonRpcMessage.Request(request) => {
+      }
+      case JsonRpcMessage.Notification(notification) => {
+      }
+    }
+  }
+
+  def remove_pending(&mut self, id: JsonRpcId): Unit = {
+    val kept = Vec[JsonRpcPendingRequest]();
+    var removed = false;
+    for (request in self.pending) {
+      if (!removed and jsonrpc_id_equals(request.id, id)) {
+        removed = true
+      } else {
+        kept.push(request)
+      }
+    }
+    self.pending = kept
+  }
+}
+
+def jsonrpc_session(): JsonRpcSession = {
+  JsonRpcSession(1, Vec[JsonRpcPendingRequest](), Vec[JsonRpcMessage](), Vec[String]())
+}
+
+def jsonrpc_usize_text(value: usize): String = {
+  if (value == 0) { return "0" }
+  if (value == 1) { return "1" }
+  if (value == 2) { return "2" }
+  if (value == 3) { return "3" }
+  if (value == 4) { return "4" }
+  if (value == 5) { return "5" }
+  if (value == 6) { return "6" }
+  if (value == 7) { return "7" }
+  if (value == 8) { return "8" }
+  "9"
+}
+
+def jsonrpc_id_equals(left: JsonRpcId, right: JsonRpcId): Bool = {
+  left match {
+    case JsonRpcId.Number(left_value) => {
+      right match {
+        case JsonRpcId.Number(right_value) => {
+          left_value == right_value
+        }
+        case JsonRpcId.String(right_value) => {
+          false
+        }
+        case JsonRpcId.Null => {
+          false
+        }
+      }
+    }
+    case JsonRpcId.String(left_value) => {
+      right match {
+        case JsonRpcId.Number(right_value) => {
+          false
+        }
+        case JsonRpcId.String(right_value) => {
+          left_value == right_value
+        }
+        case JsonRpcId.Null => {
+          false
+        }
+      }
+    }
+    case JsonRpcId.Null => {
+      right match {
+        case JsonRpcId.Number(right_value) => {
+          false
+        }
+        case JsonRpcId.String(right_value) => {
+          false
+        }
+        case JsonRpcId.Null => {
+          true
+        }
+      }
+    }
+  }
+}

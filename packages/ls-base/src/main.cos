@@ -1,0 +1,11 @@
+import jsonrpc.core_test
+import std.text_output
+
+def main(): i32 = {
+  if (jsonrpc_all_tests()) {
+    0
+  } else {
+    core0_stdout_write("jsonrpc_all_tests failed\n");
+    1
+  }
+}
