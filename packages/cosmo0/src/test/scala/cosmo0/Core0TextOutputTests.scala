@@ -1,9 +1,9 @@
 package cosmo0
 
 class Core0TextOutputTests extends munit.FunSuite:
-  private val core0TextPath = "packages/cosmoc/src/core0/text.cos"
-  private val core0TextOutputPath = "packages/cosmoc/src/core0/text_output.cos"
-  private val core0PathFsPath = "packages/cosmoc/src/core0/path_fs.cos"
+  private val core0TextPath = "library/std/src/std/text.cos"
+  private val core0TextOutputPath = "library/std/src/std/text_output.cos"
+  private val core0PathFsPath = "library/std/src/std/path_fs.cos"
   private val sourceTextPath = "packages/cosmoc/src/source/source.cos"
   private val sourceMapPath = "packages/cosmoc/src/source/source_map.cos"
   private val diagnosticPath = "packages/cosmoc/src/driver/diagnostic.cos"

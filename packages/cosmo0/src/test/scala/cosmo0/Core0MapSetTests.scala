@@ -1,9 +1,9 @@
 package cosmo0
 
 class Core0MapSetTests extends munit.FunSuite:
-  private val core0MapSetPath = "packages/cosmoc/src/core0/map_set.cos"
-  private val core0MapSetTestPath = "packages/cosmoc/src/core0/map_set_test.cos"
-  private val core0JsonPath = "packages/cosmoc/src/core0/json.cos"
+  private val core0MapSetPath = "library/std/src/std/map_set.cos"
+  private val core0MapSetTestPath = "library/std/src/std/map_set_test.cos"
+  private val core0JsonPath = "library/std/src/std/json.cos"
   private val spanPath = "packages/cosmoc/src/source/span.cos"
   private val astPath = "packages/cosmoc/src/syntax/ast.cos"
   private val symbolPath = "packages/cosmoc/src/names/symbol.cos"

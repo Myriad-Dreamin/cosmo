@@ -1,4 +1,4 @@
-import core0.char_class
+import std.char_class
 
 def char_class_alpha_digit_smoke(): Bool = {
   is_ascii_alpha(65) and

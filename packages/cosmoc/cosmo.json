@@ -3,12 +3,10 @@
   "version": "0.0.0",
   "target": "cosmo0",
   "stageProfile": "cosmo1.stage1",
+  "dependencies": [
+    "../../library/std"
+  ],
   "sources": [
-    "core0/text.cos",
-    "core0/text_output.cos",
-    "core0/path_fs.cos",
-    "core0/char_class.cos",
-    "core0/char_class_test.cos",
     "driver/config.cos",
     "driver/diagnostic.cos",
     "driver/diagnostic_test.cos",

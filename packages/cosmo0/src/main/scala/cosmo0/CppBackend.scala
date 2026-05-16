@@ -88,6 +88,7 @@ final class CppBackend(
       body ++= typeAliasDeclarations
       body ++= functionForwardDeclarations
       body ++= typeDefinitions
+      body ++= externFunctionDeclarations
       body ++= globalDefinitions
       body ++= functionDefinitions
       body += ""
@@ -213,6 +214,29 @@ final class CppBackend(
         |  std::ostringstream output;
         |  output << input.rdbuf();
         |  return output.str();
+        |}
+        |
+        |inline void write_file(const std::string &path, const std::string &content) {
+        |  std::ofstream output(path);
+        |  if (!output) {
+        |    error_exit("cosmo0.runtime.write_file", path.c_str());
+        |  }
+        |  output << content;
+        |}
+        |
+        |inline uint8_t *string_data(const std::string &value) {
+        |  return const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(value.data()));
+        |}
+        |
+        |inline std::size_t string_len(const std::string &value) {
+        |  return value.size();
+        |}
+        |
+        |inline std::string string_from_bytes(uint8_t *ptr, std::size_t len) {
+        |  if (ptr == nullptr && len != 0) {
+        |    error_exit("cosmo0.runtime.string_from_bytes", "null pointer");
+        |  }
+        |  return std::string(reinterpret_cast<const char *>(ptr), len);
         |}
         |
         |template <typename T, typename E>
@@ -672,6 +696,14 @@ final class CppBackend(
       val lines = env.functions.values.toList.filter(_.externBinding.isEmpty).sortBy(_.id.value).map { function =>
         s"inline ${returnType(function.returnType)} ${names.functionName(function.id)}(${params(function)});"
       }
+      if lines.isEmpty then Nil else lines :+ ""
+
+    private def externFunctionDeclarations: List[String] =
+      val lines = env.functions.values.toList.flatMap { function =>
+        function.externBinding.filter(_.abi == TrustedExternAbi.directCAbiName).map { binding =>
+          s"""extern "C" ${returnType(function.returnType)} ${binding.symbol.cppName}(${params(function)});"""
+        }
+      }.sortBy(identity)
       if lines.isEmpty then Nil else lines :+ ""
 
     private def functionDefinitions: List[String] =
@@ -1595,6 +1627,10 @@ final class CppBackend(
         CppQualifiedSymbol.global("cosmo0_runtime", "print"),
         CppQualifiedSymbol.global("cosmo0_runtime", "println"),
         CppQualifiedSymbol.global("cosmo0_runtime", "read_file"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "write_file"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "string_data"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "string_len"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "string_from_bytes"),
         CppQualifiedSymbol.global("cosmo0_runtime", "command_run"),
         CppQualifiedSymbol.global("cosmo0_runtime", "json_parse"),
         CppQualifiedSymbol.global("cosmo0_runtime", "json_is_null"),
