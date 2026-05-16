@@ -4,6 +4,7 @@ import cosmo.system._
 import cosmo.Package
 import cosmo.Transpiler
 import cosmo.FileId
+import cosmo0.NlohmannJsonDependency
 
 import scala.scalajs.js
 
@@ -45,8 +46,9 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
 
     var absReleaseDir = system.absPath(destDir + "/..").replace("\\", "\\\\")
 
+    NlohmannJsonDependency.ensureAvailable()
     var nlJsonDir = system
-      .absPath("target/cosmo/externals/json/single_include")
+      .absPath(NlohmannJsonDependency.includeDir)
       .replace("\\", "\\\\")
 
     var releaseRoot =
@@ -74,8 +76,9 @@ class MsvcLinker(system: CosmoSystem) extends Linker {
       s"""#include <cosmo/std/src/prelude${suf}.h> // IWYU pragma: keep\n\n${content}"""
     }
 
+    NlohmannJsonDependency.ensureAvailable()
     var nlJsonDir = system
-      .absPath("target/cosmo/externals/json/single_include")
+      .absPath(NlohmannJsonDependency.includeDir)
       .replace("\\", "\\\\")
 
     var releaseDir =

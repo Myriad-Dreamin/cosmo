@@ -1,0 +1,7 @@
+private def hidden_value(): i32 = {
+  1
+}
+
+pub def visible_value(): i32 = {
+  hidden_value() + 1
+}

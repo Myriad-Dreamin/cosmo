@@ -52,8 +52,9 @@ yarn compile && node cmd/cosmo/main.js -p fixtures/cosmo0/package/run-smoke run 
 The package executable is built under the selected package's `target/` directory,
 executes with the package root as its working directory, and receives all
 arguments after `run` (or after `--`) as process arguments.
-It uses the cosmo0 C++ backend, so host execution needs the backend's C++17 and
-`nlohmann/json.hpp` include setup available locally.
+It uses the cosmo0 C++ backend, so host execution needs a C++17 compiler.
+When `nlohmann/json.hpp` is missing, Cosmo provisions its pinned checkout under
+`target/cosmo/externals/json`.
 
 ## Implementation Note
 
