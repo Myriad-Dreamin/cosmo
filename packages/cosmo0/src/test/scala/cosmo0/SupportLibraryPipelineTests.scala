@@ -161,12 +161,15 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     val classes = checked.value.get.checked.typed.declarations.collect { case cls: TypedClass =>
       cls.name -> cls.methods.map(_.name)
     }.toMap
-    assert(functions.contains("uri_parse" -> None))
-    assert(functions.contains("uri_from_file_path" -> None))
     assert(functions.contains("unsafe_uri_sys_parse" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_join" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_to_file_path" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_bytes_release" -> Some("uri-sys")))
+    assert(classes.get("Uri").exists(_.contains("parse")))
+    assert(classes.get("Uri").exists(_.contains("parse_string")))
+    assert(classes.get("Uri").exists(_.contains("from_file_path")))
+    assert(classes.get("Uri").exists(_.contains("from_file_path_string")))
+    assert(classes.get("Uri").exists(_.contains("display")))
     List("UriOwnedBytes", "UriError", "Uri").foreach { name =>
       assert(
         classes.get(name).exists(_.contains("drop")),
@@ -203,10 +206,10 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       case cls: UntypedClass if cls.visibility == UntypedVisibility.Private => cls.name
     }
 
-    assert(publicFunctions.contains("uri_parse"))
-    assert(publicFunctions.contains("uri_parse_string"))
-    assert(publicFunctions.contains("uri_from_file_path"))
-    assert(publicFunctions.contains("uri_from_file_path_string"))
+    assert(!publicFunctions.contains("uri_parse"))
+    assert(!publicFunctions.contains("uri_parse_string"))
+    assert(!publicFunctions.contains("uri_from_file_path"))
+    assert(!publicFunctions.contains("uri_from_file_path_string"))
     assert(!publicFunctions.exists(_.startsWith("unsafe_uri_sys_")))
     assert(unsafeExterns.nonEmpty)
     assert(

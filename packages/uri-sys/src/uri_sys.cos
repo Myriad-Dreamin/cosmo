@@ -49,8 +49,26 @@ pub class UriError {
 pub class Uri {
   private val raw: Ptr[UriSysRawUri]
 
-  def display(&self): Result[UriOwnedBytes, UriError] = {
-    uri_bytes_result(unsafe_uri_sys_display(self.raw))
+  def parse(value: UriByteSlice): Result[Uri, UriError] = {
+    uri_result(unsafe_uri_sys_parse(value.ptr, value.len))
+  }
+
+  def parse_string(value: String): Result[Uri, UriError] = {
+    val slice = uri_string_slice(value);
+    uri_result(unsafe_uri_sys_parse(slice.ptr, slice.len))
+  }
+
+  def from_file_path(value: UriByteSlice): Result[Uri, UriError] = {
+    uri_result(unsafe_uri_sys_from_file_path(value.ptr, value.len))
+  }
+
+  def from_file_path_string(value: String): Result[Uri, UriError] = {
+    val slice = uri_string_slice(value);
+    uri_result(unsafe_uri_sys_from_file_path(slice.ptr, slice.len))
+  }
+
+  def display(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_display(self.raw))
   }
 
   def to_string(&self): Result[String, UriError] = {
@@ -61,24 +79,24 @@ pub class Uri {
     uri_result(unsafe_uri_sys_join(self.raw, reference.ptr, reference.len))
   }
 
-  def scheme(&self): Result[UriOwnedBytes, UriError] = {
-    uri_bytes_result(unsafe_uri_sys_scheme(self.raw))
+  def scheme(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_scheme(self.raw))
   }
 
-  def authority(&self): Result[UriOwnedBytes, UriError] = {
-    uri_bytes_result(unsafe_uri_sys_authority(self.raw))
+  def authority(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_authority(self.raw))
   }
 
-  def path(&self): Result[UriOwnedBytes, UriError] = {
-    uri_bytes_result(unsafe_uri_sys_path(self.raw))
+  def path(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_path(self.raw))
   }
 
-  def query(&self): Result[UriOwnedBytes, UriError] = {
-    uri_bytes_result(unsafe_uri_sys_query(self.raw))
+  def query(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_query(self.raw))
   }
 
-  def to_file_path(&self): Result[UriOwnedBytes, UriError] = {
-    uri_bytes_result(unsafe_uri_sys_to_file_path(self.raw))
+  def to_file_path(&self): Result[String, UriError] = {
+    uri_string_result(unsafe_uri_sys_to_file_path(self.raw))
   }
 }
 
@@ -107,22 +125,6 @@ pub def uri_byte_slice(ptr: Ptr[u8], len: usize): UriByteSlice = {
 pub def uri_string_slice(value: String): UriByteSlice = {
   val slice = std_string_byte_slice(value);
   UriByteSlice(slice.ptr, slice.len)
-}
-
-pub def uri_parse(value: UriByteSlice): Result[Uri, UriError] = {
-  uri_result(unsafe_uri_sys_parse(value.ptr, value.len))
-}
-
-pub def uri_parse_string(value: String): Result[Uri, UriError] = {
-  uri_parse(uri_string_slice(value))
-}
-
-pub def uri_from_file_path(value: UriByteSlice): Result[Uri, UriError] = {
-  uri_result(unsafe_uri_sys_from_file_path(value.ptr, value.len))
-}
-
-pub def uri_from_file_path_string(value: String): Result[Uri, UriError] = {
-  uri_from_file_path(uri_string_slice(value))
 }
 
 private class UriSysAbiStatus {
