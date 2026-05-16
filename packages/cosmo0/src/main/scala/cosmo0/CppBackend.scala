@@ -8,9 +8,13 @@ final case class CppOutput(
     namespace: List[String],
     source: String,
     backendRequirements: List[BackendRequirement] = Nil,
+    supportLibraryLinkPlan: SupportLibraryLinkPlan = SupportLibraryLinkPlan.empty,
 ):
   def runtimeRequirements: List[String] =
     backendRequirements.map(_.legacyName).distinct.sorted
+
+  def supportLibraryLinkArguments: List[String] =
+    supportLibraryLinkPlan.linkArguments
 
 object CppBackend:
   def apply(): CppBackend =
@@ -24,12 +28,16 @@ final class CppBackend(
       case checked if checked.isSuccess =>
         val state = State(module)
         val source = state.emit()
-        if state.diagnostics.isEmpty then
-          Result.success(
-            Phase.Compile,
-            CppOutput(module.name, state.namespace, source, state.backendRequirements),
-          )
-        else Result.failure(Phase.Compile, state.diagnostics)
+        if state.diagnostics.nonEmpty then Result.failure(Phase.Compile, state.diagnostics)
+        else
+          SupportLibraryLinkPlan.fromBackendRequirements(state.backendRequirements) match
+            case Left(diagnostics) =>
+              Result.failure(Phase.Compile, diagnostics)
+            case Right(linkPlan) =>
+              Result.success(
+                Phase.Compile,
+                CppOutput(module.name, state.namespace, source, state.backendRequirements, linkPlan),
+              )
       case failed =>
         Result.failure(
           Phase.Compile,
