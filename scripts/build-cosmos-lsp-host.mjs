@@ -163,6 +163,7 @@ inline std::string normalized_document_uri(const std::string &uri) {
 
 inline CosmosTextDocumentSnapshot snapshot(const OpenDocument &document) {
   const std::string marker = "/src/";
+  const std::string samples_marker = "/samples/";
   std::string package_root = repo_root + "/packages/cosmos";
   std::string module_path;
   const std::size_t marker_index = document.file_path.rfind(marker);
@@ -173,6 +174,17 @@ inline CosmosTextDocumentSnapshot snapshot(const OpenDocument &document) {
     if (module_path.size() >= suffix.size() &&
         module_path.substr(module_path.size() - suffix.size()) == suffix) {
       module_path = module_path.substr(0, module_path.size() - suffix.size());
+    }
+  } else {
+    const std::size_t samples_index = document.file_path.rfind(samples_marker);
+    if (samples_index != std::string::npos) {
+      package_root = document.file_path.substr(0, samples_index + samples_marker.size() - 1);
+      module_path = document.file_path.substr(samples_index + samples_marker.size());
+      const std::string suffix = ".cos";
+      if (module_path.size() >= suffix.size() &&
+          module_path.substr(module_path.size() - suffix.size()) == suffix) {
+        module_path = module_path.substr(0, module_path.size() - suffix.size());
+      }
     }
   }
 

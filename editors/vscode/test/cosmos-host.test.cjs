@@ -1,7 +1,9 @@
 const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const { pathToFileURL } = require("node:url");
 
 test("smoke: cosmos host probes successfully", () => {
   const result = require("node:child_process").spawnSync(hostPath(), ["probe"]);
@@ -227,6 +229,49 @@ test("smoke: diagnostics refresh for active document switch stays URI-scoped", a
       textDocument: { uri: secondUri },
     });
     assert.deepEqual(secondPull.result.items, secondDiagnostics.params.diagnostics);
+
+    await client.request("shutdown", null);
+    client.notify("exit", {});
+  } finally {
+    client.stop();
+  }
+});
+
+test("smoke: HelloWorld sample publishes clean diagnostics and invalid edits still report", async () => {
+  const client = startHost();
+  try {
+    const repoRoot = path.resolve(__dirname, "..", "..", "..");
+    const samplePath = path.join(repoRoot, "samples", "HelloWorld", "main.cos");
+    const uri = pathToFileURL(samplePath).href;
+    const text = fs.readFileSync(samplePath, "utf8");
+
+    await client.request("initialize", {
+      processId: process.pid,
+      rootUri: pathToFileURL(repoRoot).href,
+      capabilities: {},
+    });
+
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri,
+        languageId: "cosmo",
+        version: 1,
+        text,
+      },
+    });
+
+    const openedDiagnostics = await client.notification("textDocument/publishDiagnostics");
+    assert.equal(openedDiagnostics.params.uri, uri);
+    assert.deepEqual(openedDiagnostics.params.diagnostics, []);
+
+    client.notify("textDocument/didChange", {
+      textDocument: { uri, version: 2 },
+      contentChanges: [{ text: "val =" }],
+    });
+    const changedDiagnostics = await client.notification("textDocument/publishDiagnostics");
+    assert.equal(changedDiagnostics.params.uri, uri);
+    assert.equal(changedDiagnostics.params.diagnostics.length, 1);
+    assert.equal(changedDiagnostics.params.diagnostics[0].code, "cosmo1.parser.expected");
 
     await client.request("shutdown", null);
     client.notify("exit", {});

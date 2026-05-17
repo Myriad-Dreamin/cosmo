@@ -437,6 +437,14 @@ class ExpressionChecker {
             self.record_typed_expr(id, TypedExprKind.Name, binding.typ)
           }
           case Option[LocalBinding]::None => {
+            val maybe_prelude = self.prelude_value_type(node.name);
+            maybe_prelude match {
+              case Option[TypeId]::Some(typ) => {
+                return self.record_typed_expr(id, TypedExprKind.Name, typ)
+              }
+              case Option[TypeId]::None => {
+              }
+            }
             self.invalid_name_target(id, span)
           }
         }
@@ -454,6 +462,20 @@ class ExpressionChecker {
       span
     );
     self.record_typed_expr(id, TypedExprKind.Error, self.error_type())
+  }
+
+  def prelude_value_type(&mut self, name: String): Option[TypeId] = {
+    if (name == "read_file") {
+      val params = Vec[TypeId]();
+      params.push(self.string_type());
+      return Option[TypeId]::Some(self.callable_type_from_types(params, self.string_type()))
+    }
+    if (name == "print" or name == "println") {
+      val params = Vec[TypeId]();
+      params.push(self.string_type());
+      return Option[TypeId]::Some(self.callable_type_from_types(params, self.unit_type()))
+    }
+    Option[TypeId]::None
   }
 
   def check_numeric_literal(&mut self, id: ExprId, value: String, expected: Option[TypeId]): TypeId = {
@@ -492,7 +514,8 @@ class ExpressionChecker {
       item_expr match {
         case SyntaxExpr.Local(name, mutable, typ, init, span) => {
           result_type = self.check_local_expr(item, mutable, typ, init, block_bindings, return_type);
-          block_bindings = self.append_local_binding(block_bindings, item, mutable, typ);
+          val binding_type = self.local_binding_inferred_type(typ, init, result_type);
+          block_bindings = self.append_local_binding(block_bindings, item, mutable, typ, binding_type);
         }
         case SyntaxExpr.AEmpty => {
           result_type = self.error_expr(item)
@@ -556,10 +579,11 @@ class ExpressionChecker {
     bindings: Vec[LocalBinding],
     id: ExprId,
     mutable: Bool,
-    typ: TypeExprId
+    typ: TypeExprId,
+    inferred_type: TypeId
   ): Vec[LocalBinding] = {
     val next = copy_local_bindings(bindings);
-    val maybe_binding = self.local_binding(id, mutable, typ);
+    val maybe_binding = self.local_binding(id, mutable, typ, inferred_type);
     maybe_binding match {
       case Option[LocalBinding]::Some(binding) => {
         next.push(binding)
@@ -570,10 +594,13 @@ class ExpressionChecker {
     next
   }
 
-  def local_binding(&mut self, id: ExprId, mutable: Bool, typ: TypeExprId): Option[LocalBinding] = {
+  def local_binding(&mut self, id: ExprId, mutable: Bool, typ: TypeExprId, inferred_type: TypeId): Option[LocalBinding] = {
     val maybe_definition = self.names.local_definitions.get(id);
     maybe_definition match {
       case Option[DefId]::Some(definition) => {
+        if (self.type_expr_is_missing(typ)) {
+          return Option[LocalBinding]::Some(LocalBinding(definition, inferred_type, mutable))
+        }
         val maybe_type = self.type_for_type_expr(typ);
         maybe_type match {
           case Option[TypeId]::Some(local_type) => {
@@ -590,6 +617,21 @@ class ExpressionChecker {
     }
   }
 
+  def local_binding_inferred_type(&mut self, typ: TypeExprId, init: ExprId, fallback: TypeId): TypeId = {
+    if (!self.type_expr_is_missing(typ)) {
+      return fallback
+    }
+    val maybe_typed = self.typed_exprs.get(init);
+    maybe_typed match {
+      case Option[TypedExpr]::Some(typed) => {
+        typed.typ
+      }
+      case Option[TypedExpr]::None => {
+        fallback
+      }
+    }
+  }
+
   def check_local_expr(
     &mut self,
     id: ExprId,
@@ -599,6 +641,12 @@ class ExpressionChecker {
     bindings: Vec[LocalBinding],
     return_type: Option[TypeId]
   ): TypeId = {
+    if (self.type_expr_is_missing(typ)) {
+      val actual = self.check_expr(init, bindings, Option[TypeId]::None, return_type);
+      val ignored = self.record_typed_expr(id, TypedExprKind.Local(mutable, init), self.unit_type());
+      return self.unit_type()
+    }
+
     val maybe_type = self.type_for_type_expr(typ);
     maybe_type match {
       case Option[TypeId]::Some(local_type) => {
@@ -616,8 +664,24 @@ class ExpressionChecker {
     }
   }
 
-  def type_for_type_expr(&self, id: TypeExprId): Option[TypeId] = {
-    self.declarations.type_expr_types.get(id)
+  def type_for_type_expr(&mut self, id: TypeExprId): Option[TypeId] = {
+    val resolved = self.declarations.type_expr_types.get(id);
+    resolved match {
+      case Option[TypeId]::Some(typ) => {
+        return Option[TypeId]::Some(typ)
+      }
+      case Option[TypeId]::None => {
+      }
+    }
+
+    val text = type_expr_text(self.arenas, id);
+    if (prelude_is_primitive_type(text)) {
+      return Option[TypeId]::Some(self.types.alloc_primitive(text))
+    }
+    if (text == "<empty>" or text == "<missing>") {
+      return Option[TypeId]::None
+    }
+    Option[TypeId]::Some(self.types.alloc_user(text))
   }
 
   def check_assign_expr(
@@ -812,6 +876,12 @@ class ExpressionChecker {
       case SyntaxExpr.Missing(missing_span) => {
       }
       case SyntaxExpr.Name(name, name_span) => {
+        if (self.is_prelude_print_callee(callee, name)) {
+          self.check_prelude_print_args(args, bindings, return_type, span);
+          val ignored = self.record_typed_expr(callee, TypedExprKind.Name, self.prelude_print_type());
+          return self.record_typed_expr(id, TypedExprKind.Call(callee, args), self.unit_type())
+        }
+
         val maybe_type = self.class_constructor_type(callee, name);
         maybe_type match {
           case Option[TypeId]::Some(result_type) => {
@@ -875,6 +945,80 @@ class ExpressionChecker {
       case CosmoType.Never => {
         self.invalid_call_expr(id, callee, args, span)
       }
+    }
+  }
+
+  def is_prelude_print_callee(&self, callee: ExprId, name: String): Bool = {
+    if (!(name == "print" or name == "println")) {
+      return false
+    }
+    val maybe_definition = self.names.expr_definitions.get(callee);
+    maybe_definition match {
+      case Option[DefId]::Some(definition) => {
+        val node = self.names.env.definition(definition);
+        node.kind match {
+          case DefinitionKind.Prelude => {
+            true
+          }
+          case DefinitionKind.Class => {
+            false
+          }
+          case DefinitionKind.Module => {
+            false
+          }
+          case DefinitionKind.Function => {
+            false
+          }
+          case DefinitionKind.Value => {
+            false
+          }
+          case DefinitionKind.TypeAlias => {
+            false
+          }
+          case DefinitionKind.Field => {
+            false
+          }
+          case DefinitionKind.Method => {
+            false
+          }
+          case DefinitionKind.Variant => {
+            false
+          }
+          case DefinitionKind.Parameter => {
+            false
+          }
+          case DefinitionKind.Local => {
+            false
+          }
+          case DefinitionKind.Self => {
+            false
+          }
+        }
+      }
+      case Option[DefId]::None => {
+        false
+      }
+    }
+  }
+
+  def prelude_print_type(&mut self): TypeId = {
+    val params = Vec[TypeId]();
+    params.push(self.string_type());
+    self.callable_type_from_types(params, self.unit_type())
+  }
+
+  def check_prelude_print_args(
+    &mut self,
+    args: Vec[ExprId],
+    bindings: Vec[LocalBinding],
+    return_type: Option[TypeId],
+    span: Span
+  ): Unit = {
+    if (args.len() != 1) {
+      self.diagnostic("cosmo1.type.call-arity", "call argument count does not match callable signature", span)
+    }
+    for (arg in args) {
+      val ignored = self.check_expr(arg, bindings, Option[TypeId]::None, return_type);
     }
   }
 
@@ -1985,6 +2129,27 @@ class ExpressionChecker {
         false
       }
       case SyntaxExpr.Return(value, span) => {
+        false
+      }
+    }
+  }
+
+  def type_expr_is_missing(&self, id: TypeExprId): Bool = {
+    val typ = self.arenas.type_value(id);
+    typ match {
+      case SyntaxType.Missing(span) => {
+        true
+      }
+      case SyntaxType.AEmpty => {
+        true
+      }
+      case SyntaxType.Name(name, span) => {
+        false
+      }
+      case SyntaxType.Generic(base, args, span) => {
+        false
+      }
+      case SyntaxType.Ref(mutable, inner, span) => {
         false
       }
     }

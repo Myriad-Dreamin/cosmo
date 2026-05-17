@@ -1098,8 +1098,17 @@ class SyntaxParserState {
                 return SyntaxParsedExpr(true, self.missing_expr(make_span(start, end)))
               }
             } else {
-              saw = true;
-              self.advance()
+              if (depth == 0 and byte == a"\n") {
+                val end = self.offset;
+                if (saw) {
+                  return self.parse_expr_slice(start, end)
+                } else {
+                  self.advance()
+                }
+              } else {
+                saw = true;
+                self.advance()
+              }
             }
           }
         }
