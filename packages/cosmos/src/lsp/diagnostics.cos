@@ -7,6 +7,7 @@ import source.span
 import syntax.ast
 import types.check
 import workspace.documents
+import workspace.uri
 
 class CosmosLspPosition {
   val line: usize
@@ -55,19 +56,31 @@ class CosmosDiagnosticsState {
   }
 
   def publish(&mut self, server: LspServer, uri: String, diagnostics_json: String): LspServer = {
+    val normalized_uri = cosmos_diagnostics_uri(uri);
     var next_server = server;
-    next_server.publish_diagnostics(uri, diagnostics_json);
-    self.published_uris.insert(uri);
+    next_server.publish_diagnostics(normalized_uri, diagnostics_json);
+    self.published_uris.insert(normalized_uri);
     next_server
   }
 
   def has_published(&self, uri: String): Bool = {
-    self.published_uris.contains(uri)
+    self.published_uris.contains(cosmos_diagnostics_uri(uri))
   }
 }
 
 def cosmos_diagnostics_state(): CosmosDiagnosticsState = {
   CosmosDiagnosticsState(Set[String]())
+}
+
+def cosmos_diagnostics_uri(uri: String): String = {
+  cosmos_normalize_document_uri(uri) match {
+    case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Ok(location) => {
+      location.uri
+    }
+    case Result[CosmosDocumentLocation, CosmosWorkspaceError]::Err(error) => {
+      uri
+    }
+  }
 }
 
 def cosmos_analyze_document(snapshot: CosmosTextDocumentSnapshot): Vec[CosmosLspDiagnostic] = {

@@ -163,6 +163,7 @@ function fakeDependencies(state, overrides = {}) {
     createLanguageClient: (id, name, serverOptions, clientOptions) => {
       state.createdClients.push({ id, name, serverOptions, clientOptions });
       return {
+        sendNotification: () => Promise.resolve(),
         start: () => Promise.resolve(),
         stop: () => Promise.resolve(),
       };
@@ -171,10 +172,12 @@ function fakeDependencies(state, overrides = {}) {
       state.createdOutputChannels.push(name);
       return state.outputChannel;
     },
+    getActiveTextDocument: () => undefined,
     registerCommand: (command, callback) => {
       state.commands.set(command, callback);
       return fakeDisposable();
     },
+    registerActiveTextDocumentChange: () => fakeDisposable(),
     resolveCosmosHostPath: () => "/tmp/cosmos-lsp-host",
     showErrorMessage: (message) => {
       state.errorMessages.push(message);

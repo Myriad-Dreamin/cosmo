@@ -56,15 +56,7 @@ def cosmos_test_package_diagnostic_fixture(): Bool = {
 }
 
 def cosmos_test_publish_and_clear_diagnostics(): Bool = {
-  val snapshot = cosmos_text_document_snapshot(
-    "file:///repo/packages/app/src/main.cos",
-    "/repo/packages/app/src/main.cos",
-    1,
-    "val =",
-    "/repo/packages/app",
-    "main",
-    true
-  );
+  val snapshot = cosmos_diagnostic_test_snapshot("file:///repo/packages/app/src/main.cos", 1, "val =", true);
   val closed = cosmos_text_document_snapshot(
     snapshot.uri,
     snapshot.file_path,
@@ -83,6 +75,67 @@ def cosmos_test_publish_and_clear_diagnostics(): Bool = {
   server.outbound_len() == 2 and
     state.has_published(snapshot.uri) and
     server.session.outbound.get(1) == "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"uri\":\"file:///repo/packages/app/src/main.cos\",\"diagnostics\":[]}}"
+}
+
+def cosmos_test_publish_refresh_keeps_other_document(): Bool = {
+  val first = cosmos_diagnostic_test_snapshot("file:///repo/packages/app/src/main.cos", 1, "val =", true);
+  val second = cosmos_diagnostic_test_snapshot("file:///repo/packages/app/src/second.cos", 1, "def main(): i32 = { false }", true);
+  var server = lsp_server();
+  val state = cosmos_diagnostics_state();
+
+  server = state.publish_snapshot(server, first);
+  server = state.publish_snapshot(server, second);
+  server = state.publish_snapshot(server, first);
+
+  if (server.outbound_len() != 3) {
+    return false
+  }
+  if (!state.has_published(first.uri) or !state.has_published(second.uri)) {
+    return false
+  }
+
+  val first_refresh = server.session.outbound.get(2);
+  json_contains(first_refresh, "\"uri\":\"file:///repo/packages/app/src/main.cos\"") and
+    json_contains(first_refresh, "\"code\":\"cosmo1.parser.expected\"") and
+    !json_contains(first_refresh, "\"uri\":\"file:///repo/packages/app/src/second.cos\"")
+}
+
+def cosmos_test_unchanged_refresh_is_stable(): Bool = {
+  val snapshot = cosmos_diagnostic_test_snapshot("file:///repo/packages/app/src/main.cos", 7, "val =", true);
+  var server = lsp_server();
+  val state = cosmos_diagnostics_state();
+
+  server = state.publish_snapshot(server, snapshot);
+  server = state.publish_snapshot(server, snapshot);
+
+  if (server.outbound_len() != 2) {
+    return false
+  }
+
+  server.session.outbound.get(0) == server.session.outbound.get(1)
+}
+
+def cosmos_test_diagnostics_normalize_uri(): Bool = {
+  val snapshot = cosmos_diagnostic_test_snapshot("file:///repo/packages/app/src/main%20file.cos", 1, "val =", true);
+  var server = lsp_server();
+  val state = cosmos_diagnostics_state();
+
+  server = state.publish_snapshot(server, snapshot);
+
+  state.has_published("file:///repo/packages/app/src/main file.cos") and
+    json_contains(server.session.outbound.get(0), "\"uri\":\"file:///repo/packages/app/src/main%20file.cos\"")
+}
+
+def cosmos_diagnostic_test_snapshot(uri: String, version: i32, text: String, is_open: Bool): CosmosTextDocumentSnapshot = {
+  cosmos_text_document_snapshot(
+    uri,
+    "/repo/packages/app/src/main.cos",
+    version,
+    text,
+    "/repo/packages/app",
+    "main",
+    is_open
+  )
 }
 
 def json_contains(text: String, needle: String): Bool = {
