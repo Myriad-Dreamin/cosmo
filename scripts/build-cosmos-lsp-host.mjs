@@ -201,6 +201,8 @@ inline nlohmann::json initialize_result() {
     {"capabilities", {
       {"textDocumentSync", {{"openClose", true}, {"change", 2}}},
       {"hoverProvider", true},
+      {"definitionProvider", true},
+      {"referencesProvider", true},
       {"diagnosticProvider", {{"interFileDependencies", false}, {"workspaceDiagnostics", false}}}
     }},
     {"serverInfo", {{"name", "cosmos"}, {"version", "0.0.0"}}}
@@ -262,6 +264,43 @@ inline void handle_hover(const nlohmann::json &id, const nlohmann::json &params)
   write_response(id, nlohmann::json::parse(cosmos_hover_result_json(hover)));
 }
 
+inline void handle_definition(const nlohmann::json &id, const nlohmann::json &params) {
+  const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+  const auto found = documents.find(uri);
+  if (found == documents.end()) {
+    write_response(id, nullptr);
+    return;
+  }
+
+  const auto &position = params.at("position");
+  const auto definition = cosmos_definition(
+    snapshot(found->second),
+    position.value("line", 0),
+    position.value("character", 0)
+  );
+  write_response(id, nlohmann::json::parse(cosmos_definition_result_json(definition)));
+}
+
+inline void handle_references(const nlohmann::json &id, const nlohmann::json &params) {
+  const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+  const auto found = documents.find(uri);
+  if (found == documents.end()) {
+    write_response(id, nlohmann::json::array());
+    return;
+  }
+
+  const auto &position = params.at("position");
+  const bool include_declaration =
+    params.value("context", nlohmann::json::object()).value("includeDeclaration", false);
+  const auto references = cosmos_references(
+    snapshot(found->second),
+    position.value("line", 0),
+    position.value("character", 0),
+    include_declaration
+  );
+  write_response(id, nlohmann::json::parse(cosmos_references_result_json(references)));
+}
+
 inline void handle_document_diagnostic(const nlohmann::json &id, const nlohmann::json &params) {
   const std::string uri = params.at("textDocument").at("uri").get<std::string>();
   const auto found = documents.find(uri);
@@ -304,6 +343,14 @@ inline bool dispatch(const nlohmann::json &message) {
   }
   if (method == "textDocument/hover") {
     handle_hover(message.at("id"), params);
+    return true;
+  }
+  if (method == "textDocument/definition") {
+    handle_definition(message.at("id"), params);
+    return true;
+  }
+  if (method == "textDocument/references") {
+    handle_references(message.at("id"), params);
     return true;
   }
   if (method == "textDocument/diagnostic") {

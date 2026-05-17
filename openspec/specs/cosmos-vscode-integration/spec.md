@@ -4,7 +4,6 @@
 Define how the VSCode extension launches and communicates with the Cosmos
 language-server host so editor diagnostics and hover requests are served by the
 `packages/cosmos` pipeline.
-
 ## Requirements
 ### Requirement: VSCode Launches The Cosmos Host
 
@@ -38,3 +37,23 @@ diagnostics and hover results from the integrated server path.
 - **WHEN** VSCode requests hover for a supported Cosmo identifier
 - **THEN** the host returns a markdown hover payload with a range covering the
   identifier
+
+### Requirement: VSCode Semantic Navigation Uses Cosmos
+
+The VSCode integration SHALL route go-to-definition and find-references requests for Cosmo documents to the Cosmos language-server host.
+
+#### Scenario: Initialize advertises navigation
+
+- **WHEN** the VSCode-launched Cosmos host responds to `initialize`
+- **THEN** the server capabilities include definition provider support
+- **AND** the server capabilities include references provider support
+
+#### Scenario: Definition request flows through host
+
+- **WHEN** VSCode sends `textDocument/definition` for a supported Cosmo identifier
+- **THEN** the host responds with the Cosmos definition location result
+
+#### Scenario: References request flows through host
+
+- **WHEN** VSCode sends `textDocument/references` for a supported Cosmo identifier
+- **THEN** the host responds with the Cosmos references location result
