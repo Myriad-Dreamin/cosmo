@@ -16,6 +16,16 @@ The VSCode integration SHALL expose a human-readable output channel for Cosmos l
 - **THEN** the stderr text is appended to the Cosmo language-server output channel
 - **AND** protocol stdout is not appended to the human-readable channel
 
+#### Scenario: Startup metadata is visible
+
+- **WHEN** VSCode launches the Cosmos language-server host
+- **THEN** the host emits startup metadata to stderr
+- **AND** the metadata is appended to the Cosmo language-server output channel
+- **AND** the metadata includes the git revision used to build or run the host
+- **AND** the metadata includes relevant version values for the host/server and VSCode extension when available
+- **AND** the metadata includes resolved non-secret launch configuration such as host command or path, workspace or server root, transport, and configuration source
+- **AND** protocol stdout remains reserved for JSON-RPC/LSP messages
+
 #### Scenario: User can reveal the channel
 
 - **WHEN** the user invokes the Cosmo command for language-server output

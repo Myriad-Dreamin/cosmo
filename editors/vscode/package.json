@@ -57,10 +57,16 @@
         "path": "./out/cosmo.tmLanguage.json"
       }
     ],
-    "commands": []
+    "commands": [
+      {
+        "command": "cosmo.showLanguageServerOutput",
+        "title": "Cosmo: Show Language Server Output"
+      }
+    ]
   },
   "activationEvents": [
-    "onLanguage:cosmo"
+    "onLanguage:cosmo",
+    "onCommand:cosmo.showLanguageServerOutput"
   ],
   "scripts": {
     "build:syntax": "pnpm --dir ../../syntaxes/textmate run compile && pnpm --dir ../../syntaxes/textmate run bundle",
@@ -70,7 +76,7 @@
     "package": "vsce package --no-dependencies",
     "compile": "pnpm run compile:extension && pnpm run build:syntax",
     "compile:extension": "pnpm run build-base",
-    "test:smoke": "pnpm --dir ../.. run build:cosmos-host && node --test test/*.test.cjs",
+    "test:smoke": "pnpm run compile:extension && pnpm --dir ../.. run build:cosmos-host && node --test test/*.test.cjs",
     "watch": "pnpm run build-base -- --watch"
   },
   "dependencies": {

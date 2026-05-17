@@ -6,6 +6,44 @@ const test = require("node:test");
 test("smoke: cosmos host probes successfully", () => {
   const result = require("node:child_process").spawnSync(hostPath(), ["probe"]);
   assert.equal(result.status, 0);
+  assert.equal(result.stdout.toString("utf8"), "");
+  assert.equal(result.stderr.toString("utf8"), "");
+});
+
+test("smoke: startup metadata is emitted to stderr without stdout", async () => {
+  const child = spawn(hostPath(), [], {
+    env: hostEnv({
+      COSMO_LSP_CONFIG_SOURCE: "vscode-extension-test",
+      COSMO_LSP_HOST_COMMAND: hostPath(),
+      COSMO_LSP_TRANSPORT: "stdio",
+      COSMO_VSCODE_EXTENSION_VERSION: "0.1.0-test",
+    }),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const stdoutChunks = [];
+  child.stdout.on("data", (chunk) => {
+    stdoutChunks.push(chunk);
+  });
+
+  try {
+    const stderr = await waitForStderr(child);
+    assert.match(stderr, /\[cosmos-lsp-host\] startup/);
+    assert.match(stderr, /gitRevision: \S+/);
+    assert.match(stderr, /hostVersion: 0\.0\.0/);
+    assert.match(stderr, /serverName: cosmos/);
+    assert.match(stderr, /serverVersion: 0\.0\.0/);
+    assert.match(stderr, /vscodeExtensionVersion: 0\.1\.0-test/);
+    assert.match(stderr, /hostCommand: .*cosmos-lsp-host/);
+    assert.match(stderr, /serverRoot: .*cosmo/);
+    assert.match(stderr, /transport: stdio/);
+    assert.match(stderr, /configSource: vscode-extension-test/);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(Buffer.concat(stdoutChunks).toString("utf8"), "");
+  } finally {
+    child.kill();
+  }
 });
 
 test("smoke: initialize, open, diagnostics, change, and hover flow through cosmos host", async () => {
@@ -129,10 +167,7 @@ test("smoke: initialize, open, diagnostics, change, and hover flow through cosmo
 
 function startHost() {
   const child = spawn(hostPath(), [], {
-    env: {
-      ...process.env,
-      COSMO_REPO_ROOT: path.resolve(__dirname, "..", "..", ".."),
-    },
+    env: hostEnv(),
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -230,4 +265,37 @@ function readMessage(buffer) {
 function hostPath() {
   const name = process.platform === "win32" ? "cosmos-lsp-host.exe" : "cosmos-lsp-host";
   return path.resolve(__dirname, "..", "out", name);
+}
+
+function hostEnv(overrides = {}) {
+  return {
+    ...process.env,
+    COSMO_REPO_ROOT: path.resolve(__dirname, "..", "..", ".."),
+    ...overrides,
+  };
+}
+
+function waitForStderr(child) {
+  return new Promise((resolve, reject) => {
+    let stderr = "";
+    const timeout = setTimeout(
+      () => reject(new Error("timed out waiting for startup metadata")),
+      2000
+    );
+
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+      if (!stderr.includes("configSource:")) {
+        return;
+      }
+
+      clearTimeout(timeout);
+      resolve(stderr);
+    });
+  });
 }
