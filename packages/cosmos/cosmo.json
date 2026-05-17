@@ -5,6 +5,7 @@
   "stageProfile": "cosmo1.stage1",
   "dependencies": [
     "../../library/std",
+    "../cosmoc",
     "../uri-sys",
     "../ls-base"
   ],
@@ -14,6 +15,8 @@
     "workspace/session.cos",
     "workspace/workspace.cos",
     "lsp/document_events.cos",
+    "lsp/diagnostics.cos",
+    "lsp/diagnostics_test.cos",
     "workspace/workspace_test.cos"
   ]
 }
