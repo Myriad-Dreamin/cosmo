@@ -76,9 +76,10 @@ pnpm run test:smoke
 
 To debug locally, open this repository in VSCode, run the extension host from
 `Run Cosmo Extension`, and open a `.cos` file. The extension activates on the
-Cosmo language, starts `out/lsp-server.js`, and sets `COSMO_REPO_ROOT` so the
-host can load the checkout's `packages/cosmos` sources. Packaged VSIX builds
-copy the needed Cosmo package sources under `out/server-root` before packaging.
+Cosmo language, probes and starts `out/cosmos-lsp-host`, and sets
+`COSMO_REPO_ROOT` so the host can resolve the checkout while running. Packaged
+VSIX builds copy the needed Cosmo package sources under `out/server-root` before
+packaging.
 
 ## Implementation Note
 

@@ -2,14 +2,15 @@
 
 ### Requirement: VSCode Launches The Cosmos Host
 
-The VSCode extension SHALL launch a Node host entry owned by `editors/vscode`
-that boots the `packages/cosmos` language-server package before serving Cosmo
+The VSCode extension SHALL launch a bundled `cosmos-lsp-host` executable that
+boots the `packages/cosmos` language-server package before serving Cosmo
 language requests.
 
 #### Scenario: Extension activation starts the host
 
 - **WHEN** a Cosmo document activates the extension
-- **THEN** the extension starts the bundled language server host over IPC
+- **THEN** the extension probes and starts the bundled language server host over
+  stdio
 - **AND** the host validates that `packages/cosmos` can be loaded from the local
   checkout or packaged extension payload
 - **AND** the extension does not call legacy `packages/cosmo` or `cosmo0`

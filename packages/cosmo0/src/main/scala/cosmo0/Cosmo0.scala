@@ -211,6 +211,10 @@ final class Cosmo0:
   def compileRunnablePackageForHost(rootPath: String): Cosmo0HostCompileResult =
     Cosmo0HostCompileResult.fromResult(compileRunnablePackage(rootPath))
 
+  @JSExport
+  def compilePackageForHost(rootPath: String): Cosmo0HostCompileResult =
+    Cosmo0HostCompileResult.fromResult(compilePackage(rootPath))
+
   private def validateRunnableEntrypoint(pkg: CheckedPackage): Result[CheckedPackage] =
     runnableEntrypoint(pkg) match
       case Some(main) if isRunnableEntrypoint(main) =>

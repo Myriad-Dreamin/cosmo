@@ -65,20 +65,16 @@
   "scripts": {
     "build:syntax": "pnpm --dir ../../syntaxes/textmate run compile && pnpm --dir ../../syntaxes/textmate run bundle",
     "build-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
-    "build-host": "esbuild ./src/cosmos-host.ts --bundle --outfile=out/cosmos-host.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
-    "build-server": "esbuild ./src/lsp-server.ts --bundle --outfile=out/lsp-server.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
     "copy-cosmos-package": "node scripts/copy-cosmos-package.mjs",
-    "vscode:prepublish": "pnpm run copy-cosmos-package && pnpm run build-base -- --minify && pnpm run build-server -- --minify",
+    "vscode:prepublish": "pnpm --dir ../.. run build:vscode",
     "package": "vsce package --no-dependencies",
     "compile": "pnpm run compile:extension && pnpm run build:syntax",
-    "compile:extension": "pnpm run build-base && pnpm run build-server",
-    "test:smoke": "pnpm run build-host && node --test test/*.test.cjs",
+    "compile:extension": "pnpm run build-base",
+    "test:smoke": "pnpm --dir ../.. run build:cosmos-host && node --test test/*.test.cjs",
     "watch": "pnpm run build-base -- --watch"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1",
-    "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11"
+    "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.8.10",

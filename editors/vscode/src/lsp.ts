@@ -6,28 +6,23 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  TransportKind,
-  NodeModule,
 } from "vscode-languageclient/node";
+import { resolveCosmosHostPath } from "./cosmos-host";
 
 let client: LanguageClient;
 
 export function activateLsp(context: ExtensionContext) {
-  const serverModule = context.asAbsolutePath(
-    path.join("out", "lsp-server.js")
-  );
   const repoRoot = resolveRepoRoot(context.extensionPath);
+  const command = resolveCosmosHostPath(context);
 
-  const run: NodeModule = {
-    module: serverModule,
+  const run = {
+    command,
     options: {
-      execArgv: ["--enable-source-maps"],
       env: {
         ...process.env,
         COSMO_REPO_ROOT: repoRoot,
       },
     },
-    transport: TransportKind.ipc,
   };
 
   const serverOptions: ServerOptions = {
