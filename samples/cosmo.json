@@ -1,5 +1,9 @@
 {
-  "name": "@cosmo/samples",
-  "version": "0.0.0",
-  "root": "."
+  "workspace": {
+    "members": [
+      "workspaces/virtual-root/packages/app",
+      "workspaces/virtual-root/packages/lib",
+      "workspaces/package"
+    ]
+  }
 }
