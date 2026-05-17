@@ -1,0 +1,104 @@
+import lsp.diagnostics
+import lsp.lifecycle
+import workspace.documents
+
+def cosmos_test_parser_diagnostic_fixture(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "val =",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val diagnostics = cosmos_analyze_document(snapshot);
+  if (diagnostics.len() != 1) {
+    return false
+  }
+
+  val json = cosmos_lsp_diagnostics_json(diagnostics);
+  json_contains(json, "\"code\":\"cosmo1.parser.expected\"") and
+    json_contains(json, "\"severity\":1") and
+    json_contains(json, "\"source\":\"cosmoc\"")
+}
+
+def cosmos_test_checker_diagnostic_fixture(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "def main(): i32 = { false }",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val diagnostics = cosmos_analyze_document(snapshot);
+  if (diagnostics.len() != 1) {
+    return false
+  }
+
+  val first = diagnostics.get(0);
+  first.message == "type mismatch" and
+    cosmos_lsp_diagnostics_json(diagnostics) == cosmos_lsp_diagnostics_json(cosmos_analyze_document(snapshot))
+}
+
+def cosmos_test_package_diagnostic_fixture(): Bool = {
+  val imports = Vec[String]();
+  imports.push("missing");
+  val modules = Vec[CosmosPackageModuleInput]();
+  modules.push(CosmosPackageModuleInput("main", imports));
+
+  val diagnostics = cosmos_analyze_package_graph(modules);
+  diagnostics.len() == 1 and
+    cosmos_lsp_diagnostics_json(diagnostics) == cosmos_lsp_diagnostics_json(cosmos_analyze_package_graph(modules)) and
+    json_contains(cosmos_lsp_diagnostics_json(diagnostics), "\"code\":\"cosmo1.package.missing-import\"")
+}
+
+def cosmos_test_publish_and_clear_diagnostics(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "val =",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val closed = cosmos_text_document_snapshot(
+    snapshot.uri,
+    snapshot.file_path,
+    snapshot.version,
+    snapshot.text,
+    snapshot.package_root,
+    snapshot.module_path,
+    false
+  );
+  var server = lsp_server();
+  val state = cosmos_diagnostics_state();
+
+  server = state.publish_snapshot(server, snapshot);
+  server = state.publish_snapshot(server, closed);
+
+  server.outbound_len() == 2 and
+    state.has_published(snapshot.uri) and
+    server.session.outbound.get(1) == "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/publishDiagnostics\",\"params\":{\"uri\":\"file:///repo/packages/app/src/main.cos\",\"diagnostics\":[]}}"
+}
+
+def json_contains(text: String, needle: String): Bool = {
+  if (needle.is_empty()) {
+    return true
+  }
+  if (needle.len() > text.len()) {
+    return false
+  }
+
+  var offset: usize = 0;
+  while (offset + needle.len() <= text.len()) {
+    if (text.slice(offset, offset + needle.len()) == needle) {
+      return true
+    }
+    offset = offset + 1
+  }
+  false
+}

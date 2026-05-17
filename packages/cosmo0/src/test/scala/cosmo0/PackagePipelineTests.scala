@@ -169,50 +169,54 @@ class PackagePipelineTests extends munit.FunSuite:
       loaded.value.get.metadata.sourceFiles,
       Some(
         List(
-          "std/text.cos",
-          "std/text_output.cos",
-          "std/path_fs.cos",
-          "std/char_class.cos",
-          "std/char_class_test.cos",
           "driver/config.cos",
           "driver/diagnostic.cos",
-          "driver/diagnostic_test.cos",
           "source/span.cos",
           "lex/token.cos",
           "lex/lexer.cos",
-          "lex/lexer_test.cos",
           "source/source.cos",
           "source/source_map.cos",
-          "source/source_test.cos",
-          "source/source_map_test.cos",
           "syntax/ast.cos",
+          "names/symbol.cos",
+          "names/scope.cos",
+          "names/resolution.cos",
+          "package/module_graph.cos",
+          "types/model.cos",
+          "types/declaration_resolution.cos",
+          "types/check.cos",
           "parser.cos",
-          "parser_test.cos",
         ),
       ),
     )
     assertEquals(
       loaded.value.get.modules.map(_.modulePath),
       List(
-        List("core0", "char_class"),
-        List("core0", "char_class_test"),
-        List("core0", "path_fs"),
-        List("core0", "text"),
-        List("core0", "text_output"),
         List("driver", "config"),
         List("driver", "diagnostic"),
-        List("driver", "diagnostic_test"),
         List("lex", "lexer"),
-        List("lex", "lexer_test"),
         List("lex", "token"),
+        List("names", "resolution"),
+        List("names", "scope"),
+        List("names", "symbol"),
+        List("package", "module_graph"),
         List("parser"),
-        List("parser_test"),
         List("source", "source"),
         List("source", "source_map"),
-        List("source", "source_map_test"),
-        List("source", "source_test"),
         List("source", "span"),
+        List("std", "bytes"),
+        List("std", "char_class"),
+        List("std", "char_class_test"),
+        List("std", "json"),
+        List("std", "json_test"),
+        List("std", "map_set"),
+        List("std", "map_set_test"),
+        List("std", "path_fs"),
+        List("std", "text"),
+        List("std", "text_output"),
         List("syntax", "ast"),
+        List("types", "check"),
+        List("types", "declaration_resolution"),
+        List("types", "model"),
       ),
     )
 
@@ -226,25 +230,32 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       checked.value.get.moduleOrder,
       List(
-        "std/char_class",
-        "std/char_class_test",
         "std/path_fs",
-        "std/text",
-        "std/text_output",
         "driver/config",
+        "std/text",
         "source/source",
         "source/source_map",
+        "std/text_output",
         "driver/diagnostic",
-        "driver/diagnostic_test",
         "source/span",
         "lex/token",
+        "std/char_class",
         "lex/lexer",
-        "lex/lexer_test",
+        "names/symbol",
+        "names/scope",
         "syntax/ast",
+        "names/resolution",
+        "std/json",
+        "package/module_graph",
         "parser",
-        "parser_test",
-        "source/source_map_test",
-        "source/source_test",
+        "std/bytes",
+        "std/char_class_test",
+        "std/json_test",
+        "std/map_set",
+        "std/map_set_test",
+        "types/model",
+        "types/declaration_resolution",
+        "types/check",
       ),
     )
 
@@ -279,29 +290,21 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("inline std::string core0_text_slice("))
     assert(output.source.contains("inline bool is_identifier_start("))
     assert(output.source.contains("inline bool token_is_eof("))
-    assert(output.source.contains("inline bool lexer_identifier_number_punctuation_smoke()"))
     assert(output.source.contains("inline std::string render_diagnostic("))
     assert(output.source.contains("inline void write_diagnostic("))
-    assert(output.source.contains("inline bool diagnostic_render_smoke()"))
     assert(output.source.contains("Result<std::string, IoError>"))
     assert(output.source.contains("Result<SourceText, IoError>"))
     assert(output.source.contains("core0_fs_read_to_string("))
     assert(output.source.contains("load_source_text("))
     assert(output.source.contains("inline SyntaxParserResult parse_source_ast("))
     assert(output.source.contains("inline bool parse_source("))
-    assert(output.source.contains("inline int32_t main()"))
     assert(output.source.contains("::cosmo0_runtime::read_file("))
-    assert(output.source.contains("::cosmo0_runtime::print("))
-    assert(output.source.contains("::cosmo0_runtime::println("))
     assert(!output.source.contains("StringBuilder"))
     assert(!output.source.contains("TextWriter_descriptor"))
     assert(!output.source.contains("Path_descriptor"))
     assert(!output.source.contains("Filesystem_descriptor"))
-    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::print")))
     assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
-    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
 
   test("cosmo1 Stage 1 negative fixtures reject unsupported full-language features"):
     val cases = List(

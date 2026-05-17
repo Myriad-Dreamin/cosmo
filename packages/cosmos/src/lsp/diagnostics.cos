@@ -1,0 +1,257 @@
+import jsonrpc.core
+import lsp.lifecycle
+import names.symbol
+import package.module_graph
+import parser
+import source.span
+import syntax.ast
+import types.check
+import workspace.documents
+
+class CosmosLspPosition {
+  val line: usize
+  val character: usize
+}
+
+class CosmosLspRange {
+  val start: CosmosLspPosition
+  val end: CosmosLspPosition
+}
+
+class CosmosDiagnosticSeverity {
+  case Error
+  case Warning
+  case Information
+  case Hint
+}
+
+class CosmosPackageModuleInput {
+  val name: String
+  val imports: Vec[String]
+}
+
+class CosmosLspDiagnostic {
+  val range: CosmosLspRange
+  val severity: CosmosDiagnosticSeverity
+  val code: String
+  val source: String
+  val message: String
+}
+
+class CosmosDiagnosticsState {
+  var published_uris: Set[String]
+
+  def publish_snapshot(&mut self, server: LspServer, snapshot: CosmosTextDocumentSnapshot): LspServer = {
+    if (!snapshot.is_open) {
+      return self.clear_uri(server, snapshot.uri)
+    }
+
+    val diagnostics = cosmos_analyze_document(snapshot);
+    self.publish(server, snapshot.uri, cosmos_lsp_diagnostics_json(diagnostics))
+  }
+
+  def clear_uri(&mut self, server: LspServer, uri: String): LspServer = {
+    self.publish(server, uri, "[]")
+  }
+
+  def publish(&mut self, server: LspServer, uri: String, diagnostics_json: String): LspServer = {
+    var next_server = server;
+    next_server.publish_diagnostics(uri, diagnostics_json);
+    self.published_uris.insert(uri);
+    next_server
+  }
+
+  def has_published(&self, uri: String): Bool = {
+    self.published_uris.contains(uri)
+  }
+}
+
+def cosmos_diagnostics_state(): CosmosDiagnosticsState = {
+  CosmosDiagnosticsState(Set[String]())
+}
+
+def cosmos_analyze_document(snapshot: CosmosTextDocumentSnapshot): Vec[CosmosLspDiagnostic] = {
+  val parsed = parse_source_ast(snapshot.text);
+  val parser_diagnostics = cosmos_parser_diagnostics_to_lsp(snapshot.text, parsed.diagnostics);
+  if (!parser_diagnostics.is_empty()) {
+    return parser_diagnostics
+  }
+
+  val checked = check_module_basic_expressions(parsed.arenas, parsed.root);
+  cosmos_checker_diagnostics_to_lsp(snapshot.text, checked.diagnostics)
+}
+
+def cosmos_analyze_package_graph(modules: Vec[CosmosPackageModuleInput]): Vec[CosmosLspDiagnostic] = {
+  var arena = Arena[PackageModule]();
+  var graph = empty_module_graph();
+  for (input in modules) {
+    val module_name = symbol_from_string(input.name);
+    val id = arena.alloc(PackageModule(module_name));
+    graph.add_root(module_name, id);
+    graph.add_edges(module_name, cosmos_import_symbols(input.imports))
+  }
+
+  val plan = module_graph_order(graph);
+  cosmos_module_graph_diagnostics_to_lsp(plan.diagnostics)
+}
+
+def cosmos_import_symbols(imports: Vec[String]): Vec[Symbol] = {
+  val result = Vec[Symbol]();
+  for (item in imports) {
+    result.push(module_key_from_import_path(item))
+  }
+  result
+}
+
+def cosmos_parser_diagnostics_to_lsp(source: String, diagnostics: Vec[SyntaxParserDiagnostic]): Vec[CosmosLspDiagnostic] = {
+  val result = Vec[CosmosLspDiagnostic]();
+  for (diagnostic in diagnostics) {
+    result.push(cosmos_lsp_diagnostic(source, diagnostic.span, "error", diagnostic.code, diagnostic.message))
+  }
+  result
+}
+
+def cosmos_checker_diagnostics_to_lsp(source: String, diagnostics: Vec[ExpressionResolutionDiagnostic]): Vec[CosmosLspDiagnostic] = {
+  val result = Vec[CosmosLspDiagnostic]();
+  for (diagnostic in diagnostics) {
+    result.push(cosmos_lsp_diagnostic(source, diagnostic.span, "error", diagnostic.code, diagnostic.message))
+  }
+  result
+}
+
+def cosmos_module_graph_diagnostics_to_lsp(diagnostics: Vec[ModuleGraphDiagnostic]): Vec[CosmosLspDiagnostic] = {
+  val result = Vec[CosmosLspDiagnostic]();
+  for (diagnostic in diagnostics) {
+    result.push(cosmos_lsp_diagnostic("", make_span(0, 0), "error", diagnostic.code, diagnostic.message))
+  }
+  result
+}
+
+def cosmos_lsp_diagnostic(source: String, span: Span, severity: String, code: String, message: String): CosmosLspDiagnostic = {
+  CosmosLspDiagnostic(
+    cosmos_lsp_range(source, span),
+    cosmos_lsp_severity(severity),
+    code,
+    "cosmoc",
+    message
+  )
+}
+
+def cosmos_diagnostic_range(diagnostic: CosmosLspDiagnostic): CosmosLspRange = {
+  diagnostic.range
+}
+
+def cosmos_diagnostic_severity(diagnostic: CosmosLspDiagnostic): CosmosDiagnosticSeverity = {
+  diagnostic.severity
+}
+
+def cosmos_lsp_range(source: String, span: Span): CosmosLspRange = {
+  CosmosLspRange(
+    cosmos_lsp_position(source, span.start),
+    cosmos_lsp_position(source, span.end)
+  )
+}
+
+def cosmos_lsp_position(source: String, offset: usize): CosmosLspPosition = {
+  val limit = cosmos_clamp_offset(source, offset);
+  var cursor: usize = 0;
+  var line: usize = 0;
+  var character: usize = 0;
+  while (cursor < limit) {
+    if (source.byte_at(cursor) == a"\n") {
+      line = line + 1;
+      character = 0
+    } else {
+      character = character + 1
+    }
+    cursor = cursor + 1
+  }
+  CosmosLspPosition(line, character)
+}
+
+def cosmos_clamp_offset(source: String, offset: usize): usize = {
+  if (offset > source.len()) {
+    source.len()
+  } else {
+    offset
+  }
+}
+
+def cosmos_lsp_severity(severity: String): CosmosDiagnosticSeverity = {
+  if (severity == "warning") {
+    return CosmosDiagnosticSeverity.Warning
+  }
+  if (severity == "information") {
+    return CosmosDiagnosticSeverity.Information
+  }
+  if (severity == "hint") {
+    return CosmosDiagnosticSeverity.Hint
+  }
+  CosmosDiagnosticSeverity.Error
+}
+
+def cosmos_lsp_diagnostics_json(diagnostics: Vec[CosmosLspDiagnostic]): String = {
+  val builder = core0_text_builder_from("[");
+  var index: usize = 0;
+  while (index < diagnostics.len()) {
+    if (index > 0) {
+      builder.push(",")
+    }
+    builder.push(cosmos_lsp_diagnostic_json(diagnostics.get(index)));
+    index = index + 1
+  }
+  builder.push("]");
+  builder.finish()
+}
+
+def cosmos_lsp_diagnostic_json(diagnostic: CosmosLspDiagnostic): String = {
+  val builder = core0_text_builder_from("{\"range\":");
+  builder.push(cosmos_lsp_range_json(diagnostic.range));
+  builder.push(",\"severity\":");
+  builder.push(cosmos_lsp_severity_json(diagnostic.severity));
+  builder.push(",\"code\":");
+  builder.push(jsonrpc_quote(diagnostic.code));
+  builder.push(",\"source\":");
+  builder.push(jsonrpc_quote(diagnostic.source));
+  builder.push(",\"message\":");
+  builder.push(jsonrpc_quote(diagnostic.message));
+  builder.push("}");
+  builder.finish()
+}
+
+def cosmos_lsp_range_json(range: CosmosLspRange): String = {
+  "{\"start\":".concat(cosmos_lsp_position_json(range.start)).concat(",\"end\":").concat(cosmos_lsp_position_json(range.end)).concat("}")
+}
+
+def cosmos_lsp_position_json(position: CosmosLspPosition): String = {
+  "{\"line\":".concat(cosmos_usize_json(position.line)).concat(",\"character\":").concat(cosmos_usize_json(position.character)).concat("}")
+}
+
+def cosmos_lsp_severity_json(severity: CosmosDiagnosticSeverity): String = {
+  severity match {
+    case CosmosDiagnosticSeverity.Error => { "1" }
+    case CosmosDiagnosticSeverity.Warning => { "2" }
+    case CosmosDiagnosticSeverity.Information => { "3" }
+    case CosmosDiagnosticSeverity.Hint => { "4" }
+  }
+}
+
+def cosmos_usize_json(value: usize): String = {
+  if (value < 10) {
+    return cosmos_digit_json(value)
+  }
+  cosmos_usize_json(value / 10).concat(cosmos_digit_json(value % 10))
+}
+
+def cosmos_digit_json(value: usize): String = {
+  if (value == 0) { return "0" }
+  if (value == 1) { return "1" }
+  if (value == 2) { return "2" }
+  if (value == 3) { return "3" }
+  if (value == 4) { return "4" }
+  if (value == 5) { return "5" }
+  if (value == 6) { return "6" }
+  if (value == 7) { return "7" }
+  if (value == 8) { return "8" }
+  "9"
+}

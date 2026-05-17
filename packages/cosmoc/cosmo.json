@@ -9,23 +9,19 @@
   "sources": [
     "driver/config.cos",
     "driver/diagnostic.cos",
-    "driver/diagnostic_test.cos",
     "source/span.cos",
     "lex/token.cos",
     "lex/lexer.cos",
-    "lex/lexer_test.cos",
     "source/source.cos",
     "source/source_map.cos",
-    "source/source_test.cos",
-    "source/source_map_test.cos",
     "syntax/ast.cos",
+    "names/symbol.cos",
+    "names/scope.cos",
+    "names/resolution.cos",
+    "package/module_graph.cos",
     "types/model.cos",
-    "types/model_test.cos",
     "types/declaration_resolution.cos",
-    "types/declaration_resolution_test.cos",
     "types/check.cos",
-    "types/check_test.cos",
-    "parser.cos",
-    "parser_test.cos"
+    "parser.cos"
   ]
 }
