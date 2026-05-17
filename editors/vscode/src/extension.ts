@@ -5,6 +5,6 @@ export async function activate(context: ExtensionContext): Promise<void> {
   activateLsp(context);
 }
 
-export function deactivate(): void {
-  deactivateLsp();
+export function deactivate(): Thenable<void> | undefined {
+  return deactivateLsp();
 }

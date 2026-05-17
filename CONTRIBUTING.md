@@ -23,5 +23,9 @@ Use `xxx` to specify the target you want to build, such as `all`.
 # Build Cosmo Editor Support
 
 ```shell
-yarn build:vscode && code --install-extension editors/vscode/cosmo-0.1.0.vsix
+pnpm run local:vscode
 ```
+
+VSCode debugging uses the `Run Cosmo Extension` launch configuration, which runs
+the `VS Code Extension Prelaunch` task. That task builds the extension and stages
+the `packages/cosmos` server payload under `editors/vscode/out/server-root`.

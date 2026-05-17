@@ -1065,11 +1065,15 @@ def cosmos_find_name_span(source: String, span: Span, name: String): Span = {
 }
 
 def cosmos_identifier_boundaries(source: String, start: usize, end: usize): Bool = {
-  if (start > 0 and cosmos_identifier_byte(source.byte_at(start - 1))) {
-    return false
+  if (start > 0) {
+    if (cosmos_identifier_byte(source.byte_at(start - 1))) {
+      return false
+    }
   }
-  if (end < source.len() and cosmos_identifier_byte(source.byte_at(end))) {
-    return false
+  if (end < source.len()) {
+    if (cosmos_identifier_byte(source.byte_at(end))) {
+      return false
+    }
   }
   true
 }

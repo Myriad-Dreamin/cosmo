@@ -56,6 +56,31 @@ It uses the cosmo0 C++ backend, so host execution needs a C++17 compiler.
 When `nlohmann/json.hpp` is missing, Cosmo provisions its pinned checkout under
 `target/cosmo/externals/json`.
 
+## VSCode Extension Development
+
+The VSCode extension lives in `editors/vscode` and launches a Node host wrapper
+for the `packages/cosmos` language-server package. Build and install the
+extension from the local checkout with the root pnpm pipeline:
+
+```
+pnpm run local:vscode
+```
+
+For extension-only development, run the focused build and smoke tests:
+
+```
+cd editors/vscode
+pnpm run compile
+pnpm run test:smoke
+```
+
+To debug locally, open this repository in VSCode, run the extension host from
+`Run Cosmo Extension`, and open a `.cos` file. The extension activates on the
+Cosmo language, probes and starts `out/cosmos-lsp-host`, and sets
+`COSMO_REPO_ROOT` so the host can resolve the checkout while running. Packaged
+VSIX builds copy the needed Cosmo package sources under `out/server-root` before
+packaging.
+
 ## Implementation Note
 
 Demonstration:

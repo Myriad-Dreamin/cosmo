@@ -9,7 +9,6 @@ import cosmo.{DefInfo, ExprInfo, FileId}
 import cosmo.ir.Value
 import cosmo.{DefId, DefInfo, Doc, Env}
 import cosmo.syntax.Ident
-import cosmo.service.LangObject
 import cosmo.{debugln, logln}
 import cosmo.ir.typed.Region
 
@@ -81,7 +80,6 @@ sealed abstract class Term extends ItemExt {
   val isBuilitin: Boolean = false
 
   def e: Expr = untyp.ItemE(this)
-  def langObj: LangObject = LangObject(this)
   def toDoc: Doc = Doc.buildItem(this)
   def eval(env: Env): Term = this
 }

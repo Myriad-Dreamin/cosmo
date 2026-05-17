@@ -1,9 +1,14 @@
 *
 !package.json
 !LICENSE
-!out/cosmo.tmLanguage.json 
+!icons/**/*
+!out/cosmo.tmLanguage.json
+!out/cosmos-lsp-host
+!out/cosmos-lsp-host.exe
 !out/extension.js
 !out/extension.js.map
-!out/lsp-server.js
-!out/lsp-server.js.map
+!out/server-root/**/*
 !syntaxes/**/*
+scripts/**/*
+src/**/*
+test/**/*

@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "VS Code Extension Prelaunch",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "prelaunch:vscode"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Cosmos Host",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "build:cosmos-host"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Compile VS Code Extension",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["--dir", "editors/vscode", "run", "compile:extension"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build VS Code Extension Bundle",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "package:vscode"],
+      "group": "build",
+      "problemMatcher": []
+    }
+  ]
+}
