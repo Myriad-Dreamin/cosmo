@@ -43,6 +43,62 @@ def cosmos_test_checker_diagnostic_fixture(): Bool = {
     cosmos_lsp_diagnostics_json(diagnostics) == cosmos_lsp_diagnostics_json(cosmos_analyze_document(snapshot))
 }
 
+def cosmos_test_unit_body_without_explicit_return_is_clean(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "def main(): Unit = { println(\"ok\") }",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val diagnostics = cosmos_analyze_document(snapshot);
+  cosmos_lsp_diagnostics_json(diagnostics) == "[]"
+}
+
+def cosmos_test_supported_return_mismatch_is_published(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "def main(): i32 = { false }",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val diagnostics = cosmos_analyze_document(snapshot);
+  diagnostics.len() == 1 and diagnostics.get(0).code == "cosmo1.type.mismatch"
+}
+
+def cosmos_test_unknown_name_is_published(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "def main(): Unit = { missing_symbol }",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val diagnostics = cosmos_analyze_document(snapshot);
+  diagnostics.len() == 1 and diagnostics.get(0).code == "cosmo1.type.unsupported-name"
+}
+
+def cosmos_test_invalid_assignment_target_is_published(): Bool = {
+  val snapshot = cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    "def main(): Unit = { false = 1 }",
+    "/repo/packages/app",
+    "main",
+    true
+  );
+  val diagnostics = cosmos_analyze_document(snapshot);
+  diagnostics.len() == 1 and diagnostics.get(0).code == "cosmo1.type.invalid-assignment-target"
+}
+
 def cosmos_test_helloworld_sample_has_no_diagnostics(): Bool = {
   val diagnostics = cosmos_analyze_document(cosmos_helloworld_sample_snapshot(cosmos_helloworld_sample_source()));
   if (diagnostics.len() != 0) {
@@ -61,20 +117,6 @@ def cosmos_test_helloworld_invalid_edit_reports_parser_diagnostic(): Bool = {
 
   val json = cosmos_lsp_diagnostics_json(diagnostics);
   json_contains(json, "\"code\":\"cosmo1.parser.expected\"")
-}
-
-def cosmos_test_checker_gap_cascades_are_suppressed(): Bool = {
-  val source = "def main() = {\n".concat(
-    "  println(\"Hello, World!\")\n".concat(
-      "  val x = 1\n".concat(
-        "  println(x);\n".concat(
-          "}"
-        )
-      )
-    )
-  );
-  val diagnostics = cosmos_analyze_document(cosmos_helloworld_sample_snapshot(source));
-  cosmos_lsp_diagnostics_json(diagnostics) == "[]"
 }
 
 def cosmos_test_package_diagnostic_fixture(): Bool = {
@@ -126,6 +168,7 @@ def cosmos_helloworld_false_positive_codes(): Vec[String] = {
   codes.push("cosmo1.type.unsupported-name");
   codes.push("cosmo1.type.invalid-assignment-target");
   codes.push("cosmo1.type.missing-return");
+  codes.push("cosmo1.type.unsupported-expr");
   codes
 }
 

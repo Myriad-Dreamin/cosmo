@@ -126,40 +126,10 @@ def cosmos_parser_diagnostics_to_lsp(source: String, diagnostics: Vec[SyntaxPars
 
 def cosmos_checker_diagnostics_to_lsp(source: String, diagnostics: Vec[ExpressionResolutionDiagnostic]): Vec[CosmosLspDiagnostic] = {
   val result = Vec[CosmosLspDiagnostic]();
-  val has_gap = cosmos_checker_has_analyzer_gap(diagnostics);
   for (diagnostic in diagnostics) {
-    if (!cosmos_should_suppress_checker_diagnostic(diagnostic, has_gap)) {
-      result.push(cosmos_lsp_diagnostic(source, diagnostic.span, "error", diagnostic.code, diagnostic.message))
-    }
+    result.push(cosmos_lsp_diagnostic(source, diagnostic.span, "error", diagnostic.code, diagnostic.message))
   }
   result
-}
-
-def cosmos_checker_has_analyzer_gap(diagnostics: Vec[ExpressionResolutionDiagnostic]): Bool = {
-  for (diagnostic in diagnostics) {
-    if (cosmos_checker_diagnostic_is_analyzer_gap(diagnostic.code)) {
-      return true
-    }
-  }
-  false
-}
-
-def cosmos_should_suppress_checker_diagnostic(diagnostic: ExpressionResolutionDiagnostic, has_gap: Bool): Bool = {
-  if (cosmos_checker_diagnostic_is_analyzer_gap(diagnostic.code)) {
-    return true
-  }
-  if (!has_gap) {
-    return false
-  }
-  cosmos_checker_diagnostic_is_gap_cascade(diagnostic.code)
-}
-
-def cosmos_checker_diagnostic_is_analyzer_gap(code: String): Bool = {
-  code == "cosmo1.type.unsupported-name" or code == "cosmo1.type.unsupported-expr"
-}
-
-def cosmos_checker_diagnostic_is_gap_cascade(code: String): Bool = {
-  code == "cosmo1.type.invalid-assignment-target" or code == "cosmo1.type.missing-return"
 }
 
 def cosmos_module_graph_diagnostics_to_lsp(diagnostics: Vec[ModuleGraphDiagnostic]): Vec[CosmosLspDiagnostic] = {
