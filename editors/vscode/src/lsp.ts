@@ -1,5 +1,6 @@
 import * as path from "path";
-import { workspace, ExtensionContext } from "vscode";
+import { existsSync } from "fs";
+import { ExtensionContext, workspace } from "vscode";
 
 import {
   LanguageClient,
@@ -12,31 +13,36 @@ import {
 let client: LanguageClient;
 
 export function activateLsp(context: ExtensionContext) {
-  // The server is implemented in node
   const serverModule = context.asAbsolutePath(
     path.join("out", "lsp-server.js")
   );
+  const repoRoot = resolveRepoRoot(context.extensionPath);
 
   const run: NodeModule = {
     module: serverModule,
     options: {
       execArgv: ["--enable-source-maps"],
+      env: {
+        ...process.env,
+        COSMO_REPO_ROOT: repoRoot,
+      },
     },
     transport: TransportKind.ipc,
   };
 
-  // If the extension is launched in debug mode then the debug server options are used
-  // Otherwise the run options are used
   const serverOptions: ServerOptions = {
     run,
     debug: run,
   };
 
-  // Options to control the language client
   const clientOptions: LanguageClientOptions = {
-    // Register the server for plain text documents
-    documentSelector: [{ scheme: "file", language: "cosmo" }],
-    synchronize: {},
+    documentSelector: [
+      { scheme: "file", language: "cosmo" },
+      { scheme: "untitled", language: "cosmo" },
+    ],
+    synchronize: {
+      fileEvents: workspace.createFileSystemWatcher("**/*.cos"),
+    },
   };
 
   // Create the language client and start the client.
@@ -47,7 +53,6 @@ export function activateLsp(context: ExtensionContext) {
     clientOptions
   );
 
-  // Start the client. This will also launch the server
   client.start();
 }
 
@@ -56,4 +61,13 @@ export function deactivateLsp(): Thenable<void> | undefined {
     return undefined;
   }
   return client.stop();
+}
+
+function resolveRepoRoot(extensionPath: string): string {
+  const packagedRoot = path.join(extensionPath, "out", "server-root");
+  if (existsSync(path.join(packagedRoot, "packages", "cosmos", "cosmo.json"))) {
+    return packagedRoot;
+  }
+
+  return path.resolve(extensionPath, "..", "..");
 }

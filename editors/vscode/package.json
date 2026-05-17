@@ -59,14 +59,19 @@
     ],
     "commands": []
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:cosmo"
+  ],
   "scripts": {
     "build:syntax": "cd ../../syntaxes/textmate && yarn run compile && yarn run bundle",
     "build-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
+    "build-host": "esbuild ./src/cosmos-host.ts --bundle --outfile=out/cosmos-host.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
     "build-server": "esbuild ./src/lsp-server.ts --bundle --outfile=out/lsp-server.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
-    "vscode:prepublish": "yarn run build-base -- --minify && yarn run build-server -- --minify",
+    "copy-cosmos-package": "node scripts/copy-cosmos-package.mjs",
+    "vscode:prepublish": "yarn run copy-cosmos-package && yarn run build-base -- --minify && yarn run build-server -- --minify && yarn run build-host -- --minify",
     "package": "vsce package --yarn",
-    "compile": "yarn run build-base && yarn run build:syntax",
+    "compile": "yarn run build-base && yarn run build-server && yarn run build-host && yarn run build:syntax",
+    "test:smoke": "yarn run build-host && node --test test/*.test.cjs",
     "watch": "yarn run build-base --watch"
   },
   "dependencies": {

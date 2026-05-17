@@ -56,6 +56,31 @@ It uses the cosmo0 C++ backend, so host execution needs a C++17 compiler.
 When `nlohmann/json.hpp` is missing, Cosmo provisions its pinned checkout under
 `target/cosmo/externals/json`.
 
+## VSCode Extension Development
+
+The VSCode extension lives in `editors/vscode` and launches a Node host wrapper
+for the `packages/cosmos` language-server package. Build the Scala.js compiler
+first, then build and install the extension from the local checkout:
+
+```
+yarn compile
+yarn local:vscode
+```
+
+For extension-only development, run the focused build and smoke tests:
+
+```
+cd editors/vscode
+yarn compile
+yarn test:smoke
+```
+
+To debug locally, open this repository in VSCode, run the extension host from
+`editors/vscode`, and open a `.cos` file. The extension activates on the Cosmo
+language, starts `out/lsp-server.js`, and sets `COSMO_REPO_ROOT` so the host can
+load the checkout's `packages/cosmos` sources. Packaged VSIX builds copy the
+needed Cosmo package sources under `out/server-root` before packaging.
+
 ## Implementation Note
 
 Demonstration:
