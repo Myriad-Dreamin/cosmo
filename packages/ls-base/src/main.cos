@@ -27,5 +27,9 @@ def main(): i32 = {
     core0_stdout_write("lsp_test_handler_registration failed\n");
     return 1
   }
+  if (!lsp_test_hover_response_and_capability()) {
+    core0_stdout_write("lsp_test_hover_response_and_capability failed\n");
+    return 1
+  }
   0
 }
