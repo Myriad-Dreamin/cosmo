@@ -211,14 +211,6 @@ final class Cosmo0:
   def compileRunnablePackageForHost(rootPath: String): Cosmo0HostCompileResult =
     Cosmo0HostCompileResult.fromResult(compileRunnablePackage(rootPath))
 
-  @JSExport
-  def compilePackageForHost(rootPath: String): Cosmo0HostCompileResult =
-    Cosmo0HostCompileResult.fromResult(compilePackage(rootPath))
-
-  @JSExport
-  def checkSourceForHost(fileName: String, sourceText: String): Cosmo0HostCheckResult =
-    Cosmo0HostCheckResult.fromResult(check(SourceFile(fileName, sourceText)))
-
   private def validateRunnableEntrypoint(pkg: CheckedPackage): Result[CheckedPackage] =
     runnableEntrypoint(pkg) match
       case Some(main) if isRunnableEntrypoint(main) =>
@@ -299,39 +291,19 @@ final class Cosmo0HostDiagnostic(
     val fileName: String,
     val line: Int,
     val column: Int,
-    val endLine: Int,
-    val endColumn: Int,
 )
 
 object Cosmo0HostDiagnostic:
   def fromDiagnostic(diagnostic: Diagnostic): Cosmo0HostDiagnostic =
-    val start = diagnostic.span.map(_.start)
-    val end = diagnostic.span.map(_.end)
+    val position = diagnostic.span.map(_.start)
     new Cosmo0HostDiagnostic(
       diagnostic.phase.toString,
       diagnostic.severity.toString,
       diagnostic.code,
       diagnostic.message,
       diagnostic.span.map(_.fileName).getOrElse(""),
-      start.map(_.line).getOrElse(0),
-      start.map(_.column).getOrElse(0),
-      end.map(_.line).getOrElse(0),
-      end.map(_.column).getOrElse(0),
-    )
-
-@JSExportAll
-final class Cosmo0HostCheckResult(
-    val ok: Boolean,
-    val status: String,
-    val diagnostics: js.Array[Cosmo0HostDiagnostic],
-)
-
-object Cosmo0HostCheckResult:
-  def fromResult(result: Result[CheckedModule]): Cosmo0HostCheckResult =
-    new Cosmo0HostCheckResult(
-      result.isSuccess,
-      result.status.toString,
-      js.Array(result.diagnostics.map(Cosmo0HostDiagnostic.fromDiagnostic)*),
+      position.map(_.line).getOrElse(0),
+      position.map(_.column).getOrElse(0),
     )
 
 @JSExportAll

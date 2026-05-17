@@ -74,10 +74,6 @@ class Cosmo(val system: CosmoSystem = new JsPhysicalSystem())
     val errors = js.Array(env.errors.map(_.toString): _*)
     ReplResult(result, errors)
 
-  /// Exposed language service methods
-  @JSExport
-  val service = new cosmo.service.CosmoService(this)
-
   /// Exposed APIs
 
   def empty: Env = fileEnv(None)

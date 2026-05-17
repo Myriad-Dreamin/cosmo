@@ -63,23 +63,22 @@
     "onLanguage:cosmo"
   ],
   "scripts": {
-    "build:syntax": "cd ../../syntaxes/textmate && yarn run compile && yarn run bundle",
+    "build:syntax": "pnpm --dir ../../syntaxes/textmate run compile && pnpm --dir ../../syntaxes/textmate run bundle",
     "build-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
     "build-host": "esbuild ./src/cosmos-host.ts --bundle --outfile=out/cosmos-host.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
     "build-server": "esbuild ./src/lsp-server.ts --bundle --outfile=out/lsp-server.js --external:vscode --format=cjs --platform=node --sourcemap --target=node16",
     "copy-cosmos-package": "node scripts/copy-cosmos-package.mjs",
-    "vscode:prepublish": "yarn run copy-cosmos-package && yarn run build-base -- --minify && yarn run build-server -- --minify && yarn run build-host -- --minify",
-    "package": "vsce package --yarn",
-    "compile": "yarn run build-base && yarn run build-server && yarn run build-host && yarn run build:syntax",
-    "test:smoke": "yarn run build-host && node --test test/*.test.cjs",
-    "watch": "yarn run build-base --watch"
+    "vscode:prepublish": "pnpm run copy-cosmos-package && pnpm run build-base -- --minify && pnpm run build-server -- --minify",
+    "package": "vsce package --no-dependencies",
+    "compile": "pnpm run compile:extension && pnpm run build:syntax",
+    "compile:extension": "pnpm run build-base && pnpm run build-server",
+    "test:smoke": "pnpm run build-host && node --test test/*.test.cjs",
+    "watch": "pnpm run build-base -- --watch"
   },
   "dependencies": {
-    "vscode-uri": "^3.0.8",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
-    "vscode-languageserver-textdocument": "^1.0.11",
-    "cpr": "^3.0.1"
+    "vscode-languageserver-textdocument": "^1.0.11"
   },
   "devDependencies": {
     "@types/node": "^20.8.10",

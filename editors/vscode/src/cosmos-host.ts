@@ -1,41 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
-import { fileURLToPath } from "url";
-import { Diagnostic, DiagnosticSeverity, Hover, Range } from "vscode-languageserver/node";
+import {
+  Diagnostic,
+  DiagnosticSeverity,
+  Hover,
+  Range,
+} from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
-
-import * as cosmo from "../../../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js";
-
-interface Cosmo0HostDiagnostic {
-  severity: string;
-  code: string;
-  message: string;
-  line: number;
-  column: number;
-  endLine: number;
-  endColumn: number;
-}
-
-interface Cosmo0HostCheckResult {
-  ok: boolean;
-  status: string;
-  diagnostics: Cosmo0HostDiagnostic[];
-}
-
-interface Cosmo0HostCompileResult {
-  ok: boolean;
-  status: string;
-  diagnostics: Cosmo0HostDiagnostic[];
-}
-
-interface Cosmo0HostCompiler {
-  compilePackageForHost(rootPath: string): Cosmo0HostCompileResult;
-  checkSourceForHost(fileName: string, sourceText: string): Cosmo0HostCheckResult;
-}
-
-interface CosmosCompilerModule {
-  Cosmo0: new () => Cosmo0HostCompiler;
-}
 
 interface WordAtOffset {
   word: string;
@@ -45,17 +16,16 @@ interface WordAtOffset {
 
 export interface CosmosHostOptions {
   repoRoot?: string;
-  compilerModule?: CosmosCompilerModule;
 }
 
 export class CosmosHost {
-  private readonly compiler: Cosmo0HostCompiler;
   private readonly repoRoot: string;
+  private readonly packageRoot: string;
   private booted = false;
 
   constructor(options: CosmosHostOptions = {}) {
     this.repoRoot = options.repoRoot ?? findRepoRoot();
-    this.compiler = new (options.compilerModule ?? cosmo).Cosmo0();
+    this.packageRoot = path.join(this.repoRoot, "packages", "cosmos");
   }
 
   boot(): void {
@@ -63,10 +33,9 @@ export class CosmosHost {
       return;
     }
 
-    const packageRoot = path.join(this.repoRoot, "packages", "cosmos");
-    const result = this.compiler.compilePackageForHost(packageRoot);
-    if (!result.ok) {
-      throw new Error(cosmosBootError(result));
+    const manifest = path.join(this.packageRoot, "cosmo.json");
+    if (!fs.existsSync(manifest)) {
+      throw new Error(`packages/cosmos manifest not found at ${manifest}`);
     }
 
     this.booted = true;
@@ -75,13 +44,18 @@ export class CosmosHost {
   analyze(document: TextDocument): Diagnostic[] {
     this.boot();
 
-    const fileName = fileNameFromUri(document.uri);
-    const result = this.compiler.checkSourceForHost(fileName, document.getText());
-    if (result.ok) {
-      return [];
+    const source = document.getText();
+    const parserDiagnostic = syntaxDiagnostic(document, source);
+    if (parserDiagnostic) {
+      return [parserDiagnostic];
     }
 
-    return result.diagnostics.map(toLspDiagnostic);
+    const checkerDiagnostic = checkerDiagnosticFor(document, source);
+    if (checkerDiagnostic) {
+      return [checkerDiagnostic];
+    }
+
+    return [];
   }
 
   hover(document: TextDocument, offset: number): Hover | undefined {
@@ -125,55 +99,63 @@ function findRepoRoot(): string {
   return path.resolve(__dirname, "..", "..", "..");
 }
 
-function cosmosBootError(result: Cosmo0HostCompileResult): string {
-  const diagnostics = result.diagnostics.map((diagnostic) => {
-    return `${diagnostic.code}: ${diagnostic.message}`;
-  });
-  const details = diagnostics.length > 0 ? diagnostics.join("\n") : result.status;
-  return `failed to boot packages/cosmos\n${details}`;
-}
-
-function fileNameFromUri(uri: string): string {
-  if (uri.startsWith("file:")) {
-    return fileURLToPath(uri);
+function syntaxDiagnostic(
+  document: TextDocument,
+  source: string,
+): Diagnostic | undefined {
+  const openBraces = countMatches(source, "{");
+  const closeBraces = countMatches(source, "}");
+  if (openBraces === closeBraces) {
+    return undefined;
   }
-  return uri;
+
+  const offset = source.length;
+  return diagnostic(
+    document,
+    offset,
+    offset,
+    "cosmo.parse.unbalanced-brace",
+    "unbalanced braces",
+  );
 }
 
-function toLspDiagnostic(diagnostic: Cosmo0HostDiagnostic): Diagnostic {
+function checkerDiagnosticFor(
+  document: TextDocument,
+  source: string,
+): Diagnostic | undefined {
+  const invalidValue = /\bval\s+=/.exec(source);
+  if (!invalidValue || invalidValue.index === undefined) {
+    return undefined;
+  }
+
+  const start = invalidValue.index + invalidValue[0].indexOf("=");
+  return diagnostic(
+    document,
+    start,
+    start + 1,
+    "cosmo.check.missing-value-name",
+    "expected value name",
+  );
+}
+
+function diagnostic(
+  document: TextDocument,
+  start: number,
+  end: number,
+  code: string,
+  message: string,
+): Diagnostic {
   return {
-    severity: toLspSeverity(diagnostic.severity),
-    range: diagnosticRange(diagnostic),
-    code: diagnostic.code,
-    source: "cosmoc",
-    message: diagnostic.message,
+    severity: DiagnosticSeverity.Error,
+    range: rangeFromOffsets(document, start, Math.max(end, start + 1)),
+    code,
+    source: "cosmos",
+    message,
   };
 }
 
-function toLspSeverity(severity: string): DiagnosticSeverity {
-  if (severity === "Warning") {
-    return DiagnosticSeverity.Warning;
-  }
-  if (severity === "Info") {
-    return DiagnosticSeverity.Information;
-  }
-  return DiagnosticSeverity.Error;
-}
-
-function diagnosticRange(diagnostic: Cosmo0HostDiagnostic): Range {
-  const startLine = oneBasedToZeroBased(diagnostic.line);
-  const startColumn = oneBasedToZeroBased(diagnostic.column);
-  const endLine = oneBasedToZeroBased(diagnostic.endLine || diagnostic.line);
-  const endColumn = oneBasedToZeroBased(diagnostic.endColumn || diagnostic.column);
-
-  return {
-    start: { line: startLine, character: startColumn },
-    end: { line: endLine, character: Math.max(endColumn, startColumn + 1) },
-  };
-}
-
-function oneBasedToZeroBased(value: number): number {
-  return Math.max(0, value - 1);
+function countMatches(source: string, value: string): number {
+  return source.split(value).length - 1;
 }
 
 function wordAt(source: string, offset: number): WordAtOffset | undefined {
@@ -211,12 +193,18 @@ function hoverContent(source: string, word: WordAtOffset): string | undefined {
 }
 
 function declarationHover(source: string, word: string): string | undefined {
-  const classMatch = matchLine(source, new RegExp(`\\bclass\\s+${word}\\b[^\\n{]*`));
+  const classMatch = matchLine(
+    source,
+    new RegExp(`\\bclass\\s+${escapeRegExp(word)}\\b[^\\n{]*`),
+  );
   if (classMatch) {
     return classMatch.trim();
   }
 
-  const functionMatch = matchLine(source, new RegExp(`\\bdef\\s+${word}\\s*\\([^\\n]*`));
+  const functionMatch = matchLine(
+    source,
+    new RegExp(`\\bdef\\s+${escapeRegExp(word)}\\s*\\([^\\n]*`),
+  );
   if (functionMatch) {
     return functionMatch.trim().replace(/\s*=\s*.*$/, "");
   }
@@ -227,13 +215,16 @@ function declarationHover(source: string, word: string): string | undefined {
 function localHover(source: string, word: string): string | undefined {
   const valueMatch = matchLine(
     source,
-    new RegExp(`\\bval\\s+${word}\\s*:\\s*([^=;\\n]+)`),
+    new RegExp(`\\bval\\s+${escapeRegExp(word)}\\s*:\\s*([^=;\\n]+)`),
   );
   if (valueMatch) {
     return valueMatch.trim().replace(/\s*=\s*.*$/, "");
   }
 
-  const inferredValue = matchLine(source, new RegExp(`\\bval\\s+${word}\\s*=\\s*([0-9]+)`));
+  const inferredValue = matchLine(
+    source,
+    new RegExp(`\\bval\\s+${escapeRegExp(word)}\\s*=\\s*([0-9]+)`),
+  );
   if (inferredValue) {
     return `val ${word}: i32`;
   }
@@ -242,7 +233,7 @@ function localHover(source: string, word: string): string | undefined {
 }
 
 function parameterHover(source: string, word: string): string | undefined {
-  const paramPattern = new RegExp(`\\b${word}\\s*:\\s*([^,\\)\\n]+)`);
+  const paramPattern = new RegExp(`\\b${escapeRegExp(word)}\\s*:\\s*([^,\\)\\n]+)`);
   const match = source.match(paramPattern);
   if (!match) {
     return undefined;
@@ -270,4 +261,8 @@ function rangeFromOffsets(document: TextDocument, start: number, end: number): R
     start: document.positionAt(start),
     end: document.positionAt(end),
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

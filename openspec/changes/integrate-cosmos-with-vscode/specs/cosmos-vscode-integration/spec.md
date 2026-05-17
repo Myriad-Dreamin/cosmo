@@ -12,6 +12,8 @@ language requests.
 - **THEN** the extension starts the bundled language server host over IPC
 - **AND** the host validates that `packages/cosmos` can be loaded from the local
   checkout or packaged extension payload
+- **AND** the extension does not call legacy `packages/cosmo` or `cosmo0`
+  language-service APIs for diagnostics or hover
 
 ### Requirement: VSCode Document Lifecycle Uses Cosmos Analysis
 
