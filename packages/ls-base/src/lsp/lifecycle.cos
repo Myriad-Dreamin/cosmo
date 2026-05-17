@@ -201,6 +201,19 @@ class LspServer {
     self.session = session
   }
 
+  def respond_success(&mut self, id: JsonRpcId, result_json: String): Unit = {
+    self.push_outbound(jsonrpc_encode_response(JsonRpcOutboundResponse(
+      id,
+      Option[String]::Some(result_json),
+      Option[JsonRpcOutboundError]::None
+    )))
+  }
+
+  def enable_hover(&mut self): Unit = {
+    self.capabilities = LspServerCapabilities(self.capabilities.text_document_sync, true);
+    self.register_request_handler("textDocument/hover")
+  }
+
   def document_event_len(&self): usize = {
     self.document_events.size()
   }

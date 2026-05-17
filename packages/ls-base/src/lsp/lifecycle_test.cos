@@ -88,6 +88,20 @@ def lsp_test_handler_registration(): Bool = {
     server.notification_handlers.size() == 6
 }
 
+def lsp_test_hover_response_and_capability(): Bool = {
+  val server = lsp_server();
+  server.enable_hover();
+  if (!server.capabilities.hover_provider) {
+    return false
+  }
+  if (!server.has_request_handler("textDocument/hover")) {
+    return false
+  }
+
+  server.respond_success(jsonrpc_number_id("7"), "null");
+  server.session.outbound.get(0) == "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":null}"
+}
+
 def lsp_dispatch_ok(result: Result[LspDispatchResult, JsonRpcDecodeError], method: String): Bool = {
   result match {
     case Result[LspDispatchResult, JsonRpcDecodeError]::Ok(value) => {

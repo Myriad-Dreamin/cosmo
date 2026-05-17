@@ -1,0 +1,1110 @@
+import jsonrpc.core
+import lsp.diagnostics
+import lsp.lifecycle
+import names.resolution
+import names.scope
+import parser
+import source.span
+import syntax.ast
+import types.check
+import types.declaration_resolution
+import workspace.documents
+
+class CosmosHover {
+  val contents: String
+  val range: CosmosLspRange
+}
+
+class CosmosHoverAnalysis {
+  val source: String
+  val arenas: SyntaxArenas
+  val root: ModuleId
+  val names: NameResolution
+  val declarations: DeclarationResolution
+  val checked: ExpressionCheckResult
+}
+
+def cosmos_hover(snapshot: CosmosTextDocumentSnapshot, line: usize, character: usize): Option[CosmosHover] = {
+  if (!snapshot.is_open) {
+    return Option[CosmosHover]::None
+  }
+
+  val analysis = cosmos_hover_analyze(snapshot);
+  analysis match {
+    case Option[CosmosHoverAnalysis]::Some(value) => {
+      val offset = cosmos_offset_for_lsp_position(snapshot.text, line, character);
+      cosmos_hover_module(value, value.root, offset)
+    }
+    case Option[CosmosHoverAnalysis]::None => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_result_json(hover: Option[CosmosHover]): String = {
+  hover match {
+    case Option[CosmosHover]::Some(value) => {
+      cosmos_hover_json(value)
+    }
+    case Option[CosmosHover]::None => {
+      "null"
+    }
+  }
+}
+
+def cosmos_lsp_hover_response(server: LspServer, request: JsonRpcRequest, hover: Option[CosmosHover]): LspServer = {
+  var next = server;
+  next.respond_success(request.id, cosmos_hover_result_json(hover));
+  next
+}
+
+def cosmos_enable_hover(server: LspServer): LspServer = {
+  var next = server;
+  next.enable_hover();
+  next
+}
+
+def cosmos_hover_analyze(snapshot: CosmosTextDocumentSnapshot): Option[CosmosHoverAnalysis] = {
+  val parsed = parse_source_ast(snapshot.text);
+  if (!parsed.diagnostics.is_empty()) {
+    return Option[CosmosHoverAnalysis]::None
+  }
+
+  val names = resolve_module_names(parsed.arenas, parsed.root);
+  val declarations = resolve_module_declarations_with_names(parsed.arenas, parsed.root, names);
+  val checked = check_module_basic_expressions_with_resolution(parsed.arenas, parsed.root, names, declarations);
+  Option[CosmosHoverAnalysis]::Some(CosmosHoverAnalysis(snapshot.text, parsed.arenas, parsed.root, names, declarations, checked))
+}
+
+def cosmos_hover_json(hover: CosmosHover): String = {
+  val builder = core0_text_builder_from("{\"contents\":{\"kind\":\"markdown\",\"value\":");
+  builder.push(jsonrpc_quote(cosmos_hover_markdown(hover.contents)));
+  builder.push("},\"range\":");
+  builder.push(cosmos_lsp_range_json(hover.range));
+  builder.push("}");
+  builder.finish()
+}
+
+def cosmos_hover_markdown(contents: String): String = {
+  "```cosmo\n".concat(contents).concat("\n```")
+}
+
+def cosmos_hover_module(analysis: CosmosHoverAnalysis, id: ModuleId, offset: usize): Option[CosmosHover] = {
+  val module_value = analysis.arenas.module_value(id);
+  for (decl_id in module_value.declarations) {
+    if (analysis.arenas.decl_span(decl_id).contains(offset)) {
+      return cosmos_hover_decl(analysis, decl_id, offset)
+    }
+  }
+  Option[CosmosHover]::None
+}
+
+def cosmos_hover_decl(analysis: CosmosHoverAnalysis, id: DeclId, offset: usize): Option[CosmosHover] = {
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => {
+      val name_hover = cosmos_hover_decl_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      for (member_id in members) {
+        if (analysis.arenas.member_span(member_id).contains(offset)) {
+          return cosmos_hover_member(analysis, member_id, offset)
+        }
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      val name_hover = cosmos_hover_decl_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      val params_hover = cosmos_hover_params(analysis, params, offset);
+      if (params_hover.is_some()) {
+        return params_hover
+      }
+      if (analysis.arenas.type_span(return_type).contains(offset)) {
+        return cosmos_hover_type(analysis, return_type, offset)
+      }
+      if (analysis.arenas.expr_span(body).contains(offset)) {
+        return cosmos_hover_expr(analysis, body, offset)
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      val name_hover = cosmos_hover_decl_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      cosmos_hover_type(analysis, typ, offset)
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      val name_hover = cosmos_hover_decl_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      if (analysis.arenas.type_span(typ).contains(offset)) {
+        return cosmos_hover_type(analysis, typ, offset)
+      }
+      cosmos_hover_expr(analysis, init, offset)
+    }
+    case SyntaxDecl.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.Import(path, span) => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_member(analysis: CosmosHoverAnalysis, id: MemberId, offset: usize): Option[CosmosHover] = {
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      val name_hover = cosmos_hover_member_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      cosmos_hover_type(analysis, typ, offset)
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      val name_hover = cosmos_hover_member_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      val params_hover = cosmos_hover_params(analysis, params, offset);
+      if (params_hover.is_some()) {
+        return params_hover
+      }
+      if (analysis.arenas.type_span(return_type).contains(offset)) {
+        return cosmos_hover_type(analysis, return_type, offset)
+      }
+      cosmos_hover_expr(analysis, body, offset)
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      val name_hover = cosmos_hover_member_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      cosmos_hover_type(analysis, typ, offset)
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      val name_hover = cosmos_hover_member_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      for (field_type in fields) {
+        if (analysis.arenas.type_span(field_type).contains(offset)) {
+          return cosmos_hover_type(analysis, field_type, offset)
+        }
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxMember.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_params(analysis: CosmosHoverAnalysis, params: Vec[ParamId], offset: usize): Option[CosmosHover] = {
+  for (param_id in params) {
+    if (analysis.arenas.param_span(param_id).contains(offset)) {
+      val hover = cosmos_hover_param(analysis, param_id, offset);
+      if (hover.is_some()) {
+        return hover
+      }
+    }
+  }
+  Option[CosmosHover]::None
+}
+
+def cosmos_hover_param(analysis: CosmosHoverAnalysis, id: ParamId, offset: usize): Option[CosmosHover] = {
+  val param = analysis.arenas.param_value(id);
+  param match {
+    case SyntaxParam.Self(mutable, span) => {
+      cosmos_hover_param_name(analysis, id, "self", span, offset)
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      val name_hover = cosmos_hover_param_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      if (analysis.arenas.type_span(typ).contains(offset)) {
+        return cosmos_hover_type(analysis, typ, offset)
+      }
+      cosmos_hover_expr(analysis, default_value, offset)
+    }
+    case SyntaxParam.AEmpty => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_expr(analysis: CosmosHoverAnalysis, id: ExprId, offset: usize): Option[CosmosHover] = {
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Name(name, span) => {
+      cosmos_hover_expr_name(analysis, id, name, span, offset)
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.Block(items, span) => {
+      for (item in items) {
+        if (analysis.arenas.expr_span(item).contains(offset)) {
+          return cosmos_hover_expr(analysis, item, offset)
+        }
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      val name_hover = cosmos_hover_local_name(analysis, id, name, span, offset);
+      if (name_hover.is_some()) {
+        return name_hover
+      }
+      if (analysis.arenas.type_span(typ).contains(offset)) {
+        return cosmos_hover_type(analysis, typ, offset)
+      }
+      cosmos_hover_expr(analysis, init, offset)
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      if (analysis.arenas.expr_span(target).contains(offset)) {
+        return cosmos_hover_expr(analysis, target, offset)
+      }
+      cosmos_hover_expr(analysis, value, offset)
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      if (analysis.arenas.expr_span(callee).contains(offset)) {
+        return cosmos_hover_expr(analysis, callee, offset)
+      }
+      for (arg in args) {
+        if (analysis.arenas.expr_span(arg).contains(offset)) {
+          return cosmos_hover_expr(analysis, arg, offset)
+        }
+      }
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      if (analysis.arenas.expr_span(receiver).contains(offset)) {
+        return cosmos_hover_expr(analysis, receiver, offset)
+      }
+      val field_span = cosmos_select_field_span(field, span);
+      if (field_span.contains(offset)) {
+        return cosmos_hover_expr_name(analysis, id, field, field_span, offset)
+      }
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      if (analysis.arenas.expr_span(left).contains(offset)) {
+        return cosmos_hover_expr(analysis, left, offset)
+      }
+      if (analysis.arenas.expr_span(right).contains(offset)) {
+        return cosmos_hover_expr(analysis, right, offset)
+      }
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      if (analysis.arenas.expr_span(condition).contains(offset)) {
+        return cosmos_hover_expr(analysis, condition, offset)
+      }
+      if (analysis.arenas.expr_span(then_body).contains(offset)) {
+        return cosmos_hover_expr(analysis, then_body, offset)
+      }
+      if (analysis.arenas.expr_span(else_body).contains(offset)) {
+        return cosmos_hover_expr(analysis, else_body, offset)
+      }
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      if (analysis.arenas.expr_span(condition).contains(offset)) {
+        return cosmos_hover_expr(analysis, condition, offset)
+      }
+      if (analysis.arenas.expr_span(body).contains(offset)) {
+        return cosmos_hover_expr(analysis, body, offset)
+      }
+      cosmos_hover_typed_expr(analysis, id, span, offset)
+    }
+    case SyntaxExpr.Return(value, span) => {
+      cosmos_hover_expr(analysis, value, offset)
+    }
+    case SyntaxExpr.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Missing(span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      cosmos_hover_expr(analysis, value, offset)
+    }
+  }
+}
+
+def cosmos_hover_type(analysis: CosmosHoverAnalysis, id: TypeExprId, offset: usize): Option[CosmosHover] = {
+  val typ = analysis.arenas.type_value(id);
+  typ match {
+    case SyntaxType.Name(name, span) => {
+      cosmos_hover_type_name(analysis, id, name, span, offset)
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      if (analysis.arenas.type_span(base).contains(offset)) {
+        return cosmos_hover_type(analysis, base, offset)
+      }
+      for (arg in args) {
+        if (analysis.arenas.type_span(arg).contains(offset)) {
+          return cosmos_hover_type(analysis, arg, offset)
+        }
+      }
+      cosmos_hover_resolved_type(analysis, id, span, offset)
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      if (analysis.arenas.type_span(inner).contains(offset)) {
+        return cosmos_hover_type(analysis, inner, offset)
+      }
+      cosmos_hover_resolved_type(analysis, id, span, offset)
+    }
+    case SyntaxType.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxType.Missing(span) => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_decl_name(
+  analysis: CosmosHoverAnalysis,
+  id: DeclId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[CosmosHover] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val def_id = analysis.names.decl_definitions.get(id);
+  cosmos_hover_definition_option(analysis, def_id, name_span)
+}
+
+def cosmos_hover_member_name(
+  analysis: CosmosHoverAnalysis,
+  id: MemberId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[CosmosHover] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val def_id = analysis.names.member_definitions.get(id);
+  cosmos_hover_definition_option(analysis, def_id, name_span)
+}
+
+def cosmos_hover_param_name(
+  analysis: CosmosHoverAnalysis,
+  id: ParamId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[CosmosHover] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val def_id = analysis.names.param_definitions.get(id);
+  cosmos_hover_definition_option(analysis, def_id, name_span)
+}
+
+def cosmos_hover_local_name(
+  analysis: CosmosHoverAnalysis,
+  id: ExprId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[CosmosHover] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val def_id = analysis.names.local_definitions.get(id);
+  cosmos_hover_definition_option(analysis, def_id, name_span)
+}
+
+def cosmos_hover_expr_name(
+  analysis: CosmosHoverAnalysis,
+  id: ExprId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[CosmosHover] = {
+  if (!span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val def_id = analysis.names.expr_definitions.get(id);
+  val definition_hover = cosmos_hover_definition_option(analysis, def_id, span);
+  if (definition_hover.is_some()) {
+    return definition_hover
+  }
+  cosmos_hover_typed_expr(analysis, id, span, offset)
+}
+
+def cosmos_hover_type_name(
+  analysis: CosmosHoverAnalysis,
+  id: TypeExprId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[CosmosHover] = {
+  if (!span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val def_id = analysis.names.type_definitions.get(id);
+  val definition_hover = cosmos_hover_definition_option(analysis, def_id, span);
+  if (definition_hover.is_some()) {
+    return definition_hover
+  }
+  cosmos_hover_resolved_type(analysis, id, span, offset)
+}
+
+def cosmos_hover_typed_expr(analysis: CosmosHoverAnalysis, id: ExprId, span: Span, offset: usize): Option[CosmosHover] = {
+  if (!span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val typed = analysis.checked.typed_exprs.get(id);
+  typed match {
+    case Option[TypedExpr]::Some(value) => {
+      cosmos_hover_make("type ".concat(expression_type_display(analysis.checked.types, value.typ)), analysis.source, span)
+    }
+    case Option[TypedExpr]::None => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_resolved_type(analysis: CosmosHoverAnalysis, id: TypeExprId, span: Span, offset: usize): Option[CosmosHover] = {
+  if (!span.contains(offset)) {
+    return Option[CosmosHover]::None
+  }
+
+  val resolved = analysis.declarations.type_expr_types.get(id);
+  resolved match {
+    case Option[TypeId]::Some(value) => {
+      cosmos_hover_make("type ".concat(expression_type_display(analysis.declarations.types, value)), analysis.source, span)
+    }
+    case Option[TypeId]::None => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_definition_option(
+  analysis: CosmosHoverAnalysis,
+  def_id: Option[DefId],
+  range_span: Span
+): Option[CosmosHover] = {
+  def_id match {
+    case Option[DefId]::Some(value) => {
+      cosmos_hover_definition(analysis, value, range_span)
+    }
+    case Option[DefId]::None => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_definition(analysis: CosmosHoverAnalysis, def_id: DefId, range_span: Span): Option[CosmosHover] = {
+  val decl_hover = cosmos_hover_definition_from_decls(analysis, analysis.root, def_id, range_span);
+  if (decl_hover.is_some()) {
+    return decl_hover
+  }
+
+  val node = analysis.names.env.definition(def_id);
+  node.kind match {
+    case DefinitionKind.Prelude => {
+      cosmos_hover_make("type ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Module => {
+      cosmos_hover_make("module ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Class => {
+      cosmos_hover_make("class ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Function => {
+      cosmos_hover_make("def ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Value => {
+      cosmos_hover_make("val ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.TypeAlias => {
+      cosmos_hover_make("type ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Field => {
+      cosmos_hover_make("field ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Method => {
+      cosmos_hover_make("def ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Variant => {
+      cosmos_hover_make("variant ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Parameter => {
+      cosmos_hover_make("param ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Local => {
+      cosmos_hover_make("local ".concat(node.name), analysis.source, range_span)
+    }
+    case DefinitionKind.Self => {
+      cosmos_hover_make("self", analysis.source, range_span)
+    }
+  }
+}
+
+def cosmos_hover_definition_from_decls(
+  analysis: CosmosHoverAnalysis,
+  module_id: ModuleId,
+  def_id: DefId,
+  range_span: Span
+): Option[CosmosHover] = {
+  val module_value = analysis.arenas.module_value(module_id);
+  for (decl_id in module_value.declarations) {
+    val hover = cosmos_hover_definition_from_decl(analysis, decl_id, def_id, range_span);
+    if (hover.is_some()) {
+      return hover
+    }
+  }
+  Option[CosmosHover]::None
+}
+
+def cosmos_hover_definition_from_decl(
+  analysis: CosmosHoverAnalysis,
+  id: DeclId,
+  def_id: DefId,
+  range_span: Span
+): Option[CosmosHover] = {
+  val own_def = analysis.names.decl_definitions.get(id);
+  if (cosmos_definition_option_matches(analysis, own_def, def_id)) {
+    return cosmos_hover_make(cosmos_decl_signature(analysis, id), analysis.source, range_span)
+  }
+
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => {
+      for (member_id in members) {
+        val hover = cosmos_hover_definition_from_member(analysis, member_id, def_id, range_span);
+        if (hover.is_some()) {
+          return hover
+        }
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      val param_hover = cosmos_hover_definition_from_params(analysis, params, def_id, range_span);
+      if (param_hover.is_some()) {
+        return param_hover
+      }
+      cosmos_hover_definition_from_expr(analysis, body, def_id, range_span)
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      cosmos_hover_definition_from_expr(analysis, init, def_id, range_span)
+    }
+    case SyntaxDecl.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.Import(path, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_definition_from_member(
+  analysis: CosmosHoverAnalysis,
+  id: MemberId,
+  def_id: DefId,
+  range_span: Span
+): Option[CosmosHover] = {
+  val own_def = analysis.names.member_definitions.get(id);
+  if (cosmos_definition_option_matches(analysis, own_def, def_id)) {
+    return cosmos_hover_make(cosmos_member_signature(analysis, id), analysis.source, range_span)
+  }
+
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      val param_hover = cosmos_hover_definition_from_params(analysis, params, def_id, range_span);
+      if (param_hover.is_some()) {
+        return param_hover
+      }
+      cosmos_hover_definition_from_expr(analysis, body, def_id, range_span)
+    }
+    case SyntaxMember.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_hover_definition_from_params(
+  analysis: CosmosHoverAnalysis,
+  params: Vec[ParamId],
+  def_id: DefId,
+  range_span: Span
+): Option[CosmosHover] = {
+  for (param_id in params) {
+    val own_def = analysis.names.param_definitions.get(param_id);
+    if (cosmos_definition_option_matches(analysis, own_def, def_id)) {
+      return cosmos_hover_make(cosmos_param_signature(analysis, param_id), analysis.source, range_span)
+    }
+  }
+  Option[CosmosHover]::None
+}
+
+def cosmos_hover_definition_from_expr(
+  analysis: CosmosHoverAnalysis,
+  id: ExprId,
+  def_id: DefId,
+  range_span: Span
+): Option[CosmosHover] = {
+  val own_def = analysis.names.local_definitions.get(id);
+  if (cosmos_definition_option_matches(analysis, own_def, def_id)) {
+    return cosmos_hover_make(cosmos_local_signature(analysis, id), analysis.source, range_span)
+  }
+
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Block(items, span) => {
+      for (item in items) {
+        val hover = cosmos_hover_definition_from_expr(analysis, item, def_id, range_span);
+        if (hover.is_some()) {
+          return hover
+        }
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      cosmos_hover_definition_from_expr(analysis, init, def_id, range_span)
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      val target_hover = cosmos_hover_definition_from_expr(analysis, target, def_id, range_span);
+      if (target_hover.is_some()) {
+        return target_hover
+      }
+      cosmos_hover_definition_from_expr(analysis, value, def_id, range_span)
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      val callee_hover = cosmos_hover_definition_from_expr(analysis, callee, def_id, range_span);
+      if (callee_hover.is_some()) {
+        return callee_hover
+      }
+      for (arg in args) {
+        val hover = cosmos_hover_definition_from_expr(analysis, arg, def_id, range_span);
+        if (hover.is_some()) {
+          return hover
+        }
+      }
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      cosmos_hover_definition_from_expr(analysis, receiver, def_id, range_span)
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      val left_hover = cosmos_hover_definition_from_expr(analysis, left, def_id, range_span);
+      if (left_hover.is_some()) {
+        return left_hover
+      }
+      cosmos_hover_definition_from_expr(analysis, right, def_id, range_span)
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      cosmos_hover_definition_from_expr(analysis, value, def_id, range_span)
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      val condition_hover = cosmos_hover_definition_from_expr(analysis, condition, def_id, range_span);
+      if (condition_hover.is_some()) {
+        return condition_hover
+      }
+      val then_hover = cosmos_hover_definition_from_expr(analysis, then_body, def_id, range_span);
+      if (then_hover.is_some()) {
+        return then_hover
+      }
+      cosmos_hover_definition_from_expr(analysis, else_body, def_id, range_span)
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      val condition_hover = cosmos_hover_definition_from_expr(analysis, condition, def_id, range_span);
+      if (condition_hover.is_some()) {
+        return condition_hover
+      }
+      cosmos_hover_definition_from_expr(analysis, body, def_id, range_span)
+    }
+    case SyntaxExpr.Return(value, span) => {
+      cosmos_hover_definition_from_expr(analysis, value, def_id, range_span)
+    }
+    case SyntaxExpr.AEmpty => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Missing(span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.Name(name, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      Option[CosmosHover]::None
+    }
+  }
+}
+
+def cosmos_decl_signature(analysis: CosmosHoverAnalysis, id: DeclId): String = {
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => {
+      "class ".concat(name)
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      "def ".concat(name).concat(cosmos_params_signature(analysis, params)).concat(": ").concat(type_expr_text(analysis.arenas, return_type))
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      "type ".concat(name).concat(" = ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      cosmos_val_keyword(mutable).concat(" ").concat(name).concat(": ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxDecl.Import(path, span) => {
+      "module ".concat(path)
+    }
+    case SyntaxDecl.AEmpty => {
+      "<empty>"
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      "<unsupported>"
+    }
+  }
+}
+
+def cosmos_member_signature(analysis: CosmosHoverAnalysis, id: MemberId): String = {
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      cosmos_val_keyword(mutable).concat(" ").concat(name).concat(": ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      "def ".concat(name).concat(cosmos_params_signature(analysis, params)).concat(": ").concat(type_expr_text(analysis.arenas, return_type))
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      "type ".concat(name).concat(" = ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      "variant ".concat(name)
+    }
+    case SyntaxMember.AEmpty => {
+      "<empty>"
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      "<unsupported>"
+    }
+  }
+}
+
+def cosmos_param_signature(analysis: CosmosHoverAnalysis, id: ParamId): String = {
+  val param = analysis.arenas.param_value(id);
+  param match {
+    case SyntaxParam.Self(mutable, span) => {
+      if (mutable) {
+        "&mut self"
+      } else {
+        "&self"
+      }
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      "param ".concat(name).concat(": ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxParam.AEmpty => {
+      "<empty>"
+    }
+  }
+}
+
+def cosmos_local_signature(analysis: CosmosHoverAnalysis, id: ExprId): String = {
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      cosmos_val_keyword(mutable).concat(" ").concat(name).concat(": ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxExpr.AEmpty => {
+      "<empty>"
+    }
+    case SyntaxExpr.Missing(span) => {
+      "<missing>"
+    }
+    case SyntaxExpr.Name(name, span) => {
+      name
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      value
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      value
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      value
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      value
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      "Bool"
+    }
+    case SyntaxExpr.Block(items, span) => {
+      "<block>"
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      "<assign>"
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      "<call>"
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      field
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      op
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      op
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      "<if>"
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      "<while>"
+    }
+    case SyntaxExpr.Return(value, span) => {
+      "<return>"
+    }
+  }
+}
+
+def cosmos_params_signature(analysis: CosmosHoverAnalysis, params: Vec[ParamId]): String = {
+  var text = "(";
+  var index: usize = 0;
+  while (index < params.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(cosmos_param_signature_without_prefix(analysis, params.get(index)));
+    index = index + 1
+  }
+  text.concat(")")
+}
+
+def cosmos_param_signature_without_prefix(analysis: CosmosHoverAnalysis, id: ParamId): String = {
+  val param = analysis.arenas.param_value(id);
+  param match {
+    case SyntaxParam.Self(mutable, span) => {
+      if (mutable) {
+        "&mut self"
+      } else {
+        "&self"
+      }
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      name.concat(": ").concat(type_expr_text(analysis.arenas, typ))
+    }
+    case SyntaxParam.AEmpty => {
+      ""
+    }
+  }
+}
+
+def cosmos_val_keyword(mutable: Bool): String = {
+  if (mutable) {
+    "var"
+  } else {
+    "val"
+  }
+}
+
+def cosmos_hover_make(contents: String, source: String, span: Span): Option[CosmosHover] = {
+  Option[CosmosHover]::Some(CosmosHover(contents, cosmos_lsp_range(source, span)))
+}
+
+def cosmos_definition_option_matches(analysis: CosmosHoverAnalysis, value: Option[DefId], expected: DefId): Bool = {
+  value match {
+    case Option[DefId]::Some(actual) => {
+      cosmos_definitions_match(analysis, actual, expected)
+    }
+    case Option[DefId]::None => {
+      false
+    }
+  }
+}
+
+def cosmos_definitions_match(analysis: CosmosHoverAnalysis, left: DefId, right: DefId): Bool = {
+  val left_node = analysis.names.env.definition(left);
+  val right_node = analysis.names.env.definition(right);
+  left_node.name == right_node.name and
+    left_node.span.start == right_node.span.start and
+    left_node.span.end == right_node.span.end and
+    cosmos_definition_kind_text(left_node.kind) == cosmos_definition_kind_text(right_node.kind)
+}
+
+def cosmos_definition_kind_text(kind: DefinitionKind): String = {
+  kind match {
+    case DefinitionKind.Prelude => {
+      "prelude"
+    }
+    case DefinitionKind.Module => {
+      "module"
+    }
+    case DefinitionKind.Class => {
+      "class"
+    }
+    case DefinitionKind.Function => {
+      "function"
+    }
+    case DefinitionKind.Value => {
+      "value"
+    }
+    case DefinitionKind.TypeAlias => {
+      "type"
+    }
+    case DefinitionKind.Field => {
+      "field"
+    }
+    case DefinitionKind.Method => {
+      "method"
+    }
+    case DefinitionKind.Variant => {
+      "variant"
+    }
+    case DefinitionKind.Parameter => {
+      "parameter"
+    }
+    case DefinitionKind.Local => {
+      "local"
+    }
+    case DefinitionKind.Self => {
+      "self"
+    }
+  }
+}
+
+def cosmos_select_field_span(field: String, span: Span): Span = {
+  if (field.len() > span.len()) {
+    return span
+  }
+  make_span(span.end - field.len(), span.end)
+}
+
+def cosmos_find_name_span(source: String, span: Span, name: String): Span = {
+  if (name.is_empty()) {
+    return span
+  }
+
+  var offset = span.start;
+  while (offset + name.len() <= span.end and offset + name.len() <= source.len()) {
+    if (source.slice(offset, offset + name.len()) == name and cosmos_identifier_boundaries(source, offset, offset + name.len())) {
+      return make_span(offset, offset + name.len())
+    }
+    offset = offset + 1
+  }
+  span
+}
+
+def cosmos_identifier_boundaries(source: String, start: usize, end: usize): Bool = {
+  if (start > 0 and cosmos_identifier_byte(source.byte_at(start - 1))) {
+    return false
+  }
+  if (end < source.len() and cosmos_identifier_byte(source.byte_at(end))) {
+    return false
+  }
+  true
+}
+
+def cosmos_identifier_byte(value: u8): Bool = {
+  if (value >= a"a" and value <= a"z") {
+    return true
+  }
+  if (value >= a"A" and value <= a"Z") {
+    return true
+  }
+  if (value >= a"0" and value <= a"9") {
+    return true
+  }
+  value == a"_"
+}
+
+def cosmos_offset_for_lsp_position(source: String, line: usize, character: usize): usize = {
+  var cursor: usize = 0;
+  var current_line: usize = 0;
+  var current_character: usize = 0;
+  while (cursor < source.len()) {
+    if (current_line == line and current_character == character) {
+      return cursor
+    }
+    if (source.byte_at(cursor) == a"\n") {
+      if (current_line == line) {
+        return cursor
+      }
+      current_line = current_line + 1;
+      current_character = 0
+    } else {
+      current_character = current_character + 1
+    }
+    cursor = cursor + 1
+  }
+  source.len()
+}
