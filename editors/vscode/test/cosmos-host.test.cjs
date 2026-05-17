@@ -165,6 +165,76 @@ test("smoke: initialize, open, diagnostics, change, and hover flow through cosmo
   }
 });
 
+test("smoke: diagnostics refresh for active document switch stays URI-scoped", async () => {
+  const client = startHost();
+  try {
+    await client.request("initialize", {
+      processId: process.pid,
+      rootUri: "file:///repo",
+      capabilities: {},
+    });
+
+    const firstUri = "file:///repo/packages/app/src/first.cos";
+    const secondUri = "file:///repo/packages/app/src/second.cos";
+    const firstText = "val =";
+    const secondText = "def main(): i32 = { false }";
+
+    const firstOpen = client.notification("textDocument/publishDiagnostics");
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri: firstUri,
+        languageId: "cosmo",
+        version: 1,
+        text: firstText,
+      },
+    });
+    const firstDiagnostics = await firstOpen;
+    assert.equal(firstDiagnostics.params.uri, firstUri);
+    assert.equal(firstDiagnostics.params.diagnostics.length, 1);
+
+    const secondOpen = client.notification("textDocument/publishDiagnostics");
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri: secondUri,
+        languageId: "cosmo",
+        version: 1,
+        text: secondText,
+      },
+    });
+    const secondDiagnostics = await secondOpen;
+    assert.equal(secondDiagnostics.params.uri, secondUri);
+    assert.equal(secondDiagnostics.params.diagnostics.length, 1);
+
+    const activeSwitch = client.notification("textDocument/publishDiagnostics");
+    client.notify("textDocument/didChange", {
+      textDocument: { uri: firstUri, version: 1 },
+      contentChanges: [{ text: firstText }],
+    });
+    const refreshedFirstDiagnostics = await activeSwitch;
+    assert.equal(refreshedFirstDiagnostics.params.uri, firstUri);
+    assert.deepEqual(refreshedFirstDiagnostics.params.diagnostics, firstDiagnostics.params.diagnostics);
+
+    const unchangedSave = client.notification("textDocument/publishDiagnostics");
+    client.notify("textDocument/didChange", {
+      textDocument: { uri: secondUri, version: 1 },
+      contentChanges: [{ text: secondText }],
+    });
+    const postSaveSecondDiagnostics = await unchangedSave;
+    assert.equal(postSaveSecondDiagnostics.params.uri, secondUri);
+    assert.deepEqual(postSaveSecondDiagnostics.params.diagnostics, secondDiagnostics.params.diagnostics);
+
+    const secondPull = await client.request("textDocument/diagnostic", {
+      textDocument: { uri: secondUri },
+    });
+    assert.deepEqual(secondPull.result.items, secondDiagnostics.params.diagnostics);
+
+    await client.request("shutdown", null);
+    client.notify("exit", {});
+  } finally {
+    client.stop();
+  }
+});
+
 function startHost() {
   const child = spawn(hostPath(), [], {
     env: hostEnv(),
@@ -175,6 +245,7 @@ function startHost() {
   let buffer = Buffer.alloc(0);
   const pending = new Map();
   const notifications = new Map();
+  const receivedNotifications = new Map();
 
   child.stdout.on("data", (chunk) => {
     buffer = Buffer.concat([buffer, chunk]);
@@ -199,7 +270,14 @@ function startHost() {
       return;
     }
 
-    if (!message.method || !notifications.has(message.method)) {
+    if (!message.method) {
+      return;
+    }
+
+    if (!notifications.has(message.method)) {
+      const queue = receivedNotifications.get(message.method) ?? [];
+      queue.push(message);
+      receivedNotifications.set(message.method, queue);
       return;
     }
 
@@ -220,6 +298,15 @@ function startHost() {
       writeMessage(child, { jsonrpc: "2.0", method, params });
     },
     notification(method) {
+      const received = receivedNotifications.get(method) ?? [];
+      if (received.length > 0) {
+        const message = received.shift();
+        if (received.length === 0) {
+          receivedNotifications.delete(method);
+        }
+        return Promise.resolve(message);
+      }
+
       return new Promise((resolve) => {
         const queue = notifications.get(method) ?? [];
         queue.push(resolve);

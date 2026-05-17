@@ -136,6 +136,31 @@ inline std::string file_path_from_uri(const std::string &uri) {
   return decode_uri_component(path);
 }
 
+inline std::string encode_file_uri_path(const std::string &path) {
+  std::string encoded;
+  for (char value : path) {
+    if (value == ' ') {
+      encoded += "%20";
+      continue;
+    }
+    if (value == '%') {
+      encoded += "%25";
+      continue;
+    }
+    encoded.push_back(value);
+  }
+  return encoded;
+}
+
+inline std::string normalized_document_uri(const std::string &uri) {
+  const std::string prefix = "file://";
+  if (uri.rfind(prefix, 0) != 0) {
+    return uri;
+  }
+
+  return "file://" + encode_file_uri_path(file_path_from_uri(uri));
+}
+
 inline CosmosTextDocumentSnapshot snapshot(const OpenDocument &document) {
   const std::string marker = "/src/";
   std::string package_root = repo_root + "/packages/cosmos";
@@ -226,9 +251,10 @@ inline nlohmann::json initialize_result() {
 
 inline void handle_open(const nlohmann::json &params) {
   const auto &text_document = params.at("textDocument");
+  const std::string uri = normalized_document_uri(text_document.at("uri").get<std::string>());
   OpenDocument document{
-    text_document.at("uri").get<std::string>(),
-    file_path_from_uri(text_document.at("uri").get<std::string>()),
+    uri,
+    file_path_from_uri(uri),
     text_document.value("version", 0),
     text_document.value("text", std::string())
   };
@@ -238,7 +264,7 @@ inline void handle_open(const nlohmann::json &params) {
 
 inline void handle_change(const nlohmann::json &params) {
   const auto &text_document = params.at("textDocument");
-  const std::string uri = text_document.at("uri").get<std::string>();
+  const std::string uri = normalized_document_uri(text_document.at("uri").get<std::string>());
   auto found = documents.find(uri);
   if (found == documents.end()) {
     return;
@@ -253,7 +279,7 @@ inline void handle_change(const nlohmann::json &params) {
 }
 
 inline void handle_close(const nlohmann::json &params) {
-  const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+  const std::string uri = normalized_document_uri(params.at("textDocument").at("uri").get<std::string>());
   documents.erase(uri);
   write_message({
     {"jsonrpc", "2.0"},
@@ -263,7 +289,7 @@ inline void handle_close(const nlohmann::json &params) {
 }
 
 inline void handle_hover(const nlohmann::json &id, const nlohmann::json &params) {
-  const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+  const std::string uri = normalized_document_uri(params.at("textDocument").at("uri").get<std::string>());
   const auto found = documents.find(uri);
   if (found == documents.end()) {
     write_response(id, nullptr);
@@ -317,7 +343,7 @@ inline void handle_references(const nlohmann::json &id, const nlohmann::json &pa
 }
 
 inline void handle_document_diagnostic(const nlohmann::json &id, const nlohmann::json &params) {
-  const std::string uri = params.at("textDocument").at("uri").get<std::string>();
+  const std::string uri = normalized_document_uri(params.at("textDocument").at("uri").get<std::string>());
   const auto found = documents.find(uri);
   if (found == documents.end()) {
     write_response(id, {{"kind", "full"}, {"items", nlohmann::json::array()}});

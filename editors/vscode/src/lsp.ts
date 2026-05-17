@@ -5,6 +5,7 @@ import {
   Disposable,
   ExtensionContext,
   OutputChannel,
+  TextDocument,
   window,
   workspace,
 } from "vscode";
@@ -20,7 +21,7 @@ import { resolveCosmosHostPath } from "./cosmos-host";
 export const LANGUAGE_SERVER_OUTPUT_CHANNEL_NAME = "Cosmo Language Server";
 export const SHOW_LANGUAGE_SERVER_OUTPUT_COMMAND = "cosmo.showLanguageServerOutput";
 
-type LanguageClientLike = Pick<LanguageClient, "start" | "stop">;
+type LanguageClientLike = Pick<LanguageClient, "sendNotification" | "start" | "stop">;
 
 export interface LspDependencies {
   createFileSystemWatcher(pattern: string): Disposable;
@@ -31,12 +32,17 @@ export interface LspDependencies {
     clientOptions: LanguageClientOptions
   ): LanguageClientLike;
   createOutputChannel(name: string): OutputChannel;
+  getActiveTextDocument(): TextDocument | undefined;
   registerCommand(command: string, callback: (...args: unknown[]) => unknown): Disposable;
+  registerActiveTextDocumentChange(
+    callback: (document: TextDocument | undefined) => unknown
+  ): Disposable;
   resolveCosmosHostPath(context: ExtensionContext): string;
   showErrorMessage(message: string): Thenable<string | undefined>;
 }
 
 let client: LanguageClientLike | undefined;
+let clientReady: Thenable<void> | undefined;
 
 export function activateLsp(
   context: ExtensionContext,
@@ -92,7 +98,16 @@ export function activateLsp(
     clientOptions
   );
 
-  startLanguageClient(client, outputChannel, dependencies);
+  context.subscriptions.push(
+    dependencies.registerActiveTextDocumentChange((document) => {
+      void refreshActiveCosmoDiagnostics(document).catch(() => undefined);
+    })
+  );
+
+  clientReady = startLanguageClient(client, outputChannel, dependencies);
+  void Promise.resolve(clientReady)
+    .then(() => refreshActiveCosmoDiagnostics(dependencies.getActiveTextDocument()))
+    .catch(() => undefined);
 }
 
 export function deactivateLsp(): Thenable<void> | undefined {
@@ -102,7 +117,37 @@ export function deactivateLsp(): Thenable<void> | undefined {
 
   const stopping = client.stop();
   client = undefined;
+  clientReady = undefined;
   return stopping;
+}
+
+async function refreshActiveCosmoDiagnostics(document: TextDocument | undefined): Promise<void> {
+  if (!document || document.languageId !== "cosmo") {
+    return;
+  }
+
+  if (!clientReady) {
+    return;
+  }
+
+  const ready = clientReady;
+  const currentClient = client;
+  if (!currentClient) {
+    return;
+  }
+
+  await ready;
+  if (client !== currentClient) {
+    return;
+  }
+
+  await currentClient.sendNotification("textDocument/didChange", {
+    textDocument: {
+      uri: document.uri.toString(),
+      version: document.version,
+    },
+    contentChanges: [{ text: document.getText() }],
+  });
 }
 
 function resolveRepoRoot(extensionPath: string): string {
@@ -132,7 +177,10 @@ function defaultLspDependencies(): LspDependencies {
     createLanguageClient: (id, name, serverOptions, clientOptions) =>
       new LanguageClient(id, name, serverOptions, clientOptions),
     createOutputChannel: (name) => window.createOutputChannel(name),
+    getActiveTextDocument: () => window.activeTextEditor?.document,
     registerCommand: (command, callback) => commands.registerCommand(command, callback),
+    registerActiveTextDocumentChange: (callback) =>
+      window.onDidChangeActiveTextEditor((editor) => callback(editor?.document)),
     resolveCosmosHostPath,
     showErrorMessage: (message) => window.showErrorMessage(message),
   };
@@ -157,7 +205,7 @@ function startLanguageClient(
   nextClient: LanguageClientLike,
   outputChannel: OutputChannel,
   dependencies: LspDependencies
-): void {
+): Thenable<void> {
   try {
     const start = nextClient.start();
     void Promise.resolve(start).catch((error) => {
@@ -165,6 +213,7 @@ function startLanguageClient(
       outputChannel.show(true);
       void dependencies.showErrorMessage(languageServerFailureMessage());
     });
+    return start;
   } catch (error) {
     reportLanguageServerFailure("Cosmos language-server startup failed.", error, outputChannel);
     outputChannel.show(true);
