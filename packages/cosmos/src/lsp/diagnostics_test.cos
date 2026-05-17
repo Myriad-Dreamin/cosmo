@@ -43,6 +43,40 @@ def cosmos_test_checker_diagnostic_fixture(): Bool = {
     cosmos_lsp_diagnostics_json(diagnostics) == cosmos_lsp_diagnostics_json(cosmos_analyze_document(snapshot))
 }
 
+def cosmos_test_helloworld_sample_has_no_diagnostics(): Bool = {
+  val diagnostics = cosmos_analyze_document(cosmos_helloworld_sample_snapshot(cosmos_helloworld_sample_source()));
+  if (diagnostics.len() != 0) {
+    return false
+  }
+
+  val json = cosmos_lsp_diagnostics_json(diagnostics);
+  json == "[]" and !cosmos_text_contains_any(json, cosmos_helloworld_false_positive_codes())
+}
+
+def cosmos_test_helloworld_invalid_edit_reports_parser_diagnostic(): Bool = {
+  val diagnostics = cosmos_analyze_document(cosmos_helloworld_sample_snapshot("val ="));
+  if (diagnostics.len() == 0) {
+    return false
+  }
+
+  val json = cosmos_lsp_diagnostics_json(diagnostics);
+  json_contains(json, "\"code\":\"cosmo1.parser.expected\"")
+}
+
+def cosmos_test_checker_gap_cascades_are_suppressed(): Bool = {
+  val source = "def main() = {\n".concat(
+    "  println(\"Hello, World!\")\n".concat(
+      "  val x = 1\n".concat(
+        "  println(x);\n".concat(
+          "}"
+        )
+      )
+    )
+  );
+  val diagnostics = cosmos_analyze_document(cosmos_helloworld_sample_snapshot(source));
+  cosmos_lsp_diagnostics_json(diagnostics) == "[]"
+}
+
 def cosmos_test_package_diagnostic_fixture(): Bool = {
   val imports = Vec[String]();
   imports.push("missing");
@@ -53,6 +87,55 @@ def cosmos_test_package_diagnostic_fixture(): Bool = {
   diagnostics.len() == 1 and
     cosmos_lsp_diagnostics_json(diagnostics) == cosmos_lsp_diagnostics_json(cosmos_analyze_package_graph(modules)) and
     json_contains(cosmos_lsp_diagnostics_json(diagnostics), "\"code\":\"cosmo1.package.missing-import\"")
+}
+
+def cosmos_helloworld_sample_snapshot(source: String): CosmosTextDocumentSnapshot = {
+  cosmos_text_document_snapshot(
+    "file:///repo/samples/HelloWorld/main.cos",
+    "/repo/samples/HelloWorld/main.cos",
+    1,
+    source,
+    "/repo/samples",
+    "HelloWorld/main",
+    true
+  )
+}
+
+def cosmos_helloworld_sample_source(): String = {
+  "\n".concat(
+    "def main() = {\n".concat(
+      "  println(\"Hello, World!\")\n".concat(
+        "\n".concat(
+          "  val x = 1\n".concat(
+            "  val y = 2\n".concat(
+              "  val z = x + y\n".concat(
+                "  println(z);\n".concat(
+                  "}\n"
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+}
+
+def cosmos_helloworld_false_positive_codes(): Vec[String] = {
+  val codes = Vec[String]();
+  codes.push("cosmo1.type.unsupported-name");
+  codes.push("cosmo1.type.invalid-assignment-target");
+  codes.push("cosmo1.type.missing-return");
+  codes
+}
+
+def cosmos_text_contains_any(text: String, needles: Vec[String]): Bool = {
+  for (needle in needles) {
+    if (json_contains(text, needle)) {
+      return true
+    }
+  }
+  false
 }
 
 def cosmos_test_publish_and_clear_diagnostics(): Bool = {
