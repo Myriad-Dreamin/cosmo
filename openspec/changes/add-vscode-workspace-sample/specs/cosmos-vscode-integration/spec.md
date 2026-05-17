@@ -2,11 +2,11 @@
 
 ### Requirement: VSCode Sample Workspace Is Available
 
-The repository SHALL provide a checked-in VSCode workspace sample that gives users a stable manual entry point for exercising the Cosmo extension against existing sample sources.
+The repository SHALL provide `samples/cosmo-samples.code-workspace` as a checked-in VSCode workspace sample that gives users a stable manual entry point for exercising the Cosmo extension against existing sample sources.
 
 #### Scenario: User opens the sample workspace
 
-- **WHEN** a user opens the sample workspace file in VSCode
+- **WHEN** a user opens `samples/cosmo-samples.code-workspace` in VSCode
 - **THEN** the workspace includes the existing sample package root
 - **AND** `samples/HelloWorld/main.cos` is available as the primary smoke document
 - **AND** opening the workspace is sufficient to activate the Cosmo extension for `.cos` files
