@@ -18,6 +18,8 @@ test("smoke: initialize, open, diagnostics, change, and hover flow through cosmo
     });
     assert.equal(initialize.result.serverInfo.name, "cosmos");
     assert.equal(initialize.result.capabilities.hoverProvider, true);
+    assert.equal(initialize.result.capabilities.definitionProvider, true);
+    assert.equal(initialize.result.capabilities.referencesProvider, true);
 
     const uri = "file:///repo/packages/app/src/main.cos";
     const hoverFixture = [
@@ -65,6 +67,58 @@ test("smoke: initialize, open, diagnostics, change, and hover flow through cosmo
       position: { line: 4, character: 4 },
     });
     assert.match(hover.result.contents.value, /def helper\(value: i32\): i32/);
+
+    const definition = await client.request("textDocument/definition", {
+      textDocument: { uri },
+      position: { line: 7, character: 19 },
+    });
+    assert.equal(definition.result.uri, uri);
+    assert.deepEqual(definition.result.range, {
+      start: { line: 4, character: 4 },
+      end: { line: 4, character: 10 },
+    });
+
+    const selfDefinition = await client.request("textDocument/definition", {
+      textDocument: { uri },
+      position: { line: 7, character: 6 },
+    });
+    assert.equal(selfDefinition.result.uri, uri);
+    assert.deepEqual(selfDefinition.result.range, {
+      start: { line: 7, character: 6 },
+      end: { line: 7, character: 11 },
+    });
+
+    const localReferences = await client.request("textDocument/references", {
+      textDocument: { uri },
+      position: { line: 8, character: 2 },
+      context: { includeDeclaration: false },
+    });
+    assert.deepEqual(localReferences.result, [
+      {
+        uri,
+        range: {
+          start: { line: 8, character: 2 },
+          end: { line: 8, character: 7 },
+        },
+      },
+    ]);
+    const repeatedLocalReferences = await client.request("textDocument/references", {
+      textDocument: { uri },
+      position: { line: 8, character: 2 },
+      context: { includeDeclaration: false },
+    });
+    assert.deepEqual(repeatedLocalReferences.result, localReferences.result);
+
+    const typeReferences = await client.request("textDocument/references", {
+      textDocument: { uri },
+      position: { line: 6, character: 14 },
+      context: { includeDeclaration: true },
+    });
+    assert.deepEqual(typeReferences.result.map((item) => item.range.start), [
+      { line: 0, character: 6 },
+      { line: 6, character: 14 },
+      { line: 6, character: 23 },
+    ]);
 
     await client.request("shutdown", null);
     client.notify("exit", {});

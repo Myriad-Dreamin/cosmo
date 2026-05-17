@@ -1,0 +1,179 @@
+import jsonrpc.core
+import lsp.diagnostics
+import lsp.lifecycle
+import lsp.navigation
+import workspace.documents
+
+def cosmos_test_definition_reference_resolves_to_declaration(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val definition = cosmos_definition_at(source, "helper(widget");
+  cosmos_navigation_json_contains(cosmos_definition_result_json(definition), "\"line\":4") and
+    cosmos_navigation_json_contains(cosmos_definition_result_json(definition), "\"character\":4") and
+    cosmos_definition_result_json(definition) == cosmos_definition_result_json(cosmos_definition_at(source, "helper(widget"))
+}
+
+def cosmos_test_definition_declaration_resolves_to_itself(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val definition = cosmos_definition_at(source, "local: i32");
+  cosmos_navigation_json_contains(cosmos_definition_result_json(definition), "\"line\":7") and
+    cosmos_navigation_json_contains(cosmos_definition_result_json(definition), "\"character\":6")
+}
+
+def cosmos_test_definition_for_supported_symbol_kinds(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val local = cosmos_definition_result_json(cosmos_definition_at(source, "local\n}"));
+  val param = cosmos_definition_result_json(cosmos_definition_at(source, "value }\ndef main"));
+  val function = cosmos_definition_result_json(cosmos_definition_at(source, "helper(widget"));
+  val member = cosmos_definition_result_json(cosmos_definition_at(source, "get())"));
+  val typ = cosmos_definition_result_json(cosmos_definition_at(source, "Widget = Widget"));
+  cosmos_navigation_json_contains(local, "\"line\":7") and
+    cosmos_navigation_json_contains(param, "\"line\":4") and
+    cosmos_navigation_json_contains(function, "\"line\":4") and
+    cosmos_navigation_json_contains(member, "\"line\":2") and
+    cosmos_navigation_json_contains(typ, "\"line\":0")
+}
+
+def cosmos_test_references_include_declaration(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val references = cosmos_references_at(source, "local\n}", true);
+  val json = cosmos_references_result_json(references);
+  references.len() == 2 and
+    cosmos_navigation_json_contains(json, "\"line\":7") and
+    cosmos_navigation_json_contains(json, "\"line\":8") and
+    json == cosmos_references_result_json(cosmos_references_at(source, "local\n}", true))
+}
+
+def cosmos_test_references_exclude_declaration(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val references = cosmos_references_at(source, "local\n}", false);
+  val json = cosmos_references_result_json(references);
+  references.len() == 1 and
+    !cosmos_navigation_json_contains(json, "\"line\":7") and
+    cosmos_navigation_json_contains(json, "\"line\":8")
+}
+
+def cosmos_test_references_for_supported_symbol_kinds(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val param_refs = cosmos_references_at(source, "value }\ndef main", true);
+  val function_refs = cosmos_references_at(source, "helper(widget", true);
+  val member_refs = cosmos_references_at(source, "get())", true);
+  val type_refs = cosmos_references_at(source, "Widget = Widget", true);
+  param_refs.len() == 2 and
+    function_refs.len() == 2 and
+    member_refs.len() == 2 and
+    type_refs.len() == 3
+}
+
+def cosmos_test_navigation_unsupported_positions_are_empty(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val whitespace = cosmos_definition_at(source, " = ");
+  val closed = cosmos_definition(cosmos_navigation_snapshot(source, false), 0, 6);
+  val parse_failed = cosmos_definition(cosmos_navigation_snapshot("def main(: i32", true), 0, 4);
+  val references = cosmos_references_at(source, " = ", true);
+  cosmos_definition_result_json(whitespace) == "null" and
+    cosmos_definition_result_json(closed) == "null" and
+    cosmos_definition_result_json(parse_failed) == "null" and
+    cosmos_references_result_json(references) == "[]"
+}
+
+def cosmos_test_navigation_server_response_fixture(): Bool = {
+  val source = cosmos_navigation_fixture_source();
+  val definition = cosmos_definition_at(source, "helper(widget");
+  val references = cosmos_references_at(source, "local\n}", false);
+  var server = lsp_server();
+  server = cosmos_enable_navigation(server);
+  if (!server.capabilities.definition_provider) {
+    return false
+  }
+  if (!server.capabilities.references_provider) {
+    return false
+  }
+
+  val definition_request = JsonRpcRequest(jsonrpc_number_id("21"), "textDocument/definition", Option[JsonValue]::None);
+  val references_request = JsonRpcRequest(jsonrpc_number_id("22"), "textDocument/references", Option[JsonValue]::None);
+  server = cosmos_lsp_definition_response(server, definition_request, definition);
+  server = cosmos_lsp_references_response(server, references_request, references);
+  server.has_request_handler("textDocument/definition") and
+    server.has_request_handler("textDocument/references") and
+    server.outbound_len() == 2 and
+    cosmos_navigation_json_contains(server.session.outbound.get(0), "\"id\":21") and
+    cosmos_navigation_json_contains(server.session.outbound.get(1), "\"id\":22")
+}
+
+def cosmos_navigation_fixture_source(): String = {
+  "class Widget {\n".concat(
+    "  val value: i32\n".concat(
+      "  def get(&self): i32 = { self.value }\n".concat(
+        "}\n".concat(
+          "def helper(value: i32): i32 = { value }\n".concat(
+            "def main(): i32 = {\n".concat(
+              "  val widget: Widget = Widget(1)\n".concat(
+                "  val local: i32 = helper(widget.get())\n".concat(
+                  "  local\n".concat(
+                    "}"
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+}
+
+def cosmos_definition_at(source: String, needle: String): Option[CosmosLocation] = {
+  val offset = cosmos_navigation_find_offset(source, needle);
+  val position = cosmos_lsp_position(source, offset);
+  cosmos_definition(cosmos_navigation_snapshot(source, true), position.line, position.character)
+}
+
+def cosmos_references_at(source: String, needle: String, include_declaration: Bool): Vec[CosmosLocation] = {
+  val offset = cosmos_navigation_find_offset(source, needle);
+  val position = cosmos_lsp_position(source, offset);
+  cosmos_references(cosmos_navigation_snapshot(source, true), position.line, position.character, include_declaration)
+}
+
+def cosmos_navigation_snapshot(source: String, is_open: Bool): CosmosTextDocumentSnapshot = {
+  cosmos_text_document_snapshot(
+    "file:///repo/packages/app/src/main.cos",
+    "/repo/packages/app/src/main.cos",
+    1,
+    source,
+    "/repo/packages/app",
+    "main",
+    is_open
+  )
+}
+
+def cosmos_navigation_json_contains(text: String, needle: String): Bool = {
+  if (needle.is_empty()) {
+    return true
+  }
+  if (needle.len() > text.len()) {
+    return false
+  }
+
+  var offset: usize = 0;
+  while (offset + needle.len() <= text.len()) {
+    if (text.slice(offset, offset + needle.len()) == needle) {
+      return true
+    }
+    offset = offset + 1
+  }
+  false
+}
+
+def cosmos_navigation_find_offset(source: String, needle: String): usize = {
+  if (needle.is_empty()) {
+    return 0
+  }
+  var offset: usize = 0;
+  while (offset + needle.len() <= source.len()) {
+    if (source.slice(offset, offset + needle.len()) == needle) {
+      return offset
+    }
+    offset = offset + 1
+  }
+  0
+}

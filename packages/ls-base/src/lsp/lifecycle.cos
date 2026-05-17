@@ -13,6 +13,8 @@ class LspLifecycleState {
 class LspServerCapabilities {
   val text_document_sync: i32
   val hover_provider: Bool
+  val definition_provider: Bool
+  val references_provider: Bool
 }
 
 class LspDocumentEvent {
@@ -210,8 +212,33 @@ class LspServer {
   }
 
   def enable_hover(&mut self): Unit = {
-    self.capabilities = LspServerCapabilities(self.capabilities.text_document_sync, true);
+    self.capabilities = LspServerCapabilities(
+      self.capabilities.text_document_sync,
+      true,
+      self.capabilities.definition_provider,
+      self.capabilities.references_provider
+    );
     self.register_request_handler("textDocument/hover")
+  }
+
+  def enable_definition(&mut self): Unit = {
+    self.capabilities = LspServerCapabilities(
+      self.capabilities.text_document_sync,
+      self.capabilities.hover_provider,
+      true,
+      self.capabilities.references_provider
+    );
+    self.register_request_handler("textDocument/definition")
+  }
+
+  def enable_references(&mut self): Unit = {
+    self.capabilities = LspServerCapabilities(
+      self.capabilities.text_document_sync,
+      self.capabilities.hover_provider,
+      self.capabilities.definition_provider,
+      true
+    );
+    self.register_request_handler("textDocument/references")
   }
 
   def document_event_len(&self): usize = {
@@ -249,7 +276,7 @@ def lsp_server(): LspServer = {
 }
 
 def lsp_server_capabilities(): LspServerCapabilities = {
-  LspServerCapabilities(2, false)
+  LspServerCapabilities(2, false, false, false)
 }
 
 def lsp_initialize_result_json(capabilities: LspServerCapabilities): String = {
@@ -261,6 +288,18 @@ def lsp_server_capabilities_json(capabilities: LspServerCapabilities): String = 
   builder.push(lsp_text_document_sync_kind_text(capabilities.text_document_sync));
   builder.push("},\"hoverProvider\":");
   if (capabilities.hover_provider) {
+    builder.push("true")
+  } else {
+    builder.push("false")
+  }
+  builder.push(",\"definitionProvider\":");
+  if (capabilities.definition_provider) {
+    builder.push("true")
+  } else {
+    builder.push("false")
+  }
+  builder.push(",\"referencesProvider\":");
+  if (capabilities.references_provider) {
     builder.push("true")
   } else {
     builder.push("false")
