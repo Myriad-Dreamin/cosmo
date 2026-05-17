@@ -20,7 +20,7 @@
     "compile:dev": "sbt fastLinkJS",
     "cosmo": "node ./cmd/cosmo/main.js",
     "validate:cosmo0-docs": "node scripts/validateCosmo0Docs.js",
-    "validate:vscode-workspace-sample": "node scripts/validateVscodeWorkspaceSample.mjs",
+    "validate:sample-workspaces": "node scripts/validateSampleWorkspaces.mjs",
     "docs": "shiroa serve --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ -w . docs/cosmo",
     "build:syntax": "node scripts/build.mjs build:syntax",
     "build:cosmos-host": "node scripts/build.mjs build:cosmos-host",

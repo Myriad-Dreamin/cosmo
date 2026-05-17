@@ -1,18 +1,19 @@
 ## ADDED Requirements
 
-### Requirement: VSCode Sample Workspace Is Available
+### Requirement: VSCode Sample Project Workspaces Are Available
 
-The repository SHALL provide `samples/cosmo-samples.code-workspace` as a checked-in VSCode workspace sample that gives users a stable manual entry point for exercising the Cosmo extension against existing sample sources.
+The repository SHALL provide sample project directories that users can open directly in VSCode to exercise the Cosmo extension without a `.code-workspace` file.
 
-#### Scenario: User opens the sample workspace
+#### Scenario: User opens samples root
 
-- **WHEN** a user opens `samples/cosmo-samples.code-workspace` in VSCode
-- **THEN** the workspace includes the existing sample package root
-- **AND** `samples/HelloWorld/main.cos` is available as the primary smoke document
-- **AND** opening the workspace is sufficient to activate the Cosmo extension for `.cos` files
+- **WHEN** a user opens `samples/` in VSCode
+- **THEN** `samples/cosmo.json` is available as the virtual workspace root
+- **AND** existing sample source directories remain visible for browsing
+- **AND** opening any `.cos` sample activates the Cosmo extension through the ordinary language association
 
-#### Scenario: Workspace references are stable
+#### Scenario: User opens project-shape samples
 
-- **WHEN** repository validation inspects the sample workspace file
-- **THEN** every referenced folder or file exists in the repository
-- **AND** generated output directories are not included as workspace folders
+- **WHEN** a user opens a folder under `samples/workspaces/`
+- **THEN** `virtual-root/` demonstrates a virtual workspace root
+- **AND** `package/` demonstrates an ordinary package root
+- **AND** `single-file/` demonstrates package-less single-file fallback

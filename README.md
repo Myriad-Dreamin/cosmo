@@ -81,13 +81,15 @@ Cosmo language, probes and starts `out/cosmos-lsp-host`, and sets
 VSIX builds copy the needed Cosmo package sources under `out/server-root` before
 packaging.
 
-For the first manual editor smoke check, open
-`samples/cosmo-samples.code-workspace` in VSCode. The workspace opens the
-existing `samples` package root, keeps common generated and build output
-directories hidden from the Explorer and search, and uses
-`samples/HelloWorld/main.cos` as the starting document to open. With the
-extension host running, opening `HelloWorld/main.cos` activates the Cosmo
-extension through the ordinary `.cos` language association.
+For the first manual editor smoke check, open `samples/` directly in VSCode.
+The `samples/cosmo.json` file is a virtual workspace root, mirroring Cargo's
+virtual workspace root pattern, so the sample tree can be browsed from one
+folder. Focused project-shape samples live under `samples/workspaces/`:
+`virtual-root/` demonstrates a virtual root with ordinary package members,
+`package/` demonstrates a normal package manifest, and `single-file/`
+demonstrates package-less single-file fallback that assumes only standard
+library/prelude capabilities. Opening any `.cos` file activates the Cosmo
+extension through the ordinary language association.
 
 ## Implementation Note
 
