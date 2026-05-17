@@ -6,11 +6,11 @@
 
 ## 2. Startup Metadata
 
-- [ ] 2.1 Emit a startup banner with `eprintln`/stderr from the VSCode-launched host after the host resolves its launch configuration.
-- [ ] 2.2 Include the git revision used to build or run the host.
-- [ ] 2.3 Include relevant version values, such as the Cosmo server/build version and the VSCode extension package version when available.
-- [ ] 2.4 Include resolved non-secret configuration needed to debug launch behavior, such as host path/command, workspace or server root, transport, and config source.
-- [ ] 2.5 Keep stdout reserved for LSP JSON-RPC protocol output; do not print the startup banner to stdout.
+- [x] 2.1 Emit a startup banner with `eprintln`/stderr from the VSCode-launched host after the host resolves its launch configuration.
+- [x] 2.2 Include the git revision used to build or run the host.
+- [x] 2.3 Include relevant version values, such as the Cosmo server/build version and the VSCode extension package version when available.
+- [x] 2.4 Include resolved non-secret configuration needed to debug launch behavior, such as host path/command, workspace or server root, transport, and config source.
+- [x] 2.5 Keep stdout reserved for LSP JSON-RPC protocol output; do not print the startup banner to stdout.
 
 ## 3. User Access
 
@@ -22,5 +22,5 @@
 
 - [x] 4.1 Add extension tests or focused unit coverage that verifies the output channel is created during activation.
 - [x] 4.2 Add coverage for a probe/startup failure path that appends the failure text to the channel.
-- [ ] 4.3 Add automated coverage or a focused smoke path proving startup metadata reaches stderr/output-channel capture.
+- [x] 4.3 Add automated coverage or a focused smoke path proving startup metadata reaches stderr/output-channel capture.
 - [ ] 4.4 Manually verify stderr from the VSCode-launched host is visible while reproducing diagnostics refresh issues.

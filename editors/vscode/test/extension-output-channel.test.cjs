@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { existsSync } = require("node:fs");
 const Module = require("node:module");
 const path = require("node:path");
 const test = require("node:test");
@@ -19,6 +20,20 @@ test("activateLsp creates the language-server output channel", () => {
   assert.equal(state.createdClients[0].clientOptions.outputChannel, state.outputChannel);
   assert.equal(state.createdClients[0].serverOptions.run.command, "/tmp/cosmos-lsp-host");
   assert.equal(state.createdClients[0].serverOptions.run.transport, "stdio");
+  assert.equal(
+    state.createdClients[0].serverOptions.run.options.env.COSMO_LSP_CONFIG_SOURCE,
+    "vscode-extension"
+  );
+  assert.equal(
+    state.createdClients[0].serverOptions.run.options.env.COSMO_LSP_HOST_COMMAND,
+    "/tmp/cosmos-lsp-host"
+  );
+  assert.equal(state.createdClients[0].serverOptions.run.options.env.COSMO_LSP_TRANSPORT, "stdio");
+  assert.equal(state.createdClients[0].serverOptions.run.options.env.COSMO_REPO_ROOT, repoRoot());
+  assert.equal(
+    state.createdClients[0].serverOptions.run.options.env.COSMO_VSCODE_EXTENSION_VERSION,
+    "0.1.0-test"
+  );
   assert.equal(state.createdClients[0].serverOptions.debug.command, "/tmp/cosmos-lsp-host");
   assert.equal(state.createdClients[0].serverOptions.debug.transport, "stdio");
   assert.equal(state.createdClients[0].clientOptions.synchronize.fileEvents.pattern, "**/*.cos");
@@ -173,8 +188,22 @@ function fakeDependencies(state, overrides = {}) {
 function fakeContext() {
   return {
     extensionPath: path.resolve(__dirname, ".."),
+    extension: {
+      packageJSON: {
+        version: "0.1.0-test",
+      },
+    },
     subscriptions: [],
   };
+}
+
+function repoRoot() {
+  const packagedRoot = path.resolve(__dirname, "..", "out", "server-root");
+  if (existsSync(path.join(packagedRoot, "packages", "cosmos", "cosmo.json"))) {
+    return packagedRoot;
+  }
+
+  return path.resolve(__dirname, "..", "..", "..");
 }
 
 function fakeOutputChannel() {

@@ -17,6 +17,7 @@ const sourcePath = join(outDir, "cosmos-lsp-host.cpp");
 const executableName = process.platform === "win32" ? "cosmos-lsp-host.exe" : "cosmos-lsp-host";
 const executablePath = join(outDir, executableName);
 const logPath = join(outDir, "cosmos-lsp-host.compile.log");
+const gitRevision = resolveGitRevision();
 
 const compiler = new cosmo.Cosmo0();
 const compiled = compiler.compilePackageForHost(packageRoot);
@@ -70,11 +71,17 @@ ${generatedSource}
 #undef main
 
 // VSCode host wrapper for packages/cosmos.
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 
 namespace cosmos_vscode_host {
 using namespace cosmo0::cosmo_cosmos;
+
+inline constexpr const char *k_host_version = "0.0.0";
+inline constexpr const char *k_server_name = "cosmos";
+inline constexpr const char *k_server_version = "0.0.0";
+inline constexpr const char *k_git_revision = "${escapeCppString(gitRevision)}";
 
 struct OpenDocument {
   std::string uri;
@@ -85,6 +92,14 @@ struct OpenDocument {
 
 inline std::map<std::string, OpenDocument> documents;
 inline std::string repo_root;
+
+inline std::string env_value(const char *name, const std::string &fallback) {
+  const char *value = std::getenv(name);
+  if (value == nullptr || value[0] == '\\0') {
+    return fallback;
+  }
+  return std::string(value);
+}
 
 inline std::string decode_uri_component(const std::string &value) {
   std::string decoded;
@@ -205,7 +220,7 @@ inline nlohmann::json initialize_result() {
       {"referencesProvider", true},
       {"diagnosticProvider", {{"interFileDependencies", false}, {"workspaceDiagnostics", false}}}
     }},
-    {"serverInfo", {{"name", "cosmos"}, {"version", "0.0.0"}}}
+    {"serverInfo", {{"name", k_server_name}, {"version", k_server_version}}}
   };
 }
 
@@ -368,9 +383,32 @@ inline bool dispatch(const nlohmann::json &message) {
   return true;
 }
 
-inline int run() {
+inline void emit_startup_metadata(const char *argv0) {
+  const std::string fallback_command =
+    argv0 == nullptr ? std::string("cosmos-lsp-host") : std::string(argv0);
+  const std::string host_command = env_value("COSMO_LSP_HOST_COMMAND", fallback_command);
+  const std::string transport = env_value("COSMO_LSP_TRANSPORT", "stdio");
+  const std::string config_source = env_value("COSMO_LSP_CONFIG_SOURCE", "environment");
+  const std::string extension_version = env_value("COSMO_VSCODE_EXTENSION_VERSION", "unknown");
+  const std::string server_root = repo_root.empty() ? std::string("unset") : repo_root;
+
+  std::cerr
+    << "[cosmos-lsp-host] startup" << std::endl
+    << "  gitRevision: " << k_git_revision << std::endl
+    << "  hostVersion: " << k_host_version << std::endl
+    << "  serverName: " << k_server_name << std::endl
+    << "  serverVersion: " << k_server_version << std::endl
+    << "  vscodeExtensionVersion: " << extension_version << std::endl
+    << "  hostCommand: " << host_command << std::endl
+    << "  serverRoot: " << server_root << std::endl
+    << "  transport: " << transport << std::endl
+    << "  configSource: " << config_source << std::endl;
+}
+
+inline int run(const char *argv0) {
   const char *root = std::getenv("COSMO_REPO_ROOT");
   repo_root = root == nullptr ? std::string() : std::string(root);
+  emit_startup_metadata(argv0);
 
   std::string body;
   while (read_message(body)) {
@@ -387,9 +425,25 @@ int main(int argc, char **argv) {
   if (argc > 1 && std::string(argv[1]) == "probe") {
     return 0;
   }
-  return cosmos_vscode_host::run();
+  return cosmos_vscode_host::run(argv[0]);
 }
 `;
+}
+
+function resolveGitRevision() {
+  const result = spawnSync("git", ["rev-parse", "--short=12", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (result.status === 0) {
+    return result.stdout.trim();
+  }
+
+  return "unknown";
+}
+
+function escapeCppString(value) {
+  return value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
 }
 
 function findCxxCompiler() {

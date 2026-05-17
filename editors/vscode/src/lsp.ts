@@ -52,6 +52,7 @@ export function activateLsp(
 
   const repoRoot = resolveRepoRoot(context.extensionPath);
   const command = resolveCosmosHostPathOrReport(context, outputChannel, dependencies);
+  const transport = "stdio";
 
   const run = {
     command,
@@ -59,7 +60,11 @@ export function activateLsp(
     options: {
       env: {
         ...process.env,
+        COSMO_LSP_CONFIG_SOURCE: "vscode-extension",
+        COSMO_LSP_HOST_COMMAND: command,
+        COSMO_LSP_TRANSPORT: transport,
         COSMO_REPO_ROOT: repoRoot,
+        COSMO_VSCODE_EXTENSION_VERSION: resolveExtensionVersion(context),
       },
     },
   };
@@ -107,6 +112,18 @@ function resolveRepoRoot(extensionPath: string): string {
   }
 
   return path.resolve(extensionPath, "..", "..");
+}
+
+function resolveExtensionVersion(context: ExtensionContext): string {
+  const maybeContext = context as ExtensionContext & {
+    extension?: { packageJSON?: { version?: unknown } };
+  };
+  const version = maybeContext.extension?.packageJSON?.version;
+  if (typeof version === "string" && version.length > 0) {
+    return version;
+  }
+
+  return "unknown";
 }
 
 function defaultLspDependencies(): LspDependencies {
