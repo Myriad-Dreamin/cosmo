@@ -204,6 +204,79 @@ def basic_expression_checker_reports_return_mismatch(): Bool = {
     typed_expr_has_display(checked, ret, "never")
 }
 
+def basic_expression_checker_reports_body_type_mismatch(): Bool = {
+  var arenas = syntax_arenas();
+
+  val body = arenas.make_bool_literal_expr(false, make_span(18, 23));
+  val return_type = arenas.make_name_type("i32", make_span(7, 10));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 23));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 23));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and diagnostic_has_mismatch(checked, 0, "i32", "Bool")
+}
+
+def basic_expression_checker_accepts_inferable_unit_body(): Bool = {
+  var arenas = syntax_arenas();
+
+  val callee = arenas.make_name_expr("println", make_span(15, 22));
+  val arg = arenas.make_string_literal_expr("ok", make_span(23, 27));
+  val args = Vec[ExprId]();
+  args.push(arg);
+  val call = arenas.make_call_expr(callee, args, make_span(15, 28));
+  val items = Vec[ExprId]();
+  items.push(call);
+  val body = arenas.make_block_expr(items, make_span(13, 30));
+  val return_type = arenas.make_missing_type(make_span(3, 7));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 30));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 30));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  checked.is_ok() and
+    typed_expr_has_primitive(checked, call, "Unit") and
+    typed_expr_has_primitive(checked, body, "Unit")
+}
+
+def basic_expression_checker_preserves_unknown_name(): Bool = {
+  var arenas = syntax_arenas();
+
+  val unknown = arenas.make_name_expr("missing_symbol", make_span(15, 29));
+  val items = Vec[ExprId]();
+  items.push(unknown);
+  val body = arenas.make_block_expr(items, make_span(13, 31));
+  val return_type = arenas.make_name_type("Unit", make_span(7, 11));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 31));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 31));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.unsupported-name"
+}
+
+def basic_expression_checker_preserves_invalid_assignment_target(): Bool = {
+  var arenas = syntax_arenas();
+
+  val target = arenas.make_bool_literal_expr(false, make_span(15, 20));
+  val value = arenas.make_numeric_literal_expr("1", make_span(23, 24));
+  val assign = arenas.make_assign_expr(target, value, make_span(15, 24));
+  val items = Vec[ExprId]();
+  items.push(assign);
+  val body = arenas.make_block_expr(items, make_span(13, 26));
+  val return_type = arenas.make_name_type("Unit", make_span(7, 11));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, body, make_span(0, 26));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 26));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and checked.first_diagnostic_code() == "cosmo1.type.invalid-assignment-target"
+}
+
 def basic_expression_checker_rejects_invalid_binary_operands(): Bool = {
   var arenas = syntax_arenas();
 
@@ -497,6 +570,18 @@ def main(): i32 = {
     return 1
   }
   if (!basic_expression_checker_reports_return_mismatch()) {
+    return 1
+  }
+  if (!basic_expression_checker_reports_body_type_mismatch()) {
+    return 1
+  }
+  if (!basic_expression_checker_accepts_inferable_unit_body()) {
+    return 1
+  }
+  if (!basic_expression_checker_preserves_unknown_name()) {
+    return 1
+  }
+  if (!basic_expression_checker_preserves_invalid_assignment_target()) {
     return 1
   }
   if (!basic_expression_checker_rejects_invalid_binary_operands()) {

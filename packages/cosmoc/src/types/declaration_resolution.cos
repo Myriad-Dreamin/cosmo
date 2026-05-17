@@ -232,7 +232,7 @@ class DeclarationResolver {
     maybe_def match {
       case Option[DefId]::Some(definition) => {
         val receiver = self.resolve_params(params, Option[DefId]::None);
-        val resolved_return = self.resolve_type_expr(return_type, Vec[usize]());
+        val resolved_return = self.resolve_callable_return_type(return_type);
         self.function_signatures.insert(id, CallableSignature(definition, params, resolved_return, receiver));
       }
       case Option[DefId]::None => {
@@ -245,12 +245,19 @@ class DeclarationResolver {
     maybe_def match {
       case Option[DefId]::Some(definition) => {
         val receiver = self.resolve_params(params, Option[DefId]::Some(class_def));
-        val resolved_return = self.resolve_type_expr(return_type, Vec[usize]());
+        val resolved_return = self.resolve_callable_return_type(return_type);
         self.method_signatures.insert(id, CallableSignature(definition, params, resolved_return, receiver));
       }
       case Option[DefId]::None => {
       }
     }
+  }
+
+  def resolve_callable_return_type(&mut self, return_type: TypeExprId): TypeId = {
+    if (self.type_expr_is_missing(return_type)) {
+      return self.types.alloc_primitive("Unit")
+    }
+    self.resolve_type_expr(return_type, Vec[usize]())
   }
 
   def resolve_decl_alias(&mut self, id: DeclId): Unit = {
@@ -516,6 +523,27 @@ class DeclarationResolver {
 
   def type_id_is_error(&self, id: TypeId): Bool = {
     type_is_error(self.types.type_value(id))
+  }
+
+  def type_expr_is_missing(&self, id: TypeExprId): Bool = {
+    val typ = self.arenas.type_value(id);
+    typ match {
+      case SyntaxType.Missing(span) => {
+        true
+      }
+      case SyntaxType.AEmpty => {
+        true
+      }
+      case SyntaxType.Name(name, span) => {
+        false
+      }
+      case SyntaxType.Generic(base, args, span) => {
+        false
+      }
+      case SyntaxType.Ref(mutable, inner, span) => {
+        false
+      }
+    }
   }
 
   def definition_name(&self, id: DefId): String = {
