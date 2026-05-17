@@ -1,0 +1,1302 @@
+import jsonrpc.core
+import lsp.diagnostics
+import lsp.hover
+import lsp.lifecycle
+import names.scope
+import source.span
+import syntax.ast
+import workspace.documents
+
+class CosmosLocation {
+  val uri: String
+  val range: CosmosLspRange
+}
+
+class CosmosFallbackSymbol {
+  val name: String
+  val span: Span
+  val scope_start: usize
+  val scope_end: usize
+}
+
+def cosmos_definition(snapshot: CosmosTextDocumentSnapshot, line: usize, character: usize): Option[CosmosLocation] = {
+  if (!snapshot.is_open) {
+    return Option[CosmosLocation]::None
+  }
+
+  val analysis = cosmos_hover_analyze(snapshot);
+  analysis match {
+    case Option[CosmosHoverAnalysis]::Some(value) => {
+      val offset = cosmos_offset_for_lsp_position(snapshot.text, line, character);
+      val target = cosmos_navigation_target(value, offset);
+      target match {
+        case Option[DefId]::Some(def_id) => {
+          val location = cosmos_definition_location(value, snapshot.uri, def_id);
+          location match {
+            case Option[CosmosLocation]::Some(found) => {
+              location
+            }
+            case Option[CosmosLocation]::None => {
+              cosmos_fallback_definition(snapshot, offset)
+            }
+          }
+        }
+        case Option[DefId]::None => {
+          cosmos_fallback_definition(snapshot, offset)
+        }
+      }
+    }
+    case Option[CosmosHoverAnalysis]::None => {
+      Option[CosmosLocation]::None
+    }
+  }
+}
+
+def cosmos_references(
+  snapshot: CosmosTextDocumentSnapshot,
+  line: usize,
+  character: usize,
+  include_declaration: Bool
+): Vec[CosmosLocation] = {
+  val empty = Vec[CosmosLocation]();
+  if (!snapshot.is_open) {
+    return empty
+  }
+
+  val analysis = cosmos_hover_analyze(snapshot);
+  analysis match {
+    case Option[CosmosHoverAnalysis]::Some(value) => {
+      val offset = cosmos_offset_for_lsp_position(snapshot.text, line, character);
+      val target = cosmos_navigation_target(value, offset);
+      target match {
+        case Option[DefId]::Some(def_id) => {
+          val locations = cosmos_reference_locations(value, snapshot.uri, def_id, include_declaration);
+          if (locations.is_empty()) {
+            cosmos_fallback_references(snapshot, offset, include_declaration)
+          } else {
+            locations
+          }
+        }
+        case Option[DefId]::None => {
+          cosmos_fallback_references(snapshot, offset, include_declaration)
+        }
+      }
+    }
+    case Option[CosmosHoverAnalysis]::None => {
+      empty
+    }
+  }
+}
+
+def cosmos_definition_result_json(location: Option[CosmosLocation]): String = {
+  location match {
+    case Option[CosmosLocation]::Some(value) => {
+      cosmos_location_json(value)
+    }
+    case Option[CosmosLocation]::None => {
+      "null"
+    }
+  }
+}
+
+def cosmos_references_result_json(locations: Vec[CosmosLocation]): String = {
+  cosmos_locations_json(locations)
+}
+
+def cosmos_lsp_definition_response(server: LspServer, request: JsonRpcRequest, location: Option[CosmosLocation]): LspServer = {
+  var next = server;
+  next.respond_success(request.id, cosmos_definition_result_json(location));
+  next
+}
+
+def cosmos_lsp_references_response(server: LspServer, request: JsonRpcRequest, locations: Vec[CosmosLocation]): LspServer = {
+  var next = server;
+  next.respond_success(request.id, cosmos_references_result_json(locations));
+  next
+}
+
+def cosmos_enable_navigation(server: LspServer): LspServer = {
+  var next = server;
+  next.enable_definition();
+  next.enable_references();
+  next
+}
+
+def cosmos_location_json(location: CosmosLocation): String = {
+  val builder = core0_text_builder_from("{\"uri\":");
+  builder.push(jsonrpc_quote(location.uri));
+  builder.push(",\"range\":");
+  builder.push(cosmos_lsp_range_json(location.range));
+  builder.push("}");
+  builder.finish()
+}
+
+def cosmos_locations_json(locations: Vec[CosmosLocation]): String = {
+  val builder = core0_text_builder_from("[");
+  var index: usize = 0;
+  while (index < locations.len()) {
+    if (index > 0) {
+      builder.push(",")
+    }
+    builder.push(cosmos_location_json(locations.get(index)));
+    index = index + 1
+  }
+  builder.push("]");
+  builder.finish()
+}
+
+def cosmos_navigation_target(analysis: CosmosHoverAnalysis, offset: usize): Option[DefId] = {
+  val module_value = analysis.arenas.module_value(analysis.root);
+  for (decl_id in module_value.declarations) {
+    val target = cosmos_navigation_target_decl(analysis, decl_id, offset);
+    if (target.is_some()) {
+      return target
+    }
+  }
+  Option[DefId]::None
+}
+
+def cosmos_navigation_target_decl(analysis: CosmosHoverAnalysis, id: DeclId, offset: usize): Option[DefId] = {
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => {
+      val own = cosmos_navigation_decl_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      for (member_id in members) {
+        if (analysis.arenas.member_span(member_id).contains(offset)) {
+          return cosmos_navigation_target_member(analysis, member_id, offset)
+        }
+      }
+      Option[DefId]::None
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      val own = cosmos_navigation_decl_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      val param_target = cosmos_navigation_target_params(analysis, params, offset);
+      if (param_target.is_some()) {
+        return param_target
+      }
+      val return_target = cosmos_navigation_target_type(analysis, return_type, offset);
+      if (return_target.is_some()) {
+        return return_target
+      }
+      cosmos_navigation_target_expr(analysis, body, offset)
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      val own = cosmos_navigation_decl_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      cosmos_navigation_target_type(analysis, typ, offset)
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      val own = cosmos_navigation_decl_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      val type_target = cosmos_navigation_target_type(analysis, typ, offset);
+      if (type_target.is_some()) {
+        return type_target
+      }
+      cosmos_navigation_target_expr(analysis, init, offset)
+    }
+    case SyntaxDecl.AEmpty => {
+      Option[DefId]::None
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      Option[DefId]::None
+    }
+    case SyntaxDecl.Import(path, span) => {
+      Option[DefId]::None
+    }
+  }
+}
+
+def cosmos_navigation_target_member(analysis: CosmosHoverAnalysis, id: MemberId, offset: usize): Option[DefId] = {
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      val own = cosmos_navigation_member_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      cosmos_navigation_target_type(analysis, typ, offset)
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      val own = cosmos_navigation_member_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      val param_target = cosmos_navigation_target_params(analysis, params, offset);
+      if (param_target.is_some()) {
+        return param_target
+      }
+      val return_target = cosmos_navigation_target_type(analysis, return_type, offset);
+      if (return_target.is_some()) {
+        return return_target
+      }
+      cosmos_navigation_target_expr(analysis, body, offset)
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      val own = cosmos_navigation_member_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      cosmos_navigation_target_type(analysis, typ, offset)
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      val own = cosmos_navigation_member_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      for (field_type in fields) {
+        val field_target = cosmos_navigation_target_type(analysis, field_type, offset);
+        if (field_target.is_some()) {
+          return field_target
+        }
+      }
+      Option[DefId]::None
+    }
+    case SyntaxMember.AEmpty => {
+      Option[DefId]::None
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      Option[DefId]::None
+    }
+  }
+}
+
+def cosmos_navigation_target_params(analysis: CosmosHoverAnalysis, params: Vec[ParamId], offset: usize): Option[DefId] = {
+  for (param_id in params) {
+    if (analysis.arenas.param_span(param_id).contains(offset)) {
+      val target = cosmos_navigation_target_param(analysis, param_id, offset);
+      if (target.is_some()) {
+        return target
+      }
+    }
+  }
+  Option[DefId]::None
+}
+
+def cosmos_navigation_target_param(analysis: CosmosHoverAnalysis, id: ParamId, offset: usize): Option[DefId] = {
+  val param = analysis.arenas.param_value(id);
+  param match {
+    case SyntaxParam.Self(mutable, span) => {
+      cosmos_navigation_param_name_target(analysis, id, "self", span, offset)
+    }
+    case SyntaxParam.Named(name, typ, default_value, span) => {
+      val own = cosmos_navigation_param_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      val type_target = cosmos_navigation_target_type(analysis, typ, offset);
+      if (type_target.is_some()) {
+        return type_target
+      }
+      cosmos_navigation_target_expr(analysis, default_value, offset)
+    }
+    case SyntaxParam.AEmpty => {
+      Option[DefId]::None
+    }
+  }
+}
+
+def cosmos_navigation_target_expr(analysis: CosmosHoverAnalysis, id: ExprId, offset: usize): Option[DefId] = {
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Name(name, span) => {
+      cosmos_navigation_expr_name_target(analysis, id, span, offset)
+    }
+    case SyntaxExpr.Block(items, span) => {
+      for (item in items) {
+        val target = cosmos_navigation_target_expr(analysis, item, offset);
+        if (target.is_some()) {
+          return target
+        }
+      }
+      Option[DefId]::None
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      val own = cosmos_navigation_local_name_target(analysis, id, name, span, offset);
+      if (own.is_some()) {
+        return own
+      }
+      val type_target = cosmos_navigation_target_type(analysis, typ, offset);
+      if (type_target.is_some()) {
+        return type_target
+      }
+      cosmos_navigation_target_expr(analysis, init, offset)
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      val target_value = cosmos_navigation_target_expr(analysis, target, offset);
+      if (target_value.is_some()) {
+        return target_value
+      }
+      cosmos_navigation_target_expr(analysis, value, offset)
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      val callee_target = cosmos_navigation_target_expr(analysis, callee, offset);
+      if (callee_target.is_some()) {
+        return callee_target
+      }
+      for (arg in args) {
+        val arg_target = cosmos_navigation_target_expr(analysis, arg, offset);
+        if (arg_target.is_some()) {
+          return arg_target
+        }
+      }
+      Option[DefId]::None
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      val receiver_target = cosmos_navigation_target_expr(analysis, receiver, offset);
+      if (receiver_target.is_some()) {
+        return receiver_target
+      }
+      val field_span = cosmos_select_field_span(field, span);
+      cosmos_navigation_expr_name_target(analysis, id, field_span, offset)
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      val left_target = cosmos_navigation_target_expr(analysis, left, offset);
+      if (left_target.is_some()) {
+        return left_target
+      }
+      cosmos_navigation_target_expr(analysis, right, offset)
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      val condition_target = cosmos_navigation_target_expr(analysis, condition, offset);
+      if (condition_target.is_some()) {
+        return condition_target
+      }
+      val then_target = cosmos_navigation_target_expr(analysis, then_body, offset);
+      if (then_target.is_some()) {
+        return then_target
+      }
+      cosmos_navigation_target_expr(analysis, else_body, offset)
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      val condition_target = cosmos_navigation_target_expr(analysis, condition, offset);
+      if (condition_target.is_some()) {
+        return condition_target
+      }
+      cosmos_navigation_target_expr(analysis, body, offset)
+    }
+    case SyntaxExpr.Return(value, span) => {
+      cosmos_navigation_target_expr(analysis, value, offset)
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      cosmos_navigation_target_expr(analysis, value, offset)
+    }
+    case SyntaxExpr.AEmpty => {
+      Option[DefId]::None
+    }
+    case SyntaxExpr.Missing(span) => {
+      Option[DefId]::None
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+      Option[DefId]::None
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+      Option[DefId]::None
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+      Option[DefId]::None
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+      Option[DefId]::None
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+      Option[DefId]::None
+    }
+  }
+}
+
+def cosmos_navigation_target_type(analysis: CosmosHoverAnalysis, id: TypeExprId, offset: usize): Option[DefId] = {
+  val typ = analysis.arenas.type_value(id);
+  typ match {
+    case SyntaxType.Name(name, span) => {
+      cosmos_navigation_type_name_target(analysis, id, span, offset)
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      val base_target = cosmos_navigation_target_type(analysis, base, offset);
+      if (base_target.is_some()) {
+        return base_target
+      }
+      for (arg in args) {
+        val arg_target = cosmos_navigation_target_type(analysis, arg, offset);
+        if (arg_target.is_some()) {
+          return arg_target
+        }
+      }
+      Option[DefId]::None
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      cosmos_navigation_target_type(analysis, inner, offset)
+    }
+    case SyntaxType.AEmpty => {
+      Option[DefId]::None
+    }
+    case SyntaxType.Missing(span) => {
+      Option[DefId]::None
+    }
+  }
+}
+
+def cosmos_navigation_decl_name_target(
+  analysis: CosmosHoverAnalysis,
+  id: DeclId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[DefId] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[DefId]::None
+  }
+  cosmos_supported_definition(analysis, analysis.names.decl_definitions.get(id))
+}
+
+def cosmos_navigation_member_name_target(
+  analysis: CosmosHoverAnalysis,
+  id: MemberId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[DefId] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[DefId]::None
+  }
+  cosmos_supported_definition(analysis, analysis.names.member_definitions.get(id))
+}
+
+def cosmos_navigation_param_name_target(
+  analysis: CosmosHoverAnalysis,
+  id: ParamId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[DefId] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[DefId]::None
+  }
+  cosmos_supported_definition(analysis, analysis.names.param_definitions.get(id))
+}
+
+def cosmos_navigation_local_name_target(
+  analysis: CosmosHoverAnalysis,
+  id: ExprId,
+  name: String,
+  span: Span,
+  offset: usize
+): Option[DefId] = {
+  val name_span = cosmos_find_name_span(analysis.source, span, name);
+  if (!name_span.contains(offset)) {
+    return Option[DefId]::None
+  }
+  cosmos_supported_definition(analysis, analysis.names.local_definitions.get(id))
+}
+
+def cosmos_navigation_expr_name_target(analysis: CosmosHoverAnalysis, id: ExprId, span: Span, offset: usize): Option[DefId] = {
+  if (!span.contains(offset)) {
+    return Option[DefId]::None
+  }
+  cosmos_supported_definition(analysis, analysis.names.expr_definitions.get(id))
+}
+
+def cosmos_navigation_type_name_target(analysis: CosmosHoverAnalysis, id: TypeExprId, span: Span, offset: usize): Option[DefId] = {
+  if (!span.contains(offset)) {
+    return Option[DefId]::None
+  }
+  cosmos_supported_definition(analysis, analysis.names.type_definitions.get(id))
+}
+
+def cosmos_supported_definition(analysis: CosmosHoverAnalysis, value: Option[DefId]): Option[DefId] = {
+  value match {
+    case Option[DefId]::Some(def_id) => {
+      if (cosmos_navigation_definition_supported(analysis.names.env.definition(def_id))) {
+        Option[DefId]::Some(def_id)
+      } else {
+        Option[DefId]::None
+      }
+    }
+    case Option[DefId]::None => {
+      Option[DefId]::None
+    }
+  }
+}
+
+def cosmos_navigation_definition_supported(definition: Definition): Bool = {
+  definition.kind match {
+    case DefinitionKind.Class => { true }
+    case DefinitionKind.Function => { true }
+    case DefinitionKind.Value => { true }
+    case DefinitionKind.TypeAlias => { true }
+    case DefinitionKind.Field => { true }
+    case DefinitionKind.Method => { true }
+    case DefinitionKind.Variant => { true }
+    case DefinitionKind.Parameter => { true }
+    case DefinitionKind.Local => { true }
+    case DefinitionKind.Self => { true }
+    case DefinitionKind.Prelude => { false }
+    case DefinitionKind.Module => { false }
+  }
+}
+
+def cosmos_definition_location(analysis: CosmosHoverAnalysis, uri: String, def_id: DefId): Option[CosmosLocation] = {
+  val span = cosmos_definition_name_span(analysis, def_id);
+  span match {
+    case Option[Span]::Some(value) => {
+      Option[CosmosLocation]::Some(CosmosLocation(uri, cosmos_lsp_range(analysis.source, value)))
+    }
+    case Option[Span]::None => {
+      Option[CosmosLocation]::None
+    }
+  }
+}
+
+def cosmos_definition_name_span(analysis: CosmosHoverAnalysis, def_id: DefId): Option[Span] = {
+  val module_value = analysis.arenas.module_value(analysis.root);
+  for (decl_id in module_value.declarations) {
+    val span = cosmos_definition_name_span_decl(analysis, decl_id, def_id);
+    if (span.is_some()) {
+      return span
+    }
+  }
+  Option[Span]::None
+}
+
+def cosmos_definition_name_span_decl(analysis: CosmosHoverAnalysis, id: DeclId, def_id: DefId): Option[Span] = {
+  val own = analysis.names.decl_definitions.get(id);
+  if (cosmos_definition_option_matches(analysis, own, def_id)) {
+    return Option[Span]::Some(cosmos_decl_name_span(analysis, id))
+  }
+
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => {
+      for (member_id in members) {
+        val member_span = cosmos_definition_name_span_member(analysis, member_id, def_id);
+        if (member_span.is_some()) {
+          return member_span
+        }
+      }
+      Option[Span]::None
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      val param_span = cosmos_definition_name_span_params(analysis, params, def_id);
+      if (param_span.is_some()) {
+        return param_span
+      }
+      cosmos_definition_name_span_expr(analysis, body, def_id)
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      cosmos_definition_name_span_expr(analysis, init, def_id)
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      Option[Span]::None
+    }
+    case SyntaxDecl.AEmpty => {
+      Option[Span]::None
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      Option[Span]::None
+    }
+    case SyntaxDecl.Import(path, span) => {
+      Option[Span]::None
+    }
+  }
+}
+
+def cosmos_definition_name_span_member(analysis: CosmosHoverAnalysis, id: MemberId, def_id: DefId): Option[Span] = {
+  val own = analysis.names.member_definitions.get(id);
+  if (cosmos_definition_option_matches(analysis, own, def_id)) {
+    return Option[Span]::Some(cosmos_member_name_span(analysis, id))
+  }
+
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      val param_span = cosmos_definition_name_span_params(analysis, params, def_id);
+      if (param_span.is_some()) {
+        return param_span
+      }
+      cosmos_definition_name_span_expr(analysis, body, def_id)
+    }
+    case SyntaxMember.AEmpty => {
+      Option[Span]::None
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+      Option[Span]::None
+    }
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      Option[Span]::None
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      Option[Span]::None
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      Option[Span]::None
+    }
+  }
+}
+
+def cosmos_definition_name_span_params(analysis: CosmosHoverAnalysis, params: Vec[ParamId], def_id: DefId): Option[Span] = {
+  for (param_id in params) {
+    val own = analysis.names.param_definitions.get(param_id);
+    if (cosmos_definition_option_matches(analysis, own, def_id)) {
+      return Option[Span]::Some(cosmos_param_name_span(analysis, param_id))
+    }
+  }
+  Option[Span]::None
+}
+
+def cosmos_definition_name_span_expr(analysis: CosmosHoverAnalysis, id: ExprId, def_id: DefId): Option[Span] = {
+  val own = analysis.names.local_definitions.get(id);
+  if (cosmos_definition_option_matches(analysis, own, def_id)) {
+    return Option[Span]::Some(cosmos_local_name_span(analysis, id))
+  }
+
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Block(items, span) => {
+      for (item in items) {
+        val item_span = cosmos_definition_name_span_expr(analysis, item, def_id);
+        if (item_span.is_some()) {
+          return item_span
+        }
+      }
+      Option[Span]::None
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      cosmos_definition_name_span_expr(analysis, init, def_id)
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      val target_span = cosmos_definition_name_span_expr(analysis, target, def_id);
+      if (target_span.is_some()) {
+        return target_span
+      }
+      cosmos_definition_name_span_expr(analysis, value, def_id)
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      val callee_span = cosmos_definition_name_span_expr(analysis, callee, def_id);
+      if (callee_span.is_some()) {
+        return callee_span
+      }
+      for (arg in args) {
+        val arg_span = cosmos_definition_name_span_expr(analysis, arg, def_id);
+        if (arg_span.is_some()) {
+          return arg_span
+        }
+      }
+      Option[Span]::None
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      cosmos_definition_name_span_expr(analysis, receiver, def_id)
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      val left_span = cosmos_definition_name_span_expr(analysis, left, def_id);
+      if (left_span.is_some()) {
+        return left_span
+      }
+      cosmos_definition_name_span_expr(analysis, right, def_id)
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      val condition_span = cosmos_definition_name_span_expr(analysis, condition, def_id);
+      if (condition_span.is_some()) {
+        return condition_span
+      }
+      val then_span = cosmos_definition_name_span_expr(analysis, then_body, def_id);
+      if (then_span.is_some()) {
+        return then_span
+      }
+      cosmos_definition_name_span_expr(analysis, else_body, def_id)
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      val condition_span = cosmos_definition_name_span_expr(analysis, condition, def_id);
+      if (condition_span.is_some()) {
+        return condition_span
+      }
+      cosmos_definition_name_span_expr(analysis, body, def_id)
+    }
+    case SyntaxExpr.Return(value, span) => {
+      cosmos_definition_name_span_expr(analysis, value, def_id)
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      cosmos_definition_name_span_expr(analysis, value, def_id)
+    }
+    case SyntaxExpr.AEmpty => { Option[Span]::None }
+    case SyntaxExpr.Missing(span) => { Option[Span]::None }
+    case SyntaxExpr.Name(name, span) => { Option[Span]::None }
+    case SyntaxExpr.NumericLiteral(value, span) => { Option[Span]::None }
+    case SyntaxExpr.StringLiteral(value, span) => { Option[Span]::None }
+    case SyntaxExpr.AsciiLiteral(value, span) => { Option[Span]::None }
+    case SyntaxExpr.RuneLiteral(value, span) => { Option[Span]::None }
+    case SyntaxExpr.BoolLiteral(value, span) => { Option[Span]::None }
+  }
+}
+
+def cosmos_reference_locations(
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  def_id: DefId,
+  include_declaration: Bool
+): Vec[CosmosLocation] = {
+  val result = Vec[CosmosLocation]();
+  val module_value = analysis.arenas.module_value(analysis.root);
+  for (decl_id in module_value.declarations) {
+    cosmos_collect_references_decl(analysis, uri, def_id, include_declaration, decl_id, result)
+  }
+  result
+}
+
+def cosmos_collect_reference(result: Vec[CosmosLocation], analysis: CosmosHoverAnalysis, uri: String, span: Span): Unit = {
+  result.push(CosmosLocation(uri, cosmos_lsp_range(analysis.source, span)))
+}
+
+def cosmos_collect_reference_for_def(
+  result: Vec[CosmosLocation],
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  candidate: Option[DefId],
+  expected: DefId,
+  span: Span
+): Unit = {
+  if (cosmos_definition_option_matches(analysis, candidate, expected)) {
+    cosmos_collect_reference(result, analysis, uri, span)
+  }
+}
+
+def cosmos_collect_references_decl(
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  def_id: DefId,
+  include_declaration: Bool,
+  id: DeclId,
+  result: Vec[CosmosLocation]
+): Unit = {
+  if (include_declaration) {
+    val own = analysis.names.decl_definitions.get(id);
+    val name_span = cosmos_decl_name_span(analysis, id);
+    cosmos_collect_reference_for_def(result, analysis, uri, own, def_id, name_span)
+  }
+
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => {
+      for (member_id in members) {
+        cosmos_collect_references_member(analysis, uri, def_id, include_declaration, member_id, result)
+      }
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      cosmos_collect_references_params(analysis, uri, def_id, include_declaration, params, result);
+      cosmos_collect_references_type(analysis, uri, def_id, return_type, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, body, result)
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      cosmos_collect_references_type(analysis, uri, def_id, typ, result)
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      cosmos_collect_references_type(analysis, uri, def_id, typ, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, init, result)
+    }
+    case SyntaxDecl.AEmpty => {
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+    }
+    case SyntaxDecl.Import(path, span) => {
+    }
+  }
+}
+
+def cosmos_collect_references_member(
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  def_id: DefId,
+  include_declaration: Bool,
+  id: MemberId,
+  result: Vec[CosmosLocation]
+): Unit = {
+  if (include_declaration) {
+    val own = analysis.names.member_definitions.get(id);
+    val name_span = cosmos_member_name_span(analysis, id);
+    cosmos_collect_reference_for_def(result, analysis, uri, own, def_id, name_span)
+  }
+
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Field(name, mutable, typ, span) => {
+      cosmos_collect_references_type(analysis, uri, def_id, typ, result)
+    }
+    case SyntaxMember.Method(name, params, return_type, body, span) => {
+      cosmos_collect_references_params(analysis, uri, def_id, include_declaration, params, result);
+      cosmos_collect_references_type(analysis, uri, def_id, return_type, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, body, result)
+    }
+    case SyntaxMember.TypeAlias(name, typ, span) => {
+      cosmos_collect_references_type(analysis, uri, def_id, typ, result)
+    }
+    case SyntaxMember.Variant(name, fields, span) => {
+      for (field_type in fields) {
+        cosmos_collect_references_type(analysis, uri, def_id, field_type, result)
+      }
+    }
+    case SyntaxMember.AEmpty => {
+    }
+    case SyntaxMember.Unsupported(text, span) => {
+    }
+  }
+}
+
+def cosmos_collect_references_params(
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  def_id: DefId,
+  include_declaration: Bool,
+  params: Vec[ParamId],
+  result: Vec[CosmosLocation]
+): Unit = {
+  for (param_id in params) {
+    if (include_declaration) {
+      val own = analysis.names.param_definitions.get(param_id);
+      val name_span = cosmos_param_name_span(analysis, param_id);
+      cosmos_collect_reference_for_def(result, analysis, uri, own, def_id, name_span)
+    }
+    val param = analysis.arenas.param_value(param_id);
+    param match {
+      case SyntaxParam.Named(name, typ, default_value, span) => {
+        cosmos_collect_references_type(analysis, uri, def_id, typ, result);
+        cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, default_value, result)
+      }
+      case SyntaxParam.Self(mutable, span) => {
+      }
+      case SyntaxParam.AEmpty => {
+      }
+    }
+  }
+}
+
+def cosmos_collect_references_expr(
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  def_id: DefId,
+  include_declaration: Bool,
+  id: ExprId,
+  result: Vec[CosmosLocation]
+): Unit = {
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Name(name, span) => {
+      cosmos_collect_reference_for_def(result, analysis, uri, analysis.names.expr_definitions.get(id), def_id, span)
+    }
+    case SyntaxExpr.Block(items, span) => {
+      for (item in items) {
+        cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, item, result)
+      }
+    }
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+      if (include_declaration) {
+        val own = analysis.names.local_definitions.get(id);
+        val name_span = cosmos_local_name_span(analysis, id);
+        cosmos_collect_reference_for_def(result, analysis, uri, own, def_id, name_span)
+      }
+      cosmos_collect_references_type(analysis, uri, def_id, typ, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, init, result)
+    }
+    case SyntaxExpr.Assign(target, value, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, target, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, value, result)
+    }
+    case SyntaxExpr.Call(callee, args, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, callee, result);
+      for (arg in args) {
+        cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, arg, result)
+      }
+    }
+    case SyntaxExpr.Select(receiver, field, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, receiver, result);
+      val field_span = cosmos_select_field_span(field, span);
+      cosmos_collect_reference_for_def(result, analysis, uri, analysis.names.expr_definitions.get(id), def_id, field_span)
+    }
+    case SyntaxExpr.Binary(op, left, right, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, left, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, right, result)
+    }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, condition, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, then_body, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, else_body, result)
+    }
+    case SyntaxExpr.While(condition, body, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, condition, result);
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, body, result)
+    }
+    case SyntaxExpr.Return(value, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, value, result)
+    }
+    case SyntaxExpr.Unary(op, value, span) => {
+      cosmos_collect_references_expr(analysis, uri, def_id, include_declaration, value, result)
+    }
+    case SyntaxExpr.AEmpty => {
+    }
+    case SyntaxExpr.Missing(span) => {
+    }
+    case SyntaxExpr.NumericLiteral(value, span) => {
+    }
+    case SyntaxExpr.StringLiteral(value, span) => {
+    }
+    case SyntaxExpr.AsciiLiteral(value, span) => {
+    }
+    case SyntaxExpr.RuneLiteral(value, span) => {
+    }
+    case SyntaxExpr.BoolLiteral(value, span) => {
+    }
+  }
+}
+
+def cosmos_collect_references_type(
+  analysis: CosmosHoverAnalysis,
+  uri: String,
+  def_id: DefId,
+  id: TypeExprId,
+  result: Vec[CosmosLocation]
+): Unit = {
+  val typ = analysis.arenas.type_value(id);
+  typ match {
+    case SyntaxType.Name(name, span) => {
+      cosmos_collect_reference_for_def(result, analysis, uri, analysis.names.type_definitions.get(id), def_id, span)
+    }
+    case SyntaxType.Generic(base, args, span) => {
+      cosmos_collect_references_type(analysis, uri, def_id, base, result);
+      for (arg in args) {
+        cosmos_collect_references_type(analysis, uri, def_id, arg, result)
+      }
+    }
+    case SyntaxType.Ref(mutable, inner, span) => {
+      cosmos_collect_references_type(analysis, uri, def_id, inner, result)
+    }
+    case SyntaxType.AEmpty => {
+    }
+    case SyntaxType.Missing(span) => {
+    }
+  }
+}
+
+def cosmos_decl_name_span(analysis: CosmosHoverAnalysis, id: DeclId): Span = {
+  val decl = analysis.arenas.decl_value(id);
+  decl match {
+    case SyntaxDecl.Class(name, members, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxDecl.TypeAlias(name, typ, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxDecl.Import(path, span) => { span }
+    case SyntaxDecl.AEmpty => { analysis.arenas.decl_span(id) }
+    case SyntaxDecl.Unsupported(text, span) => { span }
+  }
+}
+
+def cosmos_member_name_span(analysis: CosmosHoverAnalysis, id: MemberId): Span = {
+  val member = analysis.arenas.member_value(id);
+  member match {
+    case SyntaxMember.Field(name, mutable, typ, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxMember.Method(name, params, return_type, body, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxMember.TypeAlias(name, typ, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxMember.Variant(name, fields, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxMember.AEmpty => { analysis.arenas.member_span(id) }
+    case SyntaxMember.Unsupported(text, span) => { span }
+  }
+}
+
+def cosmos_param_name_span(analysis: CosmosHoverAnalysis, id: ParamId): Span = {
+  val param = analysis.arenas.param_value(id);
+  param match {
+    case SyntaxParam.Self(mutable, span) => { cosmos_find_name_span(analysis.source, span, "self") }
+    case SyntaxParam.Named(name, typ, default_value, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxParam.AEmpty => { analysis.arenas.param_span(id) }
+  }
+}
+
+def cosmos_local_name_span(analysis: CosmosHoverAnalysis, id: ExprId): Span = {
+  val expr = analysis.arenas.expr_value(id);
+  expr match {
+    case SyntaxExpr.Local(name, mutable, typ, init, span) => { cosmos_find_name_span(analysis.source, span, name) }
+    case SyntaxExpr.AEmpty => { analysis.arenas.expr_span(id) }
+    case SyntaxExpr.Missing(span) => { span }
+    case SyntaxExpr.Name(name, span) => { span }
+    case SyntaxExpr.NumericLiteral(value, span) => { span }
+    case SyntaxExpr.StringLiteral(value, span) => { span }
+    case SyntaxExpr.AsciiLiteral(value, span) => { span }
+    case SyntaxExpr.RuneLiteral(value, span) => { span }
+    case SyntaxExpr.BoolLiteral(value, span) => { span }
+    case SyntaxExpr.Block(items, span) => { span }
+    case SyntaxExpr.Assign(target, value, span) => { span }
+    case SyntaxExpr.Call(callee, args, span) => { span }
+    case SyntaxExpr.Select(receiver, field, span) => { cosmos_select_field_span(field, span) }
+    case SyntaxExpr.Binary(op, left, right, span) => { span }
+    case SyntaxExpr.Unary(op, value, span) => { span }
+    case SyntaxExpr.If(condition, then_body, else_body, span) => { span }
+    case SyntaxExpr.While(condition, body, span) => { span }
+    case SyntaxExpr.Return(value, span) => { span }
+  }
+}
+
+def cosmos_fallback_definition(snapshot: CosmosTextDocumentSnapshot, offset: usize): Option[CosmosLocation] = {
+  val symbol = cosmos_fallback_symbol(snapshot.text, offset);
+  symbol match {
+    case Option[CosmosFallbackSymbol]::Some(value) => {
+      Option[CosmosLocation]::Some(CosmosLocation(snapshot.uri, cosmos_lsp_range(snapshot.text, value.span)))
+    }
+    case Option[CosmosFallbackSymbol]::None => {
+      Option[CosmosLocation]::None
+    }
+  }
+}
+
+def cosmos_fallback_references(
+  snapshot: CosmosTextDocumentSnapshot,
+  offset: usize,
+  include_declaration: Bool
+): Vec[CosmosLocation] = {
+  val result = Vec[CosmosLocation]();
+  val symbol = cosmos_fallback_symbol(snapshot.text, offset);
+  symbol match {
+    case Option[CosmosFallbackSymbol]::Some(value) => {
+      var cursor = value.scope_start;
+      while (cursor < value.scope_end and cursor < snapshot.text.len()) {
+        val span = cosmos_identifier_span_at(snapshot.text, cursor);
+        span match {
+          case Option[Span]::Some(identifier_span) => {
+            if (snapshot.text.slice(identifier_span.start, identifier_span.end) == value.name) {
+              if (include_declaration or !cosmos_spans_equal(identifier_span, value.span)) {
+                result.push(CosmosLocation(snapshot.uri, cosmos_lsp_range(snapshot.text, identifier_span)))
+              }
+            }
+            cursor = identifier_span.end
+          }
+          case Option[Span]::None => {
+            cursor = cursor + 1
+          }
+        }
+      }
+      result
+    }
+    case Option[CosmosFallbackSymbol]::None => {
+      result
+    }
+  }
+}
+
+def cosmos_fallback_symbol(source: String, offset: usize): Option[CosmosFallbackSymbol] = {
+  val identifier = cosmos_identifier_span_at(source, offset);
+  identifier match {
+    case Option[Span]::Some(value) => {
+      val name = source.slice(value.start, value.end);
+      cosmos_nearest_declaration(source, name, value.start)
+    }
+    case Option[Span]::None => {
+      Option[CosmosFallbackSymbol]::None
+    }
+  }
+}
+
+def cosmos_nearest_declaration(source: String, name: String, offset: usize): Option[CosmosFallbackSymbol] = {
+  var cursor: usize = 0;
+  var best = Option[CosmosFallbackSymbol]::None;
+  while (cursor < source.len()) {
+    val span = cosmos_identifier_span_at(source, cursor);
+    span match {
+      case Option[Span]::Some(identifier_span) => {
+        if (source.slice(identifier_span.start, identifier_span.end) == name) {
+          val candidate = cosmos_declaration_candidate(source, identifier_span);
+          candidate match {
+            case Option[CosmosFallbackSymbol]::Some(symbol) => {
+              if (symbol.span.start <= offset) {
+                best = Option[CosmosFallbackSymbol]::Some(symbol)
+              }
+            }
+            case Option[CosmosFallbackSymbol]::None => {
+            }
+          }
+        }
+        cursor = identifier_span.end
+      }
+      case Option[Span]::None => {
+        cursor = cursor + 1
+      }
+    }
+  }
+
+  best match {
+    case Option[CosmosFallbackSymbol]::Some(value) => {
+      best
+    }
+    case Option[CosmosFallbackSymbol]::None => {
+      cosmos_first_declaration(source, name)
+    }
+  }
+}
+
+def cosmos_first_declaration(source: String, name: String): Option[CosmosFallbackSymbol] = {
+  var cursor: usize = 0;
+  while (cursor < source.len()) {
+    val span = cosmos_identifier_span_at(source, cursor);
+    span match {
+      case Option[Span]::Some(identifier_span) => {
+        if (source.slice(identifier_span.start, identifier_span.end) == name) {
+          val candidate = cosmos_declaration_candidate(source, identifier_span);
+          if (candidate.is_some()) {
+            return candidate
+          }
+        }
+        cursor = identifier_span.end
+      }
+      case Option[Span]::None => {
+        cursor = cursor + 1
+      }
+    }
+  }
+  Option[CosmosFallbackSymbol]::None
+}
+
+def cosmos_declaration_candidate(source: String, span: Span): Option[CosmosFallbackSymbol] = {
+  val name = source.slice(span.start, span.end);
+  if (cosmos_has_keyword_before(source, span.start, "class")) {
+    return Option[CosmosFallbackSymbol]::Some(CosmosFallbackSymbol(name, span, 0, source.len()))
+  }
+  if (cosmos_has_keyword_before(source, span.start, "def")) {
+    return Option[CosmosFallbackSymbol]::Some(CosmosFallbackSymbol(name, span, 0, source.len()))
+  }
+  if (cosmos_has_keyword_before(source, span.start, "val")) {
+    return Option[CosmosFallbackSymbol]::Some(CosmosFallbackSymbol(name, span, span.start, source.len()))
+  }
+  if (cosmos_has_keyword_before(source, span.start, "var")) {
+    return Option[CosmosFallbackSymbol]::Some(CosmosFallbackSymbol(name, span, span.start, source.len()))
+  }
+  if (cosmos_is_param_declaration(source, span)) {
+    val line_start = cosmos_line_start(source, span.start);
+    val line_end = cosmos_line_end(source, span.end);
+    return Option[CosmosFallbackSymbol]::Some(CosmosFallbackSymbol(name, span, line_start, line_end))
+  }
+  Option[CosmosFallbackSymbol]::None
+}
+
+def cosmos_identifier_span_at(source: String, offset: usize): Option[Span] = {
+  if (source.is_empty()) {
+    return Option[Span]::None
+  }
+  if (offset >= source.len()) {
+    return Option[Span]::None
+  }
+  if (!cosmos_identifier_byte(source.byte_at(offset))) {
+    return Option[Span]::None
+  }
+
+  var start = offset;
+  while (start > 0) {
+    if (!cosmos_identifier_byte(source.byte_at(start - 1))) {
+      break
+    }
+    start = start - 1
+  }
+  var end = offset;
+  while (end < source.len()) {
+    if (!cosmos_identifier_byte(source.byte_at(end))) {
+      break
+    }
+    end = end + 1
+  }
+  Option[Span]::Some(make_span(start, end))
+}
+
+def cosmos_has_keyword_before(source: String, start: usize, keyword: String): Bool = {
+  if (start < keyword.len() + 1) {
+    return false
+  }
+  val keyword_start = start - keyword.len() - 1;
+  if (source.slice(keyword_start, keyword_start + keyword.len()) != keyword) {
+    return false
+  }
+  if (source.byte_at(keyword_start + keyword.len()) != a" ") {
+    return false
+  }
+  if (keyword_start > 0) {
+    if (cosmos_identifier_byte(source.byte_at(keyword_start - 1))) {
+      return false
+    }
+  }
+  true
+}
+
+def cosmos_is_param_declaration(source: String, span: Span): Bool = {
+  val after = cosmos_skip_spaces(source, span.end);
+  if (after >= source.len() or source.byte_at(after) != a":") {
+    return false
+  }
+  if (span.start == 0) {
+    return false
+  }
+  val before = cosmos_previous_non_space(source, span.start - 1);
+  before match {
+    case Option[usize]::Some(value) => {
+      source.byte_at(value) == a"(" or source.byte_at(value) == a","
+    }
+    case Option[usize]::None => {
+      false
+    }
+  }
+}
+
+def cosmos_skip_spaces(source: String, offset: usize): usize = {
+  var cursor = offset;
+  while (cursor < source.len()) {
+    if (source.byte_at(cursor) != a" ") {
+      break
+    }
+    cursor = cursor + 1
+  }
+  cursor
+}
+
+def cosmos_previous_non_space(source: String, offset: usize): Option[usize] = {
+  var cursor = offset;
+  while (cursor < source.len()) {
+    if (source.byte_at(cursor) != a" ") {
+      return Option[usize]::Some(cursor)
+    }
+    if (cursor == 0) {
+      return Option[usize]::None
+    }
+    cursor = cursor - 1
+  }
+  Option[usize]::None
+}
+
+def cosmos_line_start(source: String, offset: usize): usize = {
+  var cursor = offset;
+  while (cursor > 0) {
+    if (source.byte_at(cursor - 1) == a"\n") {
+      break
+    }
+    cursor = cursor - 1
+  }
+  cursor
+}
+
+def cosmos_line_end(source: String, offset: usize): usize = {
+  var cursor = offset;
+  while (cursor < source.len()) {
+    if (source.byte_at(cursor) == a"\n") {
+      break
+    }
+    cursor = cursor + 1
+  }
+  cursor
+}
+
+def cosmos_spans_equal(left: Span, right: Span): Bool = {
+  left.start == right.start and left.end == right.end
+}

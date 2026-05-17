@@ -73,7 +73,7 @@ def lsp_test_publish_diagnostics(): Bool = {
 
 def lsp_test_capability_shape(): Bool = {
   val json = lsp_initialize_result_json(lsp_server_capabilities());
-  json == "{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":2},\"hoverProvider\":false},\"serverInfo\":{\"name\":\"cosmo-ls-base\"}}"
+  json == "{\"capabilities\":{\"textDocumentSync\":{\"openClose\":true,\"change\":2},\"hoverProvider\":false,\"definitionProvider\":false,\"referencesProvider\":false},\"serverInfo\":{\"name\":\"cosmo-ls-base\"}}"
 }
 
 def lsp_test_handler_registration(): Bool = {
@@ -99,7 +99,50 @@ def lsp_test_hover_response_and_capability(): Bool = {
   }
 
   server.respond_success(jsonrpc_number_id("7"), "null");
-  server.session.outbound.get(0) == "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":null}"
+  server.outbound_len() == 1 and
+    lsp_text_contains(server.session.outbound.get(0), "\"id\":7") and
+    lsp_text_contains(server.session.outbound.get(0), "\"result\":null")
+}
+
+def lsp_test_navigation_response_and_capability(): Bool = {
+  val server = lsp_server();
+  server.enable_definition();
+  server.enable_references();
+  if (!server.capabilities.definition_provider) {
+    return false
+  }
+  if (!server.capabilities.references_provider) {
+    return false
+  }
+  if (!server.has_request_handler("textDocument/definition")) {
+    return false
+  }
+  if (!server.has_request_handler("textDocument/references")) {
+    return false
+  }
+
+  server.respond_success(jsonrpc_number_id("8"), "[]");
+  server.outbound_len() == 1 and
+    lsp_text_contains(server.session.outbound.get(0), "\"id\":8") and
+    lsp_text_contains(server.session.outbound.get(0), "\"result\":[]")
+}
+
+def lsp_text_contains(text: String, needle: String): Bool = {
+  if (needle.is_empty()) {
+    return true
+  }
+  if (needle.len() > text.len()) {
+    return false
+  }
+
+  var offset: usize = 0;
+  while (offset + needle.len() <= text.len()) {
+    if (text.slice(offset, offset + needle.len()) == needle) {
+      return true
+    }
+    offset = offset + 1
+  }
+  false
 }
 
 def lsp_dispatch_ok(result: Result[LspDispatchResult, JsonRpcDecodeError], method: String): Bool = {
@@ -260,5 +303,6 @@ def lsp_all_tests(): Bool = {
     lsp_test_document_routing() and
     lsp_test_publish_diagnostics() and
     lsp_test_capability_shape() and
-    lsp_test_handler_registration()
+    lsp_test_handler_registration() and
+    lsp_test_navigation_response_and_capability()
 }

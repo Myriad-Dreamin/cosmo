@@ -17,8 +17,10 @@
     "lsp/document_events.cos",
     "lsp/diagnostics.cos",
     "lsp/hover.cos",
+    "lsp/navigation.cos",
     "lsp/diagnostics_test.cos",
     "lsp/hover_test.cos",
+    "lsp/navigation_test.cos",
     "workspace/workspace_test.cos"
   ]
 }
