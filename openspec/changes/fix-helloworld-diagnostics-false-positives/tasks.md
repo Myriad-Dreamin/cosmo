@@ -1,18 +1,23 @@
-## 1. Reproduction
+## 1. Test-First Reproduction
 
-- [x] 1.1 Add a direct Cosmos diagnostics test for the exact text of `samples/HelloWorld/main.cos`.
-- [x] 1.2 Add or update a VSCode host smoke test that opens the real HelloWorld sample URI and observes `textDocument/publishDiagnostics`.
-- [x] 1.3 Capture the current false-positive diagnostic codes before changing behavior so the regression is explicit.
+- [ ] 1.1 Add or update direct diagnostics tests that reproduce the current `samples/HelloWorld/main.cos` false-positive diagnostic codes before fixing behavior.
+- [ ] 1.2 Add a checker-level regression proving a function whose body is inferable as `Unit` does not emit `cosmo1.type.missing-return`.
+- [ ] 1.3 Add a checker or diagnostics regression proving a real supported type mismatch, such as `def main(): i32 = { false }`, still emits a checker diagnostic.
+- [ ] 1.4 Add a diagnostics regression proving missing import or package graph failures are preserved and attributed to the relevant URI/package root.
+- [ ] 1.5 Add a diagnostics regression proving supported HelloWorld constructs do not emit `cosmo1.type.unsupported-expr`.
 
-## 2. Diagnostics Fix
+## 2. Compiler and Context Fixes
 
-- [x] 2.1 Fix package root, module path, standard symbol, or checker-context handling so HelloWorld analysis matches the compiler-valid path.
-- [x] 2.2 Ensure unsupported analyzer limitations for known-valid constructs do not become editor source diagnostics.
-- [x] 2.3 Keep parser diagnostics taking precedence for syntactically invalid documents.
-- [x] 2.4 Keep checker diagnostics for documents that parse successfully and genuinely fail supported checking.
+- [ ] 2.1 Remove editor-side diagnostic suppression helpers, code-list filtering, and gap cascade suppression from the current implementation.
+- [ ] 2.2 Fix package root, module path, std/prelude, or package-surface context construction so editor analysis matches the compiler-valid path for `samples/HelloWorld/main.cos`.
+- [ ] 2.3 Fix Cosmo1 return inference or block typing so supported `Unit`-returning bodies do not emit `cosmo1.type.missing-return`.
+- [ ] 2.4 Fix compiler-facing checker support for valid HelloWorld expression constructs that currently emit `cosmo1.type.unsupported-expr`.
+- [ ] 2.5 Experiment with focused tests for `cosmo1.type.unsupported-name` to determine whether the root cause is missing std/prelude/package context or a real unknown-symbol diagnostic; implement the source fix only after the test identifies the case.
+- [ ] 2.6 Experiment with focused tests for `cosmo1.type.invalid-assignment-target` to determine whether the root cause is expression/statement classification or a real invalid LHS; implement the source fix only after the test identifies the case.
 
 ## 3. Validation
 
-- [x] 3.1 Verify `samples/HelloWorld/main.cos` publishes `[]` diagnostics through the host.
-- [x] 3.2 Verify an intentionally invalid edit of the same document still publishes at least one diagnostic.
-- [x] 3.3 Run the package and VSCode smoke tests that cover Cosmos diagnostics.
+- [ ] 3.1 Verify the real `samples/HelloWorld/main.cos` URI publishes `[]` diagnostics through the VSCode-launched host.
+- [ ] 3.2 Verify an intentionally invalid parser edit of HelloWorld still publishes parser diagnostics.
+- [ ] 3.3 Verify real checker errors remain publishable after the false positives are fixed.
+- [ ] 3.4 Run focused Cosmo1 checker tests, Cosmos diagnostics tests, and VSCode host smoke tests that cover this change.

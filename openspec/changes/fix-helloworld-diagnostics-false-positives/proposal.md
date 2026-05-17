@@ -4,10 +4,12 @@ Opening `samples/HelloWorld/main.cos` currently produces many diagnostics in VSC
 
 ## What Changes
 
-- Add `samples/HelloWorld/main.cos` as an editor diagnostics regression fixture.
-- Align Cosmos document diagnostics with the parser/checker/package context that treats the sample as valid.
-- Ensure analyzer gaps for known-valid sample constructs do not surface as source diagnostics unless the compiler-facing pipeline also rejects the source.
-- Add host-level smoke coverage so the VSCode-launched server publishes an empty diagnostics array for `HelloWorld/main.cos`.
+- Replace the current diagnostics suppression approach with test-driven fixes in the compiler-facing analysis path.
+- Add unit regressions that prove the observed false positives before changing behavior, including `cosmo1.type.missing-return` and `cosmo1.type.unsupported-expr`.
+- Fix Cosmo1 checker behavior so supported valid source constructs do not emit checker diagnostics.
+- Align editor diagnostics with compiler-compatible package, module, std, and prelude context instead of filtering diagnostic code lists.
+- Keep real parser, type mismatch, missing import, and package graph diagnostics publishable and URI/package-root attributed.
+- Use focused experiments and tests to decide whether `cosmo1.type.unsupported-name` and `cosmo1.type.invalid-assignment-target` are context construction bugs, checker classification bugs, or real source diagnostics.
 
 ## Capabilities
 
@@ -17,10 +19,11 @@ None.
 
 ### Modified Capabilities
 
-- `cosmos-diagnostics-pipeline`: Adds known-valid sample regression behavior and tightens the boundary between real diagnostics and analyzer false positives.
+- `cosmos-diagnostics-pipeline`: Aligns editor diagnostics with compiler-compatible source analysis and preserves real source diagnostics without editor-side suppression.
 
 ## Impact
 
-- Future implementation will touch `packages/cosmos/src/lsp/diagnostics.cos`, related tests, and possibly the VSCode host wrapper if it is constructing the wrong package/module snapshot for sample files.
-- The change should preserve real parser and checker diagnostics for invalid files.
+- Future implementation will touch Cosmo1 checker/type inference tests and implementation, `packages/cosmos` diagnostics tests, and possibly the VSCode host wrapper if it is constructing the wrong package/module snapshot for sample files.
+- Existing suppression helpers and gap cascade logic should be removed rather than expanded.
+- The change should preserve real parser diagnostics, type mismatch diagnostics, missing import/package graph diagnostics, and genuine invalid assignment diagnostics.
 - This proposal is independent from active-editor diagnostic refresh; it fixes the content of diagnostics for the HelloWorld sample.

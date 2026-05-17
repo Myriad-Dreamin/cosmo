@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
-### Requirement: Known-Valid Samples Do Not Produce Diagnostics
+### Requirement: Compiler-Valid Samples Match Compiler Analysis
 
-Cosmos document diagnostics SHALL treat known-valid repository samples as diagnostics regression fixtures and SHALL NOT publish source diagnostics for those samples unless the compiler-facing pipeline also rejects them.
+Cosmos document diagnostics SHALL analyze repository samples using compiler-compatible package, module, std, and prelude context so compiler-valid samples do not produce editor-only source diagnostics.
 
 #### Scenario: HelloWorld sample is clean
 
@@ -14,14 +14,38 @@ Cosmos document diagnostics SHALL treat known-valid repository samples as diagno
 
 - **WHEN** the HelloWorld document text is changed to syntactically invalid Cosmo source
 - **THEN** Cosmos publishes parser diagnostics for that edited snapshot
-- **AND** the known-valid sample exemption does not suppress diagnostics for the edited invalid text
+- **AND** the valid-sample regression path does not suppress diagnostics for the edited invalid text
 
-### Requirement: Analyzer Gaps Do Not Become False Positives
+### Requirement: Cosmo1 Checker Diagnostics Reflect Source Semantics
 
-Cosmos diagnostics SHALL only publish checker diagnostics that are backed by the supported compiler-compatible analysis path for the current package and document snapshot.
+Cosmos diagnostics SHALL publish checker diagnostics produced by corrected Cosmo1 source semantics rather than by editor-side diagnostic suppression.
 
-#### Scenario: Unsupported context is not reported as a source error
+#### Scenario: Unit-returning bodies do not require explicit return
 
-- **WHEN** a document parses successfully but the current editor analyzer lacks package or standard-symbol context that the compiler-valid path provides
-- **THEN** Cosmos does not publish misleading source diagnostics for those missing analyzer internals
-- **AND** real parser diagnostics and supported checker diagnostics remain publishable
+- **WHEN** a supported function body has no explicit `return` but is inferable as `Unit`
+- **THEN** Cosmos does not publish `cosmo1.type.missing-return`
+
+#### Scenario: Supported expressions are checked
+
+- **WHEN** a compiler-supported expression construct appears in a valid sample
+- **THEN** Cosmos checks the construct instead of publishing `cosmo1.type.unsupported-expr`
+
+#### Scenario: Real type mismatch remains a source diagnostic
+
+- **WHEN** a supported function declares an `i32` return type but returns `false`
+- **THEN** Cosmos publishes a checker diagnostic for the type mismatch
+
+### Requirement: Analyzer Infrastructure Is Not A Source Diagnostic
+
+Cosmos diagnostics SHALL distinguish source diagnostics from analyzer infrastructure failures such as missing package root, module graph, std/prelude context, or package-surface context.
+
+#### Scenario: Missing compiler context is fixed at construction
+
+- **WHEN** editor analysis lacks context that the compiler-valid path provides
+- **THEN** the diagnostics pipeline fixes package, module, std, or prelude context construction
+- **AND** it does not hide source diagnostics by filtering diagnostic codes after they are produced
+
+#### Scenario: Package graph failures remain attributed
+
+- **WHEN** analysis discovers a real missing import or package graph failure
+- **THEN** Cosmos publishes the diagnostic for the relevant URI and package root
