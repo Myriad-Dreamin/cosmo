@@ -1,0 +1,5 @@
+/// path: main.cos
+/// diag(error, 1:5): cosmo0.parse.failed
+val =
+/// end path: main.cos
+

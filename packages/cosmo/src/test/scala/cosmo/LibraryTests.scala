@@ -3,7 +3,7 @@ import scala.scalajs.js
 
 class LibraryTest extends TestBase:
   test("playground") {
-    compilePath("samples/Syntax/playground.cos")
+    compilePath("samples/legacy/Syntax/playground.cos")
   }
   test("std.prelude") {
     compilePath("library/std/src/prelude.cos")

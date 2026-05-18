@@ -1,0 +1,8 @@
+pub def double(value: i32): i32 = {
+  value * 2
+}
+
+pub def is_even(value: i32): Bool = {
+  value % 2 == 0
+}
+

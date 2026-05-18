@@ -1,0 +1,11 @@
+/// path: main.cos
+/// diag(error, 2:3): cosmo0.type.branch-mismatch
+def choose(flag: Bool): i32 = {
+  if (flag) {
+    1
+  } else {
+    "one"
+  }
+}
+/// end path: main.cos
+
