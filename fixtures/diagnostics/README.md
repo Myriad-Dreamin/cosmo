@@ -1,7 +1,8 @@
 # cosmo0 Diagnostic Fixtures
 
-Diagnostic fixtures use a multi-file convention so one fixture can model a whole
-package without creating a directory tree per case.
+Diagnostic fixtures are ordinary `.cos` files that use a multi-file convention
+so one fixture can model a whole package without creating a directory tree per
+case.
 
 ```cos
 /// path: main.cos
@@ -22,4 +23,3 @@ Rules:
   directive lines are not counted.
 - `<text>` is matched against `diagnostic.code: diagnostic.message`, so fixtures
   can name a stable diagnostic code and optionally include message text.
-

@@ -6,7 +6,7 @@ This file owns testing policy for the cosmo0 model. The bug/spec sync rule and s
 
 == Positive Tests
 
-Placeholder for accepted source examples that prove documented cosmo0 behavior works through the intended pipeline.
+Accepted source examples that prove documented cosmo0 behavior works through the intended pipeline are indexed in `docs/cosmo0/syntax-corpus-matrix.md`. The matrix maps each current positive sample to syntax areas while keeping concrete programs in the corpus files.
 
 == Examples
 
@@ -40,6 +40,8 @@ The positive example should compile once its owning language sections are fully 
 == Negative Tests
 
 Unsupported syntax, type, declaration, expression, control-flow, runtime, and package cases must be rejected with diagnostics that name the unsupported feature area. Stage 1 negative fixtures cover user-defined generic declarations, host `Type`, staging decorators, lambdas and closures, and unsupported higher-order calls.
+
+Current diagnostic fixture coverage is indexed in `docs/cosmo0/syntax-corpus-matrix.md`. Each fixture row names the expected diagnostic while keeping convention-style embedded source programs in `fixtures/diagnostics/*.cos`.
 
 == Determinism Tests
 

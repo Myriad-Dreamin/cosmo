@@ -1,16 +1,16 @@
 # id|path
-parse-missing-initializer|fixtures/diagnostics/parse_missing_initializer.cosdiag
-type-unresolved-name|fixtures/diagnostics/type_unresolved_name.cosdiag
-type-wrong-call-arity|fixtures/diagnostics/type_wrong_call_arity.cosdiag
-type-invalid-field|fixtures/diagnostics/type_invalid_field.cosdiag
-type-assignment-mismatch|fixtures/diagnostics/type_assignment_mismatch.cosdiag
-type-return-mismatch|fixtures/diagnostics/type_return_mismatch.cosdiag
-type-branch-mismatch|fixtures/diagnostics/type_branch_mismatch.cosdiag
-type-invalid-mutability|fixtures/diagnostics/type_invalid_mutability.cosdiag
-unsupported-generic-class|fixtures/diagnostics/unsupported_generic_class.cosdiag
-unsupported-lambda|fixtures/diagnostics/unsupported_lambda.cosdiag
-package-missing-import|fixtures/diagnostics/package_missing_import.cosdiag
-package-private-import-member|fixtures/diagnostics/package_private_import_member.cosdiag
-package-duplicate-declaration|fixtures/diagnostics/package_duplicate_declaration.cosdiag
-type-unsupported-map-key|fixtures/diagnostics/type_unsupported_map_key.cosdiag
+parse-missing-initializer|fixtures/diagnostics/parse_missing_initializer.cos
+type-unresolved-name|fixtures/diagnostics/type_unresolved_name.cos
+type-wrong-call-arity|fixtures/diagnostics/type_wrong_call_arity.cos
+type-invalid-field|fixtures/diagnostics/type_invalid_field.cos
+type-assignment-mismatch|fixtures/diagnostics/type_assignment_mismatch.cos
+type-return-mismatch|fixtures/diagnostics/type_return_mismatch.cos
+type-branch-mismatch|fixtures/diagnostics/type_branch_mismatch.cos
+type-invalid-mutability|fixtures/diagnostics/type_invalid_mutability.cos
+unsupported-generic-class|fixtures/diagnostics/unsupported_generic_class.cos
+unsupported-lambda|fixtures/diagnostics/unsupported_lambda.cos
+package-missing-import|fixtures/diagnostics/package_missing_import.cos
+package-private-import-member|fixtures/diagnostics/package_private_import_member.cos
+package-duplicate-declaration|fixtures/diagnostics/package_duplicate_declaration.cos
+type-unsupported-map-key|fixtures/diagnostics/type_unsupported_map_key.cos
 
