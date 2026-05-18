@@ -1,0 +1,8 @@
+/// path: main.cos
+/// diag(error, 4:15): cosmo0.type.unsupported-map-key
+class Token {}
+
+class Bad {
+  val by_token: Map[Token, i32]
+}
+/// end path: main.cos

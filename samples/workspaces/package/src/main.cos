@@ -1,6 +1,6 @@
 def main(): Unit = {
-  val left = 20
-  val right = 22
-  val total = left + right
-  println("ordinary package workspace");
+  val left = 20;
+  val right = 22;
+  val total = left + right;
+  println(total)
 }

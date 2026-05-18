@@ -1,0 +1,8 @@
+/// path: main.cos
+/// diag(error, 4:3): cosmo0.type.invalid-field
+class Token {}
+
+def text(token: Token): String = {
+  token.text
+}
+/// end path: main.cos

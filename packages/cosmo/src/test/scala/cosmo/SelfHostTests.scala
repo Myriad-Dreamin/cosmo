@@ -16,6 +16,6 @@ class SelfHostTest extends munit.FunSuite:
   }
 
   test("playground") {
-    runTestOnFile("samples/Syntax/playground.cos")
+    runTestOnFile("samples/legacy/Syntax/playground.cos")
   }
 end SelfHostTest
