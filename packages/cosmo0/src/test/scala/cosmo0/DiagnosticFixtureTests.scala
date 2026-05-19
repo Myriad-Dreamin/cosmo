@@ -5,22 +5,13 @@ import scala.collection.mutable.ListBuffer
 class DiagnosticFixtureTests extends munit.FunSuite:
   test("diagnostic fixture directives are well formed"):
     val fixtures = DiagnosticFixtureScanner.load()
-    val discovered = DiagnosticFixtureScanner.discover()
 
     assert(fixtures.nonEmpty, "fixtures/diagnostics must contain at least one .cos fixture with /// diag")
     assertEquals(fixtures.map(_.id).distinct.length, fixtures.length)
-    assertEquals(fixtures, discovered, "diagnostic manifest must match fixture discovery")
 
     fixtures.foreach: fixture =>
       assert(ParserFixtureManifest.exists(fixture.path), s"missing diagnostic fixture ${fixture.path}")
       DiagnosticFixtureParser.parse(fixture)
-
-  test("parser_test and Scala diagnostic tests consume the same manifest"):
-    val parserTestSource = ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath)
-    assert(
-      parserTestSource.contains(s""""${DiagnosticFixtureScanner.manifestPath}""""),
-      s"parser_test.cos must reference ${DiagnosticFixtureScanner.manifestPath}",
-    )
 
   test("cosmo0 diagnostic fixtures report expected diagnostics"):
     DiagnosticFixtureScanner.load().foreach: fixtureRef =>
@@ -111,32 +102,11 @@ object DiagnosticFixtureScanner:
   val rootPath: String =
     "fixtures/diagnostics"
 
-  val manifestPath: String =
-    "fixtures/diagnostics/manifest.tsv"
-
   def load(): List[DiagnosticFixtureRef] =
-    ParserFixtureManifest
-      .readFile(manifestPath)
-      .split("\n")
-      .toList
-      .map(_.stripSuffix("\r"))
-      .filter(line => line.nonEmpty && !line.startsWith("#"))
-      .map(parseManifestLine)
-
-  def discover(): List[DiagnosticFixtureRef] =
     TestFixtureScanner
       .filesUnder(rootPath, _.endsWith(".cos"))
       .filter(hasDiagnosticDirective)
       .map(path => DiagnosticFixtureRef(idFromPath(path), path))
-
-  private def parseManifestLine(line: String): DiagnosticFixtureRef =
-    val parts = line.split("\\|", -1).toList
-    assert(parts.length == 2, s"diagnostic fixture manifest line must have 2 fields: $line")
-    val id = parts(0)
-    val path = parts(1)
-    assert(id.nonEmpty, s"diagnostic fixture manifest line has empty id: $line")
-    assert(path.nonEmpty, s"diagnostic fixture manifest line has empty path: $line")
-    DiagnosticFixtureRef(id, path)
 
   private def hasDiagnosticDirective(path: String): Boolean =
     ParserFixtureManifest

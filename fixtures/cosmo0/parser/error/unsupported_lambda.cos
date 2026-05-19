@@ -1,3 +1,5 @@
+/// parser-ast-fixture: error
+/// parser-diagnostic: cosmo1.parser.unsupported-syntax
 def unsupported_lambda(): Unit = {
   val f = (value) => value
 }

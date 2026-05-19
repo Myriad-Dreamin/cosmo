@@ -553,6 +553,16 @@ class ExpressionChecker {
       params.push(self.string_type());
       return Option[TypeId]::Some(self.callable_type_from_types(params, self.string_type()))
     }
+    if (name == "read_dir") {
+      val params = Vec[TypeId]();
+      params.push(self.string_type());
+      return Option[TypeId]::Some(self.callable_type_from_types(params, self.types.alloc_user("Vec[String]")))
+    }
+    if (name == "path_is_file" or name == "path_is_dir") {
+      val params = Vec[TypeId]();
+      params.push(self.string_type());
+      return Option[TypeId]::Some(self.callable_type_from_types(params, self.bool_type()))
+    }
     if (name == "print" or name == "println") {
       val params = Vec[TypeId]();
       params.push(self.string_type());

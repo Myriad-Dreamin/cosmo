@@ -94,6 +94,9 @@ class NameResolver {
     self.define_prelude(prelude_scope, "Arena");
     self.define_prelude(prelude_scope, "Id");
     self.define_prelude(prelude_scope, "read_file");
+    self.define_prelude(prelude_scope, "read_dir");
+    self.define_prelude(prelude_scope, "path_is_file");
+    self.define_prelude(prelude_scope, "path_is_dir");
     self.define_prelude(prelude_scope, "print");
     self.define_prelude(prelude_scope, "println");
   }
