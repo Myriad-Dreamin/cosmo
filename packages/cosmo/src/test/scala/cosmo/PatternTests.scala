@@ -26,19 +26,19 @@ class CaseTest extends TestBase:
   }
 
   test("HelloWorld") {
-    runTestOnFile("fixtures/Type/patterns/HelloWorld.cos-ast");
+    runTestOnFile("fixtures/Type/patterns/HelloWorld.cos");
   }
   test("class") {
-    runTestOnFile("fixtures/Type/patterns/class.cos-ast");
+    runTestOnFile("fixtures/Type/patterns/class.cos");
   }
   test("class2") {
-    runTestOnFile("fixtures/Type/patterns/class2.cos-ast");
+    runTestOnFile("fixtures/Type/patterns/class2.cos");
   }
   test("nat") {
-    runTestOnFile("fixtures/Type/patterns/nat.cos-ast");
+    runTestOnFile("fixtures/Type/patterns/nat.cos");
   }
   test("result") {
-    runTestOnFile("fixtures/Type/patterns/result.cos-ast");
+    runTestOnFile("fixtures/Type/patterns/result.cos");
   }
 end CaseTest
 
@@ -64,24 +64,24 @@ class MatchTest extends TestBase:
   }
 
   test("HelloWorld") {
-    runTestOnFile("fixtures/Type/matches/HelloWorld.cos-ast");
+    runTestOnFile("fixtures/Type/matches/HelloWorld.cos");
   }
   test("string") {
-    runTestOnFile("fixtures/Type/matches/string.cos-ast");
+    runTestOnFile("fixtures/Type/matches/string.cos");
   }
   test("number") {
-    runTestOnFile("fixtures/Type/matches/number.cos-ast");
+    runTestOnFile("fixtures/Type/matches/number.cos");
   }
   test("class") {
-    runTestOnFile("fixtures/Type/matches/class.cos-ast");
+    runTestOnFile("fixtures/Type/matches/class.cos");
   }
   test("nat".ignore) {
-    runTestOnFile("fixtures/Type/matches/nat.cos-ast");
+    runTestOnFile("fixtures/Type/matches/nat.cos");
   }
   test("result") {
-    runTestOnFile("fixtures/Type/matches/result.cos-ast");
+    runTestOnFile("fixtures/Type/matches/result.cos");
   }
   test("json") {
-    runTestOnFile("fixtures/Type/matches/json.cos-ast");
+    runTestOnFile("fixtures/Type/matches/json.cos");
   }
 end MatchTest

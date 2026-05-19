@@ -1,0 +1,10 @@
+/// path: main.cos
+/// diag(error, 1:1): cosmo0.type.invalid-mutability
+class Counter {
+  var value: i32
+
+  def reset(&self): Unit = {
+    self.value = 0
+  }
+}
+/// end path: main.cos

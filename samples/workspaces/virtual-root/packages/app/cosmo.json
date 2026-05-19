@@ -4,7 +4,7 @@
   "target": "cosmo0",
   "stageProfile": "cosmo1.stage1",
   "dependencies": [
-    "../../../../../library/std"
+    "../lib"
   ],
   "sources": [
     "main.cos"
