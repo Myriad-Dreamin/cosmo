@@ -3,20 +3,17 @@ package cosmo0
 import scala.collection.mutable.ListBuffer
 
 class DiagnosticFixtureTests extends munit.FunSuite:
-  test("diagnostic fixture manifest is well formed and points at existing fixtures"):
-    val fixtures = DiagnosticFixtureManifest.load()
+  test("diagnostic fixture directives are well formed"):
+    val fixtures = DiagnosticFixtureScanner.load()
 
-    assert(fixtures.nonEmpty, "fixtures/diagnostics/manifest.tsv must list at least one fixture")
+    assert(fixtures.nonEmpty, "fixtures/diagnostics must contain at least one .cos fixture with /// diag")
     assertEquals(fixtures.map(_.id).distinct.length, fixtures.length)
 
     fixtures.foreach: fixture =>
-      assert(
-        ParserFixtureManifest.exists(fixture.path),
-        s"missing diagnostic fixture ${fixture.path}",
-      )
+      DiagnosticFixtureParser.parse(fixture)
 
   test("cosmo0 diagnostic fixtures report expected diagnostics"):
-    DiagnosticFixtureManifest.load().foreach: fixtureRef =>
+    DiagnosticFixtureScanner.load().foreach: fixtureRef =>
       val fixture = DiagnosticFixtureParser.parse(fixtureRef)
       val result = checkFixture(fixture)
 
@@ -100,23 +97,29 @@ final case class ExpectedDiagnostic(
   def label: String =
     s"$path:$line:$column $text"
 
-object DiagnosticFixtureManifest:
-  val manifestPath: String =
-    "fixtures/diagnostics/manifest.tsv"
+object DiagnosticFixtureScanner:
+  private val rootPath: String =
+    "fixtures/diagnostics"
 
   def load(): List[DiagnosticFixtureRef] =
+    TestFixtureScanner
+      .filesUnder(rootPath, _.endsWith(".cos"))
+      .filter(hasDiagnosticDirective)
+      .map(path => DiagnosticFixtureRef(idFromPath(path), path))
+
+  private def hasDiagnosticDirective(path: String): Boolean =
     ParserFixtureManifest
-      .readFile(manifestPath)
+      .readFile(path)
       .split("\n")
       .toList
-      .map(_.stripSuffix("\r"))
-      .filter(line => line.nonEmpty && !line.startsWith("#"))
-      .map(parseLine)
+      .map(_.stripSuffix("\r").trim)
+      .exists(_.startsWith("/// diag("))
 
-  private def parseLine(line: String): DiagnosticFixtureRef =
-    val parts = line.split("\\|", -1).toList
-    assert(parts.length == 2, s"diagnostic manifest line must have 2 fields: $line")
-    DiagnosticFixtureRef(parts(0), parts(1))
+  private def idFromPath(path: String): String =
+    path
+      .stripPrefix(s"$rootPath/")
+      .stripSuffix(".cos")
+      .replace('/', '-')
 
 object DiagnosticFixtureParser:
   private val PathPrefix = "/// path: "
@@ -194,4 +197,3 @@ object DiagnosticFixtureParser:
       case "info"    => DiagnosticSeverity.Info
       case other =>
         throw new IllegalArgumentException(s"$path:$line has unknown diagnostic severity '$other'")
-

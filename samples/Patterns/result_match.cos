@@ -1,3 +1,4 @@
+/// expect: compile
 class Diagnostic {
   val message: String
 }

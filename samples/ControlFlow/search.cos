@@ -1,3 +1,4 @@
+/// expect: compile
 class Token {
   val text: String
 }
@@ -27,4 +28,3 @@ def count_non_empty(tokens: Vec[Token]): usize = {
 
   count
 }
-

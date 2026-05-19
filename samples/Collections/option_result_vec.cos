@@ -1,3 +1,4 @@
+/// expect: compile
 class Diagnostic {
   val message: String
 }
@@ -27,4 +28,3 @@ def unpack(value: Option[i32]): i32 = {
     }
   }
 }
-
