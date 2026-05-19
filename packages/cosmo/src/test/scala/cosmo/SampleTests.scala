@@ -33,7 +33,7 @@ class SampleTest extends TestBase:
     compilePath("samples/legacy/Syntax/try-catch.syntax.cos")
   }
   test("Syntax/errs/tmplLit01".ignore) {
-    compilePath("samples/legacy/Syntax/errs/tmplLit01.cos-ast")
+    compilePath("samples/legacy/Syntax/errs/tmplLit01.cos")
   }
   test("Syntax/tmplLit.syntax".ignore) {
     compilePath("samples/legacy/Syntax/tmplLit.syntax.cos")

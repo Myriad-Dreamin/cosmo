@@ -22,6 +22,6 @@ class SelectTest extends TestBase:
   }
 
   test("HelloWorld") {
-    runTestOnFile("fixtures/Type/dispatches/HelloWorld.cos-ast");
+    runTestOnFile("fixtures/Type/dispatches/HelloWorld.cos");
   }
 end SelectTest
