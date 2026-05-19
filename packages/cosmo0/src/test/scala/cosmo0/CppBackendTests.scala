@@ -9,6 +9,12 @@ class CppBackendTests extends munit.FunSuite:
   private val stringVecType = SourceType.Standard("Vec", List(SourceType.String))
   private val spanSourcePath = "packages/cosmoc/src/source/span.cos"
   private val syntaxAstSourcePath = "packages/cosmoc/src/syntax/ast.cos"
+  private val symbolSourcePath = "packages/cosmoc/src/names/symbol.cos"
+  private val scopeSourcePath = "packages/cosmoc/src/names/scope.cos"
+  private val resolutionSourcePath = "packages/cosmoc/src/names/resolution.cos"
+  private val typeModelSourcePath = "packages/cosmoc/src/types/model.cos"
+  private val declarationResolutionSourcePath = "packages/cosmoc/src/types/declaration_resolution.cos"
+  private val typeCheckSourcePath = "packages/cosmoc/src/types/check.cos"
 
   test("backend rejects structurally invalid LIR at the compile boundary"):
     val result = CppBackend().emit(
@@ -334,7 +340,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -393,7 +399,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -421,6 +427,12 @@ class CppBackendTests extends munit.FunSuite:
           ParserFixtureManifest.readFile(spanSourcePath),
           ParserFixtureManifest.readFile(syntaxAstSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+          ParserFixtureManifest.readFile(symbolSourcePath),
+          ParserFixtureManifest.readFile(scopeSourcePath),
+          ParserFixtureManifest.readFile(resolutionSourcePath),
+          ParserFixtureManifest.readFile(typeModelSourcePath),
+          ParserFixtureManifest.readFile(declarationResolutionSourcePath),
+          ParserFixtureManifest.readFile(typeCheckSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
         ).mkString("\n"),
       ),

@@ -33,6 +33,7 @@ class Cosmo1NameResolutionTests extends munit.FunSuite:
     assert(output.contains("inline NameResolution resolve_module_names("))
     assert(output.contains("inline bool name_resolution_test_resolves_parser_subset_fixture()"))
     assert(output.contains("inline bool name_resolution_test_reports_duplicate_definition()"))
+    assert(output.contains("inline bool name_resolution_test_allows_repeated_same_import()"))
     assert(output.contains("inline bool name_resolution_test_reports_unresolved_name()"))
     assert(output.contains("int main()"))
     assert(output.contains("cosmo1.name.duplicate-definition"))

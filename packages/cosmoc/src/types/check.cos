@@ -24,6 +24,7 @@ class TypedExprKind {
   case Call(ExprId, Vec[ExprId])
   case Assign(ExprId, ExprId)
   case Binary(String, ExprId, ExprId)
+  case Unary(String, ExprId)
   case If(ExprId, ExprId, ExprId)
   case While(ExprId, ExprId)
   case Return(ExprId)
@@ -70,6 +71,28 @@ class ExpressionCheckResult {
     } else {
       self.diagnostics.get(0).message
     }
+  }
+
+  def first_diagnostic_span_start(&self): usize = {
+    if (self.diagnostics.is_empty()) {
+      0
+    } else {
+      self.diagnostics.get(0).span.start
+    }
+  }
+
+  def first_diagnostic_span_end(&self): usize = {
+    if (self.diagnostics.is_empty()) {
+      0
+    } else {
+      self.diagnostics.get(0).span.end
+    }
+  }
+
+  def first_diagnostic_span_text(&self): String = {
+    type_check_ordinal_text(self.first_diagnostic_span_start())
+      .concat(":")
+      .concat(type_check_ordinal_text(self.first_diagnostic_span_end()))
   }
 }
 
@@ -376,10 +399,10 @@ class ExpressionChecker {
         self.error_expr(id)
       }
       case SyntaxExpr.AsciiLiteral(value, span) => {
-        self.unsupported_expr(id, "ascii literals are out of scope in basic expression checking", span)
+        self.record_typed_expr(id, TypedExprKind.NumericLiteral(value), self.u8_type())
       }
       case SyntaxExpr.RuneLiteral(value, span) => {
-        self.unsupported_expr(id, "rune literals are out of scope in basic expression checking", span)
+        self.record_typed_expr(id, TypedExprKind.NumericLiteral(value), self.char_type())
       }
       case SyntaxExpr.Call(callee, args, span) => {
         self.check_call_expr(id, callee, args, bindings, return_type, span)
@@ -388,7 +411,7 @@ class ExpressionChecker {
         self.check_select_expr(id, receiver, field, bindings, return_type, span)
       }
       case SyntaxExpr.Unary(op, value, span) => {
-        self.unsupported_expr(id, "unary operators are out of scope in basic expression checking", span)
+        self.check_unary_expr(id, op, value, bindings, expected, return_type, span)
       }
       case SyntaxExpr.If(condition, then_body, else_body, span) => {
         self.check_if_expr(id, condition, then_body, else_body, bindings, expected, return_type, span)
@@ -445,23 +468,83 @@ class ExpressionChecker {
               case Option[TypeId]::None => {
               }
             }
-            self.invalid_name_target(id, span)
+            self.invalid_name_target(id, node.name, span)
           }
         }
       }
       case Option[DefId]::None => {
-        self.invalid_name_target(id, span)
+        self.invalid_name_target(id, self.name_expr_text(id), span)
       }
     }
   }
 
-  def invalid_name_target(&mut self, id: ExprId, span: Span): TypeId = {
+  def invalid_name_target(&mut self, id: ExprId, name: String, span: Span): TypeId = {
     self.diagnostic(
       "cosmo1.type.unsupported-name",
-      "name is not a supported value expression in basic expression checking",
+      "name ".concat(name).concat(" is not a supported value expression in basic expression checking"),
       span
     );
     self.record_typed_expr(id, TypedExprKind.Error, self.error_type())
+  }
+
+  def name_expr_text(&self, id: ExprId): String = {
+    val expr = self.arenas.expr_value(id);
+    expr match {
+      case SyntaxExpr.Name(name, span) => {
+        name
+      }
+      case SyntaxExpr.AEmpty => {
+        "<empty>"
+      }
+      case SyntaxExpr.Missing(span) => {
+        "<missing>"
+      }
+      case SyntaxExpr.NumericLiteral(value, span) => {
+        value
+      }
+      case SyntaxExpr.StringLiteral(value, span) => {
+        value
+      }
+      case SyntaxExpr.AsciiLiteral(value, span) => {
+        value
+      }
+      case SyntaxExpr.RuneLiteral(value, span) => {
+        value
+      }
+      case SyntaxExpr.BoolLiteral(value, span) => {
+        "<bool>"
+      }
+      case SyntaxExpr.Block(items, span) => {
+        "<block>"
+      }
+      case SyntaxExpr.Local(name, mutable, typ, init, span) => {
+        name
+      }
+      case SyntaxExpr.Assign(target, value, span) => {
+        "<assign>"
+      }
+      case SyntaxExpr.Call(callee, args, span) => {
+        "<call>"
+      }
+      case SyntaxExpr.Select(receiver, field, span) => {
+        field
+      }
+      case SyntaxExpr.Binary(op, left, right, span) => {
+        op
+      }
+      case SyntaxExpr.Unary(op, value, span) => {
+        op
+      }
+      case SyntaxExpr.If(condition, then_body, else_body, span) => {
+        "<if>"
+      }
+      case SyntaxExpr.While(condition, body, span) => {
+        "<while>"
+      }
+      case SyntaxExpr.Return(value, span) => {
+        "<return>"
+      }
+    }
   }
 
   def prelude_value_type(&mut self, name: String): Option[TypeId] = {
@@ -839,7 +922,17 @@ class ExpressionChecker {
       }
     }
 
-    val intrinsic = self.string_intrinsic_signature(receiver_type, field, span);
+    val variant = self.variant_constructor_signature_for_type(receiver_type, field);
+    variant match {
+      case Option[IntrinsicSignature]::Some(signature) => {
+        val callable = self.callable_type_from_types(signature.params, signature.return_type);
+        return self.record_typed_expr(id, TypedExprKind.Select(receiver, field), callable)
+      }
+      case Option[IntrinsicSignature]::None => {
+      }
+    }
+
+    val intrinsic = self.intrinsic_signature(receiver_type, field, span);
     intrinsic match {
       case Option[IntrinsicSignature]::Some(signature) => {
         val callable = self.callable_type_from_types(signature.params, signature.return_type);
@@ -948,6 +1041,30 @@ class ExpressionChecker {
     }
   }
 
+  def check_unary_expr(
+    &mut self,
+    id: ExprId,
+    op: String,
+    value: ExprId,
+    bindings: Vec[LocalBinding],
+    expected: Option[TypeId],
+    return_type: Option[TypeId],
+    span: Span
+  ): TypeId = {
+    if (op == "!") {
+      val actual = self.check_expr(value, bindings, Option[TypeId]::Some(self.bool_type()), return_type);
+      val ignored = self.expect_bool(self.arenas.expr_span(value), actual);
+      return self.record_typed_expr(id, TypedExprKind.Unary(op, value), self.bool_type())
+    }
+
+    val actual = self.check_expr(value, bindings, expected, return_type);
+    if (op == "-" and self.type_is_integer(actual)) {
+      return self.record_typed_expr(id, TypedExprKind.Unary(op, value), actual)
+    }
+
+    self.unsupported_expr(id, "unsupported unary operator ".concat(op), span)
+  }
+
   def is_prelude_print_callee(&self, callee: ExprId, name: String): Bool = {
     if (!(name == "print" or name == "println")) {
       return false
@@ -1038,7 +1155,7 @@ class ExpressionChecker {
     val method = self.method_signature_for_type(receiver_type, field);
     method match {
       case Option[CallableSignature]::Some(signature) => {
-        self.check_receiver_mutability(receiver, bindings, receiver_type, signature, select_span);
+        self.check_receiver_mutability(receiver, bindings, receiver_type, signature, field, select_span);
         val params = self.callable_params_without_receiver(signature);
         self.check_call_args(args, params, bindings, return_type, span);
         val callee_type = self.callable_type_from_types(params, signature.return_type);
@@ -1049,7 +1166,20 @@ class ExpressionChecker {
       }
     }
 
-    val intrinsic = self.string_intrinsic_signature(receiver_type, field, select_span);
+    val variant = self.variant_constructor_signature_for_type(receiver_type, field);
+    variant match {
+      case Option[IntrinsicSignature]::Some(signature) => {
+        self.check_call_args(args, signature.params, bindings, return_type, span);
+        val callee_type = self.callable_type_from_types(signature.params, signature.return_type);
+        val ignored = self.record_typed_expr(callee, TypedExprKind.Select(receiver, field), callee_type);
+        val owner = expression_type_display(self.types, receiver_type);
+        return self.record_typed_expr(id, TypedExprKind.Construct(owner.concat(".").concat(field), args), signature.return_type)
+      }
+      case Option[IntrinsicSignature]::None => {
+      }
+    }
+
+    val intrinsic = self.intrinsic_signature(receiver_type, field, select_span);
     intrinsic match {
       case Option[IntrinsicSignature]::Some(signature) => {
         self.check_call_args(args, signature.params, bindings, return_type, span);
@@ -1111,7 +1241,7 @@ class ExpressionChecker {
             Option[TypeId]::Some(self.types.alloc_user(node.name))
           }
           case DefinitionKind.Prelude => {
-            Option[TypeId]::None
+            self.prelude_constructor_type(name, node.name)
           }
           case DefinitionKind.Module => {
             Option[TypeId]::None
@@ -1149,6 +1279,16 @@ class ExpressionChecker {
         Option[TypeId]::None
       }
     }
+  }
+
+  def prelude_constructor_type(&mut self, text: String, base: String): Option[TypeId] = {
+    if (!expression_prelude_is_collection_type(base)) {
+      return Option[TypeId]::None
+    }
+    if (!expression_generic_application_text(text, base)) {
+      return Option[TypeId]::None
+    }
+    Option[TypeId]::Some(self.types.alloc_user(text))
   }
 
   def check_constructor_args(
@@ -1342,6 +1482,56 @@ class ExpressionChecker {
     Option[CallableSignature]::None
   }
 
+  def variant_constructor_signature_for_type(&mut self, receiver_type: TypeId, field: String): Option[IntrinsicSignature] = {
+    val members = self.members_for_type(receiver_type);
+    members match {
+      case Option[Vec[MemberId]]::Some(member_ids) => {
+        var index: usize = 0;
+        while (index < member_ids.len()) {
+          val member_id = member_ids.get(index);
+          val member = self.arenas.member_value(member_id);
+          member match {
+            case SyntaxMember.Variant(name, fields, span) => {
+              if (name == field) {
+                return self.variant_intrinsic_signature(receiver_type, fields)
+              }
+            }
+            case SyntaxMember.AEmpty => {
+            }
+            case SyntaxMember.Unsupported(text, span) => {
+            }
+            case SyntaxMember.Field(name, mutable, typ, span) => {
+            }
+            case SyntaxMember.Method(name, params, return_type, body, span) => {
+            }
+            case SyntaxMember.TypeAlias(name, typ, span) => {
+            }
+          }
+          index = index + 1
+        }
+      }
+      case Option[Vec[MemberId]]::None => {
+      }
+    }
+    Option[IntrinsicSignature]::None
+  }
+
+  def variant_intrinsic_signature(&mut self, receiver_type: TypeId, fields: Vec[TypeExprId]): Option[IntrinsicSignature] = {
+    val params = Vec[TypeId]();
+    for (field_type in fields) {
+      val maybe_type = self.type_for_member_type_expr(field_type);
+      maybe_type match {
+        case Option[TypeId]::Some(typ) => {
+          params.push(typ)
+        }
+        case Option[TypeId]::None => {
+          return Option[IntrinsicSignature]::None
+        }
+      }
+    }
+    Option[IntrinsicSignature]::Some(IntrinsicSignature(params, receiver_type))
+  }
+
   def members_for_type(&self, receiver_type: TypeId): Option[Vec[MemberId]] = {
     val name = self.user_type_name(receiver_type);
     name match {
@@ -1403,6 +1593,18 @@ class ExpressionChecker {
     }
   }
 
+  def intrinsic_signature(&mut self, receiver_type: TypeId, field: String, span: Span): Option[IntrinsicSignature] = {
+    val string = self.string_intrinsic_signature(receiver_type, field, span);
+    string match {
+      case Option[IntrinsicSignature]::Some(signature) => {
+        return Option[IntrinsicSignature]::Some(signature)
+      }
+      case Option[IntrinsicSignature]::None => {
+      }
+    }
+    self.collection_intrinsic_signature(receiver_type, field, span)
+  }
+
   def string_intrinsic_signature(&mut self, receiver_type: TypeId, field: String, span: Span): Option[IntrinsicSignature] = {
     if (!self.type_is_named_primitive(receiver_type, "String")) {
       return Option[IntrinsicSignature]::None
@@ -1422,7 +1624,115 @@ class ExpressionChecker {
       value_params.push(self.usize_type());
       return Option[IntrinsicSignature]::Some(IntrinsicSignature(value_params, self.string_type()))
     }
+    if (field == "concat") {
+      val value_params = Vec[TypeId]();
+      value_params.push(self.string_type());
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(value_params, self.string_type()))
+    }
+    if (field == "is_empty") {
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(Vec[TypeId](), self.bool_type()))
+    }
     Option[IntrinsicSignature]::None
+  }
+
+  def collection_intrinsic_signature(&mut self, receiver_type: TypeId, field: String, span: Span): Option[IntrinsicSignature] = {
+    val arena = self.single_arg_collection_inner_type(receiver_type, "Arena");
+    arena match {
+      case Option[TypeId]::Some(inner_type) => {
+        return self.arena_intrinsic_signature(inner_type, field)
+      }
+      case Option[TypeId]::None => {
+      }
+    }
+
+    val vec = self.single_arg_collection_inner_type(receiver_type, "Vec");
+    vec match {
+      case Option[TypeId]::Some(inner_type) => {
+        return self.vec_intrinsic_signature(inner_type, field)
+      }
+      case Option[TypeId]::None => {
+      }
+    }
+
+    Option[IntrinsicSignature]::None
+  }
+
+  def arena_intrinsic_signature(&mut self, inner_type: TypeId, field: String): Option[IntrinsicSignature] = {
+    if (field == "len" or field == "size") {
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(Vec[TypeId](), self.usize_type()))
+    }
+    if (field == "alloc") {
+      val params = Vec[TypeId]();
+      params.push(inner_type);
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(params, self.id_type_for(inner_type)))
+    }
+    if (field == "get") {
+      val params = Vec[TypeId]();
+      params.push(self.id_type_for(inner_type));
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(params, self.types.alloc_reference(false, inner_type)))
+    }
+    if (field == "get_mut") {
+      val params = Vec[TypeId]();
+      params.push(self.id_type_for(inner_type));
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(params, self.types.alloc_reference(true, inner_type)))
+    }
+    Option[IntrinsicSignature]::None
+  }
+
+  def vec_intrinsic_signature(&mut self, inner_type: TypeId, field: String): Option[IntrinsicSignature] = {
+    if (field == "len" or field == "size") {
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(Vec[TypeId](), self.usize_type()))
+    }
+    if (field == "is_empty") {
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(Vec[TypeId](), self.bool_type()))
+    }
+    if (field == "push") {
+      val params = Vec[TypeId]();
+      params.push(inner_type);
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(params, self.unit_type()))
+    }
+    if (field == "get") {
+      val params = Vec[TypeId]();
+      params.push(self.usize_type());
+      return Option[IntrinsicSignature]::Some(IntrinsicSignature(params, inner_type))
+    }
+    Option[IntrinsicSignature]::None
+  }
+
+  def single_arg_collection_inner_type(&mut self, receiver_type: TypeId, collection_name: String): Option[TypeId] = {
+    val name = self.user_type_name(receiver_type);
+    name match {
+      case Option[String]::Some(type_name) => {
+        val inner_text = expression_generic_single_arg_text(type_name, collection_name);
+        inner_text match {
+          case Option[String]::Some(text) => {
+            Option[TypeId]::Some(self.type_from_intrinsic_text(text))
+          }
+          case Option[String]::None => {
+            Option[TypeId]::None
+          }
+        }
+      }
+      case Option[String]::None => {
+        Option[TypeId]::None
+      }
+    }
+  }
+
+  def id_type_for(&mut self, inner_type: TypeId): TypeId = {
+    val inner = expression_type_display(self.types, inner_type);
+    val alias = expression_id_alias_for_type(inner);
+    if (!alias.is_empty()) {
+      return self.types.alloc_user(alias)
+    }
+    self.types.alloc_user("Id[".concat(inner).concat("]"))
+  }
+
+  def type_from_intrinsic_text(&mut self, text: String): TypeId = {
+    if (prelude_is_primitive_type(text)) {
+      return self.types.alloc_primitive(text)
+    }
+    self.types.alloc_user(text)
   }
 
   def callable_type_without_receiver(&mut self, signature: CallableSignature): TypeId = {
@@ -1475,6 +1785,7 @@ class ExpressionChecker {
     bindings: Vec[LocalBinding],
     receiver_type: TypeId,
     signature: CallableSignature,
+    method_name: String,
     span: Span
   ): Unit = {
     signature.receiver match {
@@ -1483,7 +1794,11 @@ class ExpressionChecker {
         maybe_param match {
           case Option[ParameterSignature]::Some(param) => {
             if (param.mutable and !self.receiver_allows_mutation(receiver, bindings, receiver_type)) {
-              self.diagnostic("cosmo1.type.immutable-receiver", "method requires a mutable receiver", span)
+              self.diagnostic(
+                "cosmo1.type.immutable-receiver",
+                "method ".concat(method_name).concat(" requires a mutable receiver"),
+                span
+              )
             }
           }
           case Option[ParameterSignature]::None => {
@@ -1900,7 +2215,10 @@ class ExpressionChecker {
     self.diagnostics.push(
       ExpressionResolutionDiagnostic(
         "cosmo1.type.mismatch",
-        "type mismatch",
+        "type mismatch: expected "
+          .concat(expression_type_display(self.types, expected))
+          .concat(", actual ")
+          .concat(expression_type_display(self.types, actual)),
         span,
         Option[TypeMismatch]::Some(type_mismatch(expected, actual))
       )
@@ -2031,6 +2349,10 @@ class ExpressionChecker {
 
   def bool_type(&mut self): TypeId = {
     self.alloc_primitive_type("Bool")
+  }
+
+  def char_type(&mut self): TypeId = {
+    self.alloc_primitive_type("Char")
   }
 
   def i32_type(&mut self): TypeId = {
@@ -2252,6 +2574,44 @@ def block_item_expected(is_last: Bool, expected: Option[TypeId]): Option[TypeId]
   }
 }
 
+def type_check_ordinal_text(value: usize): String = {
+  if (value < 10) {
+    return type_check_digit_text(value)
+  }
+  type_check_ordinal_text(value / 10).concat(type_check_digit_text(value % 10))
+}
+
+def type_check_digit_text(value: usize): String = {
+  if (value == 0) {
+    return "0"
+  }
+  if (value == 1) {
+    return "1"
+  }
+  if (value == 2) {
+    return "2"
+  }
+  if (value == 3) {
+    return "3"
+  }
+  if (value == 4) {
+    return "4"
+  }
+  if (value == 5) {
+    return "5"
+  }
+  if (value == 6) {
+    return "6"
+  }
+  if (value == 7) {
+    return "7"
+  }
+  if (value == 8) {
+    return "8"
+  }
+  "9"
+}
+
 def arithmetic_result_expected(op: String, expected: Option[TypeId]): Option[TypeId] = {
   if (!binary_is_arithmetic(op)) {
     return Option[TypeId]::None
@@ -2359,7 +2719,7 @@ def expression_type_equals_primitive(left_name: String, right: CosmoType): Bool 
 def expression_type_equals_user(left_name: String, right: CosmoType): Bool = {
   right match {
     case CosmoType.User(right_name) => {
-      left_name == right_name
+      expression_type_alias_canonical_name(left_name) == expression_type_alias_canonical_name(right_name)
     }
     case CosmoType.Primitive(right_name) => {
       false
@@ -2501,4 +2861,101 @@ def expression_type_display_list(types: TypeStore, items: Vec[TypeId]): String =
     index = index + 1
   }
   text
+}
+
+def expression_generic_single_arg_text(text: String, name: String): Option[String] = {
+  val prefix = name.concat("[");
+  if (text.len() <= prefix.len() + 1) {
+    return Option[String]::None
+  }
+  if (text.slice(0, prefix.len()) != prefix) {
+    return Option[String]::None
+  }
+  if (text.byte_at(text.len() - 1) != a"]") {
+    return Option[String]::None
+  }
+  Option[String]::Some(text.slice(prefix.len(), text.len() - 1))
+}
+
+def expression_generic_application_text(text: String, name: String): Bool = {
+  val prefix = name.concat("[");
+  if (text.len() <= prefix.len() + 1) {
+    return false
+  }
+  if (text.slice(0, prefix.len()) != prefix) {
+    return false
+  }
+  text.byte_at(text.len() - 1) == a"]"
+}
+
+def expression_prelude_is_collection_type(name: String): Bool = {
+  name == "Vec" or name == "Map" or name == "Set" or name == "Arena"
+}
+
+def expression_id_alias_for_type(name: String): String = {
+  if (name == "SyntaxModule") {
+    return "ModuleId"
+  }
+  if (name == "SyntaxDecl") {
+    return "DeclId"
+  }
+  if (name == "SyntaxMember") {
+    return "MemberId"
+  }
+  if (name == "SyntaxParam") {
+    return "ParamId"
+  }
+  if (name == "SyntaxExpr") {
+    return "ExprId"
+  }
+  if (name == "SyntaxType") {
+    return "TypeExprId"
+  }
+  if (name == "CosmoType") {
+    return "TypeId"
+  }
+  if (name == "Definition") {
+    return "DefId"
+  }
+  if (name == "Scope") {
+    return "ScopeId"
+  }
+  if (name == "PackageModule") {
+    return "PackageModuleId"
+  }
+  ""
+}
+
+def expression_type_alias_canonical_name(name: String): String = {
+  if (name == "ModuleId") {
+    return "Id[SyntaxModule]"
+  }
+  if (name == "DeclId") {
+    return "Id[SyntaxDecl]"
+  }
+  if (name == "MemberId") {
+    return "Id[SyntaxMember]"
+  }
+  if (name == "ParamId") {
+    return "Id[SyntaxParam]"
+  }
+  if (name == "ExprId") {
+    return "Id[SyntaxExpr]"
+  }
+  if (name == "TypeExprId") {
+    return "Id[SyntaxType]"
+  }
+  if (name == "TypeId") {
+    return "Id[CosmoType]"
+  }
+  if (name == "DefId") {
+    return "Id[Definition]"
+  }
+  if (name == "ScopeId") {
+    return "Id[Scope]"
+  }
+  if (name == "PackageModuleId") {
+    return "Id[PackageModule]"
+  }
+  name
 }

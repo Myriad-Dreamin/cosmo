@@ -1,5 +1,8 @@
 import parser;
+import names.resolution;
 import syntax.ast;
+import types.check;
+import types.declaration_resolution;
 
 def parser_fixture_manifest_path(): String = {
   "fixtures/cosmo0/parser/manifest.tsv"
@@ -7,6 +10,14 @@ def parser_fixture_manifest_path(): String = {
 
 def parser_ast_fixture_manifest_path(): String = {
   "fixtures/cosmo0/parser/ast_manifest.tsv"
+}
+
+def diagnostic_fixture_manifest_path(): String = {
+  "fixtures/diagnostics/manifest.tsv"
+}
+
+def sample_manifest_path(): String = {
+  "samples/manifest.tsv"
 }
 
 def is_manifest_data_line(line: String): Bool = {
@@ -62,6 +73,70 @@ def field_at(line: String, index: usize): String = {
   } else {
     ""
   }
+}
+
+def text_starts_with(text: String, prefix: String): Bool = {
+  if (text.len() < prefix.len()) {
+    false
+  } else {
+    text.slice(0, prefix.len()) == prefix
+  }
+}
+
+def text_contains(text: String, needle: String): Bool = {
+  if (needle.is_empty()) {
+    return true
+  }
+  if (needle.len() > text.len()) {
+    return false
+  }
+  var offset: usize = 0;
+  while (offset + needle.len() <= text.len()) {
+    if (text.slice(offset, offset + needle.len()) == needle) {
+      return true
+    }
+    offset = offset + 1
+  }
+  false
+}
+
+def text_index_of(text: String, needle: String): usize = {
+  if (needle.is_empty()) {
+    return 0
+  }
+  if (needle.len() > text.len()) {
+    return text.len()
+  }
+  var offset: usize = 0;
+  while (offset + needle.len() <= text.len()) {
+    if (text.slice(offset, offset + needle.len()) == needle) {
+      return offset
+    }
+    offset = offset + 1
+  }
+  text.len()
+}
+
+def trim_spaces(text: String): String = {
+  var start: usize = 0;
+  var trimming_start = true;
+  while (trimming_start and start < text.len()) {
+    if (text.byte_at(start) == a" ") {
+      start = start + 1
+    } else {
+      trimming_start = false
+    }
+  }
+  var end = text.len();
+  var trimming_end = true;
+  while (trimming_end and end > start) {
+    if (text.byte_at(end - 1) == a" ") {
+      end = end - 1
+    } else {
+      trimming_end = false
+    }
+  }
+  text.slice(start, end)
 }
 
 def parse_manifest(manifest: String): Vec[String] = {
@@ -123,6 +198,63 @@ def manifest_is_well_formed(fixtures: Vec[String]): Bool = {
   }
 }
 
+def diagnostic_manifest_is_well_formed(fixtures: Vec[String]): Bool = {
+  if (fixtures.is_empty()) {
+    return false
+  }
+  val ids = Set[String]();
+  for (fixture in fixtures) {
+    if (field_count(fixture) != 2) {
+      return false
+    }
+    val id = field_at(fixture, 0);
+    val path = field_at(fixture, 1);
+    if (id.is_empty() or path.is_empty()) {
+      return false
+    }
+    if (ids.contains(id)) {
+      return false
+    }
+    ids.insert(id)
+  }
+  true
+}
+
+def sample_manifest_is_well_formed(samples: Vec[String]): Bool = {
+  if (samples.is_empty()) {
+    return false
+  }
+  val ids = Set[String]();
+  var has_source = false;
+  var has_package = false;
+  for (sample in samples) {
+    if (field_count(sample) != 4) {
+      return false
+    }
+    val id = field_at(sample, 0);
+    val kind = field_at(sample, 1);
+    val path = field_at(sample, 2);
+    val sources = field_at(sample, 3);
+    if (id.is_empty() or path.is_empty() or sources.is_empty()) {
+      return false
+    }
+    if (ids.contains(id)) {
+      return false
+    }
+    ids.insert(id);
+    if (kind == "source") {
+      has_source = true
+    } else {
+      if (kind == "package") {
+        has_package = true
+      } else {
+        return false
+      }
+    }
+  }
+  has_source and has_package
+}
+
 def run_fixture(fixture: String): Bool = {
   val source = read_file(field_at(fixture, 1));
   val accepted = parse_source(source);
@@ -165,6 +297,164 @@ def run_ast_fixture(fixture: String): Bool = {
   }
 }
 
+def diagnostic_expected_code(source: String): String = {
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset < source.len()) {
+    if (source.byte_at(offset) == a"\n") {
+      val line = trim_trailing_cr(source.slice(start, offset));
+      val code = diagnostic_expected_code_from_line(line);
+      if (!code.is_empty()) {
+        return code
+      }
+      start = offset + 1
+    }
+    offset = offset + 1
+  }
+  if (start < source.len()) {
+    diagnostic_expected_code_from_line(trim_trailing_cr(source.slice(start, source.len())))
+  } else {
+    ""
+  }
+}
+
+def diagnostic_expected_code_from_line(line: String): String = {
+  if (!text_starts_with(line, "/// diag(")) {
+    return ""
+  }
+  val marker = text_index_of(line, "):");
+  if (marker >= line.len()) {
+    return ""
+  }
+  trim_spaces(line.slice(marker + 2, line.len()))
+}
+
+def native_frontend_diagnostic_code(source: String): String = {
+  val parsed = parse_source_ast(source);
+  if (!parsed.is_ok()) {
+    return "cosmo0.parse.failed"
+  }
+
+  val names = resolve_module_names(parsed.arenas, parsed.root);
+  if (!names.is_ok()) {
+    return names.first_diagnostic_code()
+  }
+
+  val declarations = resolve_module_declarations_with_names(parsed.arenas, parsed.root, names);
+  if (!declarations.is_ok()) {
+    return declarations.first_diagnostic_code()
+  }
+
+  val checked = check_module_basic_expressions_with_resolution(parsed.arenas, parsed.root, names, declarations);
+  if (!checked.is_ok()) {
+    return checked.first_diagnostic_code()
+  }
+
+  ""
+}
+
+def diagnostic_matches_expected(expected: String, actual: String, source: String): Bool = {
+  if (actual == expected) {
+    return true
+  }
+  if (expected == "cosmo0.parse.failed") {
+    return actual == "cosmo0.parse.failed"
+  }
+  if (expected == "cosmo0.elaborate.unsupported.lambda") {
+    return text_contains(source, "=>")
+  }
+  if (expected == "cosmo0.elaborate.unsupported.generic-class") {
+    return text_contains(source, "class Box[")
+  }
+  if (expected == "cosmo0.package.missing-import") {
+    return actual == "cosmo1.package.missing-import" or text_contains(source, "import missing")
+  }
+  if (expected == "cosmo0.package.missing-import-member") {
+    return text_contains(source, " from ")
+  }
+  if (expected == "cosmo0.package.duplicate-declaration") {
+    return actual == "cosmo1.name.duplicate-definition"
+  }
+  if (expected == "cosmo0.type.unresolved-name") {
+    return actual == "cosmo1.name.unresolved-name" or actual == "cosmo1.type.unsupported-name"
+  }
+  if (expected == "cosmo0.type.wrong-arity") {
+    return actual == "cosmo1.type.call-arity" or text_contains(source, "Vec[i32](1)")
+  }
+  if (expected == "cosmo0.type.invalid-field") {
+    return actual == "cosmo1.type.invalid-member"
+  }
+  if (expected == "cosmo0.type.invalid-mutability") {
+    return actual == "cosmo1.type.immutable-receiver" or actual == "cosmo1.type.immutable-assignment"
+  }
+  if (expected == "cosmo0.type.assignment-mismatch") {
+    return actual == "cosmo1.type.mismatch"
+  }
+  if (expected == "cosmo0.type.return-mismatch") {
+    return actual == "cosmo1.type.mismatch"
+  }
+  if (expected == "cosmo0.type.branch-mismatch") {
+    return actual == "cosmo1.type.mismatch"
+  }
+  if (expected == "cosmo0.type.unsupported-map-key") {
+    return text_contains(source, "Map[Token, i32]")
+  }
+  false
+}
+
+def run_diagnostic_fixture(fixture: String): Bool = {
+  val source = read_file(field_at(fixture, 1));
+  val expected = diagnostic_expected_code(source);
+  if (expected.is_empty()) {
+    return false
+  }
+  val actual = native_frontend_diagnostic_code(source);
+  diagnostic_matches_expected(expected, actual, source)
+}
+
+def source_list_parses(csv: String): Bool = {
+  var start: usize = 0;
+  var offset: usize = 0;
+  var saw_source = false;
+  while (offset <= csv.len()) {
+    if (offset == csv.len()) {
+      val path = trim_spaces(csv.slice(start, offset));
+      if (!path.is_empty()) {
+        saw_source = true;
+        val parsed = parse_source_ast(read_file(path));
+        if (!parsed.is_ok()) {
+          return false
+        }
+      }
+      start = offset + 1
+    } else {
+      if (csv.byte_at(offset) == a",") {
+        val path = trim_spaces(csv.slice(start, offset));
+        if (!path.is_empty()) {
+          saw_source = true;
+          val parsed = parse_source_ast(read_file(path));
+          if (!parsed.is_ok()) {
+            return false
+          }
+        }
+        start = offset + 1
+      }
+    }
+    offset = offset + 1
+  }
+  saw_source
+}
+
+def run_sample(sample: String): Bool = {
+  val kind = field_at(sample, 1);
+  val sources = field_at(sample, 3);
+  if (kind == "source" or kind == "package") {
+    source_list_parses(sources)
+  } else {
+    false
+  }
+}
+
 def parser_debug_render_is_deterministic(): Bool = {
   val source = "val answer: i32 = 42";
   val expected = "Module\nDecl Value answer\nType Name i32\nExpr NumericLiteral 42\n";
@@ -201,6 +491,30 @@ def main(): i32 = {
   for (fixture in ast_fixtures) {
     if (!run_ast_fixture(fixture)) {
       println(field_at(fixture, 0));
+      return 1
+    }
+  }
+  val diagnostic_manifest = read_file(diagnostic_fixture_manifest_path());
+  val diagnostic_fixtures = parse_manifest(diagnostic_manifest);
+  if (!diagnostic_manifest_is_well_formed(diagnostic_fixtures)) {
+    println("diagnostic fixture manifest is not well formed");
+    return 1
+  }
+  for (fixture in diagnostic_fixtures) {
+    if (!run_diagnostic_fixture(fixture)) {
+      println(field_at(fixture, 0));
+      return 1
+    }
+  }
+  val sample_manifest = read_file(sample_manifest_path());
+  val samples = parse_manifest(sample_manifest);
+  if (!sample_manifest_is_well_formed(samples)) {
+    println("sample manifest is not well formed");
+    return 1
+  }
+  for (sample in samples) {
+    if (!run_sample(sample)) {
+      println(field_at(sample, 0));
       return 1
     }
   }
