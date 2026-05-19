@@ -4,28 +4,11 @@ import syntax.ast;
 import types.check;
 import types.declaration_resolution;
 
-def parser_fixture_manifest_path(): String = {
-  "fixtures/cosmo0/parser/manifest.tsv"
-}
-
-def parser_ast_fixture_manifest_path(): String = {
-  "fixtures/cosmo0/parser/ast_manifest.tsv"
-}
-
-def diagnostic_fixture_manifest_path(): String = {
-  "fixtures/diagnostics/manifest.tsv"
-}
-
-def sample_manifest_path(): String = {
-  "samples/manifest.tsv"
-}
-
-def is_manifest_data_line(line: String): Bool = {
-  if (line.is_empty()) {
-    false
-  } else {
-    line.byte_at(0) != a"#"
-  }
+class NativeParserFixture {
+  val id: String
+  val path: String
+  val expected_status: String
+  val diagnostic_code: String
 }
 
 def trim_trailing_cr(line: String): String = {
@@ -41,45 +24,19 @@ def trim_trailing_cr(line: String): String = {
   }
 }
 
-def field_count(line: String): usize = {
-  var count: usize = 1;
-  var offset: usize = 0;
-  while (offset < line.len()) {
-    if (line.byte_at(offset) == a"|") {
-      count = count + 1
-    }
-    offset = offset + 1
-  }
-  count
-}
-
-def field_at(line: String, index: usize): String = {
-  var field_index: usize = 0;
-  var start: usize = 0;
-  var offset: usize = 0;
-  while (offset < line.len()) {
-    if (line.byte_at(offset) == a"|") {
-      if (field_index == index) {
-        return line.slice(start, offset)
-      } else {
-        field_index = field_index + 1;
-        start = offset + 1
-      }
-    }
-    offset = offset + 1
-  }
-  if (field_index == index) {
-    line.slice(start, line.len())
-  } else {
-    ""
-  }
-}
-
 def text_starts_with(text: String, prefix: String): Bool = {
   if (text.len() < prefix.len()) {
     false
   } else {
     text.slice(0, prefix.len()) == prefix
+  }
+}
+
+def text_ends_with(text: String, suffix: String): Bool = {
+  if (text.len() < suffix.len()) {
+    false
+  } else {
+    text.slice(text.len() - suffix.len(), text.len()) == suffix
   }
 }
 
@@ -139,145 +96,139 @@ def trim_spaces(text: String): String = {
   text.slice(start, end)
 }
 
-def parse_manifest(manifest: String): Vec[String] = {
-  var fixtures = Vec[String]();
+def join_path(parent: String, child: String): String = {
+  if (parent.is_empty()) {
+    return child
+  }
+  if (text_ends_with(parent, "/")) {
+    return parent.concat(child)
+  }
+  parent.concat("/").concat(child)
+}
+
+def parent_path(path: String): String = {
+  var offset = path.len();
+  while (offset > 0) {
+    offset = offset - 1;
+    if (path.byte_at(offset) == a"/") {
+      return path.slice(0, offset)
+    }
+  }
+  ""
+}
+
+def directive_value(source: String, prefix: String): String = {
   var start: usize = 0;
   var offset: usize = 0;
-  while (offset < manifest.len()) {
-    if (manifest.byte_at(offset) == a"\n") {
-      val line = trim_trailing_cr(manifest.slice(start, offset));
-      if (is_manifest_data_line(line)) {
-        fixtures.push(line)
+  while (offset < source.len()) {
+    if (source.byte_at(offset) == a"\n") {
+      val line = trim_trailing_cr(source.slice(start, offset));
+      if (text_starts_with(line, prefix)) {
+        return trim_spaces(line.slice(prefix.len(), line.len()))
       }
       start = offset + 1
     }
     offset = offset + 1
   }
-  if (start < manifest.len()) {
-    val line = trim_trailing_cr(manifest.slice(start, manifest.len()));
-    if (is_manifest_data_line(line)) {
-      fixtures.push(line)
+  if (start < source.len()) {
+    val line = trim_trailing_cr(source.slice(start, source.len()));
+    if (text_starts_with(line, prefix)) {
+      return trim_spaces(line.slice(prefix.len(), line.len()))
+    }
+  }
+  ""
+}
+
+def cos_files_under(root: String): Vec[String] = {
+  val files = Vec[String]();
+  collect_files(root, ".cos", files);
+  files
+}
+
+def collect_files(path: String, suffix: String, files: &mut Vec[String]): Unit = {
+  if (path_is_file(path)) {
+    if (text_ends_with(path, suffix)) {
+      files.push(path)
+    }
+  } else {
+    if (path_is_dir(path)) {
+      for (entry in read_dir(path)) {
+        collect_files(join_path(path, entry), suffix, files)
+      }
+    }
+  }
+}
+
+def native_parser_fixtures(prefix: String): Vec[NativeParserFixture] = {
+  val fixtures = Vec[NativeParserFixture]();
+  val paths = cos_files_under("fixtures/cosmo0/parser");
+  for (path in paths) {
+    val source = read_file(path);
+    val status = directive_value(source, prefix);
+    if (!status.is_empty()) {
+      fixtures.push(
+        NativeParserFixture(
+          path,
+          path,
+          status,
+          directive_value(source, "/// parser-diagnostic:")
+        )
+      )
     }
   }
   fixtures
 }
 
-def manifest_is_well_formed(fixtures: Vec[String]): Bool = {
-  if (fixtures.is_empty()) {
-    false
-  } else {
-    var has_ok = false;
-    var has_error = false;
-    val ids = Set[String]();
-    for (fixture in fixtures) {
-      val count = field_count(fixture);
-      if (count != 3 and count != 4) {
-        return false
-      }
-      val id = field_at(fixture, 0);
-      val path = field_at(fixture, 1);
-      val status = field_at(fixture, 2);
-      if (id.is_empty() or path.is_empty()) {
-        return false
-      }
-      if (ids.contains(id)) {
-        return false
-      }
-      ids.insert(id);
-      if (status == "ok") {
-        has_ok = true
-      } else {
-        if (status == "error") {
-          has_error = true
-        } else {
-          return false
-        }
-      }
-    }
-    has_ok and has_error
-  }
-}
-
-def diagnostic_manifest_is_well_formed(fixtures: Vec[String]): Bool = {
+def parser_fixtures_are_well_formed(fixtures: Vec[NativeParserFixture]): Bool = {
   if (fixtures.is_empty()) {
     return false
   }
   val ids = Set[String]();
+  var has_ok = false;
+  var has_error = false;
   for (fixture in fixtures) {
-    if (field_count(fixture) != 2) {
+    if (fixture.id.is_empty() or fixture.path.is_empty()) {
       return false
     }
-    val id = field_at(fixture, 0);
-    val path = field_at(fixture, 1);
-    if (id.is_empty() or path.is_empty()) {
+    if (ids.contains(fixture.id)) {
       return false
     }
-    if (ids.contains(id)) {
-      return false
-    }
-    ids.insert(id)
-  }
-  true
-}
-
-def sample_manifest_is_well_formed(samples: Vec[String]): Bool = {
-  if (samples.is_empty()) {
-    return false
-  }
-  val ids = Set[String]();
-  var has_source = false;
-  var has_package = false;
-  for (sample in samples) {
-    if (field_count(sample) != 4) {
-      return false
-    }
-    val id = field_at(sample, 0);
-    val kind = field_at(sample, 1);
-    val path = field_at(sample, 2);
-    val sources = field_at(sample, 3);
-    if (id.is_empty() or path.is_empty() or sources.is_empty()) {
-      return false
-    }
-    if (ids.contains(id)) {
-      return false
-    }
-    ids.insert(id);
-    if (kind == "source") {
-      has_source = true
+    ids.insert(fixture.id);
+    if (fixture.expected_status == "ok") {
+      has_ok = true
     } else {
-      if (kind == "package") {
-        has_package = true
+      if (fixture.expected_status == "error") {
+        has_error = true
       } else {
         return false
       }
     }
   }
-  has_source and has_package
+  has_ok and has_error
 }
 
-def run_fixture(fixture: String): Bool = {
-  val source = read_file(field_at(fixture, 1));
+def run_fixture(fixture: NativeParserFixture): Bool = {
+  val source = read_file(fixture.path);
   val accepted = parse_source(source);
-  if (field_at(fixture, 2) == "ok") {
+  if (fixture.expected_status == "ok") {
     accepted
   } else {
     if (accepted) {
       false
     } else {
-      val expected_code = field_at(fixture, 3);
-      if (expected_code.is_empty()) {
+      if (fixture.diagnostic_code.is_empty()) {
         true
       } else {
-        parse_diagnostic_code(source) == expected_code
+        parse_diagnostic_code(source) == fixture.diagnostic_code
       }
     }
   }
 }
 
-def run_ast_fixture(fixture: String): Bool = {
-  val source = read_file(field_at(fixture, 1));
+def run_ast_fixture(fixture: NativeParserFixture): Bool = {
+  val source = read_file(fixture.path);
   val result = parse_source_ast(source);
-  if (field_at(fixture, 2) == "ok") {
+  if (fixture.expected_status == "ok") {
     result.is_ok() and
       result.has_syntax() and
       result.declaration_len() > 0 and
@@ -287,11 +238,10 @@ def run_ast_fixture(fixture: String): Bool = {
     if (result.is_ok()) {
       false
     } else {
-      val expected_code = field_at(fixture, 3);
-      if (expected_code.is_empty()) {
+      if (fixture.diagnostic_code.is_empty()) {
         true
       } else {
-        result.first_diagnostic_code() == expected_code
+        result.first_diagnostic_code() == fixture.diagnostic_code
       }
     }
   }
@@ -402,8 +352,33 @@ def diagnostic_matches_expected(expected: String, actual: String, source: String
   false
 }
 
-def run_diagnostic_fixture(fixture: String): Bool = {
-  val source = read_file(field_at(fixture, 1));
+def diagnostic_fixture_paths(): Vec[String] = {
+  val fixtures = Vec[String]();
+  for (path in cos_files_under("fixtures/diagnostics")) {
+    val expected = diagnostic_expected_code(read_file(path));
+    if (!expected.is_empty()) {
+      fixtures.push(path)
+    }
+  }
+  fixtures
+}
+
+def paths_are_unique(paths: Vec[String]): Bool = {
+  val ids = Set[String]();
+  for (path in paths) {
+    if (path.is_empty()) {
+      return false
+    }
+    if (ids.contains(path)) {
+      return false
+    }
+    ids.insert(path)
+  }
+  true
+}
+
+def run_diagnostic_fixture(path: String): Bool = {
+  val source = read_file(path);
   val expected = diagnostic_expected_code(source);
   if (expected.is_empty()) {
     return false
@@ -412,47 +387,83 @@ def run_diagnostic_fixture(fixture: String): Bool = {
   diagnostic_matches_expected(expected, actual, source)
 }
 
-def source_list_parses(csv: String): Bool = {
-  var start: usize = 0;
-  var offset: usize = 0;
-  var saw_source = false;
-  while (offset <= csv.len()) {
-    if (offset == csv.len()) {
-      val path = trim_spaces(csv.slice(start, offset));
-      if (!path.is_empty()) {
-        saw_source = true;
-        val parsed = parse_source_ast(read_file(path));
-        if (!parsed.is_ok()) {
-          return false
-        }
-      }
-      start = offset + 1
-    } else {
-      if (csv.byte_at(offset) == a",") {
-        val path = trim_spaces(csv.slice(start, offset));
-        if (!path.is_empty()) {
-          saw_source = true;
-          val parsed = parse_source_ast(read_file(path));
-          if (!parsed.is_ok()) {
-            return false
-          }
-        }
-        start = offset + 1
-      }
-    }
-    offset = offset + 1
+def source_list_parses(paths: Vec[String]): Bool = {
+  if (paths.is_empty()) {
+    return false
   }
-  saw_source
+  for (path in paths) {
+    val parsed = parse_source_ast(read_file(path));
+    if (!parsed.is_ok()) {
+      return false
+    }
+  }
+  true
 }
 
-def run_sample(sample: String): Bool = {
-  val kind = field_at(sample, 1);
-  val sources = field_at(sample, 3);
-  if (kind == "source" or kind == "package") {
-    source_list_parses(sources)
-  } else {
-    false
+def sample_expectation(source: String): String = {
+  directive_value(source, "/// expect:")
+}
+
+def sample_paths(): Vec[String] = {
+  val samples = Vec[String]();
+  for (path in cos_files_under("samples")) {
+    val expectation = sample_expectation(read_file(path));
+    if (expectation == "compile" or expectation == "compile-package") {
+      samples.push(path)
+    }
   }
+  samples
+}
+
+def package_root_for(path: String): String = {
+  var current = parent_path(path);
+  while (!current.is_empty()) {
+    if (path_is_file(join_path(current, "cosmo.json"))) {
+      return current
+    }
+    current = parent_path(current)
+  }
+  ""
+}
+
+def run_sample(path: String): Bool = {
+  val source = read_file(path);
+  val expectation = sample_expectation(source);
+  if (expectation == "compile") {
+    return parse_source_ast(source).is_ok()
+  }
+  if (expectation == "compile-package") {
+    val root = package_root_for(path);
+    if (root.is_empty()) {
+      return false
+    }
+    return source_list_parses(cos_files_under(root))
+  }
+  false
+}
+
+def sample_paths_are_well_formed(paths: Vec[String]): Bool = {
+  if (paths.is_empty()) {
+    return false
+  }
+  if (!paths_are_unique(paths)) {
+    return false
+  }
+  var has_source = false;
+  var has_package = false;
+  for (path in paths) {
+    val expectation = sample_expectation(read_file(path));
+    if (expectation == "compile") {
+      has_source = true
+    } else {
+      if (expectation == "compile-package") {
+        has_package = true
+      } else {
+        return false
+      }
+    }
+  }
+  has_source and has_package
 }
 
 def parser_debug_render_is_deterministic(): Bool = {
@@ -470,54 +481,54 @@ def parser_debug_render_is_deterministic(): Bool = {
 }
 
 def main(): i32 = {
-  val manifest = read_file(parser_fixture_manifest_path());
-  val fixtures = parse_manifest(manifest);
-  if (!manifest_is_well_formed(fixtures)) {
-    println("parser fixture manifest is not well formed");
+  val fixtures = native_parser_fixtures("/// parser-fixture:");
+  if (!parser_fixtures_are_well_formed(fixtures)) {
+    println("parser fixture directives are not well formed");
     return 1
   }
   for (fixture in fixtures) {
     if (!run_fixture(fixture)) {
-      println(field_at(fixture, 0));
+      println(fixture.id);
       return 1
     }
   }
-  val ast_manifest = read_file(parser_ast_fixture_manifest_path());
-  val ast_fixtures = parse_manifest(ast_manifest);
-  if (!manifest_is_well_formed(ast_fixtures)) {
-    println("parser AST fixture manifest is not well formed");
+
+  val ast_fixtures = native_parser_fixtures("/// parser-ast-fixture:");
+  if (!parser_fixtures_are_well_formed(ast_fixtures)) {
+    println("parser AST fixture directives are not well formed");
     return 1
   }
   for (fixture in ast_fixtures) {
     if (!run_ast_fixture(fixture)) {
-      println(field_at(fixture, 0));
+      println(fixture.id);
       return 1
     }
   }
-  val diagnostic_manifest = read_file(diagnostic_fixture_manifest_path());
-  val diagnostic_fixtures = parse_manifest(diagnostic_manifest);
-  if (!diagnostic_manifest_is_well_formed(diagnostic_fixtures)) {
-    println("diagnostic fixture manifest is not well formed");
+
+  val diagnostic_fixtures = diagnostic_fixture_paths();
+  if (diagnostic_fixtures.is_empty() or !paths_are_unique(diagnostic_fixtures)) {
+    println("diagnostic fixture directives are not well formed");
     return 1
   }
   for (fixture in diagnostic_fixtures) {
     if (!run_diagnostic_fixture(fixture)) {
-      println(field_at(fixture, 0));
+      println(fixture);
       return 1
     }
   }
-  val sample_manifest = read_file(sample_manifest_path());
-  val samples = parse_manifest(sample_manifest);
-  if (!sample_manifest_is_well_formed(samples)) {
-    println("sample manifest is not well formed");
+
+  val samples = sample_paths();
+  if (!sample_paths_are_well_formed(samples)) {
+    println("sample directives are not well formed");
     return 1
   }
   for (sample in samples) {
     if (!run_sample(sample)) {
-      println(field_at(sample, 0));
+      println(sample);
       return 1
     }
   }
+
   if (!parser_debug_render_is_deterministic()) {
     println("parser_debug_render_is_deterministic");
     return 1

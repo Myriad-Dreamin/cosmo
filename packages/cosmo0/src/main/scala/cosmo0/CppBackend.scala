@@ -946,6 +946,8 @@ final class CppBackend(
           names.globalName(id)
         case LirFunctionRef(id, _) =>
           names.functionName(id)
+        case LirBorrowValue(value, _) =>
+          s"&${renderValue(value, locals)}"
         case LirDerefValue(value, _) =>
           s"(*${renderValue(value, locals)})"
         case LirFieldRef(receiver, field, _) =>

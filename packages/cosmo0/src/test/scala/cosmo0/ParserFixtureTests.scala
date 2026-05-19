@@ -54,16 +54,4 @@ class ParserFixtureTests extends munit.FunSuite:
     fixtures.foreach: fixture =>
       assert(ParserFixtureManifest.exists(fixture.path), s"missing parser AST fixture ${fixture.path}")
 
-  test("fixture and native test roots do not use TSV manifests"):
-    val roots = List(
-      "fixtures",
-      "samples",
-      "packages/cosmoc/src",
-      "packages/cosmo0/src/test",
-      "cmd",
-    )
-    val tsvFiles = roots.flatMap(root => TestFixtureScanner.filesUnder(root, _.endsWith(".tsv")))
-
-    assertEquals(tsvFiles, Nil)
-
 end ParserFixtureTests

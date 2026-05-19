@@ -152,6 +152,33 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("::cosmo0_runtime::println(z);"))
     assertCxxAccepts(output)
 
+  test("Cosmo0 compile supports mutable references to generic Vec values"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "mut_vec.cos",
+        """def push_label(labels: &mut Vec[String]): Unit = {
+          |  labels.push("ok")
+          |}
+          |
+          |def main(): Unit = {
+          |  val labels = Vec[String]();
+          |  push_label(labels)
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("push_label(std::vector<std::string> * labels)"))
+    assert(output.contains("(*labels).push_back(std::string(\"ok\"));"))
+    assert(output.contains("push_label(&labels);"))
+    assertCxxAccepts(output)
+
   test("backend emits extern-bound std calls and typed runtime requirements"):
     val lowered = Cosmo0().lower(
       SourceFile(
@@ -324,7 +351,7 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("parser_debug_render_is_deterministic"))
     assertCxxAccepts(output)
 
-  test("parser_test executable passes the shared parser fixture manifest"):
+  test("parser_test executable passes shared parser fixture directives"):
     val result = compileParserTestProgram()
 
     assert(
