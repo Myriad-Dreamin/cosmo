@@ -1,23 +1,24 @@
 package cosmo0
 
 class SampleCorpusTests extends munit.FunSuite:
-  test("cosmo0 sample manifest points at existing current samples"):
-    val samples = SampleCorpusManifest.load()
+  test("cosmo0 sample directives discover current samples"):
+    val samples = SampleCorpusScanner.load()
 
-    assert(samples.nonEmpty, "samples/manifest.tsv must list at least one current cosmo0 sample")
-    assertEquals(samples.map(_.id).distinct.length, samples.length)
-    assert(samples.exists(_.kind == SampleCorpusManifest.SampleKind.Source))
-    assert(samples.exists(_.kind == SampleCorpusManifest.SampleKind.Package))
+    assert(samples.nonEmpty, "samples must contain at least one .cos file with a /// expect directive")
+    assertEquals(samples.map(sampleKey).distinct.length, samples.length)
+    assert(samples.exists(_.kind == SampleCorpusScanner.SampleKind.Source))
+    assert(samples.exists(_.kind == SampleCorpusScanner.SampleKind.Package))
 
     samples.foreach: sample =>
-      assert(
-        ParserFixtureManifest.exists(sample.path),
-        s"missing sample ${sample.path}",
-      )
+      sample.kind match
+        case SampleCorpusScanner.SampleKind.Source =>
+          assert(ParserFixtureManifest.exists(sample.path), s"missing sample ${sample.path}")
+        case SampleCorpusScanner.SampleKind.Package =>
+          assert(ParserFixtureManifest.exists(s"${sample.path}/cosmo.json"), s"missing sample package ${sample.path}")
 
   test("current cosmo0 source samples compile"):
-    SampleCorpusManifest.load()
-      .filter(_.kind == SampleCorpusManifest.SampleKind.Source)
+    SampleCorpusScanner.load()
+      .filter(_.kind == SampleCorpusScanner.SampleKind.Source)
       .foreach: sample =>
         val source = SourceFile(sample.path, ParserFixtureManifest.readFile(sample.path))
         val result = Cosmo0().compile(source)
@@ -29,8 +30,8 @@ class SampleCorpusTests extends munit.FunSuite:
         )
 
   test("current cosmo0 package samples compile"):
-    SampleCorpusManifest.load()
-      .filter(_.kind == SampleCorpusManifest.SampleKind.Package)
+    SampleCorpusScanner.load()
+      .filter(_.kind == SampleCorpusScanner.SampleKind.Package)
       .foreach: sample =>
         val result = Cosmo0().compilePackage(sample.path)
 
@@ -40,7 +41,10 @@ class SampleCorpusTests extends munit.FunSuite:
           s"${sample.id} package should compile but got ${result.diagnostics.map(d => d.code -> d.message)}",
         )
 
-object SampleCorpusManifest:
+  private def sampleKey(sample: SampleCorpusScanner.Sample): String =
+    s"${sample.kind}:${sample.path}"
+
+object SampleCorpusScanner:
   enum SampleKind:
     case Source, Package
 
@@ -48,34 +52,64 @@ object SampleCorpusManifest:
       id: String,
       kind: SampleKind,
       path: String,
+      directivePath: String,
   )
 
-  val manifestPath: String =
-    "samples/manifest.tsv"
+  private val rootPath: String =
+    "samples"
+
+  private val CompileDirective = "/// expect: compile"
+  private val CompilePackageDirective = "/// expect: compile-package"
 
   def load(): List[Sample] =
-    ParserFixtureManifest
-      .readFile(manifestPath)
+    TestFixtureScanner
+      .filesUnder(rootPath, _.endsWith(".cos"))
+      .flatMap(sampleFromFile)
+      .groupBy(sample => sample.kind -> sample.path)
+      .values
+      .map(_.head)
+      .toList
+      .sortBy(sample => sample.kind.toString -> sample.path)
+
+  private def sampleFromFile(path: String): Option[Sample] =
+    val directives = ParserFixtureManifest
+      .readFile(path)
       .split("\n")
       .toList
-      .map(_.stripSuffix("\r"))
-      .filter(line => line.nonEmpty && !line.startsWith("#"))
-      .map(parseLine)
+      .map(_.stripSuffix("\r").trim)
+      .filter(_.startsWith("/// expect:"))
 
-  private def parseLine(line: String): Sample =
-    val parts = line.split("\\|", -1).toList
-    assert(parts.length == 3, s"sample manifest line must have 3 fields: $line")
+    directives match
+      case Nil =>
+        None
+      case CompileDirective :: Nil =>
+        Some(Sample(idFromPath(path), SampleKind.Source, path, path))
+      case CompilePackageDirective :: Nil =>
+        val root = packageRootFor(path)
+        Some(Sample(idFromPath(root), SampleKind.Package, root, path))
+      case unknown :: Nil =>
+        throw new IllegalArgumentException(s"$path has unknown sample directive: $unknown")
+      case _ =>
+        throw new IllegalArgumentException(s"$path has multiple sample directives: ${directives.mkString(", ")}")
 
-    Sample(
-      id = parts(0),
-      kind = parseKind(parts(1), line),
-      path = parts(2),
-    )
+  private def packageRootFor(path: String): String =
+    var current = parent(path)
+    while current.nonEmpty do
+      if ParserFixtureManifest.exists(s"$current/cosmo.json") then return current
 
-  private def parseKind(raw: String, line: String): SampleKind =
-    raw match
-      case "source"  => SampleKind.Source
-      case "package" => SampleKind.Package
-      case other =>
-        throw new IllegalArgumentException(s"unknown sample kind '$other' in line: $line")
+      val next = parent(current)
+      if next == current then
+        throw new IllegalArgumentException(s"$path has $CompilePackageDirective but no ancestor cosmo.json")
+      current = next
 
+    throw new IllegalArgumentException(s"$path has $CompilePackageDirective but no ancestor cosmo.json")
+
+  private def parent(path: String): String =
+    val index = path.lastIndexOf('/')
+    if index < 0 then path else path.take(index)
+
+  private def idFromPath(path: String): String =
+    path
+      .stripPrefix(s"$rootPath/")
+      .stripSuffix(".cos")
+      .replace('/', '-')

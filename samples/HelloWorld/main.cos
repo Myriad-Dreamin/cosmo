@@ -1,3 +1,4 @@
+/// expect: compile
 def main(): Unit = {
   println("Hello, cosmo0");
 

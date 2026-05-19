@@ -1,3 +1,4 @@
+/// expect: compile
 def first_byte(text: String): u8 = {
   text.byte_at(0)
 }
@@ -17,4 +18,3 @@ def joined(left: String, right: String): String = {
 def same_text(left: String, right: String): Bool = {
   left == right
 }
-

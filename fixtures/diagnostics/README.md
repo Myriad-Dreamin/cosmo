@@ -2,7 +2,8 @@
 
 Diagnostic fixtures are ordinary `.cos` files that use a multi-file convention
 so one fixture can model a whole package without creating a directory tree per
-case.
+case. Fixtures are discovered by scanning `.cos` files with `/// diag(...)`
+directives.
 
 ```cos
 /// path: main.cos

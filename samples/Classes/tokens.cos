@@ -1,3 +1,4 @@
+/// expect: compile
 class Span {
   val start: usize
   val end: usize
@@ -24,4 +25,3 @@ def build_token(): Token = {
 def token_width(token: Token): usize = {
   token.span.len()
 }
-
