@@ -616,7 +616,12 @@ def verify_intrinsic_call(
 }
 
 def ir_intrinsic_is_known(name: String): Bool = {
-  name == "string.len" or name == "string.size" or name == "string.byte_at" or name == "string.slice"
+  name == "string.len" or
+    name == "string.size" or
+    name == "string.byte_at" or
+    name == "string.slice" or
+    name == "string.concat" or
+    name == "string.is_empty"
 }
 
 def verify_function_callee(

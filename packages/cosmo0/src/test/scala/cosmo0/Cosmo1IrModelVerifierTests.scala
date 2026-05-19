@@ -70,7 +70,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
 
     val compile = IrNodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -145,6 +145,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
       |  val checked = check_module_basic_expressions_with_resolution(parsed.arenas, parsed.root, names, resolved);
       |  if (!names.is_ok()) {
       |    println(names.first_diagnostic_code());
+      |    println(names.first_diagnostic_message());
       |    return false
       |  }
       |  if (!resolved.is_ok()) {
@@ -154,6 +155,8 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
       |  if (!checked.is_ok()) {
       |    println(checked.first_diagnostic_code());
       |    println(checked.first_diagnostic_message());
+      |    println(checked.first_diagnostic_span_text());
+      |    println(source.slice(checked.first_diagnostic_span_start(), checked.first_diagnostic_span_end()));
       |    return false
       |  }
       |

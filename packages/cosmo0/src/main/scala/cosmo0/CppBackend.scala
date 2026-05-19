@@ -113,11 +113,13 @@ final class CppBackend(
 
     private def runtimeIncludes: List[String] =
       val base = List(
+        "#include <algorithm>",
         "#include <cstddef>",
         "#include <cstdint>",
         "#include <cstdio>",
         "#include <cstdlib>",
         "#include <fstream>",
+        "#include <filesystem>",
         "#include <iterator>",
         "#include <map>",
         "#include <nlohmann/json.hpp>",
@@ -214,6 +216,29 @@ final class CppBackend(
         |  std::ostringstream output;
         |  output << input.rdbuf();
         |  return output.str();
+        |}
+        |
+        |inline std::vector<std::string> read_dir(const std::string &path) {
+        |  std::error_code error;
+        |  std::vector<std::string> entries;
+        |  for (const auto &entry : std::filesystem::directory_iterator(path, error)) {
+        |    entries.push_back(entry.path().filename().string());
+        |  }
+        |  if (error) {
+        |    error_exit("cosmo0.runtime.read_dir", path.c_str());
+        |  }
+        |  std::sort(entries.begin(), entries.end());
+        |  return entries;
+        |}
+        |
+        |inline bool path_is_file(const std::string &path) {
+        |  std::error_code error;
+        |  return std::filesystem::is_regular_file(path, error);
+        |}
+        |
+        |inline bool path_is_dir(const std::string &path) {
+        |  std::error_code error;
+        |  return std::filesystem::is_directory(path, error);
         |}
         |
         |inline void write_file(const std::string &path, const std::string &content) {
@@ -921,6 +946,8 @@ final class CppBackend(
           names.globalName(id)
         case LirFunctionRef(id, _) =>
           names.functionName(id)
+        case LirBorrowValue(value, _) =>
+          s"&${renderValue(value, locals)}"
         case LirDerefValue(value, _) =>
           s"(*${renderValue(value, locals)})"
         case LirFieldRef(receiver, field, _) =>
@@ -1627,6 +1654,9 @@ final class CppBackend(
         CppQualifiedSymbol.global("cosmo0_runtime", "print"),
         CppQualifiedSymbol.global("cosmo0_runtime", "println"),
         CppQualifiedSymbol.global("cosmo0_runtime", "read_file"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "read_dir"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "path_is_file"),
+        CppQualifiedSymbol.global("cosmo0_runtime", "path_is_dir"),
         CppQualifiedSymbol.global("cosmo0_runtime", "write_file"),
         CppQualifiedSymbol.global("cosmo0_runtime", "string_data"),
         CppQualifiedSymbol.global("cosmo0_runtime", "string_len"),

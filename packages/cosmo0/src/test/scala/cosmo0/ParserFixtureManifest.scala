@@ -14,11 +14,8 @@ object ParserFixtureManifest:
       diagnosticCode: Option[String],
   )
 
-  val manifestPath: String =
-    "fixtures/cosmo0/parser/manifest.tsv"
-
-  val astManifestPath: String =
-    "fixtures/cosmo0/parser/ast_manifest.tsv"
+  val fixtureRootPath: String =
+    "fixtures/cosmo0/parser"
 
   val parserSourcePath: String =
     "packages/cosmoc/src/parser.cos"
@@ -27,18 +24,15 @@ object ParserFixtureManifest:
     "packages/cosmoc/src/parser_test.cos"
 
   def load(): List[Fixture] =
-    loadFrom(manifestPath)
+    loadFromDirective("/// parser-fixture:")
 
   def loadAst(): List[Fixture] =
-    loadFrom(astManifestPath)
+    loadFromDirective("/// parser-ast-fixture:")
 
-  private def loadFrom(path: String): List[Fixture] =
-    readFile(path)
-      .split("\n")
-      .toList
-      .map(_.stripSuffix("\r"))
-      .filter(line => line.nonEmpty && !line.startsWith("#"))
-      .map(parseLine)
+  private def loadFromDirective(prefix: String): List[Fixture] =
+    TestFixtureScanner
+      .filesUnder(fixtureRootPath, _.endsWith(".cos"))
+      .flatMap(path => fixtureFromDirective(path, prefix))
 
   def readFile(path: String): String =
     NodeFs.readFileSync(path, "utf8").asInstanceOf[String]
@@ -46,23 +40,32 @@ object ParserFixtureManifest:
   def exists(path: String): Boolean =
     NodeFs.existsSync(path)
 
-  private def parseLine(line: String): Fixture =
-    val parts = line.split("\\|", -1).toList
-    assert(
-      parts.length == 3 || parts.length == 4,
-      s"fixture manifest line must have 3 or 4 fields: $line",
-    )
-    val expectedStatus = parts(2) match
-      case "ok"    => ExpectedStatus.Ok
-      case "error" => ExpectedStatus.Error
-      case other =>
-        throw new IllegalArgumentException(s"unknown parser fixture status '$other' in line: $line")
-    Fixture(
-      id = parts(0),
-      path = parts(1),
-      expectedStatus = expectedStatus,
-      diagnosticCode = parts.lift(3).filter(_.nonEmpty),
-    )
+  private def fixtureFromDirective(path: String, prefix: String): Option[Fixture] =
+    val lines = readFile(path).split("\n").toList.map(_.stripSuffix("\r").trim)
+    lines.find(_.startsWith(prefix)).map: line =>
+      val expectedStatus = line.stripPrefix(prefix).trim match
+        case "ok"    => ExpectedStatus.Ok
+        case "error" => ExpectedStatus.Error
+        case other =>
+          throw new IllegalArgumentException(s"unknown parser fixture status '$other' in $path")
+      Fixture(
+        id = idFromPath(path),
+        path = path,
+        expectedStatus = expectedStatus,
+        diagnosticCode = directiveValue(lines, "/// parser-diagnostic:"),
+      )
+
+  private def directiveValue(lines: List[String], prefix: String): Option[String] =
+    lines
+      .find(_.startsWith(prefix))
+      .map(_.stripPrefix(prefix).trim)
+      .filter(_.nonEmpty)
+
+  private def idFromPath(path: String): String =
+    path
+      .stripPrefix(s"$fixtureRootPath/")
+      .stripSuffix(".cos")
+      .replace('/', '-')
 end ParserFixtureManifest
 
 @js.native
