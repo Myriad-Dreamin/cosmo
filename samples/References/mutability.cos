@@ -1,3 +1,4 @@
+/// expect: compile
 class Counter {
   var value: i32
 
@@ -18,4 +19,3 @@ def bump(counter: &mut Counter): i32 = {
 def read(counter: &Counter): i32 = {
   counter.get()
 }
-

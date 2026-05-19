@@ -1,3 +1,4 @@
+/// expect: compile-package
 import math
 
 def main(): Unit = {
@@ -8,4 +9,3 @@ def main(): Unit = {
     println("odd")
   }
 }
-

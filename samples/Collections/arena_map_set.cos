@@ -1,3 +1,4 @@
+/// expect: compile
 class Definition {
   var name: String
 }
@@ -25,4 +26,3 @@ class Index {
     defn.name = name
   }
 }
-
