@@ -229,7 +229,7 @@ Some(
                 semi = Some(
                   value = Apply(
                     lhs = Ident(name = "println"),
-                    rhs = List(TmplApply(lhs = Ident(name = "a"), rhs = List(("a", None)))),
+                    rhs = List(AsciiLit(value = "a")),
                     ct = false
                   )
                 )
@@ -238,7 +238,7 @@ Some(
                 semi = Some(
                   value = Apply(
                     lhs = Ident(name = "println"),
-                    rhs = List(TmplApply(lhs = Ident(name = "c"), rhs = List(("a", None)))),
+                    rhs = List(RuneLit(value = "a")),
                     ct = false
                   )
                 )
@@ -247,7 +247,7 @@ Some(
                 semi = Some(
                   value = Apply(
                     lhs = Ident(name = "println"),
-                    rhs = List(TmplApply(lhs = Ident(name = "c"), rhs = List(("爱", None)))),
+                    rhs = List(RuneLit(value = "爱")),
                     ct = false
                   )
                 )

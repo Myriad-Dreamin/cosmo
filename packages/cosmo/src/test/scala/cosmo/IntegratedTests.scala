@@ -11,12 +11,12 @@ class IntegratedStdTest extends munit.FunSuite:
   }
 
   test("Hello World") {
-    runTestOnFile("samples/HelloWorld/main.cos")
+    runTestOnFile("samples/legacy/HelloWorld/main.cos")
   }
   test("readFile") {
-    runTestOnFile("samples/Io/readFile.cos")
+    runTestOnFile("samples/legacy/Io/readFile.cos")
   }
   test("option".only) {
-    runTestOnFile("samples/Pattern/option.cos")
+    runTestOnFile("samples/legacy/Pattern/option.cos")
   }
 end IntegratedStdTest

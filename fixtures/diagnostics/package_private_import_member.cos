@@ -1,0 +1,12 @@
+/// path: main.cos
+/// diag(error, 1:8): cosmo0.package.missing-import-member
+import hidden from lib
+
+def main(): Unit = {
+  hidden()
+}
+/// end path: main.cos
+/// path: lib.cos
+private def hidden(): Unit = {}
+/// end path: lib.cos
+

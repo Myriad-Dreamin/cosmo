@@ -1,0 +1,21 @@
+class Counter {
+  var value: i32
+
+  def inc(&mut self): Unit = {
+    self.value = self.value + 1
+  }
+
+  def get(&self): i32 = {
+    self.value
+  }
+}
+
+def bump(counter: &mut Counter): i32 = {
+  counter.inc();
+  counter.get()
+}
+
+def read(counter: &Counter): i32 = {
+  counter.get()
+}
+

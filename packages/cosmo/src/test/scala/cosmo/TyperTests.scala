@@ -11,9 +11,9 @@ class TypedTest extends TestBase {
   }
 
   test("Class/basic") {
-    runTestOnFile("fixtures/Type/decls/class.cos-ast")
+    runTestOnFile("fixtures/Type/decls/class.cos")
   }
   test("Func/basic") {
-    runTestOnFile("fixtures/Type/decls/func.cos-ast")
+    runTestOnFile("fixtures/Type/decls/func.cos")
   }
 }

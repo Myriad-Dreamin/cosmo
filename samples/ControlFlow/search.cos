@@ -1,0 +1,30 @@
+class Token {
+  val text: String
+}
+
+def find_text(tokens: Vec[Token], expected: String): Option[Token] = {
+  var index: usize = 0;
+
+  while (index < tokens.len()) {
+    val token = tokens.get(index);
+    if (token.text == expected) {
+      return Option[Token]::Some(token)
+    }
+    index = index + 1
+  }
+
+  Option[Token]::None
+}
+
+def count_non_empty(tokens: Vec[Token]): usize = {
+  var count: usize = 0;
+
+  for (token in tokens) {
+    if (!token.text.is_empty()) {
+      count = count + 1
+    }
+  }
+
+  count
+}
+

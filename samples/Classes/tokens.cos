@@ -1,0 +1,27 @@
+class Span {
+  val start: usize
+  val end: usize
+
+  def len(&self): usize = {
+    self.end - self.start
+  }
+}
+
+class Token {
+  val kind: String
+  val span: Span
+  val text: String
+
+  def is_named(&self, name: String): Bool = {
+    self.text == name
+  }
+}
+
+def build_token(): Token = {
+  Token("ident", Span(0, 4), "name")
+}
+
+def token_width(token: Token): usize = {
+  token.span.len()
+}
+

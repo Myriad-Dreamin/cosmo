@@ -1,0 +1,9 @@
+{
+  "workspace": {
+    "members": [
+      "workspaces/virtual-root/packages/app",
+      "workspaces/virtual-root/packages/lib",
+      "workspaces/package"
+    ]
+  }
+}

@@ -3,7 +3,7 @@ import std.json;
 import std.fs;
 
 def main() = {
-  val content = fs.readFile("samples/DataProcessing/data.json");
+  val content = fs.readFile("samples/legacy/DataProcessing/data.json");
   var j = json.parse(content);
   println(j.apply("flag"));
 }

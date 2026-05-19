@@ -1,3 +1,3 @@
 def main(): Unit = {
-  println("virtual workspace app");
+  println("virtual workspace app")
 }

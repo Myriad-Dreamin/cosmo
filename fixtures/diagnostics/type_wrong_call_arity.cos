@@ -1,0 +1,7 @@
+/// path: main.cos
+/// diag(error, 2:3): cosmo0.type.wrong-arity
+def build(): Vec[i32] = {
+  Vec[i32](1)
+}
+/// end path: main.cos
+

@@ -1,0 +1,7 @@
+/// path: main.cos
+/// diag(error, 2:3): cosmo0.type.unresolved-name
+def main(): i32 = {
+  missing
+}
+/// end path: main.cos
+

@@ -1,0 +1,5 @@
+/// path: main.cos
+/// diag(error, 1:1): cosmo0.type.assignment-mismatch
+var answer: i32 = true
+/// end path: main.cos
+

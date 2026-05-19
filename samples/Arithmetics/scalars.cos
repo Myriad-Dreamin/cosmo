@@ -1,0 +1,20 @@
+def add_i32(left: i32, right: i32): i32 = {
+  left + right
+}
+
+def area(width: usize, height: usize): usize = {
+  width * height
+}
+
+def ratio(total: f64, count: f64): f64 = {
+  total / count
+}
+
+def inside_digit_range(value: i32): Bool = {
+  value >= 0 and value < 10
+}
+
+def should_emit(enabled: Bool, ready: Bool): Bool = {
+  enabled and ready
+}
+

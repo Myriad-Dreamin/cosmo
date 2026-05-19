@@ -1,0 +1,11 @@
+import math
+
+def main(): Unit = {
+  val value = double(21);
+  if (is_even(value)) {
+    println(value)
+  } else {
+    println("odd")
+  }
+}
+

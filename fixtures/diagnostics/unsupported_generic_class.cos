@@ -1,0 +1,5 @@
+/// path: main.cos
+/// diag(error, 1:1): cosmo0.elaborate.unsupported.generic-class
+class Box[T] {}
+/// end path: main.cos
+

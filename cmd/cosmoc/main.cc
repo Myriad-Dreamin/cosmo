@@ -2,7 +2,7 @@
 
 #include <cosmo/std/src/fs.h>
 
-#include "package-less/samples/Pattern/natAdd.cc"
+#include "package-less/samples/legacy/Pattern/natAdd.cc"
 
 using cosmo_std::str::String;
 

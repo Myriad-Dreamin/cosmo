@@ -1,0 +1,28 @@
+class Definition {
+  var name: String
+}
+
+type DefId = Id[Definition]
+
+class Index {
+  var defs: Arena[Definition]
+  var by_name: Map[String, DefId]
+  var seen: Set[String]
+
+  def add(&mut self, name: String): DefId = {
+    val id = self.defs.alloc(Definition(name));
+    self.by_name.insert(name, id);
+    self.seen.insert(name);
+    id
+  }
+
+  def contains(&self, name: String): Bool = {
+    self.by_name.contains(name) and self.seen.contains(name)
+  }
+
+  def rename(&mut self, id: DefId, name: String): Unit = {
+    val defn = self.defs.get_mut(id);
+    defn.name = name
+  }
+}
+

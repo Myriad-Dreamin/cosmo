@@ -1,9 +1,8 @@
+def main(): Unit = {
+  println("Hello, cosmo0");
 
-def main() = {
-  println("Hello, World!")
-
-  val x = 1
-  val y = 2
-  val z = x + y
-  println(z);
+  val left = 1;
+  val right = 2;
+  val total = left + right;
+  println(total)
 }

@@ -1,0 +1,18 @@
+class Diagnostic {
+  val message: String
+}
+
+class Token {
+  val text: String
+}
+
+def describe(result: Result[Token, Diagnostic]): String = {
+  result match {
+    case Result[Token, Diagnostic]::Ok(token) => {
+      token.text
+    }
+    case Result[Token, Diagnostic]::Err(error) => {
+      error.message
+    }
+  }
+}

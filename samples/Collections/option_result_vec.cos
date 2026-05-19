@@ -1,0 +1,30 @@
+class Diagnostic {
+  val message: String
+}
+
+def push_two(): Vec[i32] = {
+  val values = Vec[i32]();
+  values.push(1);
+  values.push(2);
+  values
+}
+
+def first(values: Vec[i32]): Result[i32, Diagnostic] = {
+  if (values.is_empty()) {
+    Result[i32, Diagnostic]::Err(Diagnostic("empty"))
+  } else {
+    Result[i32, Diagnostic]::Ok(values.get(0))
+  }
+}
+
+def unpack(value: Option[i32]): i32 = {
+  value match {
+    case Option[i32]::Some(item) => {
+      item
+    }
+    case Option[i32]::None => {
+      0
+    }
+  }
+}
+

@@ -1,0 +1,12 @@
+# id|kind|path
+hello-world|source|samples/HelloWorld/main.cos
+arithmetics-scalars|source|samples/Arithmetics/scalars.cos
+text-scalars|source|samples/Text/scalars.cos
+classes-tokens|source|samples/Classes/tokens.cos
+control-flow-search|source|samples/ControlFlow/search.cos
+collections-option-result-vec|source|samples/Collections/option_result_vec.cos
+collections-arena-map-set|source|samples/Collections/arena_map_set.cos
+patterns-result-match|source|samples/Patterns/result_match.cos
+references-mutability|source|samples/References/mutability.cos
+packages-basic|package|samples/Packages/basic
+

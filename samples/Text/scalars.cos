@@ -1,0 +1,20 @@
+def first_byte(text: String): u8 = {
+  text.byte_at(0)
+}
+
+def first_char(text: String): Char = {
+  text.char_at(0)
+}
+
+def prefix(text: String): String = {
+  text.slice(0, 1)
+}
+
+def joined(left: String, right: String): String = {
+  left.concat(right)
+}
+
+def same_text(left: String, right: String): Bool = {
+  left == right
+}
+
