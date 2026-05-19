@@ -38,8 +38,9 @@ jobs:
       with:
         node-version: 22
         cache: 'yarn'
-    # Temporarily disabled during large refactor.
-    # - name: Tidy Test Guard
-    #   run: node scripts/testTidy.js
-    # - name: Run tests
-    #   run: sbt test
+    # packages/cosmo tests are reference-only and skipped in build.sbt.
+    # cosmo0/test owns active cosmo0 and packages/cosmoc validation.
+    - name: Run cosmo0 and cosmoc Scala tests
+      run: sbt 'cosmo0/test'
+    - name: Run CLI tests
+      run: node --test cmd/cosmo/*.test.mjs

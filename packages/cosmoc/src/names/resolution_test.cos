@@ -136,6 +136,23 @@ def name_resolution_test_reports_duplicate_definition(): Bool = {
   !resolution.is_ok() and resolution.first_diagnostic_code() == "cosmo1.name.duplicate-definition"
 }
 
+def name_resolution_test_allows_repeated_same_import(): Bool = {
+  var arenas = syntax_arenas();
+
+  val first = arenas.make_import_decl("source.span", make_span(0, 18));
+  val second = arenas.make_import_decl("source.span", make_span(19, 37));
+
+  val declarations = Vec[DeclId]();
+  declarations.push(first);
+  declarations.push(second);
+  val root = arenas.make_module(declarations, make_span(0, 37));
+
+  val resolution = resolve_module_names(arenas, root);
+  resolution.is_ok() and
+    resolution.decl_definitions.contains_key(first) and
+    resolution.decl_definitions.contains_key(second)
+}
+
 def name_resolution_test_reports_unresolved_name(): Bool = {
   var arenas = syntax_arenas();
 
@@ -162,6 +179,9 @@ def main(): i32 = {
     return 1
   }
   if (!name_resolution_test_reports_duplicate_definition()) {
+    return 1
+  }
+  if (!name_resolution_test_allows_repeated_same_import()) {
     return 1
   }
   if (!name_resolution_test_reports_unresolved_name()) {

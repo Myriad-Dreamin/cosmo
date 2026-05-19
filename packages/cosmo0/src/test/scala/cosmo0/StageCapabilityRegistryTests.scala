@@ -16,6 +16,9 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::print")))
     assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
     assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
+    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_dir")))
+    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_file")))
+    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_dir")))
 
   test("Stage 1 profile validates against the default capability availability"):
     val diagnostics = StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1)

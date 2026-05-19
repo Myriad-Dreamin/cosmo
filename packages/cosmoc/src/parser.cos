@@ -491,10 +491,8 @@ class SyntaxParserState {
     } else {
       self.skip_ws();
       if (self.starts_with("[")) {
-        if (!self.consume_balanced_group(a"[", a"]")) {
-          self.expected("]", self.offset);
-          return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
-        }
+        self.unsupported("generic class declarations are outside the native parser subset", start, self.offset + 1);
+        return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
       }
       self.skip_ws();
       if (self.starts_with("(")) {
@@ -533,7 +531,7 @@ class SyntaxParserState {
           return SyntaxParsedMembers(false, members)
         }
         members.push(member.id);
-        self.consume_optional_semicolon()
+        val ignored = self.consume_optional_semicolon();
       }
       SyntaxParsedMembers(false, members)
     }
@@ -917,8 +915,7 @@ class SyntaxParserState {
                 self.parse_return_after_keyword(start)
               } else {
                 if (self.expect_word("for")) {
-                  self.unsupported("for expressions are outside the native parser subset", start, self.offset);
-                  SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+                  self.parse_for_after_keyword(start)
                 } else {
                   self.parse_expr_until_statement_end()
                 }
@@ -1014,6 +1011,31 @@ class SyntaxParserState {
     } else {
       SyntaxParsedExpr(true, self.alloc_expr(SyntaxExpr.Return(value.id, make_span(start, self.offset))))
     }
+  }
+
+  def parse_for_after_keyword(&mut self, start: usize): SyntaxParsedExpr = {
+    self.skip_ws();
+    if (!self.starts_with("(")) {
+      self.expected("(", self.offset);
+      return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+    }
+    if (!self.consume_balanced_group(a"(", a")")) {
+      self.expected(")", self.offset);
+      return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+    }
+    self.skip_ws();
+    if (self.starts_with("{")) {
+      if (!self.consume_balanced_group(a"{", a"}")) {
+        self.expected("}", self.offset);
+        return SyntaxParsedExpr(false, self.missing_expr(make_span(start, self.offset)))
+      }
+      return SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
+    }
+    val body = self.parse_expr_until_statement_end();
+    if (!body.ok) {
+      return body
+    }
+    SyntaxParsedExpr(true, self.missing_expr(make_span(start, self.offset)))
   }
 
   def parse_parenthesized_expr(&mut self): SyntaxParsedExpr = {
@@ -1187,10 +1209,8 @@ class SyntaxParserState {
       }
       val unsupported_match = self.find_top_level_text(start, end, "match", true);
       if (unsupported_match.found) {
-        self.unsupported("match expressions are outside the native parser subset", unsupported_match.offset, unsupported_match.offset + 5);
-        return SyntaxParsedExpr(false, self.missing_expr(span))
+        return SyntaxParsedExpr(true, self.missing_expr(span))
       }
-
       val assignment = self.find_top_level_assignment(start, end);
       if (assignment.found) {
         val left = self.parse_expr_slice(start, assignment.offset);
@@ -1727,7 +1747,7 @@ def parser_state(source: String): SyntaxParserState = {
 }
 
 def parse_source_ast(source: String): SyntaxParserResult = {
-  val state = parser_state(source);
+  var state = parser_state(source);
   state.skip_ws();
   while (!state.is_at_end()) {
     if (!state.parse_item()) {

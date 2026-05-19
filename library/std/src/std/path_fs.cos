@@ -16,6 +16,18 @@ class Fs {
     core0_fs_read_to_string(path)
   }
 
+  def read_dir(&self, path: Path): Result[Vec[String], IoError] = {
+    core0_fs_read_dir(path)
+  }
+
+  def is_file(&self, path: Path): Bool = {
+    path_is_file(core0_path_display(path))
+  }
+
+  def is_dir(&self, path: Path): Bool = {
+    path_is_dir(core0_path_display(path))
+  }
+
   def write_string(&self, path: Path, content: String): Unit = {
     write_file(core0_path_display(path), content)
   }
@@ -41,8 +53,24 @@ def core0_fs_read_to_string(path: Path): Result[String, IoError] = {
   Result[String, IoError]::Ok(read_file(core0_path_display(path)))
 }
 
+def core0_fs_read_dir(path: Path): Result[Vec[String], IoError] = {
+  Result[Vec[String], IoError]::Ok(read_dir(core0_path_display(path)))
+}
+
+def core0_fs_is_file(path: Path): Bool = {
+  core0_fs().is_file(path)
+}
+
+def core0_fs_is_dir(path: Path): Bool = {
+  core0_fs().is_dir(path)
+}
+
 def core0_fs_write_string(path: Path, content: String): Unit = {
   core0_fs().write_string(path, content)
 }
 
+def read_file(path: String): String
+def read_dir(path: String): Vec[String]
+def path_is_file(path: String): Bool
+def path_is_dir(path: String): Bool
 def write_file(path: String, content: String): Unit

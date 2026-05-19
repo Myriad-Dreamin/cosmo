@@ -10,9 +10,12 @@ class SampleCorpusTests extends munit.FunSuite:
     assert(samples.exists(_.kind == SampleCorpusScanner.SampleKind.Package))
 
     samples.foreach: sample =>
+      assert(sample.sourcePaths.nonEmpty, s"${sample.id} must list at least one source path")
+      sample.sourcePaths.foreach(path => assert(ParserFixtureManifest.exists(path), s"missing sample source $path"))
       sample.kind match
         case SampleCorpusScanner.SampleKind.Source =>
           assert(ParserFixtureManifest.exists(sample.path), s"missing sample ${sample.path}")
+          assertEquals(sample.sourcePaths, List(sample.path))
         case SampleCorpusScanner.SampleKind.Package =>
           assert(ParserFixtureManifest.exists(s"${sample.path}/cosmo.json"), s"missing sample package ${sample.path}")
 
@@ -53,9 +56,10 @@ object SampleCorpusScanner:
       kind: SampleKind,
       path: String,
       directivePath: String,
+      sourcePaths: List[String],
   )
 
-  private val rootPath: String =
+  val rootPath: String =
     "samples"
 
   private val CompileDirective = "/// expect: compile"
@@ -83,14 +87,17 @@ object SampleCorpusScanner:
       case Nil =>
         None
       case CompileDirective :: Nil =>
-        Some(Sample(idFromPath(path), SampleKind.Source, path, path))
+        Some(Sample(idFromPath(path), SampleKind.Source, path, path, List(path)))
       case CompilePackageDirective :: Nil =>
         val root = packageRootFor(path)
-        Some(Sample(idFromPath(root), SampleKind.Package, root, path))
+        Some(Sample(idFromPath(root), SampleKind.Package, root, path, packageSourcePaths(root)))
       case unknown :: Nil =>
         throw new IllegalArgumentException(s"$path has unknown sample directive: $unknown")
       case _ =>
         throw new IllegalArgumentException(s"$path has multiple sample directives: ${directives.mkString(", ")}")
+
+  private def packageSourcePaths(root: String): List[String] =
+    TestFixtureScanner.filesUnder(root, _.endsWith(".cos"))
 
   private def packageRootFor(path: String): String =
     var current = parent(path)

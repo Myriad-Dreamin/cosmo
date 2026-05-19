@@ -1,6 +1,14 @@
 import org.scalajs.linker.interface.ModuleSplitStyle
 import org.scalajs.jsenv.nodejs.NodeJSEnv
 
+lazy val root = project
+  .in(file("."))
+  .aggregate(cosmo, cosmo0)
+  .settings(
+    name := "cosmo-root",
+    publish / skip := true,
+  )
+
 lazy val cosmo = project
   .in(file("packages/cosmo"))
   .enablePlugins(ScalaJSPlugin) // Enable the Scala.js plugin in this project
@@ -18,6 +26,11 @@ lazy val cosmo = project
     jsEnv := new NodeJSEnv(
       NodeJSEnv.Config().withArgs(List("--enable-source-maps")),
     ),
+    Test / test := {
+      streams.value.log.info(
+        "packages/cosmo tests are reference-only legacy tests and are skipped by default; active compiler validation runs under cosmo0/test.",
+      )
+    },
 
     /* Depend on the scalajs-dom library.
      * It provides static types for the browser DOM APIs.

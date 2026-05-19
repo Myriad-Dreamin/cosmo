@@ -925,6 +925,19 @@ final class LirTypeChecker(
                 s"${env.function.id} references unknown function $id",
               )
 
+        case LirBorrowValue(inner, mutable) =>
+          checkValue(inner, env, defined)
+          if !borrowableValue(inner) then
+            error(
+              "cosmo0.lir.invalid-borrow",
+              s"${env.function.id} cannot borrow non-place ${inner.valueType.display}",
+            )
+          if mutable && !mutableValue(inner, env) then
+            error(
+              "cosmo0.lir.invalid-mutability",
+              s"${env.function.id} cannot take mutable reference to ${valueDescription(inner)}",
+            )
+
         case LirDerefValue(inner, valueType) =>
           checkValue(inner, env, defined)
           SourceType.dealias(inner.valueType.source) match
@@ -968,6 +981,8 @@ final class LirTypeChecker(
                 s"function reference $id has signature ${signatureDisplay(signature)}, expected ${signatureDisplay(function.signature)}",
               )
           }
+        case LirBorrowValue(inner, _) =>
+          checkModuleValue(inner, declarations)
         case LirDerefValue(inner, _) =>
           checkModuleValue(inner, declarations)
         case LirFieldRef(receiver, _, _) =>
@@ -1164,6 +1179,14 @@ final class LirTypeChecker(
           case _                   => false
         )
 
+    private def borrowableValue(value: LirValue): Boolean =
+      value match
+        case _: LirLocalRef              => true
+        case _: LirGlobalRef             => true
+        case _: LirDerefValue            => true
+        case LirFieldRef(receiver, _, _) => borrowableValue(receiver)
+        case _                           => false
+
     private def successors(
         block: LirBlock,
         knownLabels: Set[LirLabel],
@@ -1210,6 +1233,8 @@ final class LirTypeChecker(
         case LirLocalRef(id, _)    => id.toString
         case LirGlobalRef(id, _)   => id.toString
         case LirFunctionRef(id, _) => id.toString
+        case LirBorrowValue(inner, true) => s"&mut ${valueDescription(inner)}"
+        case LirBorrowValue(inner, false) => s"&${valueDescription(inner)}"
         case LirDerefValue(inner, _) => s"*${valueDescription(inner)}"
         case LirFieldRef(receiver, field, _) => s"${valueDescription(receiver)}.$field"
         case _                     => value.valueType.display

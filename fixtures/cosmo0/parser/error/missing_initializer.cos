@@ -1,1 +1,3 @@
+/// parser-fixture: error
+/// parser-diagnostic: cosmo0.parse.failed
 val =

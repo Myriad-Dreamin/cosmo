@@ -287,107 +287,108 @@ final class LirLowerer(
       val output = callOutput(call.valueType)
       call.callee match
         case name: TypedName if name.path.parts.length == 1 =>
-          val args = call.args.flatMap(lowerExpr)
-          if args.length != call.args.length then None
-          else
-            val calleeName = name.path.parts.head
-            context.functionId(None, calleeName) match
-              case Some(id) =>
-                emit(
-                  LirDirectCall(
-                    output.map(_.id),
-                    id,
-                    args,
-                    LirCallableSignature.fromSource(call.signature),
-                  ),
-                )
-                callResult(output, call.valueType)
-              case None =>
-                if TrustedExternAbi.isTrustedSourceName(calleeName) then
+          lowerCallArgs(call) match
+            case None => None
+            case Some(args) =>
+              val calleeName = name.path.parts.head
+              context.functionId(None, calleeName) match
+                case Some(id) =>
                   emit(
                     LirDirectCall(
                       output.map(_.id),
-                      useSyntheticExtern(calleeName),
+                      id,
                       args,
                       LirCallableSignature.fromSource(call.signature),
                     ),
                   )
                   callResult(output, call.valueType)
-                else
-                  unsupported(call, s"call to non-function value ${name.path.text}")
-                  None
-
-        case select: TypedSelect =>
-          lowerCallReceiver(select.receiver, call.signature.receiver.exists(_.mutable)) match
-            case Some(receiver) =>
-              val args = call.args.flatMap(lowerExpr)
-              if args.length != call.args.length then None
-              else
-                descriptorRefForMethod(receiver.value.valueType.source, select.field) match
-                  case Some(descriptor) =>
+                case None =>
+                  if TrustedExternAbi.isTrustedSourceName(calleeName) then
                     emit(
-                      LirDescriptorIntrinsic(
+                      LirDirectCall(
                         output.map(_.id),
-                        descriptor,
-                        select.field,
-                        receiver.value :: args,
-                        Some(Lir.t(call.valueType)),
-                      ),
-                    )
-                    receiver.copyBack.foreach(copyBack => copyBack())
-                    callResult(output, call.valueType)
-                  case None if isDescriptorBacked(receiver.value.valueType.source) =>
-                    unsupportedDescriptor(call, descriptorName(receiver.value.valueType.source).getOrElse("<unknown>"), select.field)
-                    None
-                  case None =>
-                    emit(
-                      LirLoweredMethodCall(
-                        output.map(_.id),
-                        receiver.value,
-                        select.field,
+                        useSyntheticExtern(calleeName),
                         args,
                         LirCallableSignature.fromSource(call.signature),
                       ),
                     )
-                    receiver.copyBack.foreach(copyBack => copyBack())
                     callResult(output, call.valueType)
+                  else
+                    unsupported(call, s"call to non-function value ${name.path.text}")
+                    None
+
+        case select: TypedSelect =>
+          lowerCallReceiver(select.receiver, call.signature.receiver.exists(_.mutable)) match
+            case Some(receiver) =>
+              lowerCallArgs(call) match
+                case None => None
+                case Some(args) =>
+                  descriptorRefForMethod(receiver.value.valueType.source, select.field) match
+                    case Some(descriptor) =>
+                      val descriptorReceiver = descriptorReceiverArg(receiver.value)
+                      emit(
+                        LirDescriptorIntrinsic(
+                          output.map(_.id),
+                          descriptor,
+                          select.field,
+                          descriptorReceiver :: args,
+                          Some(Lir.t(call.valueType)),
+                        ),
+                      )
+                      receiver.copyBack.foreach(copyBack => copyBack())
+                      callResult(output, call.valueType)
+                    case None if isDescriptorBacked(receiver.value.valueType.source) =>
+                      unsupportedDescriptor(call, descriptorName(receiver.value.valueType.source).getOrElse("<unknown>"), select.field)
+                      None
+                    case None =>
+                      emit(
+                        LirLoweredMethodCall(
+                          output.map(_.id),
+                          receiver.value,
+                          select.field,
+                          args,
+                          LirCallableSignature.fromSource(call.signature),
+                        ),
+                      )
+                      receiver.copyBack.foreach(copyBack => copyBack())
+                      callResult(output, call.valueType)
             case None =>
               None
 
         case constructor: TypedVariantConstructorExpr =>
-          val args = call.args.flatMap(lowerExpr)
-          if args.length != call.args.length then None
-          else
-            output match
-              case Some(binding) =>
-                emit(
-                  LirConstructVariant(
-                    binding.id,
-                    Lir.t(constructor.owner),
-                    constructor.variant,
-                    args,
-                  ),
-                )
-                callResult(output, call.valueType)
-              case None =>
-                report(
-                  "cosmo0.lir.lower.invalid-variant-constructor",
-                  s"variant constructor ${constructor.owner.display}::${constructor.variant} has no LIR output",
-                  constructor.span,
-                )
-                None
+          lowerCallArgs(call) match
+            case None => None
+            case Some(args) =>
+              output match
+                case Some(binding) =>
+                  emit(
+                    LirConstructVariant(
+                      binding.id,
+                      Lir.t(constructor.owner),
+                      constructor.variant,
+                      args,
+                    ),
+                  )
+                  callResult(output, call.valueType)
+                case None =>
+                  report(
+                    "cosmo0.lir.lower.invalid-variant-constructor",
+                    s"variant constructor ${constructor.owner.display}::${constructor.variant} has no LIR output",
+                    constructor.span,
+                  )
+                  None
         case constructor: TypedTypeConstructorExpr =>
-          val args = call.args.flatMap(lowerExpr)
-          if args.length != call.args.length then None
-          else
-            SourceType.dealias(constructor.constructedType) match
-              case SourceType.User(_) =>
-                lowerUserConstructor(constructor, output, args, call.valueType, call.signature)
-              case _ =>
-                lowerDescriptorConstructor(constructor, output, args, call.valueType)
+          lowerCallArgs(call) match
+            case None => None
+            case Some(args) =>
+              SourceType.dealias(constructor.constructedType) match
+                case SourceType.User(_) =>
+                  lowerUserConstructor(constructor, output, args, call.valueType, call.signature)
+                case _ =>
+                  lowerDescriptorConstructor(constructor, output, args, call.valueType)
         case other =>
           unsupported(other, "indirect function call")
-              None
+          None
 
     private def lowerCallReceiver(expr: TypedExpr, mutableReceiver: Boolean): Option[MutableReceiver] =
       if !mutableReceiver then lowerExpr(expr).map(value => MutableReceiver(value, None))
@@ -399,6 +400,52 @@ final class LirLowerer(
             }
           case _ =>
             lowerExpr(expr).map(value => MutableReceiver(value, None))
+
+    private def lowerCallArgs(call: TypedCall): Option[List[LirValue]] =
+      lowerArgs(call.args, call.signature.params.map(_.valueType))
+
+    private def lowerArgs(args: List[TypedExpr], params: List[SourceType]): Option[List[LirValue]] =
+      if args.length != params.length then sequence(args.map(lowerExpr))
+      else sequence(args.zip(params).map { case (arg, expected) => lowerArgument(arg, expected) })
+
+    private def lowerArgument(arg: TypedExpr, expected: SourceType): Option[LirValue] =
+      lowerExpr(arg).flatMap(value => adaptArgument(value, expected, arg.span))
+
+    private def adaptArgument(value: LirValue, expected: SourceType, span: SourceSpan): Option[LirValue] =
+      SourceType.dealias(expected) match
+        case SourceType.Ref(target, mutable) =>
+          SourceType.dealias(value.valueType.source) match
+            case SourceType.Ref(actualTarget, _) if SourceType.same(actualTarget, target) =>
+              Some(value)
+            case actual if SourceType.same(actual, target) && isBorrowable(value) =>
+              Some(LirBorrowValue(value, mutable))
+            case actual if SourceType.same(actual, target) =>
+              report(
+                "cosmo0.lir.lower.unsupported-borrow",
+                s"cannot borrow non-place ${actual.display} as ${expected.display}",
+                span,
+              )
+              None
+            case _ =>
+              Some(value)
+        case _ =>
+          Some(value)
+
+    private def descriptorReceiverArg(value: LirValue): LirValue =
+      SourceType.dealias(value.valueType.source) match
+        case SourceType.Ref(target, _) => LirDerefValue(value, Lir.t(target))
+        case _                         => value
+
+    private def isBorrowable(value: LirValue): Boolean =
+      value match
+        case _: LirLocalRef   => true
+        case _: LirGlobalRef  => true
+        case _: LirDerefValue => true
+        case _: LirFieldRef   => true
+        case _                => false
+
+    private def sequence[A](items: List[Option[A]]): Option[List[A]] =
+      if items.forall(_.isDefined) then Some(items.flatten) else None
 
     private def lowerUserConstructor(
         constructor: TypedTypeConstructorExpr,
@@ -458,6 +505,17 @@ final class LirLowerer(
       opName match
         case None if value.op == "*" =>
           lowerExpr(value.expr).map(arg => LirDerefValue(arg, Lir.t(value.valueType)))
+        case None if value.op == "&" =>
+          lowerExpr(value.expr).flatMap { arg =>
+            if isBorrowable(arg) then Some(LirBorrowValue(arg, mutable = false))
+            else
+              report(
+                "cosmo0.lir.lower.unsupported-borrow",
+                s"cannot borrow non-place ${arg.valueType.display}",
+                value.span,
+              )
+              None
+          }
         case Some(name) =>
           lowerExpr(value.expr).flatMap { arg =>
             descriptorRefForValue(arg.valueType.source, name) match

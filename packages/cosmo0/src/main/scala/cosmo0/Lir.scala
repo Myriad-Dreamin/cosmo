@@ -163,6 +163,13 @@ final case class LirFunctionRef(
       ),
     )
 
+final case class LirBorrowValue(
+    value: LirValue,
+    mutable: Boolean,
+) extends LirValue:
+  def valueType: LirTypeRef =
+    LirTypeRef(SourceType.Ref(value.valueType.source, mutable))
+
 final case class LirDerefValue(
     value: LirValue,
     valueType: LirTypeRef,
@@ -524,6 +531,10 @@ object LirDebugRenderer:
         id.toString
       case LirFunctionRef(id, _) =>
         s"fn $id"
+      case LirBorrowValue(value, true) =>
+        s"&mut ${renderValue(value)}"
+      case LirBorrowValue(value, false) =>
+        s"&${renderValue(value)}"
       case LirDerefValue(value, _) =>
         s"*${renderValue(value)}"
       case LirFieldRef(receiver, field, _) =>

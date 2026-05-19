@@ -47,6 +47,14 @@ class NameResolution {
       self.diagnostics.get(0).code
     }
   }
+
+  def first_diagnostic_message(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      ""
+    } else {
+      self.diagnostics.get(0).message
+    }
+  }
 }
 
 class NameResolver {
@@ -64,6 +72,7 @@ class NameResolver {
   var expr_definitions: Map[ExprId, DefId]
   var type_definitions: Map[TypeExprId, DefId]
   var class_scopes: Map[DefId, ScopeId]
+  var import_paths: Map[String, String]
 
   def install_prelude(&mut self, prelude_scope: ScopeId): Unit = {
     self.define_prelude(prelude_scope, "Unit");
@@ -85,6 +94,9 @@ class NameResolver {
     self.define_prelude(prelude_scope, "Arena");
     self.define_prelude(prelude_scope, "Id");
     self.define_prelude(prelude_scope, "read_file");
+    self.define_prelude(prelude_scope, "read_dir");
+    self.define_prelude(prelude_scope, "path_is_file");
+    self.define_prelude(prelude_scope, "path_is_dir");
     self.define_prelude(prelude_scope, "print");
     self.define_prelude(prelude_scope, "println");
   }
@@ -129,7 +141,33 @@ class NameResolver {
   def collect_import_decl(&mut self, id: DeclId, path: String, span: Span): Unit = {
     val import_name = name_resolution_last_path_segment(path);
     if (!import_name.is_empty()) {
-      self.collect_plain_decl(id, import_name, DefinitionKind.Module, span);
+      val repeated_def = self.repeated_import_definition(import_name, path);
+      repeated_def match {
+        case Option[DefId]::Some(def_id) => {
+          self.decl_definitions.insert(id, def_id);
+        }
+        case Option[DefId]::None => {
+          self.collect_plain_decl(id, import_name, DefinitionKind.Module, span);
+          self.import_paths.insert(import_name, path);
+        }
+      }
+    }
+  }
+
+  def repeated_import_definition(&mut self, import_name: String, path: String): Option[DefId] = {
+    val existing_path = self.import_paths.get(import_name);
+    existing_path match {
+      case Option[String]::Some(previous_path) => {
+        if (previous_path == path) {
+          val symbol = self.symbols.intern(import_name);
+          self.env.resolve_local(self.module_scope, symbol)
+        } else {
+          Option[DefId]::None
+        }
+      }
+      case Option[String]::None => {
+        Option[DefId]::None
+      }
     }
   }
 
@@ -726,7 +764,8 @@ def resolve_module_names(arenas: SyntaxArenas, module_id: ModuleId): NameResolut
     Map[ExprId, DefId](),
     Map[ExprId, DefId](),
     Map[TypeExprId, DefId](),
-    Map[DefId, ScopeId]()
+    Map[DefId, ScopeId](),
+    Map[String, String]()
   );
   resolver.install_prelude(prelude_scope);
   resolver.collect_module(module_id);

@@ -1,5 +1,0 @@
-# cosmo.parser-ast-fixtures.v1
-# id|source_path|expected_status|optional_diagnostic_code
-parser_ast_subset_ok|fixtures/cosmo0/parser/ok/parser_ast_subset.cos|ok
-parser_source_ast_ok|packages/cosmoc/src/parser.cos|ok
-parser_ast_unsupported_lambda|fixtures/cosmo0/parser/error/unsupported_lambda.cos|error|cosmo1.parser.unsupported-syntax

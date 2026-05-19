@@ -1,0 +1,5 @@
+/// parser-fixture: ok
+/// parser-ast-fixture: ok
+def push_labels(labels: &mut Vec[String]): Unit = {
+  labels.push("ok")
+}

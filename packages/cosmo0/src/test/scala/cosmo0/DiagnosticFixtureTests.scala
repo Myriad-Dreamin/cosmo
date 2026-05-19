@@ -10,6 +10,7 @@ class DiagnosticFixtureTests extends munit.FunSuite:
     assertEquals(fixtures.map(_.id).distinct.length, fixtures.length)
 
     fixtures.foreach: fixture =>
+      assert(ParserFixtureManifest.exists(fixture.path), s"missing diagnostic fixture ${fixture.path}")
       DiagnosticFixtureParser.parse(fixture)
 
   test("cosmo0 diagnostic fixtures report expected diagnostics"):
@@ -98,7 +99,7 @@ final case class ExpectedDiagnostic(
     s"$path:$line:$column $text"
 
 object DiagnosticFixtureScanner:
-  private val rootPath: String =
+  val rootPath: String =
     "fixtures/diagnostics"
 
   def load(): List[DiagnosticFixtureRef] =

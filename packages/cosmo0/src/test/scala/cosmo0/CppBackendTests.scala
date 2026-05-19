@@ -9,6 +9,12 @@ class CppBackendTests extends munit.FunSuite:
   private val stringVecType = SourceType.Standard("Vec", List(SourceType.String))
   private val spanSourcePath = "packages/cosmoc/src/source/span.cos"
   private val syntaxAstSourcePath = "packages/cosmoc/src/syntax/ast.cos"
+  private val symbolSourcePath = "packages/cosmoc/src/names/symbol.cos"
+  private val scopeSourcePath = "packages/cosmoc/src/names/scope.cos"
+  private val resolutionSourcePath = "packages/cosmoc/src/names/resolution.cos"
+  private val typeModelSourcePath = "packages/cosmoc/src/types/model.cos"
+  private val declarationResolutionSourcePath = "packages/cosmoc/src/types/declaration_resolution.cos"
+  private val typeCheckSourcePath = "packages/cosmoc/src/types/check.cos"
 
   test("backend rejects structurally invalid LIR at the compile boundary"):
     val result = CppBackend().emit(
@@ -144,6 +150,33 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("int main()"))
     assert(output.contains("::cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
     assert(output.contains("::cosmo0_runtime::println(z);"))
+    assertCxxAccepts(output)
+
+  test("Cosmo0 compile supports mutable references to generic Vec values"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "mut_vec.cos",
+        """def push_label(labels: &mut Vec[String]): Unit = {
+          |  labels.push("ok")
+          |}
+          |
+          |def main(): Unit = {
+          |  val labels = Vec[String]();
+          |  push_label(labels)
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("push_label(std::vector<std::string> * labels)"))
+    assert(output.contains("(*labels).push_back(std::string(\"ok\"));"))
+    assert(output.contains("push_label(&labels);"))
     assertCxxAccepts(output)
 
   test("backend emits extern-bound std calls and typed runtime requirements"):
@@ -318,7 +351,7 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("parser_debug_render_is_deterministic"))
     assertCxxAccepts(output)
 
-  test("parser_test executable passes the shared parser fixture manifest"):
+  test("parser_test executable passes shared parser fixture directives"):
     val result = compileParserTestProgram()
 
     assert(
@@ -334,7 +367,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -393,7 +426,7 @@ class CppBackendTests extends munit.FunSuite:
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -421,6 +454,12 @@ class CppBackendTests extends munit.FunSuite:
           ParserFixtureManifest.readFile(spanSourcePath),
           ParserFixtureManifest.readFile(syntaxAstSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+          ParserFixtureManifest.readFile(symbolSourcePath),
+          ParserFixtureManifest.readFile(scopeSourcePath),
+          ParserFixtureManifest.readFile(resolutionSourcePath),
+          ParserFixtureManifest.readFile(typeModelSourcePath),
+          ParserFixtureManifest.readFile(declarationResolutionSourcePath),
+          ParserFixtureManifest.readFile(typeCheckSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
         ).mkString("\n"),
       ),

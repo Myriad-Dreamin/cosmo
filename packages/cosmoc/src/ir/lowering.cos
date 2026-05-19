@@ -365,6 +365,9 @@ class IrFunctionBodyBuilder {
       case TypedExprKind.Binary(op, left, right) => {
         self.lower_binary(op, left, right, typed.typ)
       }
+      case TypedExprKind.Unary(op, value) => {
+        self.lower_unary(op, value, typed.typ)
+      }
       case TypedExprKind.Return(value) => {
         val lowered = self.lower_expr(value);
         self.terminate_return(lowered);
@@ -596,6 +599,12 @@ class IrFunctionBodyBuilder {
       return Option[IrValue]::None
     }
 
+    if (ir_constructor_name_is_variant(name)) {
+      val output = self.declare_temp(typ);
+      self.operations.push(IrOperation.ConstructType(output.id, typ, Vec[IrFieldInit]()));
+      return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+    }
+
     val fields = self.construct_field_inits(name, lowered_args);
     if (fields.len() != lowered_args.len()) {
       return Option[IrValue]::None
@@ -759,6 +768,27 @@ class IrFunctionBodyBuilder {
             Option[IrValue]::None
           }
         }
+      }
+      case Option[IrValue]::None => {
+        Option[IrValue]::None
+      }
+    }
+  }
+
+  def lower_unary(&mut self, op: String, value: ExprId, typ: TypeId): Option[IrValue] = {
+    val maybe_value = self.lower_expr(value);
+    maybe_value match {
+      case Option[IrValue]::Some(lowered_value) => {
+        val output = self.declare_temp(typ);
+        if (op == "!") {
+          self.operations.push(IrOperation.Binary(output.id, "==", lowered_value, IrValue.BoolLiteral(false, typ), typ));
+          return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+        }
+        if (op == "-") {
+          self.operations.push(IrOperation.Binary(output.id, "-", IrValue.NumericLiteral("0", typ), lowered_value, typ));
+          return Option[IrValue]::Some(IrValue.Local(output.id, typ))
+        }
+        Option[IrValue]::None
       }
       case Option[IrValue]::None => {
         Option[IrValue]::None
@@ -1020,6 +1050,12 @@ class IrFunctionBodyBuilder {
     }
     if (field == "slice") {
       return "string.slice"
+    }
+    if (field == "concat") {
+      return "string.concat"
+    }
+    if (field == "is_empty") {
+      return "string.is_empty"
     }
     ""
   }
@@ -1400,6 +1436,17 @@ def ir_digit_text(value: usize): String = {
     return "8"
   }
   "9"
+}
+
+def ir_constructor_name_is_variant(name: String): Bool = {
+  var offset: usize = 0;
+  while (offset < name.len()) {
+    if (name.byte_at(offset) == a".") {
+      return true
+    }
+    offset = offset + 1
+  }
+  false
 }
 
 def lower_module_declarations(

@@ -1017,19 +1017,19 @@ def syntax_arenas(): SyntaxArenas = {
 }
 
 def syntax_ast_arena_smoke(): Bool = {
-  val arenas = syntax_arenas();
+  var arenas = syntax_arenas();
   val id = arenas.alloc_expr(SyntaxExpr.Name("main", make_span(0, 4)));
   arenas.expr_len() == 1
 }
 
 def syntax_numeric_literal_ast_smoke(): Bool = {
-  val arenas = syntax_arenas();
+  var arenas = syntax_arenas();
   val id = arenas.alloc_expr(SyntaxExpr.NumericLiteral("999999999999999999999999999999", make_span(0, 30)));
   arenas.expr_len() == 1
 }
 
 def syntax_declaration_ast_smoke(): Bool = {
-  val arenas = syntax_arenas();
+  var arenas = syntax_arenas();
   val typ = arenas.alloc_type(SyntaxType.Name("i32", make_span(12, 15)));
   val missing = arenas.alloc_expr(SyntaxExpr.Missing(make_span(0, 0)));
   val decl = arenas.alloc_decl(SyntaxDecl.Value("answer", false, typ, missing, make_span(0, 15)));

@@ -108,6 +108,12 @@ object TrustedExternAbi:
     CppQualifiedSymbol.global("cosmo0_runtime", "println")
   private val readFileSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "read_file")
+  private val readDirSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "read_dir")
+  private val pathIsFileSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "path_is_file")
+  private val pathIsDirSymbol =
+    CppQualifiedSymbol.global("cosmo0_runtime", "path_is_dir")
   private val writeFileSymbol =
     CppQualifiedSymbol.global("cosmo0_runtime", "write_file")
   private val stringDataSymbol =
@@ -205,6 +211,36 @@ object TrustedExternAbi:
         List(
           BackendRequirement.runtimeSymbol(readFileSymbol),
           BackendRequirement.include("<fstream>"),
+        ),
+      ),
+      TrustedBinding(
+        "read_dir",
+        List(SourceType.String),
+        SourceType.Standard("Vec", List(SourceType.String)),
+        readDirSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(readDirSymbol),
+          BackendRequirement.include("<filesystem>"),
+        ),
+      ),
+      TrustedBinding(
+        "path_is_file",
+        List(SourceType.String),
+        SourceType.Bool,
+        pathIsFileSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(pathIsFileSymbol),
+          BackendRequirement.include("<filesystem>"),
+        ),
+      ),
+      TrustedBinding(
+        "path_is_dir",
+        List(SourceType.String),
+        SourceType.Bool,
+        pathIsDirSymbol,
+        List(
+          BackendRequirement.runtimeSymbol(pathIsDirSymbol),
+          BackendRequirement.include("<filesystem>"),
         ),
       ),
       TrustedBinding(

@@ -30,11 +30,11 @@ test("package run parser forwards args after run without requiring --", () => {
       "packages/cosmoc",
       "run",
       "--manifest",
-      "fixtures/parser.tsv",
+      "fixtures/parser.manifest",
     ]),
     {
       packagePath: "packages/cosmoc",
-      runArgs: ["--manifest", "fixtures/parser.tsv"],
+      runArgs: ["--manifest", "fixtures/parser.manifest"],
     },
   );
 });

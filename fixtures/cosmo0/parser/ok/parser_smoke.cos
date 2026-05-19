@@ -1,3 +1,4 @@
+/// parser-fixture: ok
 class ParserSmoke {
   val text: String
 }

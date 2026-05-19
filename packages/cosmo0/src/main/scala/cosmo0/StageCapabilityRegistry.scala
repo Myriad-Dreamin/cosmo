@@ -75,8 +75,12 @@ object StageCapabilityRegistry:
         BackendRequirement.runtimeSymbol("cosmo0_runtime::print"),
         BackendRequirement.runtimeSymbol("cosmo0_runtime::println"),
         BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file"),
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::read_dir"),
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_file"),
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_dir"),
         BackendRequirement.include("<cstdio>"),
         BackendRequirement.include("<fstream>"),
+        BackendRequirement.include("<filesystem>"),
       ),
     )
 
