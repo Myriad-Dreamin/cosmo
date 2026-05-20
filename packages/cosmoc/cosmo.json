@@ -7,7 +7,9 @@
     "../../library/std"
   ],
   "sources": [
+    "main.cos",
     "driver/config.cos",
+    "driver/command.cos",
     "driver/diagnostic.cos",
     "source/span.cos",
     "lex/token.cos",
