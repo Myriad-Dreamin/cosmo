@@ -87,7 +87,13 @@ object SourceType:
       case _ => false
 
   def assignable(from: SourceType, to: SourceType): Boolean =
-    same(from, to)
+    same(from, to) ||
+      ((dealias(from), dealias(to)) match
+        case (Ref(fromTarget, true), Ref(toTarget, false)) =>
+          same(fromTarget, toTarget)
+        case _ =>
+          false
+      )
 
   def isInteger(value: SourceType): Boolean =
     dealias(value) match

@@ -125,6 +125,11 @@ class IrFunctionEnv {
   val defined: Vec[IrLocalId]
 }
 
+class IrVerifierEnv {
+  val function_param_counts: Map[String, usize]
+  val fields: Map[String, IrField]
+}
+
 def ir_decl_id(value: String): IrDeclId = {
   IrDeclId(value)
 }
@@ -164,33 +169,72 @@ def ir_value_type(value: IrValue): TypeId = {
   }
 }
 
-def verify_ir_module(types: TypeStore, ir_module: IrModule): IrVerifyResult = {
+def verify_ir_module(types: &TypeStore, ir_module: &IrModule): IrVerifyResult = {
   val diagnostics = Vec[IrDiagnostic]();
+  val env = build_ir_verifier_env(ir_module);
   verify_duplicate_declarations(ir_module, diagnostics);
-  for (declaration in ir_module.declarations) {
+  val declarations: &Vec[IrDeclaration] = &ir_module.declarations;
+  var index: usize = 0;
+  while (index < declarations.len()) {
+    val declaration = declarations.get(index);
     declaration match {
       case IrDeclaration.Type(type_decl) => {
         verify_ir_type(type_decl, diagnostics)
       }
       case IrDeclaration.Function(fn_value) => {
-        verify_ir_function(types, ir_module, fn_value, diagnostics)
+        verify_ir_function(types, env, ir_module, fn_value, diagnostics)
       }
     }
+    index = index + 1
   }
   IrVerifyResult(diagnostics)
 }
 
-def verify_duplicate_declarations(ir_module: IrModule, diagnostics: Vec[IrDiagnostic]): Unit = {
+def build_ir_verifier_env(ir_module: &IrModule): IrVerifierEnv = {
+  var function_param_counts = Map[String, usize]();
+  var fields = Map[String, IrField]();
+  val declarations: &Vec[IrDeclaration] = &ir_module.declarations;
   var index: usize = 0;
-  while (index < ir_module.declarations.len()) {
-    val current = declaration_id(ir_module.declarations.get(index));
-    var next = index + 1;
-    while (next < ir_module.declarations.len()) {
-      val other = declaration_id(ir_module.declarations.get(next));
-      if (current.value == other.value) {
-        ir_error(diagnostics, "cosmo1.ir.duplicate-declaration", "duplicate declaration ".concat(current.value))
+  while (index < declarations.len()) {
+    val declaration = declarations.get(index);
+    declaration match {
+      case IrDeclaration.Type(type_decl) => {
+        val type_fields: &Vec[IrField] = &type_decl.fields;
+        var field_index: usize = 0;
+        while (field_index < type_fields.len()) {
+          val field = type_fields.get(field_index);
+          val key = ir_field_key(type_decl.name, field.name);
+          if (!fields.contains_key(key)) {
+            fields.insert(key, field);
+          }
+          field_index = field_index + 1
+        }
       }
-      next = next + 1
+      case IrDeclaration.Function(fn_value) => {
+        if (!function_param_counts.contains_key(fn_value.id.value)) {
+          function_param_counts.insert(fn_value.id.value, fn_value.params.len());
+        }
+      }
+    }
+    index = index + 1
+  }
+  IrVerifierEnv(function_param_counts, fields)
+}
+
+def ir_field_key(type_name: String, field_name: String): String = {
+  type_name.concat(".").concat(field_name)
+}
+
+def verify_duplicate_declarations(ir_module: &IrModule, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
+  var seen = Set[String]();
+  val declarations: &Vec[IrDeclaration] = &ir_module.declarations;
+  var index: usize = 0;
+  while (index < declarations.len()) {
+    val current = declaration_id(declarations.get(index));
+    if (seen.contains(current.value)) {
+      ir_error(diagnostics, "cosmo1.ir.duplicate-declaration", "duplicate declaration ".concat(current.value))
+    } else {
+      seen.insert(current.value)
     }
     index = index + 1
   }
@@ -207,13 +251,14 @@ def declaration_id(declaration: IrDeclaration): IrDeclId = {
   }
 }
 
-def verify_ir_type(type_decl: IrTypeDecl, diagnostics: Vec[IrDiagnostic]): Unit = {
+def verify_ir_type(type_decl: &IrTypeDecl, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
+  val fields: &Vec[IrField] = &type_decl.fields;
   var index: usize = 0;
-  while (index < type_decl.fields.len()) {
-    val current = type_decl.fields.get(index).name;
+  while (index < fields.len()) {
+    val current = fields.get(index).name;
     var next = index + 1;
-    while (next < type_decl.fields.len()) {
-      val other = type_decl.fields.get(next).name;
+    while (next < fields.len()) {
+      val other = fields.get(next).name;
       if (current == other) {
         ir_error(diagnostics, "cosmo1.ir.duplicate-field", "duplicate field ".concat(current))
       }
@@ -224,12 +269,14 @@ def verify_ir_type(type_decl: IrTypeDecl, diagnostics: Vec[IrDiagnostic]): Unit 
 }
 
 def verify_ir_function(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  diagnostics: Vec[IrDiagnostic]
+  types: &TypeStore,
+  env: &IrVerifierEnv,
+  ir_module: &IrModule,
+  fn_value: &IrFunction,
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
-  if (fn_value.blocks.is_empty()) {
+  val blocks: &Vec[IrBlock] = &fn_value.blocks;
+  if (blocks.is_empty()) {
     ir_error(diagnostics, "cosmo1.ir.missing-block", "fn_value ".concat(fn_value.id.value).concat(" has no blocks"));
   } else {
     verify_duplicate_params(fn_value, diagnostics);
@@ -237,19 +284,25 @@ def verify_ir_function(
     verify_duplicate_blocks(fn_value, diagnostics);
     verify_branch_targets(fn_value, diagnostics);
 
-    for (block in fn_value.blocks) {
-      verify_ir_block(types, ir_module, fn_value, block, diagnostics)
+    val function_env = initial_function_env(fn_value);
+    define_function_operation_outputs(fn_value, function_env);
+    var index: usize = 0;
+    while (index < blocks.len()) {
+      val block = blocks.get(index);
+      verify_ir_block(types, env, ir_module, fn_value, block, function_env, diagnostics);
+      index = index + 1
     }
   }
 }
 
-def verify_duplicate_params(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+def verify_duplicate_params(fn_value: &IrFunction, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
+  val params: &Vec[IrParam] = &fn_value.params;
   var index: usize = 0;
-  while (index < fn_value.params.len()) {
-    val current = fn_value.params.get(index).id;
+  while (index < params.len()) {
+    val current = params.get(index).id;
     var next = index + 1;
-    while (next < fn_value.params.len()) {
-      val other = fn_value.params.get(next).id;
+    while (next < params.len()) {
+      val other = params.get(next).id;
       if (current.value == other.value) {
         ir_error(diagnostics, "cosmo1.ir.duplicate-local", "duplicate parameter ".concat(current.value))
       }
@@ -259,16 +312,17 @@ def verify_duplicate_params(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]
   }
 }
 
-def verify_duplicate_locals(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+def verify_duplicate_locals(fn_value: &IrFunction, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
+  val locals: &Vec[IrLocal] = &fn_value.locals;
   var index: usize = 0;
-  while (index < fn_value.locals.len()) {
-    val current = fn_value.locals.get(index).id;
+  while (index < locals.len()) {
+    val current = locals.get(index).id;
     if (function_has_param(fn_value, current)) {
       ir_error(diagnostics, "cosmo1.ir.duplicate-local", "local duplicates parameter ".concat(current.value))
     }
     var next = index + 1;
-    while (next < fn_value.locals.len()) {
-      val other = fn_value.locals.get(next).id;
+    while (next < locals.len()) {
+      val other = locals.get(next).id;
       if (current.value == other.value) {
         ir_error(diagnostics, "cosmo1.ir.duplicate-local", "duplicate local ".concat(current.value))
       }
@@ -278,13 +332,14 @@ def verify_duplicate_locals(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]
   }
 }
 
-def verify_duplicate_blocks(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
+def verify_duplicate_blocks(fn_value: &IrFunction, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
+  val blocks: &Vec[IrBlock] = &fn_value.blocks;
   var index: usize = 0;
-  while (index < fn_value.blocks.len()) {
-    val current = fn_value.blocks.get(index).id;
+  while (index < blocks.len()) {
+    val current = blocks.get(index).id;
     var next = index + 1;
-    while (next < fn_value.blocks.len()) {
-      val other = fn_value.blocks.get(next).id;
+    while (next < blocks.len()) {
+      val other = blocks.get(next).id;
       if (current.value == other.value) {
         ir_error(diagnostics, "cosmo1.ir.duplicate-block", "duplicate block ".concat(current.value))
       }
@@ -294,8 +349,11 @@ def verify_duplicate_blocks(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]
   }
 }
 
-def verify_branch_targets(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]): Unit = {
-  for (block in fn_value.blocks) {
+def verify_branch_targets(fn_value: &IrFunction, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
+  val blocks: &Vec[IrBlock] = &fn_value.blocks;
+  var index: usize = 0;
+  while (index < blocks.len()) {
+    val block = blocks.get(index);
     block.terminator match {
       case IrTerminator.Return(value) => {
       }
@@ -309,47 +367,63 @@ def verify_branch_targets(fn_value: IrFunction, diagnostics: Vec[IrDiagnostic]):
       case IrTerminator.Unreachable(reason) => {
       }
     }
+    index = index + 1
   }
 }
 
-def verify_block_target(fn_value: IrFunction, target: IrBlockId, diagnostics: Vec[IrDiagnostic]): Unit = {
+def verify_block_target(fn_value: &IrFunction, target: IrBlockId, diagnostics: &mut Vec[IrDiagnostic]): Unit = {
   if (!function_has_block(fn_value, target)) {
     ir_error(diagnostics, "cosmo1.ir.invalid-branch", "missing block ".concat(target.value))
   }
 }
 
 def verify_ir_block(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  block: IrBlock,
-  diagnostics: Vec[IrDiagnostic]
+  types: &TypeStore,
+  env: &IrVerifierEnv,
+  ir_module: &IrModule,
+  fn_value: &IrFunction,
+  block: &IrBlock,
+  function_env: &mut IrFunctionEnv,
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
-  val env = initial_function_env(fn_value);
-  define_function_operation_outputs(fn_value, env);
-  for (operation in block.operations) {
-    verify_ir_operation(types, ir_module, fn_value, env, operation, diagnostics)
+  val operations: &Vec[IrOperation] = &block.operations;
+  var index: usize = 0;
+  while (index < operations.len()) {
+    val operation = operations.get(index);
+    verify_ir_operation(types, env, ir_module, fn_value, function_env, operation, diagnostics);
+    index = index + 1
   }
-  verify_ir_terminator(types, fn_value, env, block.terminator, diagnostics)
+  verify_ir_terminator(types, fn_value, function_env, block.terminator, diagnostics)
 }
 
-def initial_function_env(fn_value: IrFunction): IrFunctionEnv = {
+def initial_function_env(fn_value: &IrFunction): IrFunctionEnv = {
   val defined = Vec[IrLocalId]();
-  for (param in fn_value.params) {
+  val params: &Vec[IrParam] = &fn_value.params;
+  var index: usize = 0;
+  while (index < params.len()) {
+    val param = params.get(index);
     defined.push(param.id)
+    index = index + 1
   }
   IrFunctionEnv(defined)
 }
 
-def define_function_operation_outputs(fn_value: IrFunction, env: IrFunctionEnv): Unit = {
-  for (block in fn_value.blocks) {
-    for (operation in block.operations) {
-      define_operation_output(operation, env)
+def define_function_operation_outputs(fn_value: &IrFunction, env: &mut IrFunctionEnv): Unit = {
+  val blocks: &Vec[IrBlock] = &fn_value.blocks;
+  var block_index: usize = 0;
+  while (block_index < blocks.len()) {
+    val block = blocks.get(block_index);
+    val operations: &Vec[IrOperation] = &block.operations;
+    var operation_index: usize = 0;
+    while (operation_index < operations.len()) {
+      define_operation_output(operations.get(operation_index), env);
+      operation_index = operation_index + 1
     }
+    block_index = block_index + 1
   }
 }
 
-def define_operation_output(operation: IrOperation, env: IrFunctionEnv): Unit = {
+def define_operation_output(operation: IrOperation, env: &mut IrFunctionEnv): Unit = {
   operation match {
     case IrOperation.InitLocal(target, value) => {
       define_local(env, target)
@@ -377,7 +451,7 @@ def define_operation_output(operation: IrOperation, env: IrFunctionEnv): Unit = 
   }
 }
 
-def define_optional_local(env: IrFunctionEnv, output: Option[IrLocalId]): Unit = {
+def define_optional_local(env: &mut IrFunctionEnv, output: Option[IrLocalId]): Unit = {
   output match {
     case Option[IrLocalId]::Some(target) => {
       define_local(env, target)
@@ -388,12 +462,13 @@ def define_optional_local(env: IrFunctionEnv, output: Option[IrLocalId]): Unit =
 }
 
 def verify_ir_operation(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  verifier_env: &IrVerifierEnv,
+  ir_module: &IrModule,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   operation: IrOperation,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   operation match {
     case IrOperation.InitLocal(target, value) => {
@@ -407,19 +482,19 @@ def verify_ir_operation(
       define_local(env, target)
     }
     case IrOperation.ConstructType(output, owner, fields) => {
-      verify_construct_type(types, ir_module, fn_value, env, output, owner, fields, diagnostics)
+      verify_construct_type(types, verifier_env, fn_value, env, output, owner, fields, diagnostics)
     }
     case IrOperation.DirectCall(output, callee, args, signature) => {
-      verify_call(types, ir_module, fn_value, env, output, callee, args, signature, diagnostics)
+      verify_call(types, verifier_env, ir_module, fn_value, env, output, callee, args, signature, diagnostics)
     }
     case IrOperation.IntrinsicCall(output, name, args, signature) => {
       verify_intrinsic_call(types, fn_value, env, output, name, args, signature, diagnostics)
     }
     case IrOperation.FieldGet(output, receiver, field, result_type) => {
-      verify_field_get(types, ir_module, fn_value, env, output, receiver, field, result_type, diagnostics)
+      verify_field_get(types, verifier_env, fn_value, env, output, receiver, field, result_type, diagnostics)
     }
     case IrOperation.FieldSet(receiver, field, value) => {
-      verify_field_set(types, ir_module, fn_value, env, receiver, field, value, diagnostics)
+      verify_field_set(types, verifier_env, fn_value, env, receiver, field, value, diagnostics)
     }
     case IrOperation.Binary(output, op, left, right, result_type) => {
       verify_binary(types, fn_value, env, output, op, left, right, result_type, diagnostics)
@@ -428,20 +503,20 @@ def verify_ir_operation(
 }
 
 def verify_construct_type(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  verifier_env: &IrVerifierEnv,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   output: IrLocalId,
   owner: TypeId,
-  fields: Vec[IrFieldInit],
-  diagnostics: Vec[IrDiagnostic]
+  fields: &Vec[IrFieldInit],
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   var index: usize = 0;
   while (index < fields.len()) {
     val init = fields.get(index);
     verify_value(types, fn_value, env, init.value, diagnostics);
-    val maybe_field = find_ir_field(types, ir_module, owner, init.name);
+    val maybe_field = find_ir_field(types, verifier_env, owner, init.name);
     maybe_field match {
       case Option[IrField]::Some(field_value) => {
         if (!ir_type_equals(types, field_value.typ, ir_value_type(init.value))) {
@@ -459,18 +534,18 @@ def verify_construct_type(
 }
 
 def verify_field_get(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  verifier_env: &IrVerifierEnv,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   output: IrLocalId,
   receiver: IrValue,
   field: String,
   result_type: TypeId,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   verify_value(types, fn_value, env, receiver, diagnostics);
-  val maybe_field = find_ir_field(types, ir_module, ir_value_type(receiver), field);
+  val maybe_field = find_ir_field(types, verifier_env, ir_value_type(receiver), field);
   maybe_field match {
     case Option[IrField]::Some(field_value) => {
       if (!ir_type_equals(types, field_value.typ, result_type)) {
@@ -486,18 +561,18 @@ def verify_field_get(
 }
 
 def verify_field_set(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  verifier_env: &IrVerifierEnv,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   receiver: IrValue,
   field: String,
   value: IrValue,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   verify_value(types, fn_value, env, receiver, diagnostics);
   verify_value(types, fn_value, env, value, diagnostics);
-  val maybe_field = find_ir_field(types, ir_module, ir_value_type(receiver), field);
+  val maybe_field = find_ir_field(types, verifier_env, ir_value_type(receiver), field);
   maybe_field match {
     case Option[IrField]::Some(field_value) => {
       if (!field_value.mutable) {
@@ -514,15 +589,15 @@ def verify_field_set(
 }
 
 def verify_binary(
-  types: TypeStore,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   output: IrLocalId,
   op: String,
   left: IrValue,
   right: IrValue,
   result_type: TypeId,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   verify_value(types, fn_value, env, left, diagnostics);
   verify_value(types, fn_value, env, right, diagnostics);
@@ -537,26 +612,28 @@ def verify_binary(
 }
 
 def verify_call(
-  types: TypeStore,
-  ir_module: IrModule,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  verifier_env: &IrVerifierEnv,
+  ir_module: &IrModule,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   output: Option[IrLocalId],
   callee: IrDeclId,
-  args: Vec[IrValue],
+  args: &Vec[IrValue],
   signature: IrFunctionSignature,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
-  verify_function_callee(ir_module, callee, signature, diagnostics);
-  if (args.len() != signature.params.len()) {
+  val params: &Vec[TypeId] = &signature.params;
+  verify_function_callee(verifier_env, callee, signature, diagnostics);
+  if (args.len() != params.len()) {
     ir_error(diagnostics, "cosmo1.ir.invalid-call", "call arity mismatch for ".concat(callee.value))
   }
 
   var index: usize = 0;
-  while (index < args.len() and index < signature.params.len()) {
+  while (index < args.len() and index < params.len()) {
     val arg = args.get(index);
     verify_value(types, fn_value, env, arg, diagnostics);
-    if (!ir_type_equals(types, ir_value_type(arg), signature.params.get(index))) {
+    if (!ir_type_equals(types, ir_value_type(arg), params.get(index))) {
       ir_error(diagnostics, "cosmo1.ir.invalid-call", "call argument type mismatch for ".concat(callee.value))
     }
     index = index + 1
@@ -576,27 +653,28 @@ def verify_call(
 }
 
 def verify_intrinsic_call(
-  types: TypeStore,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   output: Option[IrLocalId],
   name: String,
-  args: Vec[IrValue],
+  args: &Vec[IrValue],
   signature: IrFunctionSignature,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
+  val params: &Vec[TypeId] = &signature.params;
   if (!ir_intrinsic_is_known(name)) {
     ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "unknown intrinsic ".concat(name))
   }
-  if (args.len() != signature.params.len()) {
+  if (args.len() != params.len()) {
     ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "intrinsic arity mismatch for ".concat(name))
   }
 
   var index: usize = 0;
-  while (index < args.len() and index < signature.params.len()) {
+  while (index < args.len() and index < params.len()) {
     val arg = args.get(index);
     verify_value(types, fn_value, env, arg, diagnostics);
-    if (!ir_type_equals(types, ir_value_type(arg), signature.params.get(index))) {
+    if (!ir_type_equals(types, ir_value_type(arg), params.get(index))) {
       ir_error(diagnostics, "cosmo1.ir.invalid-intrinsic", "intrinsic argument type mismatch for ".concat(name))
     }
     index = index + 1
@@ -625,30 +703,30 @@ def ir_intrinsic_is_known(name: String): Bool = {
 }
 
 def verify_function_callee(
-  ir_module: IrModule,
+  env: &IrVerifierEnv,
   callee: IrDeclId,
   signature: IrFunctionSignature,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
-  val maybe_function = find_function(ir_module, callee);
-  maybe_function match {
-    case Option[IrFunction]::Some(fn_value) => {
-      if (fn_value.params.len() != signature.params.len()) {
+  val maybe_param_count = env.function_param_counts.get(callee.value);
+  maybe_param_count match {
+    case Option[usize]::Some(param_count) => {
+      if (param_count != signature.params.len()) {
         ir_error(diagnostics, "cosmo1.ir.invalid-call", "callee signature arity mismatch for ".concat(callee.value))
       }
     }
-    case Option[IrFunction]::None => {
+    case Option[usize]::None => {
       ir_error(diagnostics, "cosmo1.ir.invalid-call", "unknown callee ".concat(callee.value))
     }
   }
 }
 
 def verify_ir_terminator(
-  types: TypeStore,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   terminator: IrTerminator,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   terminator match {
     case IrTerminator.Return(value) => {
@@ -668,11 +746,11 @@ def verify_ir_terminator(
 }
 
 def verify_return(
-  types: TypeStore,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   value: Option[IrValue],
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   value match {
     case Option[IrValue]::Some(actual) => {
@@ -690,11 +768,11 @@ def verify_return(
 }
 
 def verify_value(
-  types: TypeStore,
-  fn_value: IrFunction,
-  env: IrFunctionEnv,
+  types: &TypeStore,
+  fn_value: &IrFunction,
+  env: &mut IrFunctionEnv,
   value: IrValue,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   value match {
     case IrValue.Unit(typ) => {
@@ -720,11 +798,11 @@ def verify_value(
 }
 
 def verify_defined_local_type(
-  types: TypeStore,
-  fn_value: IrFunction,
+  types: &TypeStore,
+  fn_value: &IrFunction,
   id: IrLocalId,
   actual: TypeId,
-  diagnostics: Vec[IrDiagnostic]
+  diagnostics: &mut Vec[IrDiagnostic]
 ): Unit = {
   val maybe_expected = find_local_type(fn_value, id);
   maybe_expected match {
@@ -739,8 +817,11 @@ def verify_defined_local_type(
   }
 }
 
-def find_function(ir_module: IrModule, id: IrDeclId): Option[IrFunction] = {
-  for (declaration in ir_module.declarations) {
+def find_function(ir_module: &IrModule, id: IrDeclId): Option[IrFunction] = {
+  val declarations: &Vec[IrDeclaration] = &ir_module.declarations;
+  var index: usize = 0;
+  while (index < declarations.len()) {
+    val declaration = declarations.get(index);
     declaration match {
       case IrDeclaration.Function(fn_value) => {
         if (fn_value.id.value == id.value) {
@@ -750,36 +831,30 @@ def find_function(ir_module: IrModule, id: IrDeclId): Option[IrFunction] = {
       case IrDeclaration.Type(type_decl) => {
       }
     }
+    index = index + 1
   }
   Option[IrFunction]::None
 }
 
-def find_ir_field(types: TypeStore, ir_module: IrModule, receiver_type: TypeId, name: String): Option[IrField] = {
+def find_ir_field(types: &TypeStore, env: &IrVerifierEnv, receiver_type: TypeId, name: String): Option[IrField] = {
   val receiver_name = ir_receiver_type_name(types, receiver_type);
-  for (declaration in ir_module.declarations) {
-    declaration match {
-      case IrDeclaration.Type(type_decl) => {
-        if (type_decl.name == receiver_name) {
-          return find_type_field(type_decl, name)
-        }
-      }
-      case IrDeclaration.Function(fn_value) => {
-      }
-    }
-  }
-  Option[IrField]::None
+  env.fields.get(ir_field_key(receiver_name, name))
 }
 
-def find_type_field(type_decl: IrTypeDecl, name: String): Option[IrField] = {
-  for (field in type_decl.fields) {
+def find_type_field(type_decl: &IrTypeDecl, name: String): Option[IrField] = {
+  val fields: &Vec[IrField] = &type_decl.fields;
+  var index: usize = 0;
+  while (index < fields.len()) {
+    val field = fields.get(index);
     if (field.name == name) {
       return Option[IrField]::Some(field)
     }
+    index = index + 1
   }
   Option[IrField]::None
 }
 
-def ir_receiver_type_name(types: TypeStore, id: TypeId): String = {
+def ir_receiver_type_name(types: &TypeStore, id: TypeId): String = {
   val value = types.type_value(id);
   value match {
     case CosmoType.User(name) => {
@@ -803,30 +878,42 @@ def ir_receiver_type_name(types: TypeStore, id: TypeId): String = {
   }
 }
 
-def find_local_type(fn_value: IrFunction, id: IrLocalId): Option[TypeId] = {
-  for (param in fn_value.params) {
+def find_local_type(fn_value: &IrFunction, id: IrLocalId): Option[TypeId] = {
+  val params: &Vec[IrParam] = &fn_value.params;
+  var param_index: usize = 0;
+  while (param_index < params.len()) {
+    val param = params.get(param_index);
     if (param.id.value == id.value) {
       return Option[TypeId]::Some(param.typ)
     }
+    param_index = param_index + 1
   }
-  for (local in fn_value.locals) {
+  val locals: &Vec[IrLocal] = &fn_value.locals;
+  var local_index: usize = 0;
+  while (local_index < locals.len()) {
+    val local = locals.get(local_index);
     if (local.id.value == id.value) {
       return Option[TypeId]::Some(local.typ)
     }
+    local_index = local_index + 1
   }
   Option[TypeId]::None
 }
 
-def function_has_param(fn_value: IrFunction, id: IrLocalId): Bool = {
-  for (param in fn_value.params) {
+def function_has_param(fn_value: &IrFunction, id: IrLocalId): Bool = {
+  val params: &Vec[IrParam] = &fn_value.params;
+  var index: usize = 0;
+  while (index < params.len()) {
+    val param = params.get(index);
     if (param.id.value == id.value) {
       return true
     }
+    index = index + 1
   }
   false
 }
 
-def function_has_local_or_param(fn_value: IrFunction, id: IrLocalId): Bool = {
+def function_has_local_or_param(fn_value: &IrFunction, id: IrLocalId): Bool = {
   val local_type = find_local_type(fn_value, id);
   local_type match {
     case Option[TypeId]::Some(value) => {
@@ -838,35 +925,43 @@ def function_has_local_or_param(fn_value: IrFunction, id: IrLocalId): Bool = {
   }
 }
 
-def function_has_block(fn_value: IrFunction, id: IrBlockId): Bool = {
-  for (block in fn_value.blocks) {
+def function_has_block(fn_value: &IrFunction, id: IrBlockId): Bool = {
+  val blocks: &Vec[IrBlock] = &fn_value.blocks;
+  var index: usize = 0;
+  while (index < blocks.len()) {
+    val block = blocks.get(index);
     if (block.id.value == id.value) {
       return true
     }
+    index = index + 1
   }
   false
 }
 
-def local_is_defined(env: IrFunctionEnv, id: IrLocalId): Bool = {
-  for (defined_id in env.defined) {
+def local_is_defined(env: &mut IrFunctionEnv, id: IrLocalId): Bool = {
+  val defined: &Vec[IrLocalId] = &env.defined;
+  var index: usize = 0;
+  while (index < defined.len()) {
+    val defined_id = defined.get(index);
     if (defined_id.value == id.value) {
       return true
     }
+    index = index + 1
   }
   false
 }
 
-def define_local(env: IrFunctionEnv, id: IrLocalId): Unit = {
+def define_local(env: &mut IrFunctionEnv, id: IrLocalId): Unit = {
   if (!local_is_defined(env, id)) {
     env.defined.push(id)
   }
 }
 
-def is_unit_type(types: TypeStore, id: TypeId): Bool = {
+def is_unit_type(types: &TypeStore, id: TypeId): Bool = {
   ir_type_display(types, id) == "Unit"
 }
 
-def ir_binary_result_matches(types: TypeStore, op: String, operand_type: TypeId, result_type: TypeId): Bool = {
+def ir_binary_result_matches(types: &TypeStore, op: String, operand_type: TypeId, result_type: TypeId): Bool = {
   if (ir_binary_is_arithmetic(op)) {
     return ir_type_equals(types, operand_type, result_type)
   }
@@ -895,19 +990,19 @@ def ir_binary_is_bool(op: String): Bool = {
   op == "and" or op == "or"
 }
 
-def ir_error(diagnostics: Vec[IrDiagnostic], code: String, message: String): Unit = {
+def ir_error(diagnostics: &mut Vec[IrDiagnostic], code: String, message: String): Unit = {
   diagnostics.push(IrDiagnostic(code, message))
 }
 
-def ir_type_equals(types: TypeStore, left: TypeId, right: TypeId): Bool = {
-  ir_type_display(types, left) == ir_type_display(types, right)
+def ir_type_equals(types: &TypeStore, left: TypeId, right: TypeId): Bool = {
+  type_equals(types, left, right)
 }
 
-def ir_type_display(types: TypeStore, id: TypeId): String = {
+def ir_type_display(types: &TypeStore, id: TypeId): String = {
   ir_type_node_display(types, types.type_value(id))
 }
 
-def ir_type_node_display(types: TypeStore, value: CosmoType): String = {
+def ir_type_node_display(types: &TypeStore, value: CosmoType): String = {
   value match {
     case CosmoType.Primitive(name) => {
       name
@@ -934,7 +1029,7 @@ def ir_type_node_display(types: TypeStore, value: CosmoType): String = {
   }
 }
 
-def ir_type_display_list(types: TypeStore, items: Vec[TypeId]): String = {
+def ir_type_display_list(types: &TypeStore, items: &Vec[TypeId]): String = {
   var text = "";
   var index: usize = 0;
   while (index < items.len()) {
@@ -947,7 +1042,7 @@ def ir_type_display_list(types: TypeStore, items: Vec[TypeId]): String = {
   text
 }
 
-def render_ir_module(types: TypeStore, ir_module: IrModule): String = {
+def render_ir_module(types: &TypeStore, ir_module: &IrModule): String = {
   var text = "module ".concat(ir_module.name).concat(" {\n");
   for (declaration in ir_module.declarations) {
     text = text.concat(render_ir_declaration(types, declaration)).concat("\n")
@@ -955,7 +1050,7 @@ def render_ir_module(types: TypeStore, ir_module: IrModule): String = {
   text.concat("}")
 }
 
-def render_ir_declaration(types: TypeStore, declaration: IrDeclaration): String = {
+def render_ir_declaration(types: &TypeStore, declaration: IrDeclaration): String = {
   declaration match {
     case IrDeclaration.Type(type_decl) => {
       render_ir_type(types, type_decl)
@@ -966,7 +1061,7 @@ def render_ir_declaration(types: TypeStore, declaration: IrDeclaration): String 
   }
 }
 
-def render_ir_type(types: TypeStore, type_decl: IrTypeDecl): String = {
+def render_ir_type(types: &TypeStore, type_decl: &IrTypeDecl): String = {
   var text = "  type @".concat(type_decl.id.value).concat(" ").concat(type_decl.name).concat(" {\n");
   for (field in type_decl.fields) {
     text = text.concat("    field ");
@@ -978,7 +1073,7 @@ def render_ir_type(types: TypeStore, type_decl: IrTypeDecl): String = {
   text.concat("  }")
 }
 
-def render_ir_function(types: TypeStore, fn_value: IrFunction): String = {
+def render_ir_function(types: &TypeStore, fn_value: &IrFunction): String = {
   var text = "  fn @".concat(fn_value.id.value).concat(" ").concat(fn_value.name).concat("(");
   text = text.concat(render_ir_params(types, fn_value.params));
   text = text.concat(") -> ").concat(ir_type_display(types, fn_value.return_type));
@@ -1011,7 +1106,7 @@ def render_ir_function(types: TypeStore, fn_value: IrFunction): String = {
   text.concat("  }")
 }
 
-def render_ir_params(types: TypeStore, params: Vec[IrParam]): String = {
+def render_ir_params(types: &TypeStore, params: &Vec[IrParam]): String = {
   var text = "";
   var index: usize = 0;
   while (index < params.len()) {
@@ -1026,7 +1121,7 @@ def render_ir_params(types: TypeStore, params: Vec[IrParam]): String = {
   text
 }
 
-def render_ir_block(types: TypeStore, block: IrBlock): String = {
+def render_ir_block(types: &TypeStore, block: &IrBlock): String = {
   var text = "    ^".concat(block.id.value).concat(":\n");
   for (operation in block.operations) {
     text = text.concat("      ").concat(render_ir_operation(types, operation)).concat("\n")
@@ -1034,7 +1129,7 @@ def render_ir_block(types: TypeStore, block: IrBlock): String = {
   text.concat("      ").concat(render_ir_terminator(types, block.terminator)).concat("\n")
 }
 
-def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
+def render_ir_operation(types: &TypeStore, operation: IrOperation): String = {
   operation match {
     case IrOperation.InitLocal(target, value) => {
       "%".concat(target.value).concat(" = init ").concat(render_ir_value(types, value))
@@ -1082,7 +1177,7 @@ def render_ir_operation(types: TypeStore, operation: IrOperation): String = {
   }
 }
 
-def render_ir_construct_type(types: TypeStore, output: IrLocalId, owner: TypeId, fields: Vec[IrFieldInit]): String = {
+def render_ir_construct_type(types: &TypeStore, output: IrLocalId, owner: TypeId, fields: &Vec[IrFieldInit]): String = {
   var text = "%".concat(output.value).concat(" = construct ").concat(ir_type_display(types, owner)).concat("(");
   var index: usize = 0;
   while (index < fields.len()) {
@@ -1097,10 +1192,10 @@ def render_ir_construct_type(types: TypeStore, output: IrLocalId, owner: TypeId,
 }
 
 def render_ir_intrinsic_call(
-  types: TypeStore,
+  types: &TypeStore,
   output: Option[IrLocalId],
   name: String,
-  args: Vec[IrValue],
+  args: &Vec[IrValue],
   signature: IrFunctionSignature
 ): String = {
   var text = "";
@@ -1117,10 +1212,10 @@ def render_ir_intrinsic_call(
 }
 
 def render_ir_call(
-  types: TypeStore,
+  types: &TypeStore,
   output: Option[IrLocalId],
   callee: IrDeclId,
-  args: Vec[IrValue],
+  args: &Vec[IrValue],
   signature: IrFunctionSignature
 ): String = {
   var text = "";
@@ -1136,7 +1231,7 @@ def render_ir_call(
   text.concat(ir_type_display(types, signature.return_type))
 }
 
-def render_ir_terminator(types: TypeStore, terminator: IrTerminator): String = {
+def render_ir_terminator(types: &TypeStore, terminator: IrTerminator): String = {
   terminator match {
     case IrTerminator.Return(value) => {
       value match {
@@ -1160,7 +1255,7 @@ def render_ir_terminator(types: TypeStore, terminator: IrTerminator): String = {
   }
 }
 
-def render_ir_args(types: TypeStore, args: Vec[IrValue]): String = {
+def render_ir_args(types: &TypeStore, args: &Vec[IrValue]): String = {
   var text = "";
   var index: usize = 0;
   while (index < args.len()) {
@@ -1173,7 +1268,7 @@ def render_ir_args(types: TypeStore, args: Vec[IrValue]): String = {
   text
 }
 
-def render_ir_value(types: TypeStore, value: IrValue): String = {
+def render_ir_value(types: &TypeStore, value: IrValue): String = {
   value match {
     case IrValue.Unit(typ) => {
       "()"
