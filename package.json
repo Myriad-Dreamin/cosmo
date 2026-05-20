@@ -11,6 +11,7 @@
     "compile": "sbt fullLinkJS",
     "test": "sbt test",
     "test:cli": "node --test cmd/cosmo/*.test.mjs",
+    "test:bootstrap": "sbt fullLinkJS && node --test cmd/cosmo/bootstrap.integration.mjs",
     "fetch:lsp-types": "node cmd/cosmo/main.js -p packages/lsp-types-fetch run",
     "gen:lsp-types": "node scripts/genLspTypesFromMetamodel.js packages/lsp-types/src/lsp",
     "generate:lsp-types": "yarn fetch:lsp-types && yarn gen:lsp-types",

@@ -44,3 +44,5 @@ jobs:
       run: sbt 'cosmo0/test'
     - name: Run CLI tests
       run: node --test cmd/cosmo/*.test.mjs
+    - name: Run cosmoc bootstrap fixed-point test
+      run: yarn test:bootstrap
