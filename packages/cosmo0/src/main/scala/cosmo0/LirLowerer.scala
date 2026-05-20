@@ -73,6 +73,7 @@ final class LirLowerer(
             ),
           )
         case _: TypedImport =>
+        case _: TypedCppNamespaceImport =>
       }
 
       DeclContext(
@@ -230,6 +231,9 @@ final class LirLowerer(
 
           case value: TypedTypeConstructorExpr =>
             unsupported(value, s"type constructor ${value.constructedType.display}")
+            None
+          case value: TypedForeignQualifiedName =>
+            unsupported(value, s"C++ foreign symbol ${value.root.alias}::${value.suffix.mkString("::")}")
             None
           case value: TypedVariantConstructorExpr =>
             lowerVariantValue(value)
@@ -1215,11 +1219,15 @@ final class LirLowerer(
         moduleName(module.source),
         (module.declarations.flatMap(lowerDecl) ++ syntheticExternDeclarations).sortBy(_.id.value),
         module.cIncludes,
+        module.cppNamespaceImports,
       )
 
     private def lowerDecl(declaration: TypedDecl): List[LirDeclaration] =
       declaration match
         case _: TypedImport =>
+          Nil
+
+        case _: TypedCppNamespaceImport =>
           Nil
 
         case alias: TypedTypeAlias =>

@@ -16,6 +16,7 @@ class SyntaxDecl {
   case AEmpty
   case Unsupported(String, Span)
   case Import(String, Span)
+  case CppNamespaceImport(String, String, String, Span)
   case Class(String, Vec[MemberId], Span)
   case Function(String, Vec[ParamId], TypeExprId, ExprId, Span)
   case TypeAlias(String, TypeExprId, Span)
@@ -182,6 +183,10 @@ class SyntaxArenas {
 
   def make_import_decl(&mut self, path: String, span: Span): DeclId = {
     self.alloc_decl(SyntaxDecl.Import(path, span))
+  }
+
+  def make_cpp_namespace_import_decl(&mut self, namespace: String, alias: String, header: String, span: Span): DeclId = {
+    self.alloc_decl(SyntaxDecl.CppNamespaceImport(namespace, alias, header, span))
   }
 
   def make_class_decl(&mut self, name: String, members: Vec[MemberId], span: Span): DeclId = {
@@ -398,6 +403,9 @@ def syntax_decl_span(decl: SyntaxDecl): Span = {
     case SyntaxDecl.Import(path, span) => {
       span
     }
+    case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+      span
+    }
     case SyntaxDecl.Class(name, members, span) => {
       span
     }
@@ -572,6 +580,9 @@ def syntax_debug_decl_node(arenas: &SyntaxArenas, decl: SyntaxDecl): String = {
     }
     case SyntaxDecl.Import(path, span) => {
       "Decl Import ".concat(path).concat("\n")
+    }
+    case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+      "Decl CppNamespaceImport ".concat(namespace).concat(" as ").concat(alias).concat(" from ").concat(header).concat("\n")
     }
     case SyntaxDecl.Class(name, members, span) => {
       "Decl Class ".concat(name).concat("\n").concat(syntax_debug_members(arenas, members))
@@ -813,6 +824,9 @@ def syntax_decl_children_spans_ok(arenas: &SyntaxArenas, decl: SyntaxDecl): Bool
       true
     }
     case SyntaxDecl.Import(path, span) => {
+      true
+    }
+    case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
       true
     }
     case SyntaxDecl.Class(name, members, span) => {

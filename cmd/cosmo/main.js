@@ -48,6 +48,142 @@ export function parsePackageRunCommand(argv) {
   return { packagePath, runArgs };
 }
 
+export function parseEnvironmentOptions(argv) {
+  const commandArgs = [];
+  let envFile = ".env";
+  let explicit = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index];
+    if (current === "--") {
+      commandArgs.push(...argv.slice(index));
+      break;
+    }
+
+    if (current === "-f" || current === "--env-file") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new CliError(`${current} requires an environment file path`);
+      }
+      envFile = value;
+      explicit = true;
+      index += 1;
+      continue;
+    }
+
+    if (current.startsWith("--env-file=")) {
+      const value = current.slice("--env-file=".length);
+      if (!value) {
+        throw new CliError("--env-file requires an environment file path");
+      }
+      envFile = value;
+      explicit = true;
+      continue;
+    }
+
+    commandArgs.push(current);
+  }
+
+  return { argv: commandArgs, envFile, explicit };
+}
+
+export function applyEnvironmentFile(
+  filePath = ".env",
+  {
+    env = process.env,
+    cwd = process.cwd(),
+    required = false,
+  } = {},
+) {
+  const resolved = resolve(cwd, filePath);
+  if (!existsSync(resolved)) {
+    if (required) {
+      throw new CliError(`environment file not found: ${filePath}`);
+    }
+    return {};
+  }
+
+  const values = parseEnvironmentFile(readFileSync(resolved, "utf8"), filePath);
+  for (const [key, value] of Object.entries(values)) {
+    env[key] = value;
+  }
+  return values;
+}
+
+export function parseEnvironmentFile(source, filePath = ".env") {
+  const values = {};
+  const lines = source.split(/\r?\n/);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const assignment = line.startsWith("export ") ? line.slice(7).trim() : line;
+    const equals = assignment.indexOf("=");
+    if (equals <= 0) {
+      throw new CliError(`${filePath}:${index + 1}: expected KEY=VALUE`);
+    }
+
+    const key = assignment.slice(0, equals).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new CliError(`${filePath}:${index + 1}: invalid environment key ${key}`);
+    }
+
+    values[key] = parseEnvironmentValue(
+      assignment.slice(equals + 1).trim(),
+      filePath,
+      index + 1,
+    );
+  }
+
+  return values;
+}
+
+function parseEnvironmentValue(value, filePath, line) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.startsWith("\"")) {
+    if (!value.endsWith("\"") || value.length === 1) {
+      throw new CliError(`${filePath}:${line}: unterminated double-quoted value`);
+    }
+    return unescapeDoubleQuotedEnvironmentValue(value.slice(1, -1));
+  }
+
+  if (value.startsWith("'")) {
+    if (!value.endsWith("'") || value.length === 1) {
+      throw new CliError(`${filePath}:${line}: unterminated single-quoted value`);
+    }
+    return value.slice(1, -1);
+  }
+
+  return stripInlineEnvironmentComment(value).trim();
+}
+
+function unescapeDoubleQuotedEnvironmentValue(value) {
+  return value.replace(/\\([nrt"\\])/g, (_match, escaped) => {
+    switch (escaped) {
+      case "n":
+        return "\n";
+      case "r":
+        return "\r";
+      case "t":
+        return "\t";
+      default:
+        return escaped;
+    }
+  });
+}
+
+function stripInlineEnvironmentComment(value) {
+  const comment = value.search(/\s#/);
+  return comment >= 0 ? value.slice(0, comment) : value;
+}
+
 export function parsePackageBuildCommand(argv) {
   if (argv.length < 3) {
     return null;
@@ -115,20 +251,23 @@ async function loadCompilerModule() {
 }
 
 async function main(argv = process.argv.slice(2)) {
-  const packageBuild = parsePackageBuildCommand(argv);
+  const envOptions = parseEnvironmentOptions(argv);
+  applyEnvironmentFile(envOptions.envFile, { required: envOptions.explicit });
+
+  const packageBuild = parsePackageBuildCommand(envOptions.argv);
   if (packageBuild) {
     await runPackageBuildCommand(packageBuild.packagePath, packageBuild.outputPath);
     return;
   }
 
-  const packageRun = parsePackageRunCommand(argv);
+  const packageRun = parsePackageRunCommand(envOptions.argv);
   if (packageRun) {
     await runPackageCommand(packageRun.packagePath, packageRun.runArgs);
     return;
   }
 
-  const action = argv[0];
-  const input = argv[1];
+  const action = envOptions.argv[0];
+  const input = envOptions.argv[1];
   const cosmo = await loadCompilerModule();
   const compiler = new cosmo.Cosmo();
 
@@ -143,7 +282,7 @@ async function main(argv = process.argv.slice(2)) {
   } else {
     requireInput(input, "compile");
     const inputData = readFileSync(input, "utf8");
-    const output = argv[2];
+    const output = envOptions.argv[2];
     const outputData = compiler.convert(inputData);
 
     writeFileSync(output, outputData, "utf8");

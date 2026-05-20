@@ -8,6 +8,7 @@ final case class TypedModule(
     declarations: List[TypedDecl],
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
+    cppNamespaceImports: List[SourceCppNamespaceImport] = Nil,
 ) extends TypedNode
 
 sealed trait TypedDecl extends TypedNode:
@@ -30,6 +31,12 @@ final case class TypedImport(
     span: SourceSpan,
 ) extends TypedDecl:
   def name: String = dest.orElse(Some(path)).fold("<import>")(_.text)
+
+final case class TypedCppNamespaceImport(
+    value: SourceCppNamespaceImport,
+    span: SourceSpan,
+) extends TypedDecl:
+  def name: String = value.alias
 
 final case class TypedClass(
     name: String,
@@ -116,6 +123,13 @@ final case class TypedName(
 
 final case class TypedTypeConstructorExpr(
     constructedType: SourceType,
+    valueType: SourceType,
+    span: SourceSpan,
+) extends TypedExpr
+
+final case class TypedForeignQualifiedName(
+    root: SourceCppNamespaceImport,
+    suffix: List[String],
     valueType: SourceType,
     span: SourceSpan,
 ) extends TypedExpr

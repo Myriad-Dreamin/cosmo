@@ -1,0 +1,2 @@
+val answer: i32 = 41
+val next: i32 = answer + 1

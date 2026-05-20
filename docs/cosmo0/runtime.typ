@@ -102,6 +102,16 @@ The trusted `core0.json` parse binding records the target symbol `::cosmo0_runti
 
 The trusted `core0.command` run binding records the target symbol `::cosmo0_runtime::command_run` and the include/runtime support needed by the C++ backend. The source-facing wrapper returns `Result[CommandResult, CommandError]` as owned by `std.typ`. The runtime hook accepts structured executable, argument, environment, and working-directory data; it does not authorize shell-string execution or a `Command`, `Process`, `Shell`, `ExitStatus`, `Stdout`, or `Stderr` descriptor family.
 
+== C++ Namespace Query Support
+
+`cosmo-clang-sys` is the native support library used to validate C++ namespace aliases and qualified suffixes before the C++ backend treats a foreign symbol as available. The source-facing import and lookup rules are owned by `name-resolution.typ`; this section owns the native backend contract.
+
+The accepted build artifact is a Linux static library named `libcosmoClang.a`, produced by the CMake target `cosmoClang` when `COSMO_ENABLE_CLANG_SYS` is enabled. The target exports the C ABI declared in `native/cosmo-clang-sys/include/cosmo_clang_sys.h`. The primary query accepts a canonical namespace, a qualified suffix, and a bounded header set, then uses Clang to parse a probe translation unit that includes those headers and references the requested symbol.
+
+CMake discovery uses `COSMO_LLVM_PATH` as the LLVM/Clang install prefix. The value may come from the environment or from `-DCOSMO_LLVM_PATH=<prefix>`. When `COSMO_ENABLE_CLANG_SYS=ON`, missing LLVM, Clang, or libclang support is a configure-time error. When the option is disabled, the default build does not require LLVM.
+
+`cosmoc` links against `cosmoClang` only when `COSMO_ENABLE_CLANG_SYS` is enabled. Generated backend requirement records for C++ namespace imports include both header requirements and a `cpp-namespace-import:*` requirement so the driver can route validation through this library before host linking.
+
 == C Extern Function Correspondence
 
 The source form `@extern("c") def name(...)` denotes a trusted direct binding to a C ABI function. The cosmo declaration is the source-facing signature; the extern metadata records the C target symbol and ABI family. A direct C binding has positional argument correspondence: cosmo argument `0` is emitted as C argument `0`, cosmo argument `1` as C argument `1`, and so on. The return type maps to the C result type or `Unit` for `void`.

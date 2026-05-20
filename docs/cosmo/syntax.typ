@@ -436,62 +436,38 @@ using value = T::value;
 using parse = T::parse;
 ```
 
-== Import C++ Header
+== Import C++ Namespace
 
-`T` can be either a scope or a string above the level 0. For example:
-
-```cos
-val jsonPath = "nlohmann/json.hpp";
-import jsonPath;
-```
-
-is equivalent to:
+C++ headers are not imported as anonymous header-only dependencies. A C++ import must bind an explicit local alias to a C++ namespace and a `c++/<header>` source:
 
 ```cos
-import "nlohmann/json.hpp"
+import std as cstd from "c++/vector"
 ```
 
-```cpp
-#include "nlohmann/json.hpp"
-```
+This introduces only the local alias `cstd`. The original C++ namespace name `std` is not made visible as a Cosmo binding.
 
-== Typeless C++ Dependencies
-
-You can use C++ code without specifying types, though this will make some features unavailable:
+Compatible imports with the same alias and namespace merge their header inputs:
 
 ```cos
-import "nlohmann/json.hpp" as nlohmann;
-
-def NlohmannJsonValue = nlohmann.json.value;
-def NlohmannJsonTag: std.c.enum(u8) = nlohmann.json.value_t;
-
-val json: NlohmannJsonValue = nlohmann.json.parse("{ \"key\": \"value\" }");
+import std as cstd from "c++/vector"
+import std as cstd from "c++/string"
 ```
 
-```cpp
-#include "nlohmann/json.hpp"
+The merged alias targets `::std` and contributes both `<vector>` and `<string>` to backend validation. Reusing the same alias for a different namespace is an error.
 
-using NlohmannJsonValue = nlohmann::json;
-using NlohmannJsonTag =  nlohmann::json::value_t;
-
-auto json = nlohmann::json::parse("{ \"key\": \"value\" }");
-```
-
-For example, you cannot do pattern matching on "auto values", because that will cause unsafe typed program.
-
-== Typing C++ Dependencies
-
-C/C++ Types and Headers are usually awkful, so we don't provide a reliable way to automatically extract types from them. Instead, you can specify types manually:
+The header-only form is unsupported:
 
 ```cos
-trait NlomannJson {
-  type value: Type;
-  type value_t = std.c.enum(u8);
-}
-import "nlohmann/json.hpp" as nlohmann: NlomannJson;
-val (value_t) = nlohmann;
-assert(value_t == std.c.enum(u8));
+import "c++/vector" // error: C++ imports require an explicit namespace alias
 ```
+
+Qualified names resolve through the alias:
+
+```cos
+type StdVector = cstd::vector
+```
+
+The compiler validates the suffix against the alias namespace and bounded header set through `cosmo-clang-sys` before treating the C++ symbol as a backend input.
 
 == Import Other Cosmo Modules
 

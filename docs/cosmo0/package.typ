@@ -48,6 +48,12 @@ import source.SourceText
 import token.Token
 ```
 
+C++ namespace imports are source-level foreign aliases, not Cosmo package dependencies:
+
+```cos
+import std as cstd from "c++/vector"
+```
+
 The exact metadata schema remains small: a cosmo0 package declares its bootstrap target, discovers source files under a stable root, optionally selects a stage profile, may restrict validation to an ordered `sources` list, and resolves imports deterministically.
 
 == Imports and Source Loading
@@ -57,6 +63,8 @@ Package source loading uses package-root-relative source names and deterministic
 Stage 1 source loading depends on `core0.path-fs` for file reads and `core0.text` for owned source text helpers. A loaded file is represented as ordinary cosmo1 source data, such as `SourceText`, whose `name` is the stable path display string and whose `text` is the complete file contents.
 
 Missing, unreadable, or invalid source paths are ordinary package-check diagnostics. They must not be reported as descriptor lookup failures, and they must not require package metadata to name arbitrary host filesystem symbols.
+
+C++ namespace imports do not add package graph edges. The package graph only follows ordinary Cosmo module imports. A C++ namespace import contributes backend include and foreign-binding inputs owned by `runtime.typ` and `name-resolution.typ`; it must not produce `cosmo0.package.missing-import` for a `c++/<header>` path.
 
 == Runtime Binding Availability
 

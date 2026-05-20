@@ -65,6 +65,12 @@ final class CppBackend(
     private val names = BackendNames(env)
 
     requirements ++= module.cIncludes.map(include => BackendRequirement.include(include.header))
+    requirements ++= module.cppNamespaceImports.flatMap(importValue =>
+      importValue.includeHeaders.map(BackendRequirement.include),
+    )
+    requirements ++= module.cppNamespaceImports.map(importValue =>
+      BackendRequirement.cppNamespaceImport(importValue.requirementValue),
+    )
 
     val namespace: List[String] =
       List("cosmo0", safeIdent(module.name, "module"))
@@ -135,7 +141,10 @@ final class CppBackend(
         "#include <vector>",
       )
       val fileLevel = module.cIncludes.map(include => s"#include ${include.header}")
-      base ++ fileLevel
+      val foreignHeaders = module.cppNamespaceImports.flatMap(importValue =>
+        importValue.includeHeaders.map(header => s"#include $header"),
+      )
+      (base ++ fileLevel ++ foreignHeaders).distinct
 
     private def runtimePrelude: String =
       """namespace cosmo0_runtime {
@@ -624,6 +633,8 @@ final class CppBackend(
           env.typesByName.get(name).map(ty => Set(ty.id)).getOrElse(Set.empty)
         case SourceType.Alias(name, _) =>
           env.aliasesByName.get(name).map(alias => concreteTypeDependencies(alias.target.source)).getOrElse(Set.empty)
+        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) =>
+          Set.empty
         case SourceType.Standard("Id", _ :: Nil) =>
           Set.empty
         case SourceType.Standard("Ptr", _ :: Nil) =>
@@ -1087,6 +1098,11 @@ final class CppBackend(
           env.typesByName.get(name).map(ty => names.typeName(ty.id)).getOrElse(safeIdent(name, "type"))
         case SourceType.Alias(name, _) =>
           env.aliasesByName.get(name).map(alias => names.aliasName(alias.id)).getOrElse(safeIdent(name, "alias"))
+        case SourceType.ForeignNamespace(value) =>
+          unsupportedType(SourceType.ForeignNamespace(value))
+          "std::monostate"
+        case SourceType.ForeignSymbol(canonicalName) =>
+          canonicalName
         case SourceType.Ref(target, true) =>
           s"${valueTypeName(target)} *"
         case SourceType.Ref(target, false) =>

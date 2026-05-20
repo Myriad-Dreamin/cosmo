@@ -8,6 +8,7 @@ final case class UntypedModule(
     declarations: List[UntypedDecl],
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
+    cppNamespaceImports: List[SourceCppNamespaceImport] = Nil,
 ) extends UntypedNode
 
 sealed trait UntypedDecl extends UntypedNode:
@@ -45,6 +46,13 @@ final case class UntypedImport(
     visibility: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl:
   def name: String = dest.orElse(Some(path)).fold("<import>")(_.text)
+
+final case class UntypedCppNamespaceImport(
+    value: SourceCppNamespaceImport,
+    visibility: UntypedVisibility = UntypedVisibility.Public,
+) extends UntypedDecl:
+  def name: String = value.alias
+  def span: SourceSpan = value.span
 
 final case class UntypedClass(
     name: String,

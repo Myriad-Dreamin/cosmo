@@ -28,6 +28,7 @@ final class UntypedElaborator(
           declarations,
           state.nodeSpan(parsed.ast),
           state.cIncludes.toList,
+          state.cppNamespaceImports.toList,
         ),
       )
     else
@@ -44,6 +45,7 @@ final class UntypedElaborator(
   ):
     val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
     val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
+    val cppNamespaceImports: ListBuffer[SourceCppNamespaceImport] = ListBuffer.empty
 
     private val assignmentOps =
       Set("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=")
@@ -436,7 +438,66 @@ final class UntypedElaborator(
     private def isRequirementValue(value: String): Boolean =
       value.nonEmpty && !value.exists(ch => ch == '\n' || ch == '\r')
 
-    private def importDecl(node: Import): Option[UntypedImport] =
+    private def importDecl(node: Import): Option[UntypedDecl] =
+      node.path match
+        case StrLit(header) if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
+          cppImportDecl(node)
+        case _ =>
+          cosmoImportDecl(node)
+
+    private def cppImportDecl(node: Import): Option[UntypedDecl] =
+      node.path match
+        case StrLit(header) if SourceCppNamespaceImport.isCppHeader(header) =>
+          node.dest match
+            case None =>
+              unsupported(
+                node,
+                "cosmo1.name.unsupported-cpp-header-import",
+                s"C++ header import $header must bind an explicit namespace alias",
+              )
+            case Some(As(namespaceNode, Ident(alias))) =>
+              cppNamespacePath(namespaceNode, Some(nodeSpan(node))).flatMap { namespace =>
+                if !CppQualifiedSymbol.isIdentifier(alias) then
+                  unsupported(
+                    namespaceNode,
+                    "cosmo1.name.invalid-cpp-namespace-import",
+                    s"C++ namespace alias $alias is not a valid identifier",
+                  )
+                else
+                  val importValue = SourceCppNamespaceImport(namespace, alias, List(header), nodeSpan(node))
+                  cppNamespaceImports += importValue
+                  Some(UntypedCppNamespaceImport(importValue, declarationVisibility(node)))
+              }
+            case Some(_) =>
+              unsupported(
+                node,
+                "cosmo1.name.invalid-cpp-namespace-import",
+                s"C++ import $header must use import <namespace> as <alias> from \"$header\"",
+              )
+        case StrLit(header) if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
+          unsupported(
+            node,
+            "cosmo1.name.invalid-cpp-namespace-import",
+            s"C++ header import $header must name a header after ${SourceCppNamespaceImport.headerPrefix}",
+          )
+        case _ => None
+
+    private def cppNamespacePath(
+        node: syntax.Node,
+        fallbackSpan: Option[SourceSpan],
+    ): Option[CppQualifiedSymbol] =
+      pathFromNode(node, fallbackSpan).flatMap { path =>
+        if path.parts.forall(CppQualifiedSymbol.isIdentifier) then
+          Some(CppQualifiedSymbol(path.parts, absolute = true))
+        else
+          unsupported(
+            node,
+            "cosmo1.name.invalid-cpp-namespace-import",
+            s"C++ namespace ${path.text} is not a valid qualified namespace path",
+          )
+      }
+
+    private def cosmoImportDecl(node: Import): Option[UntypedImport] =
       val span = nodeSpan(node)
       val path = pathFromNode(node.path, Some(span))
       val dest = node.dest.fold[Option[Option[UntypedPath]]](Some(None)) { destNode =>

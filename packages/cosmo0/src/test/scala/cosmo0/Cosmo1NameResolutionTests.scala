@@ -30,6 +30,9 @@ class Cosmo1NameResolutionTests extends munit.FunSuite:
     val output = compiled.value.get.output
     assert(output.contains("struct SymbolInterner"))
     assert(output.contains("struct NameResolution"))
+    assert(output.contains("ForeignNamespace"))
+    assert(output.contains("foreign_alias_target"))
+    assert(output.contains("cosmo1.name.conflicting-cpp-namespace-alias"))
     assert(output.contains("inline NameResolution resolve_module_names("))
     assert(output.contains("inline bool name_resolution_test_resolves_parser_subset_fixture()"))
     assert(output.contains("inline bool name_resolution_test_reports_duplicate_definition()"))

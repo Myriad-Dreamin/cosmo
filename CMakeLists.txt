@@ -21,6 +21,19 @@ include(cmake/feat-rtti.cmake)
 include(cmake/Cosmo.cmake)
 # include(cmake/feat-use-lld.cmake)
 
+option(COSMO_ENABLE_CLANG_SYS "Build the cosmo-clang-sys C++ namespace query library" OFF)
+set(COSMO_LLVM_PATH "$ENV{COSMO_LLVM_PATH}" CACHE PATH "LLVM/Clang install prefix for cosmo-clang-sys")
+
+if (COSMO_ENABLE_CLANG_SYS)
+    if (COSMO_LLVM_PATH)
+        list(PREPEND CMAKE_PREFIX_PATH
+            "${COSMO_LLVM_PATH}"
+            "${COSMO_LLVM_PATH}/lib/cmake/llvm"
+            "${COSMO_LLVM_PATH}/lib/cmake/clang")
+    endif ()
+    add_subdirectory(native/cosmo-clang-sys)
+endif ()
+
 ## ~ project components
 cosmo_import_artifact()
 add_subdirectory(cmd)

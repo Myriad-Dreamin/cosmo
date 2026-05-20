@@ -27,8 +27,9 @@ private[cosmo0] final class PackagePipeline(
 
     def localDeclarations: List[UntypedDecl] =
       untyped.declarations.filter {
-        case _: UntypedImport => false
-        case _                => true
+        case _: UntypedImport             => false
+        case _: UntypedCppNamespaceImport => false
+        case _                            => true
       }
 
     def publicDeclarations: List[UntypedDecl] =
@@ -208,12 +209,14 @@ private[cosmo0] final class PackagePipeline(
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
     val declarations = ordered.flatMap(_.localDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
+    val cppNamespaceImports = ordered.flatMap(_.untyped.cppNamespaceImports)
     val combinedModule =
       UntypedModule(
         combinedSource,
         declarations,
         combinedSource.span(0, 0),
         cIncludes,
+        cppNamespaceImports,
       )
 
     SourceTyper().check(combinedModule) match
@@ -446,6 +449,7 @@ private[cosmo0] final class PackagePipeline(
                   )
               }
               moduleEdges += ImportEdge(module.key, importedKey, importDecl.span)
+        case _: UntypedCppNamespaceImport =>
         case _ =>
       }
       }

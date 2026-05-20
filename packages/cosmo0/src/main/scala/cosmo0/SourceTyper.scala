@@ -107,11 +107,13 @@ final class SourceTyper(
       module.declarations.collect { case decl: UntypedClass => decl.name }.toSet
     private val rawAliases = mutable.LinkedHashMap.empty[String, UntypedType]
     private val aliasTypes = mutable.LinkedHashMap.empty[String, SourceType]
+    private val foreignAliases = mutable.LinkedHashMap.empty[String, SourceCppNamespaceImport]
     private val traits = mutable.LinkedHashMap.empty[String, TraitInfo]
     private val classes = mutable.LinkedHashMap.empty[String, ClassInfo]
     private val functions = mutable.LinkedHashMap.empty[String, FunctionInfo]
 
     def check(): Result[TypedModule] =
+      collectForeignNamespaceImports()
       collectAliases()
       rawAliases.keys.foreach(resolveAlias)
       collectTraits()
@@ -131,14 +133,81 @@ final class SourceTyper(
           ),
         ),
       )
+      foreignAliases.values.foreach(importValue =>
+        globalScope.define(
+          ValueSymbol(
+            importValue.alias,
+            SourceType.ForeignNamespace(importValue),
+            mutableBinding = false,
+            mutationAllowed = false,
+            importValue.span,
+          ),
+        ),
+      )
 
       val declarations = module.declarations.flatMap(decl =>
         typedDecl(decl, globalScope),
       )
 
-      val result = TypedModule(module.source, declarations, module.span, module.cIncludes)
+      val result = TypedModule(
+        module.source,
+        declarations,
+        module.span,
+        module.cIncludes,
+        foreignAliases.values.toList,
+      )
       if diagnostics.isEmpty then Result.success(Phase.Check, result)
       else Result.failure(Phase.Check, diagnostics.toList)
+
+    private def collectForeignNamespaceImports(): Unit =
+      val ordinaryBindings = mutable.LinkedHashMap.empty[String, SourceSpan]
+      module.declarations.foreach { declaration =>
+        ordinaryBindingName(declaration).foreach { name =>
+          if !ordinaryBindings.contains(name) then
+            ordinaryBindings.update(name, declaration.span)
+        }
+      }
+
+      val importValues =
+        (module.declarations.collect { case importDecl: UntypedCppNamespaceImport => importDecl.value } :::
+          module.cppNamespaceImports).distinct
+
+      importValues.foreach { importValue =>
+        ordinaryBindings.get(importValue.alias).foreach { _ =>
+          error(
+            "cosmo1.name.duplicate-definition",
+            s"C++ namespace alias ${importValue.alias} conflicts with an existing Cosmo binding",
+            importValue.span,
+          )
+        }
+
+        foreignAliases.get(importValue.alias) match
+          case Some(existing) if existing.namespace == importValue.namespace =>
+            val mergedHeaders = (existing.headers ::: importValue.headers).distinct
+            foreignAliases.update(
+              importValue.alias,
+              existing.copy(headers = mergedHeaders),
+            )
+          case Some(existing) =>
+            error(
+              "cosmo1.name.conflicting-cpp-namespace-alias",
+              s"C++ namespace alias ${importValue.alias} already targets ${existing.namespace.cppName}, not ${importValue.namespace.cppName}",
+              importValue.span,
+            )
+          case None =>
+            foreignAliases.update(importValue.alias, importValue)
+      }
+
+    private def ordinaryBindingName(declaration: UntypedDecl): Option[String] =
+      declaration match
+        case _: UntypedCppNamespaceImport =>
+          None
+        case importDecl: UntypedImport =>
+          importDecl.dest
+            .flatMap(_.parts.lastOption)
+            .orElse(importDecl.path.parts.lastOption)
+        case other =>
+          Some(other.name)
 
     private def collectAliases(): Unit =
       module.declarations.foreach {
@@ -368,6 +437,8 @@ final class SourceTyper(
       decl match
         case importDecl: UntypedImport =>
           Some(TypedImport(importDecl.path, importDecl.dest, importDecl.span))
+        case importDecl: UntypedCppNamespaceImport =>
+          Some(TypedCppNamespaceImport(importDecl.value, importDecl.span))
         case alias: UntypedTypeAlias =>
           Some(TypedTypeAlias(alias.name, resolveAlias(alias.name), alias.span))
         case value: UntypedValueDecl =>
@@ -762,6 +833,10 @@ final class SourceTyper(
       )
 
     private def variantConstructorExpr(node: UntypedVariantConstructor): ExprInfo =
+      val foreignName = foreignQualifiedName(node.owner, node.variant, node.span)
+      if foreignName.nonEmpty then
+        return ExprInfo(foreignName.get, mutableBinding = false, mutationAllowed = false)
+
       val ownerType = resolveType(node.owner, None)
       constructorSignature(ownerType, node.variant, node.span) match
         case Some(signature) =>
@@ -783,6 +858,37 @@ final class SourceTyper(
             false,
             false,
           )
+
+    private def foreignQualifiedName(
+        owner: UntypedType,
+        finalSegment: String,
+        span: SourceSpan,
+    ): Option[TypedForeignQualifiedName] =
+      owner match
+        case UntypedNamedType(path, _) =>
+          path.parts match
+            case root :: rest =>
+              foreignAliases.get(root).map { importValue =>
+                val suffix = rest :+ finalSegment
+                TypedForeignQualifiedName(
+                  importValue,
+                  suffix,
+                  SourceType.ForeignSymbol(foreignCanonicalName(importValue, suffix)),
+                  span,
+                )
+              }
+            case Nil =>
+              None
+        case _ =>
+          None
+
+    private def foreignCanonicalName(
+        importValue: SourceCppNamespaceImport,
+        suffix: List[String],
+    ): String =
+      val suffixName = suffix.mkString("::")
+      if suffixName.isEmpty then importValue.namespace.cppName
+      else s"${importValue.namespace.cppName}::$suffixName"
 
     private def callExpr(
         node: UntypedCall,
@@ -1510,6 +1616,8 @@ final class SourceTyper(
           path.parts match
             case name :: Nil if owner.contains(name) || ((name == "self" || name == "Self") && owner.nonEmpty) =>
               SourceType.User(owner.get)
+            case name :: Nil if foreignAliases.contains(name) =>
+              SourceType.ForeignNamespace(foreignAliases(name))
             case name :: Nil =>
               SourceType.scalar(name)
                 .orElse(
@@ -1528,6 +1636,8 @@ final class SourceTyper(
                   )
                   SourceType.Error
                 }
+            case root :: suffix if foreignAliases.contains(root) =>
+              SourceType.ForeignSymbol(foreignCanonicalName(foreignAliases(root), suffix))
             case _ =>
               error(
                 "cosmo0.type.unknown-type",
@@ -1664,6 +1774,7 @@ final class SourceTyper(
     private def mutationCapability(valueType: SourceType): Boolean =
       SourceType.dealias(valueType) match
         case SourceType.Ref(_, mutable) => mutable
+        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) => false
         case SourceType.Never | SourceType.Error => false
         case _ => true
 
