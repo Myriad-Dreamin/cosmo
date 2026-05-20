@@ -127,6 +127,7 @@ final class CppBackend(
         "#include <set>",
         "#include <sstream>",
         "#include <string>",
+        "#include <sys/wait.h>",
         "#include <type_traits>",
         "#include <unordered_map>",
         "#include <utility>",
@@ -249,6 +250,39 @@ final class CppBackend(
         |  output << content;
         |}
         |
+        |inline std::vector<std::string> argv_strings(int argc, char **argv) {
+        |  std::vector<std::string> args;
+        |  for (int index = 1; index < argc; ++index) {
+        |    if (argv[index] != nullptr) {
+        |      args.push_back(std::string(argv[index]));
+        |    }
+        |  }
+        |  return args;
+        |}
+        |
+        |inline std::string shell_quote(const std::string &value) {
+        |  std::string quoted = "'";
+        |  for (char ch : value) {
+        |    if (ch == '\'') {
+        |      quoted += "'\\''";
+        |    } else {
+        |      quoted.push_back(ch);
+        |    }
+        |  }
+        |  quoted += "'";
+        |  return quoted;
+        |}
+        |
+        |inline int command_exit_status(int raw_status) {
+        |  if (raw_status == -1) {
+        |    return 1;
+        |  }
+        |  if (WIFEXITED(raw_status)) {
+        |    return WEXITSTATUS(raw_status);
+        |  }
+        |  return raw_status;
+        |}
+        |
         |inline uint8_t *string_data(const std::string &value) {
         |  return const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(value.data()));
         |}
@@ -288,6 +322,53 @@ final class CppBackend(
         |  bool is_err() const { return !ok; }
         |  int32_t tag() const { return ok ? 1 : 0; }
         |};
+        |
+        |template <typename CommandResult, typename CommandError, typename Command>
+        |inline Result<CommandResult, CommandError> command_run(const Command *command) {
+        |  if (command == nullptr) {
+        |    return Result<CommandResult, CommandError>::Err(CommandError(std::string("null command")));
+        |  }
+        |
+        |  std::string line;
+        |  if (command->cwd.has_value()) {
+        |    line += "cd ";
+        |    line += shell_quote(command->cwd.value().text);
+        |    line += " && ";
+        |  }
+        |
+        |  line += shell_quote(command->executable.text);
+        |  for (const auto &arg : command->args) {
+        |    line += " ";
+        |    line += shell_quote(arg);
+        |  }
+        |  line += " 2>&1";
+        |
+        |  FILE *pipe = popen(line.c_str(), "r");
+        |  if (pipe == nullptr) {
+        |    return Result<CommandResult, CommandError>::Err(CommandError(std::string("failed to start command")));
+        |  }
+        |
+        |  std::string output;
+        |  char buffer[4096];
+        |  while (true) {
+        |    const std::size_t count = std::fread(buffer, 1, sizeof(buffer), pipe);
+        |    if (count > 0) {
+        |      output.append(buffer, count);
+        |    }
+        |    if (count < sizeof(buffer)) {
+        |      if (std::feof(pipe) != 0) {
+        |        break;
+        |      }
+        |      if (std::ferror(pipe) != 0) {
+        |        pclose(pipe);
+        |        return Result<CommandResult, CommandError>::Err(CommandError(std::string("failed to read command output")));
+        |      }
+        |    }
+        |  }
+        |
+        |  const int status = command_exit_status(pclose(pipe));
+        |  return Result<CommandResult, CommandError>::Ok(CommandResult(status, output, std::string()));
+        |}
         |
         |inline std::vector<nlohmann::json> &json_values() {
         |  static std::vector<nlohmann::json> values;
@@ -892,10 +973,26 @@ final class CppBackend(
         val invocation =
           if binding.symbol == CppQualifiedSymbol.global("cosmo0_runtime", "json_parse") then
             jsonParseInvocation(callee, binding, args, locals)
+          else if binding.symbol == CppQualifiedSymbol.global("cosmo0_runtime", "command_run") then
+            commandRunInvocation(callee, binding, args, locals)
           else s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
         assignOrStatement(output, invocation, locals)
 
     private def jsonParseInvocation(
+        callee: LirDeclId,
+        binding: LirExternBinding,
+        args: List[LirValue],
+        locals: FunctionNames,
+    ): String =
+      val templateArgs =
+        env.functions.get(callee).map(_.returnType.source) match
+          case Some(SourceType.Standard("Result", ok :: err :: Nil)) =>
+            s"<${valueTypeName(ok)}, ${valueTypeName(err)}>"
+          case _ =>
+            ""
+      s"${binding.symbol.cppName}$templateArgs(${args.map(renderValue(_, locals)).mkString(", ")})"
+
+    private def commandRunInvocation(
         callee: LirDeclId,
         binding: LirExternBinding,
         args: List[LirValue],
@@ -1452,20 +1549,39 @@ final class CppBackend(
 
     private def mainWrapper: Option[String] =
       env.functions.values
-        .find(function => function.externBinding.isEmpty && function.owner.isEmpty && function.name == "main" && function.params.isEmpty)
+        .find(function =>
+          function.externBinding.isEmpty &&
+            function.owner.isEmpty &&
+            function.name == "main" &&
+            isRunnableMain(function)
+        )
         .map { main =>
           val qualified = (namespace :+ names.functionName(main.id)).mkString("::")
+          val parameterList = if main.params.isEmpty then "" else "int argc, char **argv"
+          val invocation =
+            if main.params.isEmpty then s"$qualified()"
+            else s"$qualified(cosmo0_runtime::argv_strings(argc, argv))"
           SourceType.dealias(main.returnType.source) match
             case SourceType.Unit =>
-              s"""int main() {
-                 |  $qualified();
+              s"""int main($parameterList) {
+                 |  $invocation;
                  |  return 0;
                  |}""".stripMargin
             case _ =>
-              s"""int main() {
-                 |  return static_cast<int>($qualified());
+              s"""int main($parameterList) {
+                 |  return static_cast<int>($invocation);
                  |}""".stripMargin
         }
+
+    private def isRunnableMain(function: LirFunction): Boolean =
+      function.params.isEmpty ||
+        (function.params match
+          case param :: Nil =>
+            SourceType.same(
+              param.valueType.source,
+              SourceType.Standard("Vec", List(SourceType.String))
+            )
+          case _            => false)
 
     private def descriptorOwnerType(descriptor: LirDescriptorRef): SourceType =
       SourceType.scalar(descriptor.name).filter(_ => descriptor.args.isEmpty).getOrElse {

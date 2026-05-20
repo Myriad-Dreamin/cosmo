@@ -301,8 +301,10 @@ object TrustedExternAbi:
         commandRunSymbol,
         List(
           BackendRequirement.runtimeSymbol(commandRunSymbol),
+          BackendRequirement.include("<cstdio>"),
           BackendRequirement.include("<cstdlib>"),
           BackendRequirement.include("<string>"),
+          BackendRequirement.include("<sys/wait.h>"),
           BackendRequirement.include("<vector>"),
         ),
       ),

@@ -1,0 +1,54 @@
+import std.path_fs
+
+class CommandEnv {
+  val key: String
+  val value: String
+}
+
+class CommandResult {
+  val exit_status: i32
+  val stdout: String
+  val stderr: String
+
+  def success(&self): Bool = {
+    self.exit_status == 0
+  }
+}
+
+class CommandError {
+  val message: String
+}
+
+class Command {
+  val executable: Path
+  var args: Vec[String]
+  var env: Vec[CommandEnv]
+  var cwd: Option[Path]
+
+  def arg(&mut self, value: String): Unit = {
+    self.args.push(value)
+  }
+
+  def env_var(&mut self, key: String, value: String): Unit = {
+    self.env.push(CommandEnv(key, value))
+  }
+
+  def current_dir(&mut self, path: Path): Unit = {
+    self.cwd = Option[Path]::Some(path)
+  }
+
+  def run(&self): Result[CommandResult, CommandError] = {
+    command_run(self)
+  }
+}
+
+def core0_command(executable: Path): Command = {
+  Command(
+    executable,
+    Vec[String](),
+    Vec[CommandEnv](),
+    Option[Path]::None
+  )
+}
+
+def command_run(command: &Command): Result[CommandResult, CommandError]
