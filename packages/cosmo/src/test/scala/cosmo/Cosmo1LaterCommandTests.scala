@@ -15,10 +15,11 @@ class Cosmo1LaterCommandTest extends TestBase:
     }
   }
 
-  test("cosmoc Stage 1 manifest does not require command support") {
+  test("cosmoc Stage 1 manifest keeps std command support out of the Stage 1 slice") {
     val manifest =
       NodeFs.readFileSync("packages/cosmoc/cosmo.json", "utf8").asInstanceOf[String]
 
+    assert(manifest.contains("\"driver/command.cos\""))
     assert(!manifest.contains("\"std/command.cos\""))
     assert(!manifest.contains("\"std/command_test.cos\""))
     assert(!manifest.contains("\"link/command.cos\""))

@@ -19,6 +19,14 @@ class CosmosPackageTests extends munit.FunSuite:
       loaded.value.get.modules.exists(_.modulePath == List("lsp", "document_events")),
       s"LSP document event bridge missing from ${loaded.value.get.modules.map(_.modulePath)}",
     )
+    assert(
+      !loaded.value.get.modules.exists(_.source.name == "packages/cosmoc/src/main.cos"),
+      s"dependency entrypoint leaked from cosmoc into cosmos: ${loaded.value.get.modules.map(_.source.name)}",
+    )
+    assert(
+      !loaded.value.get.modules.exists(_.source.name == "packages/ls-base/src/main.cos"),
+      s"dependency entrypoint leaked from ls-base into cosmos: ${loaded.value.get.modules.map(_.source.name)}",
+    )
 
   test("cosmos package checks without diagnostics and exposes focused workspace APIs"):
     val checked = Cosmo0().checkPackage("packages/cosmos")

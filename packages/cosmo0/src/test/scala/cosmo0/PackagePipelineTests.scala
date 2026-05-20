@@ -169,7 +169,9 @@ class PackagePipelineTests extends munit.FunSuite:
       loaded.value.get.metadata.sourceFiles,
       Some(
         List(
+          "main.cos",
           "driver/config.cos",
+          "driver/command.cos",
           "driver/diagnostic.cos",
           "source/span.cos",
           "lex/token.cos",
@@ -191,10 +193,12 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(
       loaded.value.get.modules.map(_.modulePath),
       List(
+        List("driver", "command"),
         List("driver", "config"),
         List("driver", "diagnostic"),
         List("lex", "lexer"),
         List("lex", "token"),
+        List("main"),
         List("names", "resolution"),
         List("names", "scope"),
         List("names", "symbol"),
@@ -231,6 +235,7 @@ class PackagePipelineTests extends munit.FunSuite:
       checked.value.get.moduleOrder,
       List(
         "std/path_fs",
+        "driver/command",
         "driver/config",
         "std/text",
         "source/source",
@@ -241,6 +246,7 @@ class PackagePipelineTests extends munit.FunSuite:
         "lex/token",
         "std/char_class",
         "lex/lexer",
+        "main",
         "names/symbol",
         "names/scope",
         "syntax/ast",

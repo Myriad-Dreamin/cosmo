@@ -48,6 +48,35 @@ export function parsePackageRunCommand(argv) {
   return { packagePath, runArgs };
 }
 
+export function parsePackageBuildCommand(argv) {
+  if (argv.length < 3) {
+    return null;
+  }
+
+  const packageFlag = argv[0];
+  if (packageFlag !== "-p" && packageFlag !== "--package") {
+    return null;
+  }
+
+  const packagePath = argv[1];
+  if (!packagePath || argv[2] !== "build") {
+    return null;
+  }
+
+  const buildArgs = argv.slice(3);
+  return { packagePath, outputPath: parseOutputPath(buildArgs), buildArgs };
+}
+
+function parseOutputPath(args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const current = args[index];
+    if (current === "-o" || current === "--output") {
+      return args[index + 1] ?? "";
+    }
+  }
+  return "";
+}
+
 export function packageRunBuildPaths(packageRoot, moduleName) {
   const safeModuleName =
     moduleName.replace(/[^A-Za-z0-9_.-]+/g, "_") || "package";
@@ -63,11 +92,35 @@ export function packageRunBuildPaths(packageRoot, moduleName) {
   };
 }
 
+export function packageBuildBuildPaths(packageRoot, moduleName, outputPath = "") {
+  const safeModuleName =
+    moduleName.replace(/[^A-Za-z0-9_.-]+/g, "_") || "package";
+  const buildDir = join(packageRoot, "target", "cosmo", "package-build");
+  const executableName =
+    process.platform === "win32" ? `${safeModuleName}.exe` : safeModuleName;
+  const executablePath = outputPath
+    ? resolve(outputPath)
+    : join(buildDir, executableName);
+
+  return {
+    buildDir,
+    sourcePath: join(buildDir, `${safeModuleName}.cpp`),
+    executablePath,
+    logPath: join(buildDir, `${safeModuleName}.compile.log`),
+  };
+}
+
 async function loadCompilerModule() {
   return import(linkedCompilerModule);
 }
 
 async function main(argv = process.argv.slice(2)) {
+  const packageBuild = parsePackageBuildCommand(argv);
+  if (packageBuild) {
+    await runPackageBuildCommand(packageBuild.packagePath, packageBuild.outputPath);
+    return;
+  }
+
   const packageRun = parsePackageRunCommand(argv);
   if (packageRun) {
     await runPackageCommand(packageRun.packagePath, packageRun.runArgs);
@@ -112,9 +165,33 @@ async function runPackageCommand(packagePath, runArgs) {
   await spawnExecutable(executablePath, runArgs, packageRoot);
 }
 
-function compilePackageExecutable(packageRoot, compiled) {
-  const paths = packageRunBuildPaths(packageRoot, compiled.moduleName);
+async function runPackageBuildCommand(packagePath, outputPath) {
+  if (outputPath === "") {
+    throw new CliError("cosmo package build requires -o <output>");
+  }
+
+  const packageRoot = resolve(packagePath);
+  const cosmo = await loadCompilerModule();
+  const compiler = new cosmo.Cosmo0();
+  const compiled = compiler.compileRunnablePackageForHost(packageRoot);
+
+  if (!compiled.ok) {
+    printDiagnostics(compiled.diagnostics);
+    throw new CliError(`cosmo package build failed during ${compiled.status}`);
+  }
+
+  const paths = packageBuildBuildPaths(packageRoot, compiled.moduleName, outputPath);
+  const executablePath = compilePackageExecutable(packageRoot, compiled, paths);
+  console.log(executablePath);
+}
+
+function compilePackageExecutable(
+  packageRoot,
+  compiled,
+  paths = packageRunBuildPaths(packageRoot, compiled.moduleName),
+) {
   mkdirSync(paths.buildDir, { recursive: true });
+  mkdirSync(dirname(paths.executablePath), { recursive: true });
   writeFileSync(paths.sourcePath, compiled.output, "utf8");
 
   const compiler = findCxxCompiler();

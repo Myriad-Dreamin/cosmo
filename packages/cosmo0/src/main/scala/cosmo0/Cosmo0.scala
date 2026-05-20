@@ -251,13 +251,22 @@ final class Cosmo0:
     }
 
   private def isRunnableEntrypoint(fn: TypedFunction): Boolean =
-    fn.params.isEmpty &&
+    runnableParams(fn) &&
       fn.externBinding.isEmpty &&
       fn.body.nonEmpty &&
       runnableReturnType(fn.returnType)
 
+  private def runnableParams(fn: TypedFunction): Boolean =
+    fn.params.isEmpty ||
+      (fn.params match
+        case param :: Nil => SourceType.same(param.valueType, runnableArgsType)
+        case _            => false)
+
   private def runnableReturnType(valueType: SourceType): Boolean =
     SourceType.same(valueType, SourceType.Unit) || SourceType.isInteger(valueType)
+
+  private def runnableArgsType: SourceType =
+    SourceType.Standard("Vec", List(SourceType.String))
 
   private def parseFailureDiagnostic(
       source: SourceFile,

@@ -140,7 +140,7 @@ private[cosmo0] final class PackagePipeline(
                 loadedDependency.diagnostics,
               )
             case loadedDependency =>
-              dependencyModules ++= loadedDependency.value.get.modules
+              dependencyModules ++= dependencyVisibleModules(loadedDependency.value.get.modules)
     }
 
     val ownModules = discoverSources(rootPath, metadata)
@@ -157,6 +157,12 @@ private[cosmo0] final class PackagePipeline(
         seen += module.source.name
         true
     }
+
+  private def dependencyVisibleModules(modules: List[Cosmo0PackageModule]): List[Cosmo0PackageModule] =
+    modules.filterNot(isPackageEntrypointModule)
+
+  private def isPackageEntrypointModule(module: Cosmo0PackageModule): Boolean =
+    module.modulePath == List("main")
 
   def check(pkg: Cosmo0Package): Result[CheckedPackage] =
     val elaborated = pkg.modules.map(module => module -> compiler.elaborate(module.source))
