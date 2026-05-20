@@ -1,13 +1,13 @@
 find_package(LLVM CONFIG QUIET)
 if (NOT LLVM_FOUND)
     message(FATAL_ERROR
-        "cosmo-clang-sys requires LLVM CMake packages. Set COSMO_LLVM_PATH to an LLVM/Clang install prefix or pass -DCOSMO_LLVM_PATH=<prefix>.")
+        "cosmo-clang-sys requires LLVM CMake packages. Set COSMO_LLVM_PATH to an LLVM/Clang install prefix, or leave it empty so CMake downloads the manifest LLVM into target/cosmo/llvm.")
 endif ()
 
 find_package(Clang CONFIG QUIET)
 if (NOT Clang_FOUND)
     message(FATAL_ERROR
-        "cosmo-clang-sys requires Clang CMake packages. Set COSMO_LLVM_PATH to an LLVM/Clang install prefix or pass -DCOSMO_LLVM_PATH=<prefix>.")
+        "cosmo-clang-sys requires Clang CMake packages. Set COSMO_LLVM_PATH to an LLVM/Clang install prefix, or leave it empty so CMake downloads the manifest LLVM into target/cosmo/llvm.")
 endif ()
 
 add_library(cosmoClang STATIC src/cosmo_clang_sys.cc)
@@ -38,7 +38,7 @@ else ()
             $ENV{COSMO_LLVM_PATH}/lib)
     if (NOT COSMO_CLANG_C_LIBRARY)
         message(FATAL_ERROR
-            "cosmo-clang-sys requires libclang. Set COSMO_LLVM_PATH to an LLVM/Clang install prefix or pass -DCOSMO_LLVM_PATH=<prefix>.")
+            "cosmo-clang-sys requires libclang. Set COSMO_LLVM_PATH to an LLVM/Clang install prefix, or leave it empty so CMake downloads the manifest LLVM into target/cosmo/llvm.")
     endif ()
     target_link_libraries(cosmoClang PUBLIC ${COSMO_CLANG_C_LIBRARY})
 endif ()

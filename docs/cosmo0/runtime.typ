@@ -108,7 +108,9 @@ The trusted `core0.command` run binding records the target symbol `::cosmo0_runt
 
 The accepted build artifact is a Linux static library named `libcosmoClang.a`, produced by the CMake target `cosmoClang` when `COSMO_ENABLE_CLANG_SYS` is enabled. The target exports the C ABI declared in `native/cosmo-clang-sys/include/cosmo_clang_sys.h`. The primary query accepts a canonical namespace, a qualified suffix, and a bounded header set, then uses Clang to parse a probe translation unit that includes those headers and references the requested symbol.
 
-CMake discovery uses `COSMO_LLVM_PATH` as the LLVM/Clang install prefix. The value may come from the environment or from `-DCOSMO_LLVM_PATH=<prefix>`. When `COSMO_ENABLE_CLANG_SYS=ON`, missing LLVM, Clang, or libclang support is a configure-time error. When the option is disabled, the default build does not require LLVM.
+Pure CMake discovery uses `COSMO_LLVM_PATH` as the LLVM/Clang install prefix. The value may come from the environment, a `.env` file applied by the driver, or from `-DCOSMO_LLVM_PATH=<prefix>`. When `COSMO_ENABLE_CLANG_SYS=ON` and no path is configured, CMake reads `config/llvm-manifest.json`, selects the matching LLVM `21.1.8` artifact for the host platform and architecture, downloads it from `clice-llvm` releases into `target/cosmo/llvm`, verifies the SHA-256 digest, extracts it, and uses that install for `find_package(LLVM)` and `find_package(Clang)`.
+
+`COSMO_LLVM_PATH` remains the override for locally managed toolchains. `COSMO_LLVM_OFFLINE=ON` disables network access and requires either a configured path or an already-populated `target/cosmo/llvm` cache. When `COSMO_ENABLE_CLANG_SYS=OFF`, the default build does not require LLVM.
 
 `cosmoc` links against `cosmoClang` only when `COSMO_ENABLE_CLANG_SYS` is enabled. Generated backend requirement records for C++ namespace imports include both header requirements and a `cpp-namespace-import:*` requirement so the driver can route validation through this library before host linking.
 

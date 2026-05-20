@@ -42,4 +42,4 @@
 - [x] 6.4 Wire resolver tests to run the `fixtures/name-resolution` corpus and check stable diagnostic codes/spans.
 - [x] 6.5 Run the relevant parser, package graph, name-resolution, CMake, `cosmo-clang-sys`, and fixture tests.
 
-Validation note: `COSMO_ENABLE_CLANG_SYS=ON` configuration was exercised on the current host and reached the intended missing Clang CMake package diagnostic. Producing `libcosmoClang.a` requires a host LLVM/Clang install exposed through `COSMO_LLVM_PATH`.
+Validation note: `COSMO_ENABLE_CLANG_SYS=ON` now uses `COSMO_LLVM_PATH` when configured; otherwise pure CMake reads `config/llvm-manifest.json` and downloads the selected LLVM artifact into `target/cosmo/llvm`. Offline validation exercised the missing-cache diagnostic, and local-path validation exercised the CMake setup path.
