@@ -218,7 +218,7 @@ final class LirTypeChecker(
     ): Unit =
       SourceType.dealias(param.valueType.source) match
         case SourceType.Ref(target, mutable) =>
-          if !sameSourceType(target, receiver.valueType) || (receiver.mutable && !mutable) then
+          if !sameSourceType(target, receiver.valueType) || mutable != receiver.mutable then
             error(
               "cosmo0.lir.invalid-signature",
               s"${function.id} receiver parameter has type ${param.valueType.display}, expected receiver ${receiver.valueType.display}",
