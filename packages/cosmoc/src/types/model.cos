@@ -126,7 +126,7 @@ def type_equals_user(left_name: String, right: CosmoType): Bool = {
       false
     }
     case CosmoType.User(right_name) => {
-      left_name == right_name
+      type_alias_canonical_name(left_name) == type_alias_canonical_name(right_name)
     }
     case CosmoType.Function(right_params, right_return) => {
       false
@@ -143,7 +143,41 @@ def type_equals_user(left_name: String, right: CosmoType): Bool = {
   }
 }
 
-def type_equals_function(types: &TypeStore, left_params: Vec[TypeId], left_return: TypeId, right: CosmoType): Bool = {
+def type_alias_canonical_name(name: String): String = {
+  if (name == "ModuleId") {
+    return "Id[SyntaxModule]"
+  }
+  if (name == "DeclId") {
+    return "Id[SyntaxDecl]"
+  }
+  if (name == "MemberId") {
+    return "Id[SyntaxMember]"
+  }
+  if (name == "ParamId") {
+    return "Id[SyntaxParam]"
+  }
+  if (name == "ExprId") {
+    return "Id[SyntaxExpr]"
+  }
+  if (name == "TypeExprId") {
+    return "Id[SyntaxType]"
+  }
+  if (name == "TypeId") {
+    return "Id[CosmoType]"
+  }
+  if (name == "DefId") {
+    return "Id[Definition]"
+  }
+  if (name == "ScopeId") {
+    return "Id[Scope]"
+  }
+  if (name == "PackageModuleId") {
+    return "Id[PackageModule]"
+  }
+  name
+}
+
+def type_equals_function(types: &TypeStore, left_params: &Vec[TypeId], left_return: TypeId, right: CosmoType): Bool = {
   right match {
     case CosmoType.Primitive(right_name) => {
       false
@@ -189,7 +223,7 @@ def type_equals_reference(types: &TypeStore, left_mutable: Bool, left_inner: Typ
   }
 }
 
-def type_id_lists_equal(types: &TypeStore, left: Vec[TypeId], right: Vec[TypeId]): Bool = {
+def type_id_lists_equal(types: &TypeStore, left: &Vec[TypeId], right: &Vec[TypeId]): Bool = {
   if (left.len() != right.len()) {
     return false
   }
@@ -278,7 +312,7 @@ def type_node_display(types: &TypeStore, value: CosmoType): String = {
   }
 }
 
-def type_display_function(types: &TypeStore, params: Vec[TypeId], return_type: TypeId): String = {
+def type_display_function(types: &TypeStore, params: &Vec[TypeId], return_type: TypeId): String = {
   "fn(".concat(type_display_list(types, params)).concat(") -> ").concat(type_display(types, return_type))
 }
 
@@ -290,7 +324,7 @@ def type_display_reference(types: &TypeStore, mutable: Bool, inner: TypeId): Str
   }
 }
 
-def type_display_list(types: &TypeStore, items: Vec[TypeId]): String = {
+def type_display_list(types: &TypeStore, items: &Vec[TypeId]): String = {
   var text = "";
   var index: usize = 0;
   while (index < items.len()) {
@@ -316,7 +350,7 @@ def type_mismatch_diagnostic(span: Span, expected: TypeId, actual: TypeId): Type
   )
 }
 
-def type_diagnostic_expected_text(types: &TypeStore, diagnostic: TypeDiagnostic): String = {
+def type_diagnostic_expected_text(types: &TypeStore, diagnostic: &TypeDiagnostic): String = {
   diagnostic.mismatch match {
     case Option[TypeMismatch]::Some(mismatch) => {
       type_display(types, mismatch.expected)
@@ -327,7 +361,7 @@ def type_diagnostic_expected_text(types: &TypeStore, diagnostic: TypeDiagnostic)
   }
 }
 
-def type_diagnostic_actual_text(types: &TypeStore, diagnostic: TypeDiagnostic): String = {
+def type_diagnostic_actual_text(types: &TypeStore, diagnostic: &TypeDiagnostic): String = {
   diagnostic.mismatch match {
     case Option[TypeMismatch]::Some(mismatch) => {
       type_display(types, mismatch.actual)
@@ -338,7 +372,7 @@ def type_diagnostic_actual_text(types: &TypeStore, diagnostic: TypeDiagnostic): 
   }
 }
 
-def render_type_diagnostic(types: &TypeStore, diagnostic: TypeDiagnostic): String = {
+def render_type_diagnostic(types: &TypeStore, diagnostic: &TypeDiagnostic): String = {
   diagnostic.mismatch match {
     case Option[TypeMismatch]::Some(mismatch) => {
       diagnostic.message

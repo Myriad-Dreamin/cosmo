@@ -128,6 +128,20 @@ class LirTests extends munit.FunSuite:
     assertEquals(function.signature.sourceSignature, Some(sourceSignature))
     assertEquals(function.signature.params, List(Lir.t(SourceType.I32)))
 
+  test("reference assignability allows mutable refs as readonly values but not the reverse"):
+    val boxType = SourceType.User("Box")
+    val readonlyRef = SourceType.Ref(boxType, mutable = false)
+    val mutableRef = SourceType.Ref(boxType, mutable = true)
+
+    assert(SourceType.assignable(mutableRef, readonlyRef))
+    assert(!SourceType.assignable(readonlyRef, mutableRef))
+    assert(
+      !SourceType.assignable(
+        SourceType.Function(List(mutableRef), SourceType.Unit),
+        SourceType.Function(List(readonlyRef), SourceType.Unit),
+      ),
+    )
+
   test("LIR type checker accepts a valid hand-written module"):
     val result = LirTypeChecker().check(checkedLirModule())
 
@@ -135,6 +149,94 @@ class LirTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
     assertEquals(result.value, Some(checkedLirModule()))
+
+  test("LIR type checker permits mutable refs for readonly arguments and rejects readonly refs for mutable arguments"):
+    val boxType = SourceType.User("Box")
+    val readonlyRef = SourceType.Ref(boxType, mutable = false)
+    val mutableRef = SourceType.Ref(boxType, mutable = true)
+
+    val readBox = Lir.function(
+      "read_box",
+      List(Lir.param("box", readonlyRef)),
+      SourceType.Unit,
+      locals = Nil,
+      blocks = List(Lir.block("entry", terminator = LirReturn(None))),
+    )
+    val callRead = Lir.function(
+      "call_read",
+      List(Lir.param("box", mutableRef)),
+      SourceType.Unit,
+      locals = Nil,
+      blocks = List(
+        Lir.block(
+          "entry",
+          operations = List(
+            LirDirectCall(
+              None,
+              Lir.declId("read_box"),
+              List(Lir.ref("box", mutableRef)),
+              Lir.signature(List(readonlyRef), SourceType.Unit),
+            ),
+          ),
+          terminator = LirReturn(None),
+        ),
+      ),
+    )
+    val accepted = LirTypeChecker().check(LirModule("refs", List(readBox, callRead)))
+    assertEquals(accepted.status, PhaseStatus.Succeeded)
+
+    val mutateBox = Lir.function(
+      "mutate_box",
+      List(Lir.param("box", mutableRef)),
+      SourceType.Unit,
+      locals = Nil,
+      blocks = List(Lir.block("entry", terminator = LirReturn(None))),
+    )
+    val callMutate = Lir.function(
+      "call_mutate",
+      List(Lir.param("box", readonlyRef)),
+      SourceType.Unit,
+      locals = Nil,
+      blocks = List(
+        Lir.block(
+          "entry",
+          operations = List(
+            LirDirectCall(
+              None,
+              Lir.declId("mutate_box"),
+              List(Lir.ref("box", readonlyRef)),
+              Lir.signature(List(mutableRef), SourceType.Unit),
+            ),
+          ),
+          terminator = LirReturn(None),
+        ),
+      ),
+    )
+    val rejected = LirTypeChecker().check(LirModule("refs", List(mutateBox, callMutate)))
+    assertEquals(rejected.status, PhaseStatus.Failed)
+    assert(rejected.diagnostics.exists(_.code == "cosmo0.lir.assignment-mismatch"))
+
+  test("LIR source signatures reject mutable receiver params for readonly receivers"):
+    val boxType = SourceType.User("Box")
+    val readonlySource = CallableSignature(
+      "inspect",
+      Nil,
+      SourceType.Unit,
+      Some(CallableReceiver(boxType, mutable = false)),
+    )
+    val function = Lir.function(
+      "inspect",
+      List(Lir.param("self", SourceType.Ref(boxType, mutable = true))),
+      SourceType.Unit,
+      locals = Nil,
+      blocks = List(Lir.block("entry", terminator = LirReturn(None))),
+      sourceSignature = Some(readonlySource),
+    )
+
+    val result = LirTypeChecker().check(LirModule("readonly", List(function)))
+
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(result.diagnostics.exists(_.code == "cosmo0.lir.invalid-signature"))
 
   test("LIR type checker rejects structural, type, call, variant, and mutability errors"):
     val cases = List(

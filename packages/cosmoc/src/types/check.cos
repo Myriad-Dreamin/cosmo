@@ -97,10 +97,10 @@ class ExpressionCheckResult {
 }
 
 class ExpressionChecker {
-  val arenas: SyntaxArenas
+  val arenas: &SyntaxArenas
   val module_id: ModuleId
-  val names: NameResolution
-  val declarations: DeclarationResolution
+  val names: &NameResolution
+  val declarations: &DeclarationResolution
   var types: TypeStore
   var diagnostics: Vec[ExpressionResolutionDiagnostic]
   var typed_exprs: Map[ExprId, TypedExpr]
@@ -177,9 +177,11 @@ class ExpressionChecker {
     }
   }
 
-  def callable_type(&mut self, params: Vec[ParamId], return_type: TypeId): TypeId = {
+  def callable_type(&mut self, params: &Vec[ParamId], return_type: TypeId): TypeId = {
     val param_types = Vec[TypeId]();
-    for (param_id in params) {
+    var index: usize = 0;
+    while (index < params.len()) {
+      val param_id = params.get(index);
       val maybe_signature = self.declarations.param_signatures.get(param_id);
       maybe_signature match {
         case Option[ParameterSignature]::Some(signature) => {
@@ -188,6 +190,7 @@ class ExpressionChecker {
         case Option[ParameterSignature]::None => {
         }
       }
+      index = index + 1
     }
     var types = self.types;
     val callable_type = types.alloc_function(param_types, return_type);
@@ -195,7 +198,7 @@ class ExpressionChecker {
     callable_type
   }
 
-  def check_decl(&mut self, id: DeclId, module_bindings: Vec[LocalBinding]): Unit = {
+  def check_decl(&mut self, id: DeclId, module_bindings: &Vec[LocalBinding]): Unit = {
     val decl = self.arenas.decl_value(id);
     decl match {
       case SyntaxDecl.Function(name, params, return_type, body, span) => {
@@ -218,13 +221,16 @@ class ExpressionChecker {
     }
   }
 
-  def check_class_decl(&mut self, members: Vec[MemberId], module_bindings: Vec[LocalBinding]): Unit = {
-    for (member_id in members) {
+  def check_class_decl(&mut self, members: &Vec[MemberId], module_bindings: &Vec[LocalBinding]): Unit = {
+    var index: usize = 0;
+    while (index < members.len()) {
+      val member_id = members.get(index);
       self.check_member(member_id, module_bindings)
+      index = index + 1
     }
   }
 
-  def check_member(&mut self, id: MemberId, module_bindings: Vec[LocalBinding]): Unit = {
+  def check_member(&mut self, id: MemberId, module_bindings: &Vec[LocalBinding]): Unit = {
     val member = self.arenas.member_value(id);
     member match {
       case SyntaxMember.Method(name, params, return_type, body, span) => {
@@ -243,7 +249,7 @@ class ExpressionChecker {
     }
   }
 
-  def check_function_decl(&mut self, id: DeclId, params: Vec[ParamId], body: ExprId, module_bindings: Vec[LocalBinding]): Unit = {
+  def check_function_decl(&mut self, id: DeclId, params: &Vec[ParamId], body: ExprId, module_bindings: &Vec[LocalBinding]): Unit = {
     val maybe_signature = self.declarations.function_signatures.get(id);
     maybe_signature match {
       case Option[CallableSignature]::Some(signature) => {
@@ -254,7 +260,7 @@ class ExpressionChecker {
     }
   }
 
-  def check_method_member(&mut self, id: MemberId, params: Vec[ParamId], body: ExprId, module_bindings: Vec[LocalBinding]): Unit = {
+  def check_method_member(&mut self, id: MemberId, params: &Vec[ParamId], body: ExprId, module_bindings: &Vec[LocalBinding]): Unit = {
     val maybe_signature = self.declarations.method_signatures.get(id);
     maybe_signature match {
       case Option[CallableSignature]::Some(signature) => {
@@ -265,7 +271,7 @@ class ExpressionChecker {
     }
   }
 
-  def check_value_decl(&mut self, id: DeclId, init: ExprId, module_bindings: Vec[LocalBinding]): Unit = {
+  def check_value_decl(&mut self, id: DeclId, init: ExprId, module_bindings: &Vec[LocalBinding]): Unit = {
     val maybe_signature = self.declarations.value_signatures.get(id);
     maybe_signature match {
       case Option[ValueSignature]::Some(signature) => {
@@ -285,14 +291,17 @@ class ExpressionChecker {
 
   def check_callable_body(
     &mut self,
-    params: Vec[ParamId],
+    params: &Vec[ParamId],
     body: ExprId,
     return_type: TypeId,
-    parent_bindings: Vec[LocalBinding]
+    parent_bindings: &Vec[LocalBinding]
   ): Unit = {
     var bindings = copy_local_bindings(parent_bindings);
-    for (param_id in params) {
+    var index: usize = 0;
+    while (index < params.len()) {
+      val param_id = params.get(index);
       bindings = self.append_param_binding(bindings, param_id)
+      index = index + 1
     }
     self.check_param_defaults(params, bindings);
     val body_type = self.check_expr(
@@ -309,7 +318,7 @@ class ExpressionChecker {
     }
   }
 
-  def append_param_binding(&mut self, bindings: Vec[LocalBinding], param_id: ParamId): Vec[LocalBinding] = {
+  def append_param_binding(&mut self, bindings: &Vec[LocalBinding], param_id: ParamId): Vec[LocalBinding] = {
     val next = copy_local_bindings(bindings);
     val maybe_signature = self.declarations.param_signatures.get(param_id);
     maybe_signature match {
@@ -322,8 +331,10 @@ class ExpressionChecker {
     next
   }
 
-  def check_param_defaults(&mut self, params: Vec[ParamId], bindings: Vec[LocalBinding]): Unit = {
-    for (param_id in params) {
+  def check_param_defaults(&mut self, params: &Vec[ParamId], bindings: &Vec[LocalBinding]): Unit = {
+    var index: usize = 0;
+    while (index < params.len()) {
+      val param_id = params.get(index);
       val param = self.arenas.param_value(param_id);
       param match {
         case SyntaxParam.Named(name, typ, default_value, span) => {
@@ -353,13 +364,14 @@ class ExpressionChecker {
         case SyntaxParam.Self(mutable, span) => {
         }
       }
+      index = index + 1
     }
   }
 
   def check_expr(
     &mut self,
     id: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     expected: Option[TypeId],
     return_type: Option[TypeId]
   ): TypeId = {
@@ -422,7 +434,7 @@ class ExpressionChecker {
     }
   }
 
-  def check_name_expr(&mut self, id: ExprId, bindings: Vec[LocalBinding], span: Span): TypeId = {
+  def check_name_expr(&mut self, id: ExprId, bindings: &Vec[LocalBinding], span: Span): TypeId = {
     val maybe_definition = self.names.expr_definitions.get(id);
     maybe_definition match {
       case Option[DefId]::Some(definition) => {
@@ -593,7 +605,7 @@ class ExpressionChecker {
     &mut self,
     id: ExprId,
     items: Vec[ExprId],
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     expected: Option[TypeId],
     return_type: Option[TypeId]
   ): TypeId = {
@@ -669,7 +681,7 @@ class ExpressionChecker {
 
   def append_local_binding(
     &mut self,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     id: ExprId,
     mutable: Bool,
     typ: TypeExprId,
@@ -731,7 +743,7 @@ class ExpressionChecker {
     mutable: Bool,
     typ: TypeExprId,
     init: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId]
   ): TypeId = {
     if (self.type_expr_is_missing(typ)) {
@@ -782,7 +794,7 @@ class ExpressionChecker {
     id: ExprId,
     target: ExprId,
     value: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId]
   ): TypeId = {
     val target_type = self.check_expr(target, bindings, Option[TypeId]::None, return_type);
@@ -814,7 +826,7 @@ class ExpressionChecker {
     self.record_typed_expr(id, TypedExprKind.Assign(target, value), self.unit_type())
   }
 
-  def assignment_binding(&mut self, target: ExprId, bindings: Vec[LocalBinding]): Option[LocalBinding] = {
+  def assignment_binding(&mut self, target: ExprId, bindings: &Vec[LocalBinding]): Option[LocalBinding] = {
     val target_expr = self.arenas.expr_value(target);
     target_expr match {
       case SyntaxExpr.Name(name, span) => {
@@ -887,7 +899,7 @@ class ExpressionChecker {
     id: ExprId,
     receiver: ExprId,
     field: String,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     span: Span
   ): Option[LocalBinding] = {
     val receiver_type = self.check_expr(receiver, bindings, Option[TypeId]::None, Option[TypeId]::None);
@@ -908,7 +920,7 @@ class ExpressionChecker {
     id: ExprId,
     receiver: ExprId,
     field: String,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): TypeId = {
@@ -965,7 +977,7 @@ class ExpressionChecker {
     id: ExprId,
     callee: ExprId,
     args: Vec[ExprId],
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): TypeId = {
@@ -1056,7 +1068,7 @@ class ExpressionChecker {
     id: ExprId,
     op: String,
     value: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     expected: Option[TypeId],
     return_type: Option[TypeId],
     span: Span
@@ -1136,16 +1148,19 @@ class ExpressionChecker {
 
   def check_prelude_print_args(
     &mut self,
-    args: Vec[ExprId],
-    bindings: Vec[LocalBinding],
+    args: &Vec[ExprId],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): Unit = {
     if (args.len() != 1) {
       self.diagnostic("cosmo1.type.call-arity", "call argument count does not match callable signature", span)
     }
-    for (arg in args) {
+    var index: usize = 0;
+    while (index < args.len()) {
+      val arg = args.get(index);
       val ignored = self.check_expr(arg, bindings, Option[TypeId]::None, return_type);
+      index = index + 1
     }
   }
 
@@ -1156,7 +1171,7 @@ class ExpressionChecker {
     receiver: ExprId,
     field: String,
     args: Vec[ExprId],
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span,
     select_span: Span
@@ -1207,9 +1222,9 @@ class ExpressionChecker {
 
   def check_call_args(
     &mut self,
-    args: Vec[ExprId],
-    params: Vec[TypeId],
-    bindings: Vec[LocalBinding],
+    args: &Vec[ExprId],
+    params: &Vec[TypeId],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): Unit = {
@@ -1303,9 +1318,9 @@ class ExpressionChecker {
 
   def check_constructor_args(
     &mut self,
-    args: Vec[ExprId],
+    args: &Vec[ExprId],
     result_type: TypeId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): Unit = {
@@ -1526,9 +1541,11 @@ class ExpressionChecker {
     Option[IntrinsicSignature]::None
   }
 
-  def variant_intrinsic_signature(&mut self, receiver_type: TypeId, fields: Vec[TypeExprId]): Option[IntrinsicSignature] = {
+  def variant_intrinsic_signature(&mut self, receiver_type: TypeId, fields: &Vec[TypeExprId]): Option[IntrinsicSignature] = {
     val params = Vec[TypeId]();
-    for (field_type in fields) {
+    var index: usize = 0;
+    while (index < fields.len()) {
+      val field_type = fields.get(index);
       val maybe_type = self.type_for_member_type_expr(field_type);
       maybe_type match {
         case Option[TypeId]::Some(typ) => {
@@ -1538,6 +1555,7 @@ class ExpressionChecker {
           return Option[IntrinsicSignature]::None
         }
       }
+      index = index + 1
     }
     Option[IntrinsicSignature]::Some(IntrinsicSignature(params, receiver_type))
   }
@@ -1745,7 +1763,7 @@ class ExpressionChecker {
     self.types.alloc_user(text)
   }
 
-  def callable_type_without_receiver(&mut self, signature: CallableSignature): TypeId = {
+  def callable_type_without_receiver(&mut self, signature: &CallableSignature): TypeId = {
     val params = self.callable_params_without_receiver(signature);
     self.callable_type_from_types(params, signature.return_type)
   }
@@ -1757,7 +1775,7 @@ class ExpressionChecker {
     callable_type
   }
 
-  def callable_params_without_receiver(&self, signature: CallableSignature): Vec[TypeId] = {
+  def callable_params_without_receiver(&self, signature: &CallableSignature): Vec[TypeId] = {
     val result = Vec[TypeId]();
     for (param_id in signature.params) {
       if (!self.param_is_receiver(signature, param_id)) {
@@ -1774,7 +1792,7 @@ class ExpressionChecker {
     result
   }
 
-  def param_is_receiver(&self, signature: CallableSignature, param_id: ParamId): Bool = {
+  def param_is_receiver(&self, signature: &CallableSignature, param_id: ParamId): Bool = {
     signature.receiver match {
       case Option[ParamId]::Some(receiver) => {
         self.param_key(receiver) == self.param_key(param_id)
@@ -1792,9 +1810,9 @@ class ExpressionChecker {
   def check_receiver_mutability(
     &mut self,
     receiver: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     receiver_type: TypeId,
-    signature: CallableSignature,
+    signature: &CallableSignature,
     method_name: String,
     span: Span
   ): Unit = {
@@ -1820,7 +1838,7 @@ class ExpressionChecker {
     }
   }
 
-  def receiver_allows_mutation(&mut self, receiver: ExprId, bindings: Vec[LocalBinding], receiver_type: TypeId): Bool = {
+  def receiver_allows_mutation(&mut self, receiver: ExprId, bindings: &Vec[LocalBinding], receiver_type: TypeId): Bool = {
     val binding = self.assignment_binding(receiver, bindings);
     binding match {
       case Option[LocalBinding]::Some(local) => {
@@ -1838,7 +1856,7 @@ class ExpressionChecker {
     op: String,
     left: ExprId,
     right: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     expected: Option[TypeId],
     return_type: Option[TypeId]
   ): TypeId = {
@@ -1871,7 +1889,7 @@ class ExpressionChecker {
     op: String,
     left: ExprId,
     right: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     expected: Option[TypeId],
     return_type: Option[TypeId]
   ): TypeId = {
@@ -1892,7 +1910,7 @@ class ExpressionChecker {
     op: String,
     left: ExprId,
     right: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     right_expected: Option[TypeId],
     return_type: Option[TypeId]
   ): TypeId = {
@@ -1930,8 +1948,7 @@ class ExpressionChecker {
     if (!self.type_is_integer(left_type) or !self.type_is_integer(right_type)) {
       return self.invalid_binary_expr(id, op, left, right, self.arenas.expr_span(id))
     }
-    var types = self.types;
-    if (!expression_type_equals(types, left_type, right_type)) {
+    if (!expression_type_equals(self.types, left_type, right_type)) {
       val ignored = self.expect_assignable(
         self.arenas.expr_span(right),
         left_type,
@@ -1957,8 +1974,7 @@ class ExpressionChecker {
     if (!self.type_is_integer(left_type) or !self.type_is_integer(right_type)) {
       return self.invalid_binary_expr(id, op, left, right, self.arenas.expr_span(id))
     }
-    var types = self.types;
-    if (!expression_type_equals(types, left_type, right_type)) {
+    if (!expression_type_equals(self.types, left_type, right_type)) {
       val ignored = self.expect_assignable(
         self.arenas.expr_span(right),
         left_type,
@@ -1984,8 +2000,7 @@ class ExpressionChecker {
     if (!self.type_is_primitive(left_type) or !self.type_is_primitive(right_type)) {
       return self.invalid_binary_expr(id, op, left, right, self.arenas.expr_span(id))
     }
-    var types = self.types;
-    if (!expression_type_equals(types, left_type, right_type)) {
+    if (!expression_type_equals(self.types, left_type, right_type)) {
       val ignored = self.expect_assignable(
         self.arenas.expr_span(right),
         left_type,
@@ -2016,7 +2031,7 @@ class ExpressionChecker {
     &mut self,
     id: ExprId,
     value: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): TypeId = {
@@ -2043,7 +2058,7 @@ class ExpressionChecker {
     condition: ExprId,
     then_body: ExprId,
     else_body: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     expected: Option[TypeId],
     return_type: Option[TypeId],
     span: Span
@@ -2066,7 +2081,7 @@ class ExpressionChecker {
     id: ExprId,
     condition: ExprId,
     body: ExprId,
-    bindings: Vec[LocalBinding],
+    bindings: &Vec[LocalBinding],
     return_type: Option[TypeId],
     span: Span
   ): TypeId = {
@@ -2085,15 +2100,14 @@ class ExpressionChecker {
     if (self.type_id_is_never(else_type)) {
       return then_type
     }
-    var types = self.types;
-    if (expression_type_equals(types, then_type, else_type)) {
+    if (expression_type_equals(self.types, then_type, else_type)) {
       return then_type
     }
     self.mismatch(span, then_type, else_type);
     self.error_type()
   }
 
-  def binding_for_definition(&self, bindings: Vec[LocalBinding], definition: DefId): Option[LocalBinding] = {
+  def binding_for_definition(&self, bindings: &Vec[LocalBinding], definition: DefId): Option[LocalBinding] = {
     if (bindings.is_empty()) {
       return Option[LocalBinding]::None
     }
@@ -2120,8 +2134,7 @@ class ExpressionChecker {
     if (self.type_id_is_never(actual)) {
       return true
     }
-    var types = self.types;
-    if (expression_type_equals(types, expected, actual)) {
+    if (expression_type_equals(self.types, expected, actual)) {
       return true
     }
     self.mismatch(span, expected, actual);
@@ -2212,11 +2225,14 @@ class ExpressionChecker {
     }
   }
 
-  def block_definitely_returns(&self, items: Vec[ExprId]): Bool = {
-    for (item in items) {
+  def block_definitely_returns(&self, items: &Vec[ExprId]): Bool = {
+    var index: usize = 0;
+    while (index < items.len()) {
+      val item = items.get(index);
       if (self.expr_definitely_returns(item)) {
         return true
       }
+      index = index + 1
     }
     false
   }
@@ -2552,10 +2568,13 @@ class ExpressionChecker {
   }
 }
 
-def copy_local_bindings(bindings: Vec[LocalBinding]): Vec[LocalBinding] = {
+def copy_local_bindings(bindings: &Vec[LocalBinding]): Vec[LocalBinding] = {
   val next = Vec[LocalBinding]();
-  for (binding in bindings) {
+  var index: usize = 0;
+  while (index < bindings.len()) {
+    val binding = bindings.get(index);
     next.push(binding)
+    index = index + 1
   }
   next
 }
@@ -2629,7 +2648,7 @@ def arithmetic_result_expected(op: String, expected: Option[TypeId]): Option[Typ
   expected
 }
 
-def expression_diagnostic_expected_text(types: TypeStore, diagnostic: ExpressionResolutionDiagnostic): String = {
+def expression_diagnostic_expected_text(types: &TypeStore, diagnostic: &ExpressionResolutionDiagnostic): String = {
   diagnostic.mismatch match {
     case Option[TypeMismatch]::Some(mismatch) => {
       expression_type_display(types, mismatch.expected)
@@ -2640,7 +2659,7 @@ def expression_diagnostic_expected_text(types: TypeStore, diagnostic: Expression
   }
 }
 
-def expression_diagnostic_actual_text(types: TypeStore, diagnostic: ExpressionResolutionDiagnostic): String = {
+def expression_diagnostic_actual_text(types: &TypeStore, diagnostic: &ExpressionResolutionDiagnostic): String = {
   diagnostic.mismatch match {
     case Option[TypeMismatch]::Some(mismatch) => {
       expression_type_display(types, mismatch.actual)
@@ -2651,17 +2670,17 @@ def expression_diagnostic_actual_text(types: TypeStore, diagnostic: ExpressionRe
   }
 }
 
-def check_module_basic_expressions(arenas: SyntaxArenas, module_id: ModuleId): ExpressionCheckResult = {
+def check_module_basic_expressions(arenas: &SyntaxArenas, module_id: ModuleId): ExpressionCheckResult = {
   val names = resolve_module_names(arenas, module_id);
   val declarations = resolve_module_declarations_with_names(arenas, module_id, names);
   check_module_basic_expressions_with_resolution(arenas, module_id, names, declarations)
 }
 
 def check_module_basic_expressions_with_resolution(
-  arenas: SyntaxArenas,
+  arenas: &SyntaxArenas,
   module_id: ModuleId,
-  names: NameResolution,
-  declarations: DeclarationResolution
+  names: &NameResolution,
+  declarations: &DeclarationResolution
 ): ExpressionCheckResult = {
   var checker = ExpressionChecker(
     arenas,
@@ -2676,11 +2695,11 @@ def check_module_basic_expressions_with_resolution(
   checker.finish()
 }
 
-def expression_type_equals(types: TypeStore, left: TypeId, right: TypeId): Bool = {
+def expression_type_equals(types: &TypeStore, left: TypeId, right: TypeId): Bool = {
   expression_type_nodes_equal(types, types.type_value(left), types.type_value(right))
 }
 
-def expression_type_nodes_equal(types: TypeStore, left: CosmoType, right: CosmoType): Bool = {
+def expression_type_nodes_equal(types: &TypeStore, left: CosmoType, right: CosmoType): Bool = {
   left match {
     case CosmoType.Primitive(left_name) => {
       expression_type_equals_primitive(left_name, right)
@@ -2750,8 +2769,8 @@ def expression_type_equals_user(left_name: String, right: CosmoType): Bool = {
 }
 
 def expression_type_equals_function(
-  types: TypeStore,
-  left_params: Vec[TypeId],
+  types: &TypeStore,
+  left_params: &Vec[TypeId],
   left_return: TypeId,
   right: CosmoType
 ): Bool = {
@@ -2779,7 +2798,7 @@ def expression_type_equals_function(
 }
 
 def expression_type_equals_reference(
-  types: TypeStore,
+  types: &TypeStore,
   left_mutable: Bool,
   left_inner: TypeId,
   right: CosmoType
@@ -2806,7 +2825,7 @@ def expression_type_equals_reference(
   }
 }
 
-def expression_type_id_lists_equal(types: TypeStore, left: Vec[TypeId], right: Vec[TypeId]): Bool = {
+def expression_type_id_lists_equal(types: &TypeStore, left: &Vec[TypeId], right: &Vec[TypeId]): Bool = {
   if (left.len() != right.len()) {
     return false
   }
@@ -2821,11 +2840,11 @@ def expression_type_id_lists_equal(types: TypeStore, left: Vec[TypeId], right: V
   true
 }
 
-def expression_type_display(types: TypeStore, id: TypeId): String = {
+def expression_type_display(types: &TypeStore, id: TypeId): String = {
   expression_type_node_display(types, types.type_value(id))
 }
 
-def expression_type_node_display(types: TypeStore, value: CosmoType): String = {
+def expression_type_node_display(types: &TypeStore, value: CosmoType): String = {
   value match {
     case CosmoType.Primitive(name) => {
       name
@@ -2848,11 +2867,11 @@ def expression_type_node_display(types: TypeStore, value: CosmoType): String = {
   }
 }
 
-def expression_type_display_function(types: TypeStore, params: Vec[TypeId], return_type: TypeId): String = {
+def expression_type_display_function(types: &TypeStore, params: &Vec[TypeId], return_type: TypeId): String = {
   "fn(".concat(expression_type_display_list(types, params)).concat(") -> ").concat(expression_type_display(types, return_type))
 }
 
-def expression_type_display_reference(types: TypeStore, mutable: Bool, inner: TypeId): String = {
+def expression_type_display_reference(types: &TypeStore, mutable: Bool, inner: TypeId): String = {
   if (mutable) {
     "&mut ".concat(expression_type_display(types, inner))
   } else {
@@ -2860,7 +2879,7 @@ def expression_type_display_reference(types: TypeStore, mutable: Bool, inner: Ty
   }
 }
 
-def expression_type_display_list(types: TypeStore, items: Vec[TypeId]): String = {
+def expression_type_display_list(types: &TypeStore, items: &Vec[TypeId]): String = {
   var text = "";
   var index: usize = 0;
   while (index < items.len()) {

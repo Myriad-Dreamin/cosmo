@@ -414,9 +414,18 @@ final class LirLowerer(
     private def adaptArgument(value: LirValue, expected: SourceType, span: SourceSpan): Option[LirValue] =
       SourceType.dealias(expected) match
         case SourceType.Ref(target, mutable) =>
+          val expectedRef = SourceType.Ref(target, mutable)
           SourceType.dealias(value.valueType.source) match
-            case SourceType.Ref(actualTarget, _) if SourceType.same(actualTarget, target) =>
+            case actual @ SourceType.Ref(actualTarget, _)
+                if SourceType.same(actualTarget, target) && SourceType.assignable(actual, expectedRef) =>
               Some(value)
+            case actual @ SourceType.Ref(actualTarget, _) if SourceType.same(actualTarget, target) =>
+              report(
+                "cosmo0.lir.lower.argument-mismatch",
+                s"cannot pass ${actual.display} as ${expected.display}",
+                span,
+              )
+              None
             case actual if SourceType.same(actual, target) && isBorrowable(value) =>
               Some(LirBorrowValue(value, mutable))
             case actual if SourceType.same(actual, target) =>

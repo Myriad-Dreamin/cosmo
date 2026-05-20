@@ -179,6 +179,38 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("push_label(&labels);"))
     assertCxxAccepts(output)
 
+  test("Cosmo0 compile passes mutable references to readonly parameters"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "mut_to_readonly_ref.cos",
+        """def read_len(labels: &Vec[String]): usize = {
+          |  labels.len()
+          |}
+          |
+          |def pass_len(labels: &mut Vec[String]): usize = {
+          |  read_len(labels)
+          |}
+          |
+          |def main(): Unit = {
+          |  val labels = Vec[String]();
+          |  val size: usize = pass_len(labels)
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("read_len(const std::vector<std::string> * labels)"))
+    assert(output.contains("pass_len(std::vector<std::string> * labels)"))
+    assert(output.contains("read_len(labels);"))
+    assert(output.contains("pass_len(&labels);"))
+    assertCxxAccepts(output)
+
   test("backend emits extern-bound std calls and typed runtime requirements"):
     val lowered = Cosmo0().lower(
       SourceFile(

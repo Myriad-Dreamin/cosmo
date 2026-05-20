@@ -72,8 +72,8 @@ class DeclarationResolution {
 }
 
 class DeclarationResolver {
-  val arenas: SyntaxArenas
-  val names: NameResolution
+  val arenas: &SyntaxArenas
+  val names: &NameResolution
   var types: TypeStore
   var diagnostics: Vec[DeclarationResolutionDiagnostic]
   var type_expr_types: Map[TypeExprId, TypeId]
@@ -306,10 +306,11 @@ class DeclarationResolver {
     }
   }
 
-  def resolve_params(&mut self, params: Vec[ParamId], current_class: Option[DefId]): Option[ParamId] = {
+  def resolve_params(&mut self, params: &Vec[ParamId], current_class: Option[DefId]): Option[ParamId] = {
     var receiver = Option[ParamId]::None;
     var index: usize = 0;
-    for (param_id in params) {
+    while (index < params.len()) {
+      val param_id = params.get(index);
       val param = self.arenas.param_value(param_id);
       param match {
         case SyntaxParam.Self(mutable, span) => {
@@ -430,8 +431,7 @@ class DeclarationResolver {
       return self.types.alloc_error()
     }
 
-    var arenas = self.arenas;
-    self.types.alloc_user(type_expr_text(arenas, id))
+    self.types.alloc_user(type_expr_text(self.arenas, id))
   }
 
   def resolve_definition_type(&mut self, definition: DefId, name: String, span: Span, alias_stack: Vec[usize]): TypeId = {
@@ -579,15 +579,15 @@ class DeclarationResolver {
   }
 }
 
-def resolve_module_declarations(arenas: SyntaxArenas, module_id: ModuleId): DeclarationResolution = {
+def resolve_module_declarations(arenas: &SyntaxArenas, module_id: ModuleId): DeclarationResolution = {
   val names = resolve_module_names(arenas, module_id);
   resolve_module_declarations_with_names(arenas, module_id, names)
 }
 
 def resolve_module_declarations_with_names(
-  arenas: SyntaxArenas,
+  arenas: &SyntaxArenas,
   module_id: ModuleId,
-  names: NameResolution
+  names: &NameResolution
 ): DeclarationResolution = {
   var resolver = DeclarationResolver(
     arenas,
@@ -629,29 +629,35 @@ def prelude_is_named_type(name: String): Bool = {
     name == "Id"
 }
 
-def alias_stack_contains(stack: Vec[usize], target: usize): Bool = {
-  for (definition in stack) {
+def alias_stack_contains(stack: &Vec[usize], target: usize): Bool = {
+  var index: usize = 0;
+  while (index < stack.len()) {
+    val definition = stack.get(index);
     if (definition == target) {
       return true
     }
+    index = index + 1
   }
   false
 }
 
-def alias_stack_push(stack: Vec[usize], target: usize): Vec[usize] = {
+def alias_stack_push(stack: &Vec[usize], target: usize): Vec[usize] = {
   val next = Vec[usize]();
-  for (definition in stack) {
+  var index: usize = 0;
+  while (index < stack.len()) {
+    val definition = stack.get(index);
     next.push(definition)
+    index = index + 1
   }
   next.push(target);
   next
 }
 
-def type_expr_text(arenas: SyntaxArenas, id: TypeExprId): String = {
+def type_expr_text(arenas: &SyntaxArenas, id: TypeExprId): String = {
   type_expr_node_text(arenas, arenas.type_value(id))
 }
 
-def type_expr_node_text(arenas: SyntaxArenas, typ: SyntaxType): String = {
+def type_expr_node_text(arenas: &SyntaxArenas, typ: SyntaxType): String = {
   typ match {
     case SyntaxType.Name(name, span) => {
       name

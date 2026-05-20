@@ -381,7 +381,7 @@ def module_key_from_import_path(path: String): Symbol = {
   symbol_from_string(output)
 }
 
-def import_edges_from_syntax_module(arenas: SyntaxArenas, id: ModuleId): Vec[Symbol] = {
+def import_edges_from_syntax_module(arenas: &SyntaxArenas, id: ModuleId): Vec[Symbol] = {
   val syntax_module = arenas.module_value(id);
   val imports = Vec[Symbol]();
   for (decl_id in syntax_module.declarations) {
@@ -420,13 +420,16 @@ def import_path_or_empty(decl: SyntaxDecl): String = {
   }
 }
 
-def plan_package_modules(arenas: SyntaxArenas, modules: Vec[PackageSyntaxModule]): ModuleGraphPlan = {
+def plan_package_modules(arenas: &SyntaxArenas, modules: &Vec[PackageSyntaxModule]): ModuleGraphPlan = {
   var package_modules = Arena[PackageModule]();
   var graph = empty_module_graph();
-  for (source_module in modules) {
+  var index: usize = 0;
+  while (index < modules.len()) {
+    val source_module = modules.get(index);
     val id = package_modules.alloc(PackageModule(source_module.name));
     graph.add_root(source_module.name, id);
     graph.add_edges(source_module.name, import_edges_from_syntax_module(arenas, source_module.syntax_id));
+    index = index + 1
   }
   module_graph_order(graph)
 }
@@ -469,7 +472,7 @@ def module_graph_order(graph: ModuleGraph): ModuleGraphPlan = {
   }
 }
 
-def collect_missing_imports(graph: ModuleGraph): Vec[ModuleGraphDiagnostic] = {
+def collect_missing_imports(graph: &ModuleGraph): Vec[ModuleGraphDiagnostic] = {
   val diagnostics = Vec[ModuleGraphDiagnostic]();
   for (name in graph.modules) {
     val imports = graph.imports_for(name);
@@ -489,7 +492,7 @@ def collect_missing_imports(graph: ModuleGraph): Vec[ModuleGraphDiagnostic] = {
   diagnostics
 }
 
-def imports_are_emitted(graph: ModuleGraph, name: Symbol, emitted: Set[Symbol]): Bool = {
+def imports_are_emitted(graph: &ModuleGraph, name: Symbol, emitted: &Set[Symbol]): Bool = {
   val imports = graph.imports_for(name);
   for (imported in imports) {
     if (!emitted.contains(imported)) {
