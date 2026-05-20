@@ -11,6 +11,8 @@ import std as cstd from "c++/string"
 
 the leftmost symbol in `cstd::vector` is a resolved foreign namespace alias. The resolver can then continue lookup inside the merged C++ namespace import set without scanning unrelated headers or treating `std` as a Cosmo binding.
 
+C++ header parsing and symbol validation should be delegated to `cosmo-clang-sys`, a native CMake-built library backed by Clang. On Linux, this component provides `libcosmoClang.a` for `cosmoc`. The resolver remains responsible for deterministic Cosmo binding rules; Clang is responsible for validating and describing C++ symbols within the explicit header set attached to a foreign namespace alias.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -18,6 +20,7 @@ the leftmost symbol in `cstd::vector` is a resolved foreign namespace alias. The
 - Reject `import "c++/..."` as an unsupported header-only import form.
 - Support explicit C++ namespace aliases with merge semantics across multiple headers.
 - Keep C++ symbols out of ordinary Cosmo lexical and module lookup unless introduced by an explicit alias.
+- Provide a CMake-built `cosmo-clang-sys` native library for C++ header parsing and symbol validation.
 - Define a deterministic name-resolution phase, including inputs, outputs, phase order, conflict checks, qualified lookup, and diagnostics.
 - Add documentation and fixtures that make the algorithm testable.
 
@@ -28,6 +31,7 @@ the leftmost symbol in `cstd::vector` is a resolved foreign namespace alias. The
 - Treat `std` or any other C++ namespace as implicitly visible after a C++ import.
 - Make `std::vector` resolve unless `std` itself was explicitly imported as a local alias.
 - Define ABI-safe adapters between C++ standard library types and Cosmo standard types.
+- Make `cosmoc` depend directly on Clang C++ APIs outside the `cosmo-clang-sys` boundary.
 
 ## Decisions
 
@@ -76,9 +80,18 @@ The formal resolver document and implementation should use these phases:
 
 Keeping collection and validation before expression lookup prevents later references from changing meaning based on traversal order.
 
+### Clang Integration Lives Behind cosmo-clang-sys
+
+`cosmo-clang-sys` is a native support component built by CMake. It owns the Clang dependency, translation-unit setup, include path handling, header parsing, and C++ symbol query API. `cosmoc` links against the library artifact instead of embedding Clang-specific code in the compiler front end.
+
+On Linux, the release artifact is a static library named `libcosmoClang.a`. The library exposes a narrow C ABI with stable `cosmo_clang_sys_*` symbols. ABI values use fixed-width integers, C strings or byte spans, caller-owned input buffers, opaque handles for parser/index state, explicit release functions, and structured status/error results. Clang or LLVM C++ types must not cross the ABI boundary.
+
+Alternative considered: call libclang or Clang C++ APIs directly from `cosmoc`. Direct calls make the compiler binary own Clang version differences and resource lifetime details. A dedicated library gives the build one integration point and keeps Clang-specific diagnostics and data conversion isolated.
+
 ## Risks / Trade-offs
 
 - C++ namespace imports do not prove that a referenced child symbol exists until the C++ header index or binding generator is available. Mitigation: name resolution resolves the explicit alias root and records the remaining C++ path for later C++ symbol validation.
+- Clang packaging varies across Linux distributions. Mitigation: CMake must detect the required Clang/LLVM components, expose a clear configuration diagnostic when unavailable, and keep `cosmo-clang-sys` optional until C++ namespace imports are enabled by the build profile.
 - Users may expect `import std as cstd from "c++/vector"` to import every C++ standard library symbol. Mitigation: the spec says the import provides a namespace root plus named header set, not a global C++ prelude.
 - Existing parser import forms may not preserve enough structure for this syntax. Mitigation: add an import AST classification before package graph construction.
 - Fixture coverage can drift from the formal algorithm. Mitigation: keep fixture categories aligned with the documented phase names and diagnostics.
@@ -87,6 +100,8 @@ Keeping collection and validation before expression lookup prevents later refere
 
 1. Add parser/elaborator support for classifying C++ namespace imports and rejecting C++ header-only imports.
 2. Update the package/module graph to exclude C++ namespace imports from Cosmo module dependency edges.
-3. Add resolver binding kinds and conflict validation for foreign namespace aliases.
-4. Add the formal name-resolution document and fixture corpus.
-5. Extend resolver tests to read `fixtures/name-resolution` and assert positive/negative diagnostics.
+3. Add the CMake target for `cosmo-clang-sys`, including Clang detection and Linux `libcosmoClang.a` artifact production.
+4. Link `cosmoc` to `cosmo-clang-sys` when C++ namespace imports are enabled.
+5. Add resolver binding kinds and conflict validation for foreign namespace aliases.
+6. Add the formal name-resolution document and fixture corpus.
+7. Extend resolver tests to read `fixtures/name-resolution` and assert positive/negative diagnostics.

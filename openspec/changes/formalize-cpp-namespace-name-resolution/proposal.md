@@ -8,6 +8,7 @@ Cosmo needs a deterministic way to reference C++ declarations without scanning e
 - Reject header-only C++ imports such as `import "c++/vector"`; C++ imports must introduce an explicit namespace alias.
 - Allow repeated C++ namespace imports to merge when they bind the same local alias to the same C++ namespace, for example importing `std as cstd` from both `"c++/vector"` and `"c++/string"`.
 - Require C++ namespace aliases to stay in a separate foreign namespace binding space that cannot conflict with, implicitly cover, or shadow Cosmo symbols.
+- Add `cosmo-clang-sys`, a CMake-built Clang-backed native support library that provides `libcosmoClang.a` on Linux for `cosmoc` header and symbol validation.
 - Formalize cosmo1 name resolution as a documented phase with deterministic collection, conflict validation, import classification, lexical lookup, qualified lookup, and diagnostic behavior.
 - Require name-resolution fixtures under `fixtures/name-resolution` that cover ordinary Cosmo lookup and C++ namespace import behavior.
 
@@ -16,6 +17,7 @@ Cosmo needs a deterministic way to reference C++ declarations without scanning e
 ### New Capabilities
 
 - `cosmo1-cpp-namespace-imports`: Defines C++ namespace alias imports, merge semantics, header-only import rejection, and foreign namespace isolation.
+- `cosmo-clang-sys`: Defines the CMake-built Clang integration library, Linux artifact contract, C ABI boundary, and `cosmoc` consumption requirements for C++ header parsing.
 
 ### Modified Capabilities
 
@@ -26,5 +28,6 @@ Cosmo needs a deterministic way to reference C++ declarations without scanning e
 - Parser/elaborator import representation will need to distinguish Cosmo module imports from C++ namespace imports.
 - The module graph must ignore C++ header imports as Cosmo package dependencies while retaining their backend header requirements.
 - Name resolution must collect foreign namespace aliases, merge compatible aliases, reject conflicts, and resolve qualified paths through explicit leftmost aliases.
+- The CMake build must produce and link a Linux static `libcosmoClang.a` artifact for `cosmoc` when Clang-backed C++ header parsing is enabled.
 - Documentation must include the formal name-resolution algorithm and its inputs, outputs, phases, and diagnostics.
 - Test fixtures must be added under `fixtures/name-resolution` for positive and negative resolver cases.

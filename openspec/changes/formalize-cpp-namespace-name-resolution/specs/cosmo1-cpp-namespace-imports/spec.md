@@ -9,7 +9,7 @@ cosmo1 SHALL support C++ namespace imports that bind a C++ namespace path to an 
 - **WHEN** a source file contains `import std as cstd from "c++/vector"` followed by a reference to `cstd::vector`
 - **THEN** name resolution resolves `cstd` as an explicit C++ foreign namespace alias for `::std`
 - **AND** records `"c++/vector"` as a header source associated with the alias
-- **AND** leaves `vector` as the remaining C++ symbol path to validate against the imported header set
+- **AND** leaves `vector` as the remaining C++ symbol path for `cosmo-clang-sys` to validate against the imported header set
 
 #### Scenario: Compatible C++ namespace imports merge
 
@@ -59,5 +59,23 @@ cosmo1 SHALL resolve C++ qualified paths only through the header sources attache
 - **WHEN** `cstd` is introduced only by `import std as cstd from "c++/vector"`
 - **AND** source references `cstd::stringstream`
 - **THEN** name resolution resolves only the `cstd` alias root
-- **AND** later C++ symbol validation is limited to the header set attached to `cstd`
+- **AND** later C++ symbol validation through `cosmo-clang-sys` is limited to the header set attached to `cstd`
 - **AND** cosmo1 does not search all C++ standard library headers to satisfy `stringstream`
+
+### Requirement: C++ Header Symbol Validation Uses Clang
+
+cosmo1 SHALL validate C++ symbol suffixes for C++ namespace imports through the Clang-backed `cosmo-clang-sys` integration rather than by ad hoc header parsing.
+
+#### Scenario: Imported C++ symbol is validated by cosmo-clang-sys
+
+- **WHEN** name resolution has resolved `cstd` from `import std as cstd from "c++/vector"`
+- **AND** the source references `cstd::vector`
+- **THEN** cosmo1 passes the canonical namespace `::std`, suffix `vector`, and the alias header set to `cosmo-clang-sys`
+- **AND** `cosmo-clang-sys` validates the symbol using Clang header parsing
+- **AND** the resolver result records the validated foreign symbol metadata for later type checking or lowering
+
+#### Scenario: Missing C++ symbol is diagnosed from bounded header set
+
+- **WHEN** `cosmo-clang-sys` cannot find the requested suffix inside the explicit header set attached to a C++ namespace alias
+- **THEN** cosmo1 reports a stable unresolved C++ symbol diagnostic
+- **AND** the diagnostic does not depend on unrelated C++ headers that were not imported through that alias
