@@ -19,6 +19,8 @@ class NameResolution {
   val local_definitions: Map[ExprId, DefId]
   val expr_definitions: Map[ExprId, DefId]
   val type_definitions: Map[TypeExprId, DefId]
+  val foreign_alias_targets: Map[String, String]
+  val foreign_alias_headers: Map[String, String]
 
   def is_ok(&self): Bool = {
     self.diagnostics.is_empty()
@@ -55,6 +57,30 @@ class NameResolution {
       self.diagnostics.get(0).message
     }
   }
+
+  def foreign_alias_target(&self, alias: String): String = {
+    val target = self.foreign_alias_targets.get(alias);
+    target match {
+      case Option[String]::Some(value) => {
+        value
+      }
+      case Option[String]::None => {
+        ""
+      }
+    }
+  }
+
+  def foreign_alias_header_set(&self, alias: String): String = {
+    val headers = self.foreign_alias_headers.get(alias);
+    headers match {
+      case Option[String]::Some(value) => {
+        value
+      }
+      case Option[String]::None => {
+        ""
+      }
+    }
+  }
 }
 
 class NameResolver {
@@ -73,6 +99,8 @@ class NameResolver {
   var type_definitions: Map[TypeExprId, DefId]
   var class_scopes: Map[DefId, ScopeId]
   var import_paths: Map[String, String]
+  var foreign_alias_targets: Map[String, String]
+  var foreign_alias_headers: Map[String, String]
 
   def install_prelude(&mut self, prelude_scope: ScopeId): Unit = {
     self.define_prelude(prelude_scope, "Unit");
@@ -123,6 +151,9 @@ class NameResolver {
       case SyntaxDecl.Import(path, span) => {
         self.collect_import_decl(id, path, span)
       }
+      case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+        self.collect_cpp_namespace_import_decl(id, namespace, alias, header, span)
+      }
       case SyntaxDecl.Class(name, members, span) => {
         self.collect_class_decl(id, name, members, span)
       }
@@ -167,6 +198,53 @@ class NameResolver {
       }
       case Option[String]::None => {
         Option[DefId]::None
+      }
+    }
+  }
+
+  def collect_cpp_namespace_import_decl(
+    &mut self,
+    id: DeclId,
+    namespace: String,
+    alias: String,
+    header: String,
+    span: Span
+  ): Unit = {
+    val existing_target = self.foreign_alias_targets.get(alias);
+    existing_target match {
+      case Option[String]::Some(previous) => {
+        if (previous == namespace) {
+          val name = self.symbols.intern(alias);
+          val existing_def = self.env.resolve_local(self.module_scope, name);
+          existing_def match {
+            case Option[DefId]::Some(def_id) => {
+              self.decl_definitions.insert(id, def_id);
+              val previous_headers = self.foreign_alias_headers.get(alias);
+              previous_headers match {
+                case Option[String]::Some(headers) => {
+                  self.foreign_alias_headers.insert(alias, merge_header_set(headers, header));
+                }
+                case Option[String]::None => {
+                  self.foreign_alias_headers.insert(alias, header);
+                }
+              }
+            }
+            case Option[DefId]::None => {
+            }
+          }
+        } else {
+          self.diagnostic(
+            "cosmo1.name.conflicting-cpp-namespace-alias",
+            "C++ namespace alias ".concat(alias).concat(" already targets ").concat(previous),
+            span
+          );
+        }
+      }
+      case Option[String]::None => {
+        val result = self.define(self.module_scope, alias, DefinitionKind.ForeignNamespace, span, Option[DefId]::None);
+        self.decl_definitions.insert(id, result.id);
+        self.foreign_alias_targets.insert(alias, namespace);
+        self.foreign_alias_headers.insert(alias, header);
       }
     }
   }
@@ -303,6 +381,8 @@ class NameResolver {
       case SyntaxDecl.Unsupported(text, span) => {
       }
       case SyntaxDecl.Import(path, span) => {
+      }
+      case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
       }
       case SyntaxDecl.Class(name, members, span) => {
         self.resolve_class_decl(id, members)
@@ -557,17 +637,41 @@ class NameResolver {
     current_class: Option[DefId],
     span: Span
   ): Unit = {
-    val self_member = self.resolve_self_member(receiver, field, current_class);
-    if (!self.record_expr_definition(id, self_member)) {
+    val foreign_member = self.resolve_foreign_namespace_member(receiver);
+    var resolved = self.record_expr_definition(id, foreign_member);
+
+    if (!resolved) {
+      val self_member = self.resolve_self_member(receiver, field, current_class);
+      resolved = self.record_expr_definition(id, self_member)
+    }
+
+    if (!resolved) {
       val class_member = self.resolve_class_member(receiver, field);
-      if (!self.record_expr_definition(id, class_member)) {
-        if (self.should_report_missing_member(receiver, current_class)) {
-          self.diagnostic(
-            "cosmo1.name.unresolved-name",
-            "unresolved member ".concat(field),
-            span
-          )
+      resolved = self.record_expr_definition(id, class_member)
+    }
+
+    if (!resolved and self.should_report_missing_member(receiver, current_class)) {
+      self.diagnostic(
+        "cosmo1.name.unresolved-name",
+        "unresolved member ".concat(field),
+        span
+      )
+    }
+  }
+
+  def resolve_foreign_namespace_member(&mut self, receiver: ExprId): Option[DefId] = {
+    val receiver_def = self.expr_definitions.get(receiver);
+    receiver_def match {
+      case Option[DefId]::Some(def_id) => {
+        val definition = self.env.definition(def_id);
+        if (definition_kind_is_foreign_namespace(definition.kind)) {
+          Option[DefId]::Some(def_id)
+        } else {
+          Option[DefId]::None
         }
+      }
+      case Option[DefId]::None => {
+        Option[DefId]::None
       }
     }
   }
@@ -713,6 +817,11 @@ class NameResolver {
       return exact_match
     }
 
+    val foreign_root = self.resolve_foreign_leftmost(scope_id, text);
+    if (foreign_root.is_some()) {
+      return foreign_root
+    }
+
     val lookup = name_resolution_lookup_name(text);
     if (lookup != text) {
       val symbol = self.symbols.intern(lookup);
@@ -724,6 +833,29 @@ class NameResolver {
 
     self.diagnostic("cosmo1.name.unresolved-name", "unresolved name ".concat(text), span);
     Option[DefId]::None
+  }
+
+  def resolve_foreign_leftmost(&mut self, scope_id: ScopeId, text: String): Option[DefId] = {
+    val root = name_resolution_leftmost_path_segment(text);
+    if (root == text) {
+      return Option[DefId]::None
+    }
+
+    val symbol = self.symbols.intern(root);
+    val resolved = self.env.resolve(scope_id, symbol);
+    resolved match {
+      case Option[DefId]::Some(def_id) => {
+        val definition = self.env.definition(def_id);
+        if (definition_kind_is_foreign_namespace(definition.kind)) {
+          Option[DefId]::Some(def_id)
+        } else {
+          Option[DefId]::None
+        }
+      }
+      case Option[DefId]::None => {
+        Option[DefId]::None
+      }
+    }
   }
 
   def define(
@@ -756,7 +888,9 @@ class NameResolver {
       self.param_definitions,
       self.local_definitions,
       self.expr_definitions,
-      self.type_definitions
+      self.type_definitions,
+      self.foreign_alias_targets,
+      self.foreign_alias_headers
     )
   }
 }
@@ -780,6 +914,8 @@ def resolve_module_names(arenas: &SyntaxArenas, module_id: ModuleId): NameResolu
     Map[ExprId, DefId](),
     Map[TypeExprId, DefId](),
     Map[DefId, ScopeId](),
+    Map[String, String](),
+    Map[String, String](),
     Map[String, String]()
   );
   resolver.install_prelude(prelude_scope);
@@ -796,6 +932,20 @@ def name_resolution_lookup_name(text: String): String = {
   } else {
     text.slice(start, end)
   }
+}
+
+def name_resolution_leftmost_path_segment(text: String): String = {
+  var offset: usize = 0;
+  while (offset < text.len()) {
+    if (offset + 2 <= text.len() and text.slice(offset, offset + 2) == "::") {
+      return text.slice(0, offset)
+    }
+    if (text.byte_at(offset) == a".") {
+      return text.slice(0, offset)
+    }
+    offset = offset + 1
+  }
+  text
 }
 
 def name_resolution_last_path_segment(text: String): String = {
@@ -833,4 +983,30 @@ def name_resolution_base_end(text: String, start: usize): usize = {
     offset = offset + 1
   }
   text.len()
+}
+
+def merge_header_set(headers: String, header: String): String = {
+  if (headers.is_empty()) {
+    return header
+  }
+  if (header_set_contains(headers, header)) {
+    headers
+  } else {
+    headers.concat(",").concat(header)
+  }
+}
+
+def header_set_contains(headers: String, header: String): Bool = {
+  var start: usize = 0;
+  var offset: usize = 0;
+  while (offset <= headers.len()) {
+    if (offset == headers.len() or headers.byte_at(offset) == a",") {
+      if (headers.slice(start, offset) == header) {
+        return true
+      }
+      start = offset + 1
+    }
+    offset = offset + 1
+  }
+  false
 }

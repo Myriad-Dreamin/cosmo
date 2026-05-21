@@ -1,0 +1,3 @@
+def some(value: i32): Option[i32] = {
+  Option[i32]::Some(value)
+}

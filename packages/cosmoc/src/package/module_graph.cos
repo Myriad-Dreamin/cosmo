@@ -399,6 +399,9 @@ def import_path_or_empty(decl: SyntaxDecl): String = {
     case SyntaxDecl.Import(path, span) => {
       path
     }
+    case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+      ""
+    }
     case SyntaxDecl.AEmpty => {
       ""
     }

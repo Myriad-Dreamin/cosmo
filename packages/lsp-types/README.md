@@ -7,19 +7,20 @@
 The full LSP 3.17 metamodel is downloaded on demand with the repository `ureq-sys` crate and is intentionally ignored by git:
 
 ```sh
-yarn fetch:lsp-types
+node cmd/cosmo/main.js -p packages/lsp-types-fetch run
 ```
 
 That writes `metamodel/metaModel.json`. Generate the checked-in lspt-flavored full-spec type surface with:
 
 ```sh
-yarn gen:lsp-types
+node scripts/genLspTypesFromMetamodel.js packages/lsp-types/src/lsp
 ```
 
 Or run both steps:
 
 ```sh
-yarn generate:lsp-types
+node cmd/cosmo/main.js -p packages/lsp-types-fetch run
+node scripts/genLspTypesFromMetamodel.js packages/lsp-types/src/lsp
 ```
 
 The full output lives under `src/lsp/` and mirrors the `lspt` crate shape: `base`, `type_aliases`, `enums`, `structs`, `request`, and `notification`, with `Uri`, `HashMap`, and `UnionN` helper flavors.
@@ -27,5 +28,5 @@ The full output lives under `src/lsp/` and mirrors the `lspt` crate shape: `base
 The generator logic is written in Cosmo under `src/generator/`. `scripts/genLspTypesFromMetamodel.js` is only a file-writing wrapper around:
 
 ```sh
-yarn cosmo -p packages/lsp-types run
+node cmd/cosmo/main.js -p packages/lsp-types run
 ```

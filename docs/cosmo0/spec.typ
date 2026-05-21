@@ -47,6 +47,7 @@ The accepted example is intentionally simple: it uses concrete classes, fields, 
 - `class.typ` owns class, field, method, constructor, and variant subset rules.
 - `expr.typ` owns expression typing and literal, call, selection, match, and mutation rules.
 - `control-flow.typ` owns accepted branch, loop, and return forms.
+- `name-resolution.typ` owns source binding, qualified lookup, foreign namespace aliases, and name diagnostics.
 - `std.typ` owns core0 standard interfaces and capability identifiers.
 - `runtime.typ` owns primitive descriptors, extern ABI hooks, and backend runtime requirements.
 - `package.typ` owns package metadata, imports, source loading, module ordering, and stage validation.

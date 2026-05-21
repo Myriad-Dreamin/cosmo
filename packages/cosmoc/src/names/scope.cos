@@ -7,6 +7,7 @@ type ScopeId = Id[Scope]
 class DefinitionKind {
   case Prelude
   case Module
+  case ForeignNamespace
   case Class
   case Function
   case Value
@@ -153,6 +154,53 @@ def definition_kind_is_class(kind: DefinitionKind): Bool = {
       false
     }
     case DefinitionKind.Module => {
+      false
+    }
+    case DefinitionKind.ForeignNamespace => {
+      false
+    }
+    case DefinitionKind.Function => {
+      false
+    }
+    case DefinitionKind.Value => {
+      false
+    }
+    case DefinitionKind.TypeAlias => {
+      false
+    }
+    case DefinitionKind.Field => {
+      false
+    }
+    case DefinitionKind.Method => {
+      false
+    }
+    case DefinitionKind.Variant => {
+      false
+    }
+    case DefinitionKind.Parameter => {
+      false
+    }
+    case DefinitionKind.Local => {
+      false
+    }
+    case DefinitionKind.Self => {
+      false
+    }
+  }
+}
+
+def definition_kind_is_foreign_namespace(kind: DefinitionKind): Bool = {
+  kind match {
+    case DefinitionKind.ForeignNamespace => {
+      true
+    }
+    case DefinitionKind.Prelude => {
+      false
+    }
+    case DefinitionKind.Module => {
+      false
+    }
+    case DefinitionKind.Class => {
       false
     }
     case DefinitionKind.Function => {

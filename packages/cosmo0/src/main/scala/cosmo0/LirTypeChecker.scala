@@ -571,6 +571,7 @@ final class LirTypeChecker(
                       s"${env.function.id} constructor for ${owner.display} uses unknown field ${init.name}",
                     )
               }
+            case None if isForeignDefaultConstructor(owner.source, fields) =>
             case None =>
               error(
                 "cosmo0.lir.unknown-type",
@@ -1158,6 +1159,16 @@ final class LirTypeChecker(
       SourceType.scalar(descriptor.name).filter(_ => descriptor.args.isEmpty).getOrElse {
         SourceType.Standard(descriptor.name, descriptor.args.map(_.source))
       }
+
+    private def isForeignDefaultConstructor(
+        owner: SourceType,
+        fields: List[LirFieldInit],
+    ): Boolean =
+      fields.isEmpty &&
+        (SourceType.dealias(owner) match
+          case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) => true
+          case _                                                             => false
+        )
 
     private def descriptorName(ownerType: SourceType): Option[String] =
       SourceType.dealias(ownerType) match

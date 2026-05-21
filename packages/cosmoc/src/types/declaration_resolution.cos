@@ -110,6 +110,8 @@ class DeclarationResolver {
       }
       case SyntaxDecl.Import(path, span) => {
       }
+      case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+      }
       case SyntaxDecl.Function(name, params, return_type, body, span) => {
       }
       case SyntaxDecl.Value(name, mutable, typ, init, span) => {
@@ -185,6 +187,8 @@ class DeclarationResolver {
       case SyntaxDecl.Unsupported(text, span) => {
       }
       case SyntaxDecl.Import(path, span) => {
+      }
+      case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
       }
     }
   }
@@ -448,6 +452,9 @@ class DeclarationResolver {
       }
       case DefinitionKind.Module => {
         self.unknown_type(name, span)
+      }
+      case DefinitionKind.ForeignNamespace => {
+        self.types.alloc_user(name)
       }
       case DefinitionKind.Function => {
         self.unknown_type(name, span)

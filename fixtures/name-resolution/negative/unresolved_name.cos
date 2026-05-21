@@ -1,0 +1,4 @@
+/// diag(error, 3:3): cosmo0.type.unresolved-name
+def main(): i32 = {
+  missing
+}

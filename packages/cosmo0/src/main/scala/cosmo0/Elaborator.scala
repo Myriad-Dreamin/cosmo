@@ -1,5 +1,6 @@
 package cosmo0
 
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 import cosmo.syntax
@@ -28,6 +29,7 @@ final class UntypedElaborator(
           declarations,
           state.nodeSpan(parsed.ast),
           state.cIncludes.toList,
+          state.cppNamespaceImports.toList,
         ),
       )
     else
@@ -44,6 +46,8 @@ final class UntypedElaborator(
   ):
     val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
     val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
+    val cppNamespaceImports: ListBuffer[SourceCppNamespaceImport] = ListBuffer.empty
+    private val genericTypeAliasNames = mutable.LinkedHashSet.empty[String]
 
     private val assignmentOps =
       Set("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=")
@@ -60,6 +64,7 @@ final class UntypedElaborator(
         case Some(valueNode: Val)     => valueDecl(valueNode, UntypedValueKind.Val)
         case Some(valueNode: Var)     => valueDecl(valueNode, UntypedValueKind.Var)
         case Some(typeNode: Typ)      => typeAlias(typeNode)
+        case Some(typeNode: GenericTyp) => genericTypeAlias(typeNode)
         case Some(implNode: Impl)     => implDecl(implNode)
         case Some(decorated: Decorate) => decoratedModuleDecl(decorated)
         case Some(caseNode: Case) =>
@@ -436,7 +441,66 @@ final class UntypedElaborator(
     private def isRequirementValue(value: String): Boolean =
       value.nonEmpty && !value.exists(ch => ch == '\n' || ch == '\r')
 
-    private def importDecl(node: Import): Option[UntypedImport] =
+    private def importDecl(node: Import): Option[UntypedDecl] =
+      node.path match
+        case StrLit(header) if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
+          cppImportDecl(node)
+        case _ =>
+          cosmoImportDecl(node)
+
+    private def cppImportDecl(node: Import): Option[UntypedDecl] =
+      node.path match
+        case StrLit(header) if SourceCppNamespaceImport.isCppHeader(header) =>
+          node.dest match
+            case None =>
+              unsupported(
+                node,
+                "cosmo1.name.unsupported-cpp-header-import",
+                s"C++ header import $header must bind an explicit namespace alias",
+              )
+            case Some(As(namespaceNode, Ident(alias))) =>
+              cppNamespacePath(namespaceNode, Some(nodeSpan(node))).flatMap { namespace =>
+                if !CppQualifiedSymbol.isIdentifier(alias) then
+                  unsupported(
+                    namespaceNode,
+                    "cosmo1.name.invalid-cpp-namespace-import",
+                    s"C++ namespace alias $alias is not a valid identifier",
+                  )
+                else
+                  val importValue = SourceCppNamespaceImport(namespace, alias, List(header), nodeSpan(node))
+                  cppNamespaceImports += importValue
+                  Some(UntypedCppNamespaceImport(importValue, declarationVisibility(node)))
+              }
+            case Some(_) =>
+              unsupported(
+                node,
+                "cosmo1.name.invalid-cpp-namespace-import",
+                s"C++ import $header must use import <namespace> as <alias> from \"$header\"",
+              )
+        case StrLit(header) if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
+          unsupported(
+            node,
+            "cosmo1.name.invalid-cpp-namespace-import",
+            s"C++ header import $header must name a header after ${SourceCppNamespaceImport.headerPrefix}",
+          )
+        case _ => None
+
+    private def cppNamespacePath(
+        node: syntax.Node,
+        fallbackSpan: Option[SourceSpan],
+    ): Option[CppQualifiedSymbol] =
+      pathFromNode(node, fallbackSpan).flatMap { path =>
+        if path.parts.forall(CppQualifiedSymbol.isIdentifier) then
+          Some(CppQualifiedSymbol(path.parts, absolute = true))
+        else
+          unsupported(
+            node,
+            "cosmo1.name.invalid-cpp-namespace-import",
+            s"C++ namespace ${path.text} is not a valid qualified namespace path",
+          )
+      }
+
+    private def cosmoImportDecl(node: Import): Option[UntypedImport] =
       val span = nodeSpan(node)
       val path = pathFromNode(node.path, Some(span))
       val dest = node.dest.fold[Option[Option[UntypedPath]]](Some(None)) { destNode =>
@@ -632,6 +696,49 @@ final class UntypedElaborator(
             "cosmo0.elaborate.unsupported.type-alias-target",
             "cosmo0 type aliases must name a concrete target type",
           )
+
+    private def genericTypeAlias(node: GenericTyp): Option[UntypedTypeAlias] =
+      genericTypeAliasNames += node.name.name
+      val typeParams = typeAliasParamNames(node.params, node)
+      val target = node.init.orElse(node.ty) match
+        case Some(targetNode) =>
+          typeParams.flatMap(params =>
+            typeFromNode(targetNode, Some(nodeSpan(node)), params.toSet).map(target =>
+              UntypedTypeAlias(node.name.name, target, nodeSpan(node), declarationVisibility(node), params),
+            ),
+          )
+        case None =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported.type-alias-target",
+            "cosmo0 type aliases must name a concrete target type",
+          )
+      target
+
+    private def typeAliasParamNames(params: List[Param], node: syntax.Node): Option[List[String]] =
+      val names = ListBuffer.empty[String]
+      var ok = true
+
+      params.foreach {
+        case Param(name, Some(Ident("Type")), None, true) =>
+          if names.contains(name.name) then
+            report(
+              name,
+              "cosmo0.elaborate.unsupported.generic-type",
+              s"type alias parameter ${name.name} is duplicated",
+            )
+            ok = false
+          else names += name.name
+        case param =>
+          report(
+            param,
+            "cosmo0.elaborate.unsupported.generic-type",
+            "cosmo0 generic type aliases only support square-bracket Type parameters",
+          )
+          ok = false
+      }
+
+      if ok then Some(names.toList) else None
 
     private def implDecl(node: Impl): Option[UntypedImpl] =
       if node.params.exists(_.nonEmpty) then
@@ -1021,6 +1128,7 @@ final class UntypedElaborator(
     private def typeFromNode(
         node: syntax.Node,
         fallbackSpan: Option[SourceSpan] = None,
+        typeParams: Set[String] = Set.empty,
     ): Option[UntypedType] =
       node match
         case Ident("Type") =>
@@ -1030,17 +1138,17 @@ final class UntypedElaborator(
             "host Type and type-level programming are outside the initial cosmo0 subset",
           )
         case UnOp("&", UnOp("mut", target)) =>
-          typeFromNode(target, fallbackSpan).map(t =>
+          typeFromNode(target, fallbackSpan, typeParams).map(t =>
             UntypedRefType(t, mutable = true, nodeSpan(node, fallbackSpan)),
           )
         case UnOp("&", target) =>
-          typeFromNode(target, fallbackSpan).map(t =>
+          typeFromNode(target, fallbackSpan, typeParams).map(t =>
             UntypedRefType(t, mutable = false, nodeSpan(node, fallbackSpan)),
           )
         case Apply(lhs, args, true) =>
           pathFromNode(lhs, fallbackSpan) match
             case Some(base) if standardGenericNames.contains(base.parts.lastOption.getOrElse("")) =>
-              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan))))
+              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
               sequence(typeArgs).map { values =>
                 base.parts.lastOption match
                   case Some("Ref") if values.size == 1 =>
@@ -1050,6 +1158,14 @@ final class UntypedElaborator(
                   case _ =>
                     UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan))
               }
+            case Some(base) if base.parts.headOption.exists(alias =>
+                cppNamespaceImports.exists(_.alias == alias),
+              ) =>
+              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
+              sequence(typeArgs).map(values => UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)))
+            case Some(base) if base.parts.length == 1 && genericTypeAliasNames.contains(base.parts.head) =>
+              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
+              sequence(typeArgs).map(values => UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)))
             case Some(base) =>
               unsupported(
                 node,

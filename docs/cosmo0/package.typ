@@ -48,6 +48,12 @@ import source.SourceText
 import token.Token
 ```
 
+C++ namespace imports are source-level foreign aliases, not Cosmo package dependencies:
+
+```cos
+import std as cstd from "c++/vector"
+```
+
 The exact metadata schema remains small: a cosmo0 package declares its bootstrap target, discovers source files under a stable root, optionally selects a stage profile, may restrict validation to an ordered `sources` list, and resolves imports deterministically.
 
 == Imports and Source Loading
@@ -58,11 +64,15 @@ Stage 1 source loading depends on `core0.path-fs` for file reads and `core0.text
 
 Missing, unreadable, or invalid source paths are ordinary package-check diagnostics. They must not be reported as descriptor lookup failures, and they must not require package metadata to name arbitrary host filesystem symbols.
 
+C++ namespace imports do not add package graph edges. The package graph only follows ordinary Cosmo module imports. A C++ namespace import contributes backend include and foreign-binding inputs owned by `runtime.typ` and `name-resolution.typ`; it must not produce `cosmo0.package.missing-import` for a `c++/<header>` path.
+
 == Runtime Binding Availability
 
 Package check may accept trusted bodyless std declarations only when the compiler can attach accepted extern ABI metadata. Package compile SHALL fail if the selected backend cannot satisfy the extern runtime symbol, include, or support-library requirements recorded during lowering.
 
 Packages do not declare arbitrary host symbols in manifest metadata. Runtime binding availability is derived from trusted std/core0 declarations and the backend requirement records owned by `runtime.typ`.
+
+The host package driver recognizes an optional `nativeSupportLibraries` array in package metadata. It is build metadata, not a Cosmo module dependency: the package graph ignores it, while the final host link may use it to select native support components such as `cosmo-clang-sys`.
 
 == Module Ordering
 

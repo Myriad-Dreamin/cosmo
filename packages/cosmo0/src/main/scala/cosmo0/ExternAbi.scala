@@ -1,7 +1,7 @@
 package cosmo0
 
 enum BackendRequirementKind:
-  case Descriptor, RuntimeSymbol, Include, SupportLibrary
+  case Descriptor, RuntimeSymbol, Include, SupportLibrary, CppNamespaceImport
 
 final case class BackendRequirement(
     kind: BackendRequirementKind,
@@ -15,6 +15,7 @@ final case class BackendRequirement(
       case BackendRequirementKind.RuntimeSymbol => s"runtime-symbol:$value"
       case BackendRequirementKind.Include => s"include:$value"
       case BackendRequirementKind.SupportLibrary => s"support-library:$value"
+      case BackendRequirementKind.CppNamespaceImport => s"cpp-namespace-import:$value"
 
 object BackendRequirement:
   def descriptor(name: String): BackendRequirement =
@@ -32,6 +33,9 @@ object BackendRequirement:
   def supportLibrary(name: String): BackendRequirement =
     BackendRequirement(BackendRequirementKind.SupportLibrary, name)
 
+  def cppNamespaceImport(value: String): BackendRequirement =
+    BackendRequirement(BackendRequirementKind.CppNamespaceImport, value)
+
 final case class SourceExternBinding(
     abi: String,
     name: Option[String],
@@ -45,6 +49,31 @@ final case class SourceCInclude(
     span: SourceSpan,
 ):
   require(header.nonEmpty, "C include headers must be non-empty")
+
+final case class SourceCppNamespaceImport(
+    namespace: CppQualifiedSymbol,
+    alias: String,
+    headers: List[String],
+    span: SourceSpan,
+):
+  require(alias.nonEmpty, "C++ namespace aliases must be non-empty")
+  require(headers.nonEmpty, "C++ namespace imports must name at least one header")
+  require(headers.forall(_.startsWith(SourceCppNamespaceImport.headerPrefix)), s"C++ header imports must start with ${SourceCppNamespaceImport.headerPrefix}")
+
+  def canonicalNamespace: String =
+    namespace.cppName
+
+  def includeHeaders: List[String] =
+    headers.map(header => s"<${header.stripPrefix(SourceCppNamespaceImport.headerPrefix)}>")
+
+  def requirementValue: String =
+    s"$alias=${namespace.cppName} from ${headers.mkString(",")}"
+
+object SourceCppNamespaceImport:
+  val headerPrefix = "c++/"
+
+  def isCppHeader(value: String): Boolean =
+    value.startsWith(headerPrefix) && value.length > headerPrefix.length
 
 final case class CppQualifiedSymbol(
     parts: List[String],

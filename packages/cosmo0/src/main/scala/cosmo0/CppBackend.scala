@@ -65,6 +65,12 @@ final class CppBackend(
     private val names = BackendNames(env)
 
     requirements ++= module.cIncludes.map(include => BackendRequirement.include(include.header))
+    requirements ++= module.cppNamespaceImports.flatMap(importValue =>
+      importValue.includeHeaders.map(BackendRequirement.include),
+    )
+    requirements ++= module.cppNamespaceImports.map(importValue =>
+      BackendRequirement.cppNamespaceImport(importValue.requirementValue),
+    )
 
     val namespace: List[String] =
       List("cosmo0", safeIdent(module.name, "module"))
@@ -135,7 +141,10 @@ final class CppBackend(
         "#include <vector>",
       )
       val fileLevel = module.cIncludes.map(include => s"#include ${include.header}")
-      base ++ fileLevel
+      val foreignHeaders = module.cppNamespaceImports.flatMap(importValue =>
+        importValue.includeHeaders.map(header => s"#include $header"),
+      )
+      (base ++ fileLevel ++ foreignHeaders).distinct
 
     private def runtimePrelude: String =
       """namespace cosmo0_runtime {
@@ -581,7 +590,9 @@ final class CppBackend(
 
     private def typeAliasDeclarations: List[String] =
       val lines = env.declarations.collect { case alias: LirTypeAliasDecl =>
-        s"using ${names.aliasName(alias.id)} = ${valueType(alias.target)};"
+        val typeParams = alias.typeParams.map(param => s"typename ${safeIdent(param, "T")}")
+        val template = if typeParams.isEmpty then "" else s"template <${typeParams.mkString(", ")}> "
+        s"${template}using ${names.aliasName(alias.id)} = ${valueType(alias.target)};"
       }
       if lines.isEmpty then Nil else lines :+ ""
 
@@ -624,6 +635,8 @@ final class CppBackend(
           env.typesByName.get(name).map(ty => Set(ty.id)).getOrElse(Set.empty)
         case SourceType.Alias(name, _) =>
           env.aliasesByName.get(name).map(alias => concreteTypeDependencies(alias.target.source)).getOrElse(Set.empty)
+        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) | SourceType.ForeignApplied(_, _) | SourceType.TypeParam(_) =>
+          Set.empty
         case SourceType.Standard("Id", _ :: Nil) =>
           Set.empty
         case SourceType.Standard("Ptr", _ :: Nil) =>
@@ -876,8 +889,10 @@ final class CppBackend(
               val invocation = s"${names.functionName(target.id)}(${(receiverArg :: args.map(renderValue(_, locals))).mkString(", ")})"
               assignOrStatement(output, invocation, locals)
             case None =>
-              unsupportedDescriptor(s"method", method, s"no lowered method target for ${receiver.valueType.display}.$method")
-              Nil
+              emitForeignMethodCall(output, receiver, method, args, locals).getOrElse {
+                unsupportedDescriptor(s"method", method, s"no lowered method target for ${receiver.valueType.display}.$method")
+                Nil
+              }
 
         case LirDescriptorIntrinsic(output, descriptor, name, args, _) =>
           emitDescriptor(descriptor, name, args, locals) match
@@ -1087,6 +1102,15 @@ final class CppBackend(
           env.typesByName.get(name).map(ty => names.typeName(ty.id)).getOrElse(safeIdent(name, "type"))
         case SourceType.Alias(name, _) =>
           env.aliasesByName.get(name).map(alias => names.aliasName(alias.id)).getOrElse(safeIdent(name, "alias"))
+        case SourceType.TypeParam(name) =>
+          safeIdent(name, "T")
+        case SourceType.ForeignNamespace(value) =>
+          unsupportedType(SourceType.ForeignNamespace(value))
+          "std::monostate"
+        case SourceType.ForeignSymbol(canonicalName) =>
+          canonicalName
+        case SourceType.ForeignApplied(canonicalName, args) =>
+          s"$canonicalName<${args.map(valueTypeName).mkString(", ")}>"
         case SourceType.Ref(target, true) =>
           s"${valueTypeName(target)} *"
         case SourceType.Ref(target, false) =>
@@ -1458,6 +1482,8 @@ final class CppBackend(
         locals: FunctionNames,
     ): List[String] =
       SourceType.dealias(owner.source) match
+        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) if fields.isEmpty =>
+          List(s"${locals.local(output)} = ${valueTypeName(owner)}{};")
         case SourceType.User(name) =>
           env.typesByName.get(name) match
             case Some(ty) =>
@@ -1470,6 +1496,25 @@ final class CppBackend(
         case _ =>
           unsupportedType(owner.source)
           Nil
+
+    private def emitForeignMethodCall(
+        output: Option[LirLocalId],
+        receiver: LirValue,
+        method: String,
+        args: List[LirValue],
+        locals: FunctionNames,
+    ): Option[List[String]] =
+      SourceType.dealias(SourceType.deref(receiver.valueType.source)) match
+        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) =>
+          val op =
+            SourceType.dealias(receiver.valueType.source) match
+              case SourceType.Ref(_, _) => "->"
+              case _                    => "."
+          val invocation =
+            s"${renderValue(receiver, locals)}$op$method(${args.map(renderValue(_, locals)).mkString(", ")})"
+          Some(assignOrStatement(output, invocation, locals))
+        case _ =>
+          None
 
     private def variantTag(
         scrutinee: LirValue,
