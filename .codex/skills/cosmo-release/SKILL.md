@@ -72,6 +72,7 @@ Use this workflow for release requests such as `/cosmo:release v0.1.0-rc1`.
 
 - Do not update samples, fixtures, or docs examples that intentionally use `0.0.0`.
 - Keep `cosmoc --version` aligned with the release version.
+- CI release builds produce `cosmoc-linux-x64`, `cosmoc-linux-arm64`, `cosmoc-macosx-x64`, `cosmoc-macosx-arm64`, `cosmoc-windows-x64`, and `cosmoc-windows-arm64`.
 - Keep root `CHANGELOG.md` in tinymist-style sections: `## vX.Y.Z - [YYYY-MM-DD]`, `### Topic`, `* item`, and a `**Full Changelog**` line.
 - Use `gh api repos/<owner>/<repo>/releases/generate-notes` for changelog candidates.
 - Use `parse-changelog ./CHANGELOG.md` for release notes so CI and local output agree.

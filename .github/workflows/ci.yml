@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  test:
 
     runs-on: ubuntu-latest
 
@@ -46,24 +46,186 @@ jobs:
       run: node --test cmd/cosmo/*.test.mjs
     - name: Run cosmoc bootstrap fixed-point test
       run: yarn test:bootstrap
+
+  build-cosmoc-linux:
+    needs: test
+    name: build-cosmoc (${{ matrix.artifact }})
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/cross-rs/${{ matrix.cross_target }}:edge
+      options: --user root
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: cosmoc-linux-x64
+            cross_target: x86_64-unknown-linux-gnu
+            llvm_arch: x64
+            cc: gcc
+            cxx: g++
+            apt_packages: g++
+            run_version: true
+          - artifact: cosmoc-linux-arm64
+            cross_target: aarch64-unknown-linux-gnu
+            llvm_arch: arm64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            apt_packages: g++-aarch64-linux-gnu
+            run_version: false
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      COSMO_LLVM_TARGET_PLATFORM: linux
+      COSMO_LLVM_TARGET_ARCH: ${{ matrix.llvm_arch }}
+      COSMO_OUTPUT: target/dist/${{ matrix.artifact }}/cosmoc
+    steps:
+    - name: Install container dependencies
+      run: |
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          bash ca-certificates curl file git gzip make cmake pkg-config tar unzip xz-utils \
+          ${{ matrix.apt_packages }}
+    - uses: actions/checkout@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'sbt'
+    - uses: sbt/setup-sbt@v1
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'yarn'
     - name: Build cosmoc release artifact
       run: |
-        mkdir -p target/dist target/release/cosmoc-linux-x64
-        COSMO_OUTPUT=target/dist/cosmoc ./scripts/build.sh
-        target/dist/cosmoc --version
-        cp target/dist/cosmoc target/release/cosmoc-linux-x64/cosmoc
-        tar -C target/release -czf target/release/cosmoc-linux-x64.tar.gz cosmoc-linux-x64
-        sha256sum target/release/cosmoc-linux-x64.tar.gz > target/release/cosmoc-linux-x64.tar.gz.sha256
+        ./scripts/build.sh
+        mkdir -p target/release/${{ matrix.artifact }}
+        cp "$COSMO_OUTPUT" target/release/${{ matrix.artifact }}/cosmoc
+        tar -C target/release -czf target/release/${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+        sha256sum target/release/${{ matrix.artifact }}.tar.gz > target/release/${{ matrix.artifact }}.tar.gz.sha256
+    - name: Check host cosmoc version
+      if: ${{ matrix.run_version }}
+      run: '"$COSMO_OUTPUT" --version'
+    - name: Inspect target cosmoc binary
+      if: ${{ !matrix.run_version }}
+      run: file "$COSMO_OUTPUT"
     - name: Upload cosmoc artifact
       uses: actions/upload-artifact@v4
       with:
-        name: cosmoc-linux-x64
+        name: ${{ matrix.artifact }}
         path: |
-          target/release/cosmoc-linux-x64.tar.gz
-          target/release/cosmoc-linux-x64.tar.gz.sha256
+          target/release/${{ matrix.artifact }}.tar.gz
+          target/release/${{ matrix.artifact }}.tar.gz.sha256
+
+  build-cosmoc-macos:
+    needs: test
+    name: build-cosmoc (${{ matrix.artifact }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: cosmoc-macosx-x64
+            runner: macos-15-intel
+            llvm_arch: x64
+          - artifact: cosmoc-macosx-arm64
+            runner: macos-15
+            llvm_arch: arm64
+    env:
+      CC: clang
+      CXX: clang++
+      COSMO_LLVM_TARGET_PLATFORM: macosx
+      COSMO_LLVM_TARGET_ARCH: ${{ matrix.llvm_arch }}
+      COSMO_OUTPUT: target/dist/${{ matrix.artifact }}/cosmoc
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'sbt'
+    - uses: sbt/setup-sbt@v1
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'yarn'
+    - name: Build cosmoc release artifact
+      run: |
+        ./scripts/build.sh
+        "$COSMO_OUTPUT" --version
+        mkdir -p target/release/${{ matrix.artifact }}
+        cp "$COSMO_OUTPUT" target/release/${{ matrix.artifact }}/cosmoc
+        tar -C target/release -czf target/release/${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
+        shasum -a 256 target/release/${{ matrix.artifact }}.tar.gz > target/release/${{ matrix.artifact }}.tar.gz.sha256
+    - name: Upload cosmoc artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: |
+          target/release/${{ matrix.artifact }}.tar.gz
+          target/release/${{ matrix.artifact }}.tar.gz.sha256
+
+  build-cosmoc-windows:
+    needs: test
+    name: build-cosmoc (${{ matrix.artifact }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: cosmoc-windows-x64
+            runner: windows-2022
+            llvm_arch: x64
+          - artifact: cosmoc-windows-arm64
+            runner: windows-11-arm
+            llvm_arch: arm64
+    env:
+      COSMO_LLVM_TARGET_PLATFORM: windows
+      COSMO_LLVM_TARGET_ARCH: ${{ matrix.llvm_arch }}
+      COSMO_OUTPUT: target/dist/${{ matrix.artifact }}/cosmoc
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'sbt'
+    - uses: sbt/setup-sbt@v1
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'yarn'
+    - name: Build cosmoc release artifact
+      shell: pwsh
+      run: |
+        ./scripts/build.ps1
+        $binary = "target/dist/${{ matrix.artifact }}/cosmoc.exe"
+        & $binary --version
+        $artifactDir = "target/release/${{ matrix.artifact }}"
+        New-Item -ItemType Directory -Force $artifactDir | Out-Null
+        Copy-Item $binary "$artifactDir/cosmoc.exe"
+        Compress-Archive -Path "$artifactDir/*" -DestinationPath "target/release/${{ matrix.artifact }}.zip" -Force
+        $hash = (Get-FileHash "target/release/${{ matrix.artifact }}.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$hash  ${{ matrix.artifact }}.zip" | Set-Content -NoNewline "target/release/${{ matrix.artifact }}.zip.sha256"
+    - name: Upload cosmoc artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: |
+          target/release/${{ matrix.artifact }}.zip
+          target/release/${{ matrix.artifact }}.zip.sha256
 
   release:
-    needs: build
+    needs:
+      - build-cosmoc-linux
+      - build-cosmoc-macos
+      - build-cosmoc-windows
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -73,8 +235,9 @@ jobs:
     - name: Download cosmoc artifact
       uses: actions/download-artifact@v4
       with:
-        name: cosmoc-linux-x64
+        pattern: cosmoc-*
         path: artifacts
+        merge-multiple: true
     - name: Install parse-changelog
       uses: taiki-e/install-action@parse-changelog
     - name: Install Node.js
