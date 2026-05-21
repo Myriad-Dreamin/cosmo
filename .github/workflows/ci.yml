@@ -191,7 +191,7 @@ jobs:
     env:
       COSMO_LLVM_TARGET_PLATFORM: windows
       COSMO_LLVM_TARGET_ARCH: ${{ matrix.llvm_arch }}
-      COSMO_OUTPUT: target/dist/${{ matrix.artifact }}/cosmoc.exe
+      COSMO_OUTPUT: target/dist/${{ matrix.artifact }}/cosmoc
     steps:
     - uses: actions/checkout@v4
     - name: Set up JDK ${{ matrix.java_version }}
@@ -209,7 +209,11 @@ jobs:
       shell: pwsh
       run: |
         ./scripts/build.ps1
-        $binary = (Resolve-Path $env:COSMO_OUTPUT).Path
+        $binary = "$env:COSMO_OUTPUT.exe"
+        if (-not (Test-Path $binary)) {
+          $binary = $env:COSMO_OUTPUT
+        }
+        $binary = (Resolve-Path $binary).Path
         & $binary --version
         $artifactDir = "target/release/${{ matrix.artifact }}"
         New-Item -ItemType Directory -Force $artifactDir | Out-Null
