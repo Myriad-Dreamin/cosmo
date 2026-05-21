@@ -50,20 +50,22 @@ jobs:
       - name: Download & install shiroa
         run: |
           curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Myriad-Dreamin/shiroa/releases/download/v0.3.1-rc4/shiroa-installer.sh | sh
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.16.1
+          run_install: false
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'yarn'
-      - name: Enable pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.16.1 --activate
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
       - name: Install deps
-        run: yarn install
+        run: pnpm install --frozen-lockfile
       - name: Compile Syntax
         run: |
-          yarn run build:syntax
+          pnpm run build:syntax
       - name: Build Book
         run: |
           shiroa build --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ --path-to-root /cosmo/ -w . docs/cosmo --mode=static-html

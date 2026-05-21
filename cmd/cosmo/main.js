@@ -515,9 +515,9 @@ function compilePackageExecutableWithCMake(
   ];
   const configure = spawnSync(cmake, configureArgs, { encoding: "utf8" });
   if (configure.status !== 0) {
-    writeNativeBuildLog(paths.logPath, cmake, configureArgs, configure);
+    const log = writeNativeBuildLog(paths.logPath, cmake, configureArgs, configure);
     throw new CliError(
-      `cosmo package run native CMake configure failed; log written to ${paths.logPath}`,
+      nativeBuildFailureMessage("configure", paths.logPath, log),
     );
   }
 
@@ -527,10 +527,17 @@ function compilePackageExecutableWithCMake(
     return paths.executablePath;
   }
 
-  writeNativeBuildLog(paths.logPath, cmake, buildArgs, build);
+  const log = writeNativeBuildLog(paths.logPath, cmake, buildArgs, build);
   throw new CliError(
-    `cosmo package run native CMake build failed; log written to ${paths.logPath}`,
+    nativeBuildFailureMessage("build", paths.logPath, log),
   );
+}
+
+function nativeBuildFailureMessage(stage, logPath, log) {
+  return [
+    `cosmo package run native CMake ${stage} failed; log written to ${logPath}`,
+    log,
+  ].join("\n");
 }
 
 export function nativePackageCMakeSource({
@@ -620,6 +627,7 @@ function writeNativeBuildLog(logPath, command, args, result) {
     .filter(Boolean)
     .join("\n");
   writeFileSync(logPath, log, "utf8");
+  return log;
 }
 
 function cmakeStringLiteral(value) {
@@ -911,6 +919,6 @@ function requireInput(input, action) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error(error.message ?? error);
-    process.exitCode = error.exitCode ?? 1;
+    process.exit(error.exitCode ?? 1);
   });
 }
