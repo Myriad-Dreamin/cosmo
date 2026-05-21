@@ -42,6 +42,10 @@ class Core0CommandTests extends munit.FunSuite:
     assert(compiled.value.get.backendRequirements.contains(BackendRequirement.include("<cstdlib>")))
     assert(compiled.value.get.backendRequirements.contains(BackendRequirement.include("<string>")))
     assert(compiled.value.get.backendRequirements.contains(BackendRequirement.include("<vector>")))
+    assert(!compiled.value.get.backendRequirements.contains(BackendRequirement.include("<sys/wait.h>")))
+    assert(compiled.value.get.source.contains("#if defined(_WIN32)\n#include <process.h>\n#else\n#include <sys/wait.h>\n#endif"))
+    assert(compiled.value.get.source.contains("return _popen(line.c_str(), \"r\");"))
+    assert(compiled.value.get.source.contains("return _pclose(pipe);"))
 
   test("core0.command source tests and link component compile as later-stage source"):
     val source = combineSources(

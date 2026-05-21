@@ -133,7 +133,11 @@ final class CppBackend(
         "#include <set>",
         "#include <sstream>",
         "#include <string>",
+        "#if defined(_WIN32)",
+        "#include <process.h>",
+        "#else",
         "#include <sys/wait.h>",
+        "#endif",
         "#include <type_traits>",
         "#include <unordered_map>",
         "#include <utility>",
@@ -269,7 +273,7 @@ final class CppBackend(
         |  return args;
         |}
         |
-        |inline std::string shell_quote(const std::string &value) {
+        |inline std::string shell_quote_posix(const std::string &value) {
         |  std::string quoted = "'";
         |  for (char ch : value) {
         |    if (ch == '\'') {
@@ -282,14 +286,55 @@ final class CppBackend(
         |  return quoted;
         |}
         |
+        |inline std::string shell_quote_windows(const std::string &value) {
+        |  std::string quoted = "\"";
+        |  for (char ch : value) {
+        |    if (ch == '"') {
+        |      quoted += "\\\"";
+        |    } else {
+        |      quoted.push_back(ch);
+        |    }
+        |  }
+        |  quoted += "\"";
+        |  return quoted;
+        |}
+        |
+        |inline std::string shell_quote(const std::string &value) {
+        |#if defined(_WIN32)
+        |  return shell_quote_windows(value);
+        |#else
+        |  return shell_quote_posix(value);
+        |#endif
+        |}
+        |
         |inline int command_exit_status(int raw_status) {
         |  if (raw_status == -1) {
         |    return 1;
         |  }
+        |#if defined(_WIN32)
+        |  return raw_status;
+        |#else
         |  if (WIFEXITED(raw_status)) {
         |    return WEXITSTATUS(raw_status);
         |  }
         |  return raw_status;
+        |#endif
+        |}
+        |
+        |inline FILE *command_pipe_open(const std::string &line) {
+        |#if defined(_WIN32)
+        |  return _popen(line.c_str(), "r");
+        |#else
+        |  return popen(line.c_str(), "r");
+        |#endif
+        |}
+        |
+        |inline int command_pipe_close(FILE *pipe) {
+        |#if defined(_WIN32)
+        |  return _pclose(pipe);
+        |#else
+        |  return pclose(pipe);
+        |#endif
         |}
         |
         |inline uint8_t *string_data(const std::string &value) {
@@ -341,6 +386,9 @@ final class CppBackend(
         |  std::string line;
         |  if (command->cwd.has_value()) {
         |    line += "cd ";
+        |#if defined(_WIN32)
+        |    line += "/d ";
+        |#endif
         |    line += shell_quote(command->cwd.value().text);
         |    line += " && ";
         |  }
@@ -352,7 +400,7 @@ final class CppBackend(
         |  }
         |  line += " 2>&1";
         |
-        |  FILE *pipe = popen(line.c_str(), "r");
+        |  FILE *pipe = command_pipe_open(line);
         |  if (pipe == nullptr) {
         |    return Result<CommandResult, CommandError>::Err(CommandError(std::string("failed to start command")));
         |  }
@@ -369,13 +417,13 @@ final class CppBackend(
         |        break;
         |      }
         |      if (std::ferror(pipe) != 0) {
-        |        pclose(pipe);
+        |        command_pipe_close(pipe);
         |        return Result<CommandResult, CommandError>::Err(CommandError(std::string("failed to read command output")));
         |      }
         |    }
         |  }
         |
-        |  const int status = command_exit_status(pclose(pipe));
+        |  const int status = command_exit_status(command_pipe_close(pipe));
         |  return Result<CommandResult, CommandError>::Ok(CommandResult(status, output, std::string()));
         |}
         |
