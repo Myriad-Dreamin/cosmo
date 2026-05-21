@@ -1,5 +1,6 @@
 package cosmo0
 
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 import cosmo.syntax
@@ -46,6 +47,7 @@ final class UntypedElaborator(
     val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
     val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
     val cppNamespaceImports: ListBuffer[SourceCppNamespaceImport] = ListBuffer.empty
+    private val genericTypeAliasNames = mutable.LinkedHashSet.empty[String]
 
     private val assignmentOps =
       Set("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=")
@@ -696,6 +698,7 @@ final class UntypedElaborator(
           )
 
     private def genericTypeAlias(node: GenericTyp): Option[UntypedTypeAlias] =
+      genericTypeAliasNames += node.name.name
       val typeParams = typeAliasParamNames(node.params, node)
       val target = node.init.orElse(node.ty) match
         case Some(targetNode) =>
@@ -1158,6 +1161,9 @@ final class UntypedElaborator(
             case Some(base) if base.parts.headOption.exists(alias =>
                 cppNamespaceImports.exists(_.alias == alias),
               ) =>
+              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
+              sequence(typeArgs).map(values => UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)))
+            case Some(base) if base.parts.length == 1 && genericTypeAliasNames.contains(base.parts.head) =>
               val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
               sequence(typeArgs).map(values => UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)))
             case Some(base) =>

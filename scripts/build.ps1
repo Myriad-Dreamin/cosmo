@@ -9,6 +9,10 @@ $Output = if ($env:COSMO_OUTPUT) {
 
 Push-Location $RepoRoot
 try {
+  sbt fullLinkJS
+  if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+  }
   node cmd/cosmo/main.js -p packages/cosmoc build -o $Output
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

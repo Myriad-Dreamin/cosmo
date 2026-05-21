@@ -677,6 +677,9 @@ class SyntaxParserState {
       self.expected("type alias name", start);
       SyntaxParsedMember(false, self.unsupported_member("type", make_span(start, self.offset)))
     } else {
+      if (!self.parse_optional_type_params_after_name()) {
+        return SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
+      }
       if (!self.expect_text("=")) {
         self.expected("=", self.offset);
         SyntaxParsedMember(false, self.unsupported_member(name.text, make_span(start, self.offset)))
@@ -767,6 +770,9 @@ class SyntaxParserState {
       self.expected("type alias name", start);
       SyntaxParsedDecl(false, self.unsupported_decl("type", make_span(start, self.offset)))
     } else {
+      if (!self.parse_optional_type_params_after_name()) {
+        return SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
+      }
       if (!self.expect_text("=")) {
         self.expected("=", self.offset);
         SyntaxParsedDecl(false, self.unsupported_decl(name.text, make_span(start, self.offset)))
@@ -779,6 +785,39 @@ class SyntaxParserState {
         }
       }
     }
+  }
+
+  def parse_optional_type_params_after_name(&mut self): Bool = {
+    self.skip_ws();
+    if (!self.match_text("[")) {
+      return true
+    }
+
+    self.skip_ws();
+    if (self.match_text("]")) {
+      return true
+    }
+
+    var keep = true;
+    while (keep) {
+      val name = self.parse_identifier_name();
+      if (!name.ok) {
+        self.expected("type parameter name", self.offset);
+        return false
+      }
+      self.skip_ws();
+      if (self.match_text(",")) {
+        keep = true
+      } else {
+        keep = false
+      }
+    }
+
+    if (!self.expect_text("]")) {
+      self.expected("]", self.offset);
+      return false
+    }
+    true
   }
 
   def parse_import_after_keyword(&mut self, start: usize): SyntaxParsedDecl = {

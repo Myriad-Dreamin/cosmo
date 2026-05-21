@@ -758,6 +758,20 @@ final class SourceTyper(
 
       val receiver = expr(node.receiver, scope, None, context)
       SourceType.dealias(receiver.expr.valueType) match
+        case owner if foreignMethod(owner, node.field, node.span).nonEmpty =>
+          val signature = foreignMethod(owner, node.field, node.span).get
+          ExprInfo(
+            TypedSelect(
+              receiver.expr,
+              node.field,
+              signature.functionType,
+              mutableBinding = false,
+              mutationAllowed = false,
+              node.span,
+            ),
+            mutableBinding = false,
+            mutationAllowed = false,
+          )
         case owner if descriptorMethod(owner, node.field, node.span).nonEmpty =>
           val method = descriptorMethod(owner, node.field, node.span).get
           val signature = method.instantiate(normalizeDescriptorOwner(owner), node.span)
@@ -940,6 +954,16 @@ final class SourceTyper(
                     constructor.span,
                   )
                   errorCall(node, scope, context)
+            case owner @ SourceType.ForeignApplied(_, _) =>
+              val signature = CallableSignature("<init>", Nil, owner)
+              callWithSignature(
+                TypedTypeConstructorExpr(constructedType, signature.functionType, constructor.span),
+                signature,
+                node.args,
+                node.span,
+                scope,
+                context,
+              )
             case _ =>
               error(
                 "cosmo0.type.invalid-call",
@@ -1016,6 +1040,17 @@ final class SourceTyper(
 
       val receiver = expr(select.receiver, scope, None, context)
       SourceType.dealias(receiver.expr.valueType) match
+        case owner if foreignMethod(owner, select.field, select.span).nonEmpty =>
+          val signature = foreignMethod(owner, select.field, select.span).get
+          checkReceiverMutation(receiver, signature, select.span)
+          callWithSignature(
+            TypedSelect(receiver.expr, select.field, signature.functionType, false, false, select.span),
+            signature,
+            args,
+            span,
+            scope,
+            context,
+          )
         case owner if descriptorMethod(owner, select.field, select.span).nonEmpty =>
           val method = descriptorMethod(owner, select.field, select.span).get
           val signature = method.instantiate(normalizeDescriptorOwner(owner), select.span)
@@ -1547,6 +1582,45 @@ final class SourceTyper(
       descriptorName(owner).flatMap(name =>
         standardGenerics.get(name).filter(_.arity == descriptorArity(owner)).flatMap(_.method(methodName)),
       )
+
+    private def foreignMethod(
+        ownerType: SourceType,
+        methodName: String,
+        span: SourceSpan,
+    ): Option[CallableSignature] =
+      normalizeDescriptorOwner(ownerType) match
+        case owner @ SourceType.ForeignApplied("::std::vector", item :: Nil) =>
+          foreignVectorMethod(owner, item, methodName, span)
+        case _ =>
+          None
+
+    private def foreignVectorMethod(
+        owner: SourceType,
+        item: SourceType,
+        methodName: String,
+        span: SourceSpan,
+    ): Option[CallableSignature] =
+      methodName match
+        case "push_back" =>
+          Some(
+            CallableSignature(
+              methodName,
+              List(CallableParam("value", item, span)),
+              SourceType.Unit,
+              Some(CallableReceiver(owner, mutable = true)),
+            ),
+          )
+        case "size" | "len" =>
+          Some(
+            CallableSignature(
+              methodName,
+              Nil,
+              SourceType.Usize,
+              Some(CallableReceiver(owner, mutable = false)),
+            ),
+          )
+        case _ =>
+          None
 
     private def descriptorOwner(name: String): Option[SourceType] =
       standardGenerics.get(name).filter(_.arity == 0).flatMap { _ =>

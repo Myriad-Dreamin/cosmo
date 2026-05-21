@@ -30,6 +30,13 @@ import std as cstd from "c++/vector"
 import std as cstd from "c++/string"
 
 type CppVector[T] = cstd::vector[T]
+
+def main(): Unit = {
+  val vec = CppVector[u32]()
+  vec.push_back(1)
+  vec.push_back(2)
+  println(vec.size())
+}
 ```
 
 ## Build and Run

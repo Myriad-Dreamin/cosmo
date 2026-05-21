@@ -505,9 +505,26 @@ final class LirLowerer(
             ),
           )
           callResult(output, valueType)
+        case None if isForeignDefaultConstructor(constructor.constructedType) && args.isEmpty =>
+          output match
+            case Some(binding) =>
+              emit(LirConstructType(binding.id, Lir.t(valueType), Nil))
+              callResult(output, valueType)
+            case None =>
+              report(
+                "cosmo0.lir.lower.invalid-constructor",
+                s"type constructor ${constructor.constructedType.display} has no LIR output",
+                constructor.span,
+              )
+              None
         case None =>
           unsupportedDescriptor(constructor, descriptorName(constructor.constructedType).getOrElse(constructor.constructedType.display), "<init>")
           None
+
+    private def isForeignDefaultConstructor(valueType: SourceType): Boolean =
+      SourceType.dealias(valueType) match
+        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) => true
+        case _                                                             => false
 
     private def lowerUnary(value: TypedUnary): Option[LirValue] =
       val opName =
@@ -553,22 +570,29 @@ final class LirLowerer(
           None
 
     private def lowerBinary(value: TypedBinary): Option[LirValue] =
+      value.op match
+        case "and" | "&&" =>
+          lowerShortCircuitBinary(value, isAnd = true)
+        case "or" | "||" =>
+          lowerShortCircuitBinary(value, isAnd = false)
+        case _ =>
+          lowerStrictBinary(value)
+
+    private def lowerStrictBinary(value: TypedBinary): Option[LirValue] =
       val opName =
         value.op match
-          case "+"          => Some("add")
-          case "-"          => Some("sub")
-          case "*"          => Some("mul")
-          case "/"          => Some("div")
-          case "%"          => Some("mod")
-          case "=="         => Some("eq")
-          case "!="         => Some("ne")
-          case "<"          => Some("lt")
-          case "<="         => Some("le")
-          case ">"          => Some("gt")
-          case ">="         => Some("ge")
-          case "and" | "&&" => Some("and")
-          case "or" | "||"  => Some("or")
-          case _            => None
+          case "+"  => Some("add")
+          case "-"  => Some("sub")
+          case "*"  => Some("mul")
+          case "/"  => Some("div")
+          case "%"  => Some("mod")
+          case "==" => Some("eq")
+          case "!=" => Some("ne")
+          case "<"  => Some("lt")
+          case "<=" => Some("le")
+          case ">"  => Some("gt")
+          case ">=" => Some("ge")
+          case _    => None
       opName match
         case Some(name) =>
           for
@@ -578,6 +602,38 @@ final class LirLowerer(
           yield result
         case None =>
           unsupported(value, s"binary operator ${value.op}")
+          None
+
+    private def lowerShortCircuitBinary(value: TypedBinary, isAnd: Boolean): Option[LirValue] =
+      lowerExpr(value.left) match
+        case Some(left) =>
+          val group = nextLabelGroup(if isAnd then "and" else "or")
+          val rhsLabel = numberedLabel(group, 0, "rhs")
+          val shortLabel = numberedLabel(group, 1, "short")
+          val joinLabel = numberedLabel(group, 2, "join")
+          val output = declareTemp(value.valueType, mutable = true)
+          val shortValue = if isAnd then LirBoolValue(false) else LirBoolValue(true)
+
+          if isAnd then {
+            terminate(LirCondBranch(left, rhsLabel, shortLabel))
+          } else {
+            terminate(LirCondBranch(left, shortLabel, rhsLabel))
+          }
+
+          startBlock(rhsLabel)
+          val right = lowerExpr(value.right)
+          val rhsFallsThrough = finishStructuredBranch(Some(output), right, joinLabel, value.right.span)
+
+          startBlock(shortLabel)
+          val shortFallsThrough = finishStructuredBranch(Some(output), Some(shortValue), joinLabel, value.left.span)
+
+          if rhsFallsThrough || shortFallsThrough then {
+            startBlock(joinLabel)
+            Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+          } else {
+            None
+          }
+        case None =>
           None
 
     private def lowerDescriptorBinary(

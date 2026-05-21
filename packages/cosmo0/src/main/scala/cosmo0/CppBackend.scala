@@ -889,8 +889,10 @@ final class CppBackend(
               val invocation = s"${names.functionName(target.id)}(${(receiverArg :: args.map(renderValue(_, locals))).mkString(", ")})"
               assignOrStatement(output, invocation, locals)
             case None =>
-              unsupportedDescriptor(s"method", method, s"no lowered method target for ${receiver.valueType.display}.$method")
-              Nil
+              emitForeignMethodCall(output, receiver, method, args, locals).getOrElse {
+                unsupportedDescriptor(s"method", method, s"no lowered method target for ${receiver.valueType.display}.$method")
+                Nil
+              }
 
         case LirDescriptorIntrinsic(output, descriptor, name, args, _) =>
           emitDescriptor(descriptor, name, args, locals) match
@@ -1480,6 +1482,8 @@ final class CppBackend(
         locals: FunctionNames,
     ): List[String] =
       SourceType.dealias(owner.source) match
+        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) if fields.isEmpty =>
+          List(s"${locals.local(output)} = ${valueTypeName(owner)}{};")
         case SourceType.User(name) =>
           env.typesByName.get(name) match
             case Some(ty) =>
@@ -1492,6 +1496,25 @@ final class CppBackend(
         case _ =>
           unsupportedType(owner.source)
           Nil
+
+    private def emitForeignMethodCall(
+        output: Option[LirLocalId],
+        receiver: LirValue,
+        method: String,
+        args: List[LirValue],
+        locals: FunctionNames,
+    ): Option[List[String]] =
+      SourceType.dealias(SourceType.deref(receiver.valueType.source)) match
+        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) =>
+          val op =
+            SourceType.dealias(receiver.valueType.source) match
+              case SourceType.Ref(_, _) => "->"
+              case _                    => "."
+          val invocation =
+            s"${renderValue(receiver, locals)}$op$method(${args.map(renderValue(_, locals)).mkString(", ")})"
+          Some(assignOrStatement(output, invocation, locals))
+        case _ =>
+          None
 
     private def variantTag(
         scrutinee: LirValue,
