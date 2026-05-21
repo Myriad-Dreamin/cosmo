@@ -22,7 +22,7 @@
     "cosmo": "node ./cmd/cosmo/main.js",
     "validate:cosmo0-docs": "node scripts/validateCosmo0Docs.js",
     "validate:sample-workspaces": "node scripts/validateSampleWorkspaces.mjs",
-    "docs": "shiroa serve --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ -w . docs/cosmo",
+    "docs": "shiroa serve --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ --path-to-root / -w . docs/cosmo --mode=static-html",
     "build:syntax": "node scripts/build.mjs build:syntax",
     "build:cosmos-host": "node scripts/build.mjs build:cosmos-host",
     "build:vscode": "node scripts/build.mjs build:vscode",

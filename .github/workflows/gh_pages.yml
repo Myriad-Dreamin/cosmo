@@ -26,33 +26,50 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - run: git submodule update --init --recursive
+      - name: Make directories
+        run: |
+          if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}" ]; then
+            echo "Creating data directory: ${XDG_DATA_HOME:-$HOME/.local/share}"
+            mkdir -p ${XDG_DATA_HOME:-$HOME/.local/share}
+          else
+            echo "Data directory already exists: ${XDG_DATA_HOME:-$HOME/.local/share}"
+          fi
+          if [ ! -d "${XDG_CACHE_HOME:-$HOME/.cache}" ]; then
+            echo "Creating cache directory: ${XDG_CACHE_HOME:-$HOME/.cache}"
+            mkdir -p ${XDG_CACHE_HOME:-$HOME/.cache}
+          else
+            echo "Cache directory already exists: ${XDG_CACHE_HOME:-$HOME/.cache}"
+          fi
       - name: Download font assets
         # use fonts in stable releases
         run: |
           mkdir -p assets/fonts/
           curl -L https://github.com/Myriad-Dreamin/shiroa/releases/download/v0.1.2/font-assets.tar.gz | tar -xvz -C assets/fonts
+          curl -L https://github.com/Myriad-Dreamin/shiroa/releases/download/v0.1.0/charter-font-assets.tar.gz | tar -xvz -C assets/fonts
+          curl -L https://github.com/Myriad-Dreamin/shiroa/releases/download/v0.1.5/source-han-serif-font-assets.tar.gz | tar -xvz -C assets/fonts
       - name: Download & install shiroa
         run: |
-          curl -L https://github.com/Myriad-Dreamin/shiroa/releases/download/v0.2.0-nightly4/shiroa-x86_64-unknown-linux-gnu.tar.gz | tar -xvz
-          chmod +x shiroa-x86_64-unknown-linux-gnu/bin/shiroa
-          sudo cp shiroa-x86_64-unknown-linux-gnu/bin/shiroa /usr/bin/shiroa
-      - name: Install packages
-        uses: borales/actions-yarn@v4
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Myriad-Dreamin/shiroa/releases/download/v0.3.1-rc4/shiroa-installer.sh | sh
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          cmd: install
+          node-version: 24
+          cache: 'yarn'
+      - name: Install deps
+        run: yarn install
       - name: Compile Syntax
         run: |
           yarn run build:syntax
       - name: Build Book
         run: |
-          shiroa build --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ --path-to-root /cosmo/ -w . docs/cosmo
+          shiroa build --font-path ./assets/typst-fonts/ --font-path ./assets/fonts/ --path-to-root /cosmo/ -w . docs/cosmo --mode=static-html
       - name: Setup Pages
-        uses: actions/configure-pages@v3
+        uses: actions/configure-pages@v5
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
+        uses: actions/upload-pages-artifact@v3
         with:
           # Upload `/github-pages` sub directory
           path: './dist/docs'
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v2
+        uses: actions/deploy-pages@v4
