@@ -69,8 +69,9 @@ node cmd/cosmo/main.js -f .env.prod -p packages/cosmoc build -o target/cosmoc
 
 `packages/cosmoc` requests the native `cosmo-clang-sys` support library. Set
 `COSMO_LLVM_PATH` to a local LLVM/Clang install prefix when one is available; if
-it is unset, the CMake link step uses `config/llvm-manifest.json` and downloads
-the matching LLVM artifact into `target/cosmo/llvm`.
+it is unset, the CMake link step uses
+`packages/cosmo-clang-sys/config/llvm-manifest.json` and downloads the matching
+LLVM artifact into `target/cosmo/llvm`.
 
 ## Minimal Commands
 

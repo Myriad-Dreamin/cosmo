@@ -101,7 +101,7 @@ endfunction()
 
 function(cosmo_llvm_pick_artifact VERSION BUILD_TYPE PLATFORM ARCH OUTPUT_FILENAME OUTPUT_SHA256)
     if (NOT COSMO_LLVM_MANIFEST_PATH)
-        set(COSMO_LLVM_MANIFEST_PATH "${PROJECT_SOURCE_DIR}/config/llvm-manifest.json")
+        set(COSMO_LLVM_MANIFEST_PATH "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/config/llvm-manifest.json")
     endif ()
 
     get_filename_component(COSMO_LLVM_MANIFEST_ABS "${COSMO_LLVM_MANIFEST_PATH}" ABSOLUTE)

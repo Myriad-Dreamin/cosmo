@@ -197,7 +197,7 @@ test("native package CMake source links cosmoClang to generated executable", () 
     supportLibraryLinkArguments: ["/repo/target/cosmo/support/libsupport.a"],
   });
 
-  assert.match(source, /add_subdirectory\(.+native\/cosmo-clang-sys/);
+  assert.match(source, /add_subdirectory\(.+packages\/cosmo-clang-sys/);
   assert.match(source, /target_link_libraries\(cosmoPackageExecutable PRIVATE\n    cosmoClang/);
   assert.match(source, /"\/repo\/target\/cosmo\/support\/libsupport\.a"/);
   assert.match(source, /OUTPUT_NAME "cosmoc"/);
