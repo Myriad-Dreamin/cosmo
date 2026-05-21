@@ -55,6 +55,10 @@ jobs:
         with:
           node-version: 24
           cache: 'yarn'
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.16.1 --activate
       - name: Install deps
         run: yarn install
       - name: Compile Syntax
