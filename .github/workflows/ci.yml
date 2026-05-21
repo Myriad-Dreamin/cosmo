@@ -56,7 +56,6 @@ jobs:
       run: pnpm test:bootstrap
 
   build-cosmoc-linux:
-    needs: test
     name: build-cosmoc (${{ matrix.artifact }})
     runs-on: ubuntu-latest
     container:
@@ -134,7 +133,6 @@ jobs:
           target/release/${{ matrix.artifact }}.tar.gz.sha256
 
   build-cosmoc-macos:
-    needs: test
     name: build-cosmoc (${{ matrix.artifact }})
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -190,7 +188,6 @@ jobs:
           target/release/${{ matrix.artifact }}.tar.gz.sha256
 
   build-cosmoc-windows:
-    needs: test
     name: build-cosmoc (${{ matrix.artifact }})
     runs-on: ${{ matrix.runner }}
     strategy:
