@@ -72,6 +72,7 @@ final case class TypedTypeAlias(
     name: String,
     target: SourceType,
     span: SourceSpan,
+    typeParams: List[String] = Nil,
 ) extends TypedDecl
     with TypedClassMember
 

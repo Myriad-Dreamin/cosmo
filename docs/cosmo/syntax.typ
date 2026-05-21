@@ -464,7 +464,7 @@ import "c++/vector" // error: C++ imports require an explicit namespace alias
 Qualified names resolve through the alias:
 
 ```cos
-type StdVector = cstd::vector
+type CppVector[T] = cstd::vector[T]
 ```
 
 The compiler validates the suffix against the alias namespace and bounded header set through `cosmo-clang-sys` before treating the C++ symbol as a backend input.

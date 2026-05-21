@@ -1236,6 +1236,7 @@ final class LirLowerer(
               context.aliasId(None, alias.name),
               alias.name,
               Lir.t(alias.target),
+              alias.typeParams,
             ),
           )
 
@@ -1283,6 +1284,7 @@ final class LirLowerer(
               context.aliasId(Some(cls.name), alias.name),
               alias.name,
               Lir.t(alias.target),
+              alias.typeParams,
             ),
           )
           typeDecl :: aliases ::: cls.methods.map(lowerFunction)

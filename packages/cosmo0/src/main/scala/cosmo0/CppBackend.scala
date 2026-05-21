@@ -590,7 +590,9 @@ final class CppBackend(
 
     private def typeAliasDeclarations: List[String] =
       val lines = env.declarations.collect { case alias: LirTypeAliasDecl =>
-        s"using ${names.aliasName(alias.id)} = ${valueType(alias.target)};"
+        val typeParams = alias.typeParams.map(param => s"typename ${safeIdent(param, "T")}")
+        val template = if typeParams.isEmpty then "" else s"template <${typeParams.mkString(", ")}> "
+        s"${template}using ${names.aliasName(alias.id)} = ${valueType(alias.target)};"
       }
       if lines.isEmpty then Nil else lines :+ ""
 
@@ -633,7 +635,7 @@ final class CppBackend(
           env.typesByName.get(name).map(ty => Set(ty.id)).getOrElse(Set.empty)
         case SourceType.Alias(name, _) =>
           env.aliasesByName.get(name).map(alias => concreteTypeDependencies(alias.target.source)).getOrElse(Set.empty)
-        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) =>
+        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) | SourceType.ForeignApplied(_, _) | SourceType.TypeParam(_) =>
           Set.empty
         case SourceType.Standard("Id", _ :: Nil) =>
           Set.empty
@@ -1098,11 +1100,15 @@ final class CppBackend(
           env.typesByName.get(name).map(ty => names.typeName(ty.id)).getOrElse(safeIdent(name, "type"))
         case SourceType.Alias(name, _) =>
           env.aliasesByName.get(name).map(alias => names.aliasName(alias.id)).getOrElse(safeIdent(name, "alias"))
+        case SourceType.TypeParam(name) =>
+          safeIdent(name, "T")
         case SourceType.ForeignNamespace(value) =>
           unsupportedType(SourceType.ForeignNamespace(value))
           "std::monostate"
         case SourceType.ForeignSymbol(canonicalName) =>
           canonicalName
+        case SourceType.ForeignApplied(canonicalName, args) =>
+          s"$canonicalName<${args.map(valueTypeName).mkString(", ")}>"
         case SourceType.Ref(target, true) =>
           s"${valueTypeName(target)} *"
         case SourceType.Ref(target, false) =>

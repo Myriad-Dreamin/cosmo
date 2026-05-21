@@ -4,8 +4,10 @@ enum SourceType:
   case Builtin(name: String)
   case User(name: String)
   case Alias(name: String, target: SourceType)
+  case TypeParam(name: String)
   case ForeignNamespace(value: SourceCppNamespaceImport)
   case ForeignSymbol(canonicalName: String)
+  case ForeignApplied(canonicalName: String, args: List[SourceType])
   case Ref(target: SourceType, mutable: Boolean)
   case Standard(name: String, args: List[SourceType])
   case Function(params: List[SourceType], returnType: SourceType)
@@ -17,8 +19,11 @@ enum SourceType:
       case SourceType.Builtin(name) => name
       case SourceType.User(name)    => name
       case SourceType.Alias(name, _) => name
+      case SourceType.TypeParam(name) => name
       case SourceType.ForeignNamespace(value) => value.alias
       case SourceType.ForeignSymbol(canonicalName) => canonicalName
+      case SourceType.ForeignApplied(canonicalName, args) =>
+        s"$canonicalName[${args.map(_.display).mkString(", ")}]"
       case SourceType.Ref(target, true) =>
         s"&mut ${target.display}"
       case SourceType.Ref(target, false) =>
@@ -69,8 +74,11 @@ object SourceType:
   def dealias(value: SourceType): SourceType =
     value match
       case Alias(_, target) => dealias(target)
+      case TypeParam(name) => TypeParam(name)
       case ForeignNamespace(value) => ForeignNamespace(value)
       case ForeignSymbol(canonicalName) => ForeignSymbol(canonicalName)
+      case ForeignApplied(canonicalName, args) =>
+        ForeignApplied(canonicalName, args.map(dealias))
       case Ref(target, mutable) =>
         Ref(dealias(target), mutable)
       case Standard(name, args) =>
@@ -85,9 +93,12 @@ object SourceType:
       case (Never, _) | (_, Never)     => true
       case (Builtin(a), Builtin(b))    => a == b
       case (User(a), User(b))          => a == b
+      case (TypeParam(a), TypeParam(b)) => a == b
       case (ForeignNamespace(a), ForeignNamespace(b)) =>
         a.alias == b.alias && a.namespace == b.namespace && a.headers == b.headers
       case (ForeignSymbol(a), ForeignSymbol(b)) => a == b
+      case (ForeignApplied(na, aa), ForeignApplied(nb, ab)) =>
+        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) => same(a, b) }
       case (Ref(a, ma), Ref(b, mb))    => ma == mb && same(a, b)
       case (Standard(na, aa), Standard(nb, ab)) =>
         na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) => same(a, b) }

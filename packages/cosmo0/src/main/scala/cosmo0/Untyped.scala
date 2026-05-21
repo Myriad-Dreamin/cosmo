@@ -94,6 +94,7 @@ final case class UntypedTypeAlias(
     target: UntypedType,
     span: SourceSpan,
     visibility: UntypedVisibility = UntypedVisibility.Public,
+    typeParams: List[String] = Nil,
 ) extends UntypedDecl
     with UntypedClassMember
 

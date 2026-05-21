@@ -42,7 +42,7 @@ class NameResolutionFixtureTests extends munit.FunSuite:
       """import std as cstd from "c++/vector"
         |import std as cstd from "c++/string"
         |
-        |type StdVector = cstd::vector
+        |type CppVector[T] = cstd::vector[T]
         |""".stripMargin
 
     val lowered = Cosmo0().lower(SourceFile("fixtures/name-resolution/cpp-backend.cos", source))
@@ -68,6 +68,8 @@ class NameResolutionFixtureTests extends munit.FunSuite:
     )
     assert(output.source.contains("#include <vector>"))
     assert(output.source.contains("#include <string>"))
+    assert(output.source.contains("template <typename T> using"))
+    assert(output.source.contains("= ::std::vector<T>;"))
     assert(output.source.contains("::std::vector"))
 
   test("C++ namespace imports do not create package graph edges"):
@@ -85,7 +87,7 @@ class NameResolutionFixtureTests extends munit.FunSuite:
             "fixtures/name-resolution/package-main.cos",
             """import std as cstd from "c++/vector"
               |
-              |type StdVector = cstd::vector
+              |type CppVector[T] = cstd::vector[T]
               |""".stripMargin,
           ),
         ),

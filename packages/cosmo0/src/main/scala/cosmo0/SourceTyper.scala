@@ -105,7 +105,7 @@ final class SourceTyper(
     private val diagnostics = ListBuffer.empty[Diagnostic]
     private val classNames =
       module.declarations.collect { case decl: UntypedClass => decl.name }.toSet
-    private val rawAliases = mutable.LinkedHashMap.empty[String, UntypedType]
+    private val rawAliases = mutable.LinkedHashMap.empty[String, UntypedTypeAlias]
     private val aliasTypes = mutable.LinkedHashMap.empty[String, SourceType]
     private val foreignAliases = mutable.LinkedHashMap.empty[String, SourceCppNamespaceImport]
     private val traits = mutable.LinkedHashMap.empty[String, TraitInfo]
@@ -212,11 +212,11 @@ final class SourceTyper(
     private def collectAliases(): Unit =
       module.declarations.foreach {
         case alias: UntypedTypeAlias =>
-          rawAliases.update(alias.name, alias.target)
+          rawAliases.update(alias.name, alias)
         case cls: UntypedClass =>
           cls.members.foreach {
             case alias: UntypedTypeAlias =>
-              rawAliases.update(alias.name, alias.target)
+              rawAliases.update(alias.name, alias)
             case _ =>
           }
         case _ =>
@@ -255,7 +255,7 @@ final class SourceTyper(
           )
         }
         val aliases = cls.members.collect { case alias: UntypedTypeAlias =>
-          TypedTypeAlias(alias.name, resolveAlias(alias.name), alias.span)
+          TypedTypeAlias(alias.name, resolveAlias(alias.name), alias.span, alias.typeParams)
         }
         val variants = cls.members.collect { case variant: UntypedVariant =>
           val fields = variant.fields.map(field =>
@@ -440,7 +440,7 @@ final class SourceTyper(
         case importDecl: UntypedCppNamespaceImport =>
           Some(TypedCppNamespaceImport(importDecl.value, importDecl.span))
         case alias: UntypedTypeAlias =>
-          Some(TypedTypeAlias(alias.name, resolveAlias(alias.name), alias.span))
+          Some(TypedTypeAlias(alias.name, resolveAlias(alias.name), alias.span, alias.typeParams))
         case value: UntypedValueDecl =>
           val typed = typedValueDecl(value, scope)
           typed.foreach(valueDecl =>
@@ -1587,15 +1587,15 @@ final class SourceTyper(
 
     private def resolveAlias(name: String, seen: Set[String]): SourceType =
       val resolved = rawAliases.get(name) match
-        case Some(target) if seen.contains(name) =>
+        case Some(alias) if seen.contains(name) =>
           error(
             "cosmo0.type.recursive-alias",
             s"type alias $name is recursive",
-            target.span,
+            alias.span,
           )
           SourceType.Error
-        case Some(target) =>
-          resolveType(target, None, seen + name)
+        case Some(alias) =>
+          resolveType(alias.target, None, seen + name, alias.typeParams.toSet)
         case None =>
           SourceType.Error
       aliasTypes.getOrElseUpdate(name, resolved)
@@ -1610,10 +1610,13 @@ final class SourceTyper(
         node: UntypedType,
         owner: Option[String],
         seenAliases: Set[String],
+        typeParams: Set[String] = Set.empty,
     ): SourceType =
       node match
         case UntypedNamedType(path, span) =>
           path.parts match
+            case name :: Nil if typeParams.contains(name) =>
+              SourceType.TypeParam(name)
             case name :: Nil if owner.contains(name) || ((name == "self" || name == "Self") && owner.nonEmpty) =>
               SourceType.User(owner.get)
             case name :: Nil if foreignAliases.contains(name) =>
@@ -1647,26 +1650,61 @@ final class SourceTyper(
               SourceType.Error
         case UntypedAppliedType(base, args, span) =>
           val name = base.parts.lastOption.getOrElse(base.text)
-          standardGenerics.get(name) match
-            case Some(descriptor) =>
-              if descriptor.arity != args.length then
+          base.parts match
+            case root :: suffix if suffix.nonEmpty && foreignAliases.contains(root) =>
+              val resolvedArgs = args.map(resolveType(_, owner, seenAliases, typeParams))
+              SourceType.ForeignApplied(foreignCanonicalName(foreignAliases(root), suffix), resolvedArgs)
+            case aliasName :: Nil if rawAliases.get(aliasName).exists(_.typeParams.nonEmpty) =>
+              val alias = rawAliases(aliasName)
+              if alias.typeParams.length != args.length then
                 error(
                   "cosmo0.type.wrong-arity",
-                  s"$name expects ${descriptor.arity} type argument(s), got ${args.length}",
+                  s"$aliasName expects ${alias.typeParams.length} type argument(s), got ${args.length}",
                   span,
                 )
-              val resolvedArgs = args.map(resolveType(_, owner, seenAliases))
-              validateStandardTypeApplication(name, resolvedArgs, span)
-              SourceType.Standard(name, resolvedArgs)
-            case None =>
-              error(
-                "cosmo0.type.unknown-type",
-                s"unknown standard generic type ${base.text}",
-                span,
-              )
-              SourceType.Error
+              val resolvedArgs = args.map(resolveType(_, owner, seenAliases, typeParams))
+              substituteTypeParams(resolveAlias(aliasName, seenAliases), alias.typeParams.zip(resolvedArgs).toMap)
+            case _ =>
+              standardGenerics.get(name) match
+                case Some(descriptor) =>
+                  if descriptor.arity != args.length then
+                    error(
+                      "cosmo0.type.wrong-arity",
+                      s"$name expects ${descriptor.arity} type argument(s), got ${args.length}",
+                      span,
+                    )
+                  val resolvedArgs = args.map(resolveType(_, owner, seenAliases, typeParams))
+                  validateStandardTypeApplication(name, resolvedArgs, span)
+                  SourceType.Standard(name, resolvedArgs)
+                case None =>
+                  error(
+                    "cosmo0.type.unknown-type",
+                    s"unknown standard generic type ${base.text}",
+                    span,
+                  )
+                  SourceType.Error
         case UntypedRefType(target, mutable, _) =>
-          SourceType.Ref(resolveType(target, owner, seenAliases), mutable)
+          SourceType.Ref(resolveType(target, owner, seenAliases, typeParams), mutable)
+
+    private def substituteTypeParams(
+        valueType: SourceType,
+        values: Map[String, SourceType],
+    ): SourceType =
+      valueType match
+        case SourceType.TypeParam(name) =>
+          values.getOrElse(name, valueType)
+        case SourceType.Alias(name, target) =>
+          SourceType.Alias(name, substituteTypeParams(target, values))
+        case SourceType.ForeignApplied(canonicalName, args) =>
+          SourceType.ForeignApplied(canonicalName, args.map(substituteTypeParams(_, values)))
+        case SourceType.Ref(target, mutable) =>
+          SourceType.Ref(substituteTypeParams(target, values), mutable)
+        case SourceType.Standard(name, args) =>
+          SourceType.Standard(name, args.map(substituteTypeParams(_, values)))
+        case SourceType.Function(params, returnType) =>
+          SourceType.Function(params.map(substituteTypeParams(_, values)), substituteTypeParams(returnType, values))
+        case other =>
+          other
 
     private def validateStandardTypeApplication(
         name: String,

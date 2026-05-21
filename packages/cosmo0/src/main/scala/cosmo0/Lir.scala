@@ -86,6 +86,7 @@ final case class LirTypeAliasDecl(
     id: LirDeclId,
     name: String,
     target: LirTypeRef,
+    typeParams: List[String] = Nil,
 ) extends LirDeclaration
 
 final case class LirTypeDecl(

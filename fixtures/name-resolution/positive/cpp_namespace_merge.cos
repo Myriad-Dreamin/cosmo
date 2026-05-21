@@ -1,4 +1,4 @@
 import std as cstd from "c++/vector"
 import std as cstd from "c++/string"
 
-type StdVector = cstd::vector
+type CppVector[T] = cstd::vector[T]

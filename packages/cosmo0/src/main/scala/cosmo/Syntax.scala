@@ -65,6 +65,8 @@ final case class Val(name: N, ty: No, init: No) extends Node
 final case class Var(name: N, ty: No, init: No) extends Node
 // constant level-1 variable
 final case class Typ(name: N, ty: No, init: No) extends Node
+// type alias with compile-time type parameters
+final case class GenericTyp(name: N, params: List[Param], ty: No, init: No) extends Node
 // mutable  level-0 parameter (ct: must evaluated at compile-time)
 final case class Param(name: N, ty: No, init: No, ct: Boolean) extends Node
 // `import dest from path`

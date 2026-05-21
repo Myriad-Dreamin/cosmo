@@ -96,6 +96,16 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "init": """)
       j(init, buf)
       buf.append("}")
+    case GenericTyp(name, params, ty, init) =>
+      buf.append(""" "generic-typ", "name": """)
+      j(name, buf)
+      buf.append(""", "params": """)
+      j(params, buf)
+      buf.append(""", "ty": """)
+      j(ty, buf)
+      buf.append(""", "init": """)
+      j(init, buf)
+      buf.append("}")
     case Class(name, params, body, isAbstracted) =>
       buf.append(""" "class", "name": """)
       j(name, buf)

@@ -56,7 +56,7 @@ For example:
 
 ```cos
 import std as cstd from "c++/vector"
-type StdVector = cstd::vector
+type CppVector[T] = cstd::vector[T]
 ```
 
 The leftmost segment `cstd` resolves to the foreign namespace alias. The suffix `vector` is interpreted as `::std::vector` and is validated against the bounded header set before backend use.
