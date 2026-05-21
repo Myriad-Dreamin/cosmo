@@ -12,6 +12,11 @@ def main(args: Vec[String]): i32 = {
     return 0
   }
 
+  if (args.get(0) == "--version" or args.get(0) == "-V") {
+    println("cosmoc ".concat(cosmoc_version()));
+    return 0
+  }
+
   if (args.get(0) == "run") {
     return run_node_source_command(args)
   }
@@ -95,5 +100,10 @@ def forward_command_result(result: Result[CommandResult, CommandError]): i32 = {
 def print_usage(): Unit = {
   println("usage: cosmoc run <file.cos> [-- <args>]");
   println("       cosmoc -p <package> build -o <output>");
-  println("       cosmoc -p <package> run [-- <args>]")
+  println("       cosmoc -p <package> run [-- <args>]");
+  println("       cosmoc --version")
+}
+
+def cosmoc_version(): String = {
+  "0.1.0-rc1"
 }

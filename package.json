@@ -1,7 +1,7 @@
 {
   "name": "cosmo",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0-rc1",
   "type": "module",
   "workspaces": [
     "editors/vscode"
@@ -28,7 +28,10 @@
     "build:vscode": "node scripts/build.mjs build:vscode",
     "prelaunch:vscode": "node scripts/build.mjs prelaunch:vscode",
     "package:vscode": "node scripts/build.mjs package:vscode",
-    "local:vscode": "node scripts/build.mjs install:vscode"
+    "local:vscode": "node scripts/build.mjs install:vscode",
+    "release:preflight": "node scripts/release-preflight.mjs",
+    "release:changelog": "node scripts/generate-changelog.mjs",
+    "draft-release": "node scripts/draft-release.mjs"
   },
   "devDependencies": {
     "eslint-config-prettier": "^9.0.0",

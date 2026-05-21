@@ -1,6 +1,6 @@
 {
   "name": "cosmo-textmate",
-  "version": "0.1.0",
+  "version": "0.1.0-rc1",
   "private": true,
   "scripts": {
     "compile": "npx tsc && node ./dist/main.mjs && python ./scripts/convert_syntax.py ./cosmo.tmLanguage.json",
