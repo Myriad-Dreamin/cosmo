@@ -4,6 +4,7 @@ import * as path from "path";
 
 const cwd = path.resolve(import.meta.dirname, "..");
 const vscodeDir = path.resolve(cwd, "editors/vscode");
+const vscodePackageJsonPath = path.join(vscodeDir, "package.json");
 
 export function spawnAsync(id, cmd, options = {}) {
   return new Promise((resolve, reject) => {
@@ -55,7 +56,8 @@ export async function packageVscode() {
 
 export async function installVscode() {
   await packageVscode();
-  const extensionPath = path.join(vscodeDir, "cosmo-0.1.0.vsix");
+  const packageJson = JSON.parse(await fs.readFile(vscodePackageJsonPath, "utf8"));
+  const extensionPath = path.join(vscodeDir, `cosmo-${packageJson.version}.vsix`);
   await fs.access(extensionPath);
   await spawnAsync("vscode:install", `code --install-extension ${extensionPath}`);
 }

@@ -1,6 +1,6 @@
 {
   "name": "@cosmo/lsp-types",
-  "version": "0.0.0",
+  "version": "0.1.0-rc1",
   "target": "cosmo0",
   "stageProfile": "cosmo1.stage1",
   "dependencies": [
