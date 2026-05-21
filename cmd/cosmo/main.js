@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { spawn, spawnSync } from "child_process";
 import {
   existsSync,
@@ -7,11 +9,15 @@ import {
   writeFileSync,
 } from "fs";
 import { basename, dirname, join, resolve } from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import repl from "repl";
 
 const linkedCompilerModule =
   "../../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js";
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const nativeSupportLibrariesField = "nativeSupportLibraries";
+const cosmoClangSysLibrary = "cosmo-clang-sys";
+const nativePackageExecutableTarget = "cosmoPackageExecutable";
 const nlohmannJsonDependency = {
   repoUrl: "https://github.com/nlohmann/json.git",
   version: "v3.11.3",
@@ -333,6 +339,20 @@ function compilePackageExecutable(
   mkdirSync(dirname(paths.executablePath), { recursive: true });
   writeFileSync(paths.sourcePath, compiled.output, "utf8");
 
+  ensureNlohmannJsonDependency();
+  const supportLibraryLinkArguments = compiled.supportLibraryLinkArguments ?? [];
+  ensureSupportLibraries(supportLibraryLinkArguments);
+  const jsonInclude = resolve(nlohmannJsonDependency.includeDir);
+  const nativeSupportLibraries = readPackageNativeSupportLibraries(packageRoot);
+  if (nativeSupportLibraries.length > 0) {
+    return compilePackageExecutableWithCMake(
+      paths,
+      jsonInclude,
+      supportLibraryLinkArguments,
+      nativeSupportLibraries,
+    );
+  }
+
   const compiler = findCxxCompiler();
   if (!compiler) {
     throw new CliError(
@@ -340,14 +360,11 @@ function compilePackageExecutable(
     );
   }
 
-  ensureNlohmannJsonDependency();
-  ensureSupportLibraries(compiled.supportLibraryLinkArguments ?? []);
-  const jsonInclude = resolve(nlohmannJsonDependency.includeDir);
   const compileArgs = [
     "-std=c++17",
     `-I${jsonInclude}`,
     paths.sourcePath,
-    ...compiled.supportLibraryLinkArguments,
+    ...supportLibraryLinkArguments,
     "-o",
     paths.executablePath,
   ];
@@ -370,6 +387,182 @@ function compilePackageExecutable(
   throw new CliError(
     `cosmo package run C++ compile failed; log written to ${paths.logPath}`,
   );
+}
+
+export function readPackageNativeSupportLibraries(packageRoot) {
+  const manifestPath = join(packageRoot, "cosmo.json");
+  if (!existsSync(manifestPath)) {
+    return [];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    throw new CliError(
+      `could not read package native support metadata at ${manifestPath}: ${error.message}`,
+    );
+  }
+
+  const value = parsed?.[nativeSupportLibrariesField];
+  if (value == null) {
+    return [];
+  }
+
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    throw new CliError(
+      `${manifestPath} field ${nativeSupportLibrariesField} must be an array of strings`,
+    );
+  }
+
+  return [...new Set(value)];
+}
+
+function compilePackageExecutableWithCMake(
+  paths,
+  jsonInclude,
+  supportLibraryLinkArguments,
+  nativeSupportLibraries,
+) {
+  validateNativeSupportLibraries(nativeSupportLibraries);
+
+  const cmake = findCmakeCommand();
+  if (!cmake) {
+    throw new CliError(
+      "cosmo package run could not find CMake; install cmake to build native support libraries",
+    );
+  }
+
+  const cmakeProjectDir = join(paths.buildDir, "native-link");
+  const cmakeBuildDir = join(paths.buildDir, "native-link-build");
+  mkdirSync(cmakeProjectDir, { recursive: true });
+  writeFileSync(
+    join(cmakeProjectDir, "CMakeLists.txt"),
+    nativePackageCMakeSource({
+      sourcePath: paths.sourcePath,
+      executablePath: paths.executablePath,
+      jsonInclude,
+      supportLibraryLinkArguments,
+    }),
+    "utf8",
+  );
+
+  const configureArgs = [
+    "-S",
+    cmakeProjectDir,
+    "-B",
+    cmakeBuildDir,
+    `-DCMAKE_BUILD_TYPE=${process.env.CMAKE_BUILD_TYPE ?? "RelWithDebInfo"}`,
+    ...cosmoClangSysCMakeCacheArgs(),
+  ];
+  const configure = spawnSync(cmake, configureArgs, { encoding: "utf8" });
+  if (configure.status !== 0) {
+    writeNativeBuildLog(paths.logPath, cmake, configureArgs, configure);
+    throw new CliError(
+      `cosmo package run native CMake configure failed; log written to ${paths.logPath}`,
+    );
+  }
+
+  const buildArgs = ["--build", cmakeBuildDir, "--target", nativePackageExecutableTarget];
+  const build = spawnSync(cmake, buildArgs, { encoding: "utf8" });
+  if (build.status === 0) {
+    return paths.executablePath;
+  }
+
+  writeNativeBuildLog(paths.logPath, cmake, buildArgs, build);
+  throw new CliError(
+    `cosmo package run native CMake build failed; log written to ${paths.logPath}`,
+  );
+}
+
+export function nativePackageCMakeSource({
+  sourcePath,
+  executablePath,
+  jsonInclude,
+  supportLibraryLinkArguments = [],
+}) {
+  const linkLibraries = [
+    "cosmoClang",
+    ...supportLibraryLinkArguments.map((argument) =>
+      cmakeStringLiteral(resolve(argument)),
+    ),
+  ];
+  const outputDir = dirname(executablePath);
+  const outputName = basename(executablePath);
+
+  return [
+    "cmake_minimum_required(VERSION 3.19)",
+    "project(cosmo_package_build LANGUAGES C CXX)",
+    "",
+    "set(CMAKE_CXX_STANDARD 17)",
+    "set(CMAKE_CXX_STANDARD_REQUIRED ON)",
+    "set(CMAKE_CXX_EXTENSIONS OFF)",
+    "",
+    `include(${cmakeStringLiteral(join(repoRoot, "cmake", "CosmoLLVM.cmake"))})`,
+    "cosmo_setup_llvm()",
+    `add_subdirectory(${cmakeStringLiteral(join(repoRoot, "native", "cosmo-clang-sys"))} ${cmakeStringLiteral("${CMAKE_CURRENT_BINARY_DIR}/cosmo-clang-sys")})`,
+    "",
+    `add_executable(${nativePackageExecutableTarget} ${cmakeStringLiteral(sourcePath)})`,
+    `target_include_directories(${nativePackageExecutableTarget} PRIVATE ${cmakeStringLiteral(jsonInclude)})`,
+    `target_link_libraries(${nativePackageExecutableTarget} PRIVATE`,
+    ...linkLibraries.map((library) => `    ${library}`),
+    ")",
+    `set_target_properties(${nativePackageExecutableTarget} PROPERTIES`,
+    `    RUNTIME_OUTPUT_DIRECTORY ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL ${cmakeStringLiteral(outputDir)}`,
+    `    OUTPUT_NAME ${cmakeStringLiteral(outputName)}`,
+    ")",
+    "",
+  ].join("\n");
+}
+
+function validateNativeSupportLibraries(libraries) {
+  const unsupported = libraries.filter((library) => library !== cosmoClangSysLibrary);
+  if (unsupported.length === 0) {
+    return;
+  }
+
+  throw new CliError(
+    `unsupported native support libraries: ${unsupported.join(", ")}`,
+  );
+}
+
+function cosmoClangSysCMakeCacheArgs() {
+  const values = {
+    COSMO_LLVM_PATH: process.env.COSMO_LLVM_PATH ?? "",
+    COSMO_LLVM_VERSION: process.env.COSMO_LLVM_VERSION ?? "21.1.8",
+    COSMO_LLVM_DOWNLOAD_DIR: join(repoRoot, "target", "cosmo", "llvm"),
+    COSMO_LLVM_MANIFEST_PATH: join(repoRoot, "config", "llvm-manifest.json"),
+    COSMO_LLVM_ENABLE_LTO: process.env.COSMO_LLVM_ENABLE_LTO ?? "OFF",
+    COSMO_LLVM_OFFLINE: process.env.COSMO_LLVM_OFFLINE ?? "OFF",
+    COSMO_LLVM_TARGET_PLATFORM: process.env.COSMO_LLVM_TARGET_PLATFORM ?? "",
+    COSMO_LLVM_TARGET_ARCH: process.env.COSMO_LLVM_TARGET_ARCH ?? "",
+  };
+
+  return Object.entries(values).map(([key, value]) => {
+    return `-D${key}=${value}`;
+  });
+}
+
+function writeNativeBuildLog(logPath, command, args, result) {
+  const log = [
+    `command: ${command} ${args.join(" ")}`,
+    `status: ${result.status ?? "unknown"}`,
+    result.stdout?.trim() ?? "",
+    result.stderr?.trim() ?? "",
+    result.error?.message ?? "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  writeFileSync(logPath, log, "utf8");
+}
+
+function cmakeStringLiteral(value) {
+  const text = value.replaceAll("\\", "/").replaceAll('"', '\\"');
+  return `"${text}"`;
 }
 
 function ensureSupportLibraries(linkArguments) {
@@ -522,6 +715,14 @@ function findCxxCompiler() {
     ? [process.env.CXX]
     : ["c++", "g++", "clang++"];
 
+  return candidates.find((command) => {
+    const result = spawnSync(command, ["--version"], { encoding: "utf8" });
+    return result.status === 0;
+  });
+}
+
+function findCmakeCommand() {
+  const candidates = process.env.CMAKE ? [process.env.CMAKE] : ["cmake"];
   return candidates.find((command) => {
     const result = spawnSync(command, ["--version"], { encoding: "utf8" });
     return result.status === 0;

@@ -1,31 +1,18 @@
-param(
-  [Parameter(ValueFromRemainingArguments = $true)]
-  [string[]] $CMakeArgs
-)
-
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$BuildDir = if ($env:COSMO_BUILD_DIR) {
-  $env:COSMO_BUILD_DIR
+$Output = if ($env:COSMO_OUTPUT) {
+  $env:COSMO_OUTPUT
 } else {
-  Join-Path $RepoRoot "target/cosmo/cmake"
+  "target/cosmoc"
 }
 
-cmake -S $RepoRoot -B $BuildDir @CMakeArgs
-if ($LASTEXITCODE -ne 0) {
-  exit $LASTEXITCODE
+Push-Location $RepoRoot
+try {
+  node cmd/cosmo/main.js -p packages/cosmoc build -o $Output
+  if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+  }
+} finally {
+  Pop-Location
 }
-
-cmake --build $BuildDir --target cosmoc
-if ($LASTEXITCODE -ne 0) {
-  exit $LASTEXITCODE
-}
-
-$Executable = if ($env:OS -eq "Windows_NT") {
-  Join-Path $BuildDir "cmd/cosmoc.exe"
-} else {
-  Join-Path $BuildDir "cmd/cosmoc"
-}
-
-Write-Output $Executable

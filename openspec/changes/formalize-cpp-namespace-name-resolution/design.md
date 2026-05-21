@@ -11,7 +11,7 @@ import std as cstd from "c++/string"
 
 the leftmost symbol in `cstd::vector` is a resolved foreign namespace alias. The resolver can then continue lookup inside the merged C++ namespace import set without scanning unrelated headers or treating `std` as a Cosmo binding.
 
-C++ header parsing and symbol validation should be delegated to `cosmo-clang-sys`, a native CMake-built library backed by Clang. On Linux, this component provides `libcosmoClang.a` for `cosmoc`. The resolver remains responsible for deterministic Cosmo binding rules; Clang is responsible for validating and describing C++ symbols within the explicit header set attached to a foreign namespace alias.
+C++ header parsing and symbol validation should be delegated to `cosmo-clang-sys`, a native CMake-built library backed by Clang. On Linux, this component provides `libcosmoClang.a` for the `packages/cosmoc` executable package build. The resolver remains responsible for deterministic Cosmo binding rules; Clang is responsible for validating and describing C++ symbols within the explicit header set attached to a foreign namespace alias.
 
 ## Goals / Non-Goals
 
@@ -82,7 +82,7 @@ Keeping collection and validation before expression lookup prevents later refere
 
 ### Clang Integration Lives Behind cosmo-clang-sys
 
-`cosmo-clang-sys` is a native support component built by CMake. It owns the Clang dependency, translation-unit setup, include path handling, header parsing, and C++ symbol query API. `cosmoc` links against the library artifact instead of embedding Clang-specific code in the compiler front end.
+`cosmo-clang-sys` is a native support component built by CMake. It owns the Clang dependency, translation-unit setup, include path handling, header parsing, and C++ symbol query API. The `packages/cosmoc` manifest requests the native support library, and the package build links the generated compiler executable against the library artifact instead of embedding Clang-specific code in the compiler front end.
 
 On Linux, the release artifact is a static library named `libcosmoClang.a`. The library exposes a narrow C ABI with stable `cosmo_clang_sys_*` symbols. ABI values use fixed-width integers, C strings or byte spans, caller-owned input buffers, opaque handles for parser/index state, explicit release functions, and structured status/error results. Clang or LLVM C++ types must not cross the ABI boundary.
 
@@ -101,7 +101,7 @@ Alternative considered: call libclang or Clang C++ APIs directly from `cosmoc`. 
 1. Add parser/elaborator support for classifying C++ namespace imports and rejecting C++ header-only imports.
 2. Update the package/module graph to exclude C++ namespace imports from Cosmo module dependency edges.
 3. Add the CMake target for `cosmo-clang-sys`, including Clang detection and Linux `libcosmoClang.a` artifact production.
-4. Link `cosmoc` to `cosmo-clang-sys` when C++ namespace imports are enabled.
+4. Link the `packages/cosmoc` package executable to `cosmo-clang-sys` when C++ namespace imports are enabled.
 5. Add resolver binding kinds and conflict validation for foreign namespace aliases.
 6. Add the formal name-resolution document and fixture corpus.
 7. Extend resolver tests to read `fixtures/name-resolution` and assert positive/negative diagnostics.

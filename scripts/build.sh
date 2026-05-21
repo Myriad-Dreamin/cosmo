@@ -3,12 +3,7 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
-build_dir=${COSMO_BUILD_DIR:-"$repo_root/target/cosmo/cmake"}
+output=${COSMO_OUTPUT:-"target/cosmoc"}
 
-cmake -S "$repo_root" -B "$build_dir" "$@"
-cmake --build "$build_dir" --target cosmoc
-
-case "$(uname -s 2>/dev/null || printf unknown)" in
-  MINGW*|MSYS*|CYGWIN*) printf '%s\n' "$build_dir/cmd/cosmoc.exe" ;;
-  *) printf '%s\n' "$build_dir/cmd/cosmoc" ;;
-esac
+cd "$repo_root"
+node cmd/cosmo/main.js -p packages/cosmoc build -o "$output"

@@ -52,12 +52,25 @@ On Windows PowerShell:
 ./scripts/build.ps1
 ```
 
-Both wrappers configure CMake under `target/cosmo/cmake` by default and build
-the `cosmoc` target. Extra CMake configure arguments can be passed through:
+Both wrappers build the Cosmo compiler package with `cosmo0` and write the
+executable to `target/cosmoc` by default. To choose another output path, set
+`COSMO_OUTPUT`:
 
 ```sh
-./scripts/build.sh -DCOSMO_ENABLE_CLANG_SYS=ON
+COSMO_OUTPUT=target/cosmoc-dev ./scripts/build.sh
 ```
+
+The driver reads `.env` by default before running commands. Pass `-f <file>` to
+select another file, for example:
+
+```sh
+node cmd/cosmo/main.js -f .env.prod -p packages/cosmoc build -o target/cosmoc
+```
+
+`packages/cosmoc` requests the native `cosmo-clang-sys` support library. Set
+`COSMO_LLVM_PATH` to a local LLVM/Clang install prefix when one is available; if
+it is unset, the CMake link step uses `config/llvm-manifest.json` and downloads
+the matching LLVM artifact into `target/cosmo/llvm`.
 
 ## Minimal Commands
 

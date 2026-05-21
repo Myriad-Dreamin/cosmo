@@ -8,10 +8,12 @@ import {
   applyEnvironmentFile,
   packageBuildBuildPaths,
   packageRunBuildPaths,
+  nativePackageCMakeSource,
   parseEnvironmentFile,
   parseEnvironmentOptions,
   parsePackageBuildCommand,
   parsePackageRunCommand,
+  readPackageNativeSupportLibraries,
 } from "./main.js";
 
 test("package run parser accepts -p package run and forwards args after --", () => {
@@ -170,4 +172,33 @@ test("package build paths use package target scratch and requested executable", 
         "/repo/packages/tool/target/cosmo/package-build/cosmo_package.tool.compile.log",
     },
   );
+});
+
+test("package manifest can request native support libraries", () => {
+  const root = mkdtempSync(join(tmpdir(), "cosmo-native-support-"));
+  writeFileSync(
+    join(root, "cosmo.json"),
+    JSON.stringify({
+      name: "@cosmo/compiler",
+      version: "0.0.0",
+      nativeSupportLibraries: ["cosmo-clang-sys", "cosmo-clang-sys"],
+    }),
+    "utf8",
+  );
+
+  assert.deepEqual(readPackageNativeSupportLibraries(root), ["cosmo-clang-sys"]);
+});
+
+test("native package CMake source links cosmoClang to generated executable", () => {
+  const source = nativePackageCMakeSource({
+    sourcePath: "/repo/packages/cosmoc/target/cosmo/package-build/main.cpp",
+    executablePath: "/repo/target/cosmoc",
+    jsonInclude: "/repo/target/cosmo/externals/json/single_include",
+    supportLibraryLinkArguments: ["/repo/target/cosmo/support/libsupport.a"],
+  });
+
+  assert.match(source, /add_subdirectory\(.+native\/cosmo-clang-sys/);
+  assert.match(source, /target_link_libraries\(cosmoPackageExecutable PRIVATE\n    cosmoClang/);
+  assert.match(source, /"\/repo\/target\/cosmo\/support\/libsupport\.a"/);
+  assert.match(source, /OUTPUT_NAME "cosmoc"/);
 });

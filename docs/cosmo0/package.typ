@@ -72,6 +72,8 @@ Package check may accept trusted bodyless std declarations only when the compile
 
 Packages do not declare arbitrary host symbols in manifest metadata. Runtime binding availability is derived from trusted std/core0 declarations and the backend requirement records owned by `runtime.typ`.
 
+The host package driver recognizes an optional `nativeSupportLibraries` array in package metadata. It is build metadata, not a Cosmo module dependency: the package graph ignores it, while the final host link may use it to select native support components such as `cosmo-clang-sys`.
+
 == Module Ordering
 
 Placeholder for deterministic module ordering, import-cycle diagnostics, and package-level check or compile sequencing.

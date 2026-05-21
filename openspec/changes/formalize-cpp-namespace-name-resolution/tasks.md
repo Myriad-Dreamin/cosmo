@@ -25,14 +25,14 @@
 - [x] 4.2 Add CMake configuration for `cosmo-clang-sys`, including Clang/LLVM dependency discovery and a clear missing-dependency diagnostic.
 - [x] 4.3 Produce `libcosmoClang.a` on Linux when `cosmo-clang-sys` is enabled.
 - [x] 4.4 Implement bounded header parsing and symbol query operations for namespace, suffix, header-set requests.
-- [x] 4.5 Link `cosmoc` against `libcosmoClang.a` when C++ namespace import support is enabled.
+- [x] 4.5 Link the `packages/cosmoc` package executable against `libcosmoClang.a` when C++ namespace import support is enabled.
 
 ## 5. Documentation
 
 - [x] 5.1 Add a name-resolution document that formalizes resolver inputs, outputs, phase order, unqualified lookup, qualified lookup, foreign namespace aliases, and diagnostics.
 - [x] 5.2 Update syntax/import documentation to state that `import "c++/<header>"` is unsupported and that C++ imports require an explicit namespace alias.
 - [x] 5.3 Document C++ namespace merge imports with the `std as cstd` from `"c++/vector"` and `"c++/string"` examples.
-- [x] 5.4 Document the `cosmo-clang-sys` CMake build, Linux `libcosmoClang.a` artifact, and `cosmoc` linkage contract.
+- [x] 5.4 Document the `cosmo-clang-sys` CMake build, Linux `libcosmoClang.a` artifact, and `packages/cosmoc` linkage contract.
 
 ## 6. Fixtures And Tests
 

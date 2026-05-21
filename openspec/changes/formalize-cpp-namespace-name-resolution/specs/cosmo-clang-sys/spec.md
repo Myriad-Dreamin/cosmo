@@ -8,7 +8,7 @@ The repository SHALL provide a native `cosmo-clang-sys` support component built 
 
 - **WHEN** the CMake build configures `cosmo-clang-sys` on Linux with the required Clang/LLVM development components available
 - **THEN** the build produces a static library artifact named `libcosmoClang.a`
-- **AND** the artifact is available to link into `cosmoc`
+- **AND** the artifact is available to link into the `packages/cosmoc` executable package build
 
 #### Scenario: Missing Clang dependency is diagnosed
 
@@ -57,7 +57,7 @@ The repository SHALL provide a native `cosmo-clang-sys` support component built 
 #### Scenario: cosmoc links Linux static artifact
 
 - **WHEN** `cosmoc` is built on Linux with C++ namespace import support enabled
-- **THEN** the `cosmoc` CMake target links against `libcosmoClang.a`
+- **THEN** the `packages/cosmoc` package build links its generated executable target against `libcosmoClang.a`
 - **AND** C++ namespace import validation calls go through the `cosmo-clang-sys` C ABI
 
 #### Scenario: cosmoc does not parse C++ headers directly

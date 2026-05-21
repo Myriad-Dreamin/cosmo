@@ -82,9 +82,7 @@ function(cosmo_llvm_install_is_usable PREFIX OUTPUT_VARIABLE)
     set(COSMO_LLVM_USABLE OFF)
     if (IS_DIRECTORY "${PREFIX}"
             AND IS_DIRECTORY "${PREFIX}/include"
-            AND IS_DIRECTORY "${PREFIX}/lib"
-            AND IS_DIRECTORY "${PREFIX}/lib/cmake/llvm"
-            AND IS_DIRECTORY "${PREFIX}/lib/cmake/clang")
+            AND IS_DIRECTORY "${PREFIX}/lib")
         set(COSMO_LLVM_USABLE ON)
     endif ()
     set(${OUTPUT_VARIABLE} "${COSMO_LLVM_USABLE}" PARENT_SCOPE)
@@ -98,19 +96,23 @@ function(cosmo_llvm_require_usable PREFIX CONTEXT)
 
     message(FATAL_ERROR
         "${CONTEXT} LLVM path is not usable: ${PREFIX}\n"
-        "Expected include, lib, lib/cmake/llvm, and lib/cmake/clang directories.")
+        "Expected include and lib directories.")
 endfunction()
 
 function(cosmo_llvm_pick_artifact VERSION BUILD_TYPE PLATFORM ARCH OUTPUT_FILENAME OUTPUT_SHA256)
-    set(COSMO_LLVM_MANIFEST_PATH "${PROJECT_SOURCE_DIR}/config/llvm-manifest.json")
-    if (NOT EXISTS "${COSMO_LLVM_MANIFEST_PATH}")
-        message(FATAL_ERROR "LLVM manifest not found: ${COSMO_LLVM_MANIFEST_PATH}")
+    if (NOT COSMO_LLVM_MANIFEST_PATH)
+        set(COSMO_LLVM_MANIFEST_PATH "${PROJECT_SOURCE_DIR}/config/llvm-manifest.json")
     endif ()
 
-    file(READ "${COSMO_LLVM_MANIFEST_PATH}" COSMO_LLVM_MANIFEST_JSON)
+    get_filename_component(COSMO_LLVM_MANIFEST_ABS "${COSMO_LLVM_MANIFEST_PATH}" ABSOLUTE)
+    if (NOT EXISTS "${COSMO_LLVM_MANIFEST_ABS}")
+        message(FATAL_ERROR "LLVM manifest not found: ${COSMO_LLVM_MANIFEST_ABS}")
+    endif ()
+
+    file(READ "${COSMO_LLVM_MANIFEST_ABS}" COSMO_LLVM_MANIFEST_JSON)
     string(JSON COSMO_LLVM_ARTIFACT_COUNT LENGTH "${COSMO_LLVM_MANIFEST_JSON}")
     if (COSMO_LLVM_ARTIFACT_COUNT LESS_EQUAL 0)
-        message(FATAL_ERROR "LLVM manifest must be a non-empty array: ${COSMO_LLVM_MANIFEST_PATH}")
+        message(FATAL_ERROR "LLVM manifest must be a non-empty array: ${COSMO_LLVM_MANIFEST_ABS}")
     endif ()
 
     cosmo_llvm_bool_value("${COSMO_LLVM_ENABLE_LTO}" COSMO_LLVM_WANT_LTO)
@@ -152,7 +154,7 @@ function(cosmo_llvm_pick_artifact VERSION BUILD_TYPE PLATFORM ARCH OUTPUT_FILENA
     endforeach ()
 
     message(FATAL_ERROR
-        "No matching LLVM artifact in ${COSMO_LLVM_MANIFEST_PATH} for "
+        "No matching LLVM artifact in ${COSMO_LLVM_MANIFEST_ABS} for "
         "version=${VERSION}, platform=${PLATFORM}, arch=${ARCH}, "
         "build_type=${BUILD_TYPE}, lto=${COSMO_LLVM_WANT_LTO}.")
 endfunction()

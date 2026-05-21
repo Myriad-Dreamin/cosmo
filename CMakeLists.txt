@@ -26,6 +26,7 @@ option(COSMO_ENABLE_CLANG_SYS "Build the cosmo-clang-sys C++ namespace query lib
 set(COSMO_LLVM_PATH "$ENV{COSMO_LLVM_PATH}" CACHE PATH "LLVM/Clang install prefix for cosmo-clang-sys")
 set(COSMO_LLVM_VERSION "21.1.8" CACHE STRING "LLVM/Clang version used by cosmo-clang-sys")
 set(COSMO_LLVM_DOWNLOAD_DIR "${PROJECT_SOURCE_DIR}/target/cosmo/llvm" CACHE PATH "Directory for downloaded LLVM artifacts")
+set(COSMO_LLVM_MANIFEST_PATH "${PROJECT_SOURCE_DIR}/config/llvm-manifest.json" CACHE FILEPATH "LLVM artifact manifest for cosmo-clang-sys")
 option(COSMO_LLVM_ENABLE_LTO "Use the LTO LLVM artifact from config/llvm-manifest.json" OFF)
 option(COSMO_LLVM_OFFLINE "Do not download LLVM; use COSMO_LLVM_PATH or an existing target cache" OFF)
 set(COSMO_LLVM_TARGET_PLATFORM "" CACHE STRING "Override LLVM artifact platform: linux, macosx, or windows")
