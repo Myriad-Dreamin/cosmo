@@ -3,11 +3,13 @@
   "version": "0.1.0-rc1",
   "private": true,
   "scripts": {
-    "compile": "npx tsc && node ./dist/main.mjs && python ./scripts/convert_syntax.py ./cosmo.tmLanguage.json",
+    "compile": "pnpm exec tsc && node ./dist/main.mjs && python ./scripts/convert_syntax.py ./cosmo.tmLanguage.json",
     "bundle": "node scripts/install.cjs",
     "test": "pnpm run compile && pnpm exec vscode-tmgrammar-snap --updateSnapshot tests/unit/**/*.typ"
   },
   "devDependencies": {
+    "@types/node": "^20.8.10",
+    "typescript": "^5.2.2",
     "vscode-tmgrammar-test": "^0.1.3"
   },
   "contributes": {
