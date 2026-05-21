@@ -33,11 +33,19 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.16.1
+        run_install: false
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 22
-        cache: 'yarn'
+        cache: 'pnpm'
+        cache-dependency-path: pnpm-lock.yaml
+    - name: Install Node dependencies
+      run: pnpm install --frozen-lockfile
     # packages/cosmo tests are reference-only and skipped in build.sbt.
     # cosmo0/test owns active cosmo0 and packages/cosmoc validation.
     - name: Run cosmo0 and cosmoc Scala tests
@@ -45,7 +53,7 @@ jobs:
     - name: Run CLI tests
       run: node --test cmd/cosmo/*.test.mjs
     - name: Run cosmoc bootstrap fixed-point test
-      run: yarn test:bootstrap
+      run: pnpm test:bootstrap
 
   build-cosmoc-linux:
     needs: test
@@ -93,11 +101,17 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.16.1
+        run_install: false
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 22
-        cache: 'yarn'
+        cache: 'pnpm'
+        cache-dependency-path: pnpm-lock.yaml
     - name: Build cosmoc release artifact
       run: |
         ./scripts/build.sh
@@ -148,11 +162,17 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.16.1
+        run_install: false
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 22
-        cache: 'yarn'
+        cache: 'pnpm'
+        cache-dependency-path: pnpm-lock.yaml
     - name: Build cosmoc release artifact
       run: |
         ./scripts/build.sh
@@ -196,11 +216,17 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: 10.16.1
+        run_install: false
     - name: Install Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 22
-        cache: 'yarn'
+        cache: 'pnpm'
+        cache-dependency-path: pnpm-lock.yaml
     - name: Build cosmoc release artifact
       shell: pwsh
       run: |
