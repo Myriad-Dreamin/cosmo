@@ -197,19 +197,21 @@ jobs:
           - artifact: cosmoc-windows-x64
             runner: windows-2022
             llvm_arch: x64
+            java_version: 17
           - artifact: cosmoc-windows-arm64
             runner: windows-11-arm
             llvm_arch: arm64
+            java_version: 21
     env:
       COSMO_LLVM_TARGET_PLATFORM: windows
       COSMO_LLVM_TARGET_ARCH: ${{ matrix.llvm_arch }}
       COSMO_OUTPUT: target/dist/${{ matrix.artifact }}/cosmoc
     steps:
     - uses: actions/checkout@v4
-    - name: Set up JDK 17
+    - name: Set up JDK ${{ matrix.java_version }}
       uses: actions/setup-java@v4
       with:
-        java-version: '17'
+        java-version: ${{ matrix.java_version }}
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
