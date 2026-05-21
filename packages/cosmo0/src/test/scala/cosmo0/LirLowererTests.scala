@@ -152,6 +152,36 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("assign %tmp0 = 2:i32"))
     assert(rendered.contains("^if0_02_join:\n      return %tmp0"))
 
+  test("lowers boolean and/or with short-circuit control flow"):
+    val result = Cosmo0().lower(
+      """def both(left: Bool, right: Bool): Bool = {
+        |  left and right
+        |}
+        |
+        |def either(left: Bool, right: Bool): Bool = {
+        |  left or right
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"lowering failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assert(rendered.contains("cond_branch %left ? ^and0_00_rhs : ^and0_01_short"))
+    assert(rendered.contains("^and0_00_rhs:\n      assign %tmp0 = %right"))
+    assert(rendered.contains("^and0_01_short:\n      assign %tmp0 = false"))
+    assert(rendered.contains("^and0_02_join:\n      return %tmp0"))
+    assert(rendered.contains("cond_branch %left ? ^or0_01_short : ^or0_00_rhs"))
+    assert(rendered.contains("^or0_00_rhs:\n      assign %tmp0 = %right"))
+    assert(rendered.contains("^or0_01_short:\n      assign %tmp0 = true"))
+    assert(rendered.contains("^or0_02_join:\n      return %tmp0"))
+    assert(!rendered.contains("descriptor Bool::and("))
+    assert(!rendered.contains("descriptor Bool::or("))
+
   test("lowers while, loop, break, continue, and descriptor-backed for loops"):
     val result = Cosmo0().lower(
       """def spin(keep: Bool): Unit = {
@@ -332,8 +362,9 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("descriptor u8::ne(%byte, 0:u8) -> Bool"))
     assert(rendered.contains("descriptor usize::gt("))
     assert(rendered.contains("descriptor usize::eq("))
-    assert(rendered.contains("descriptor Bool::and("))
-    assert(rendered.contains("descriptor Bool::or("))
+    assert(rendered.contains("cond_branch %flag ? ^and"))
+    assert(!rendered.contains("descriptor Bool::and("))
+    assert(!rendered.contains("descriptor Bool::or("))
 
   test("lowers ascii and rune literals to u8 and u32 integer values"):
     val result = Cosmo0().lower(

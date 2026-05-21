@@ -1,321 +1,122 @@
 # Cosmo
 
-Cosmo is a language replacing awful C++'s compile-time magics. This is only some thinking about getting rid of C++ under the fact that we cannot get rid of using C++ libraries.
+Cosmo is a language for writing compile-time programs that generate ordinary
+C++ artifacts, while still being able to use existing C++ libraries explicitly.
 
-## What's basic idea?
+The current compiler package, `cosmoc`, is written in Cosmo and compiled by
+`cosmo0`. Building `cosmoc` from source requires a C++17 compiler, CMake, and
+Rust/Cargo. Scala is not required for normal source builds; only developers who
+work on `cosmo0` itself need the Scala/sbt toolchain.
 
-It sees cosmo functions and evaluate the type parts in the functions. The resulting functions is simply generated to C++ code.
+## C++ Import Syntax
 
-## Example
+C++ headers are imported through an explicit namespace alias. Header-only C++
+imports are intentionally unsupported.
 
-```scala
-import "@lib/c++/vector";
+```cos
+import std as cstd from "c++/vector"
 
-// A function returning a type
-def CppVec[T]: Type = cstd.vector(T);
+type CppVector[T] = cstd::vector[T]
+```
 
-def main() = {
-  val vec = CppVec(u8)();
-  vec.push_back(1);
-  vec.push_back(2);
-  vec.push_back(3);
-  println(vec.size());
+The alias `cstd` is the only name introduced into Cosmo scope. The original C++
+namespace name `std` is not implicitly visible unless it is imported as the
+local alias.
+
+Multiple imports merge when they use the same alias and C++ namespace:
+
+```cos
+import std as cstd from "c++/vector"
+import std as cstd from "c++/string"
+
+type CppVector[T] = cstd::vector[T]
+
+def main(): Unit = {
+  val vec = CppVector[u32]()
+  vec.push_back(1)
+  vec.push_back(2)
+  println(vec.size())
 }
-```
-
-Output:
-
-```
-3
 ```
 
 ## Build and Run
 
-Requirements:
+Requirements for building and running `cosmoc` from source:
 
-- scala 3.3.3
-- sbt
-- C++ compiler supporting C++17
-  - MSVC, Clang, or GCC
+- C++17 compiler: MSVC, Clang, or GCC
+- CMake 3.19 or newer
+- Rust/Cargo, for native support libraries used by Cosmo packages
 
-```
-yarn compile && node cmd/cosmo/main.js run samples/HelloWorld/main.cos
-```
+Build with the shell wrapper:
 
-Package-owned tools can be run from a cosmo0 package root when the package
-exposes a top-level zero-argument `main` entrypoint:
-
-```
-yarn compile && node cmd/cosmo/main.js -p fixtures/cosmo0/package/run-smoke run -- --example-arg
+```sh
+./scripts/build.sh
 ```
 
-The package executable is built under the selected package's `target/` directory,
-executes with the package root as its working directory, and receives all
-arguments after `run` (or after `--`) as process arguments.
-It uses the cosmo0 C++ backend, so host execution needs a C++17 compiler.
-When `nlohmann/json.hpp` is missing, Cosmo provisions its pinned checkout under
-`target/cosmo/externals/json`.
+On Windows PowerShell:
 
-## VSCode Extension Development
-
-The VSCode extension lives in `editors/vscode` and launches a Node host wrapper
-for the `packages/cosmos` language-server package. Build and install the
-extension from the local checkout with the root pnpm pipeline:
-
-```
-pnpm run local:vscode
+```powershell
+./scripts/build.ps1
 ```
 
-For extension-only development, run the focused build and smoke tests:
+Both wrappers build the Cosmo compiler package with `cosmo0` and write the
+executable to `target/cosmoc` by default. To choose another output path, set
+`COSMO_OUTPUT`:
 
-```
-cd editors/vscode
-pnpm run compile
-pnpm run test:smoke
-```
-
-To debug locally, open this repository in VSCode, run the extension host from
-`Run Cosmo Extension`, and open a `.cos` file. The extension activates on the
-Cosmo language, probes and starts `out/cosmos-lsp-host`, and sets
-`COSMO_REPO_ROOT` so the host can resolve the checkout while running. Packaged
-VSIX builds copy the needed Cosmo package sources under `out/server-root` before
-packaging.
-
-For the first manual editor smoke check, open `samples/` directly in VSCode.
-The `samples/cosmo.json` file is a virtual workspace root, mirroring Cargo's
-virtual workspace root pattern, so the sample tree can be browsed from one
-folder. Focused project-shape samples live under `samples/workspaces/`:
-`virtual-root/` demonstrates a virtual root with ordinary package members,
-`package/` demonstrates a normal package manifest, and `single-file/`
-demonstrates package-less single-file fallback that assumes only standard
-library/prelude capabilities. Opening any `.cos` file activates the Cosmo
-extension through the ordinary language association.
-
-## Implementation Note
-
-Demonstration:
-
-- Literals
-  - [x] Integer
-  - [x] Float
-  - [x] Boolean
-  - [x] String
-- Compound Literals
-  - [x] Template Literals
-  - [x] Char
-  - [x] Bytes
-  - [x] Byte
-  - [x] Array
-  - [x] Dict
-  - [ ] Lambda
-- Declarations and Statements
-  - [x] Variable
-  - [x] Function
-  - [x] Class
-  - [x] Enum Class
-  - [x] Trait
-  - [x] Impl
-  - [x] Import
-- Expressions
-  - [x] Binary
-  - [x] Unary
-  - [ ] As
-  - [x] Match
-  - [x] If
-  - [x] For
-  - [x] While
-  - [x] Loop
-  - [x] Break/Continue/Return
-  - [x] Block
-- Decorators/Macros
-  - [x] Decorator
-  - [ ] Macro
-
-Value Semantics:
-
-- Literals
-  - [x] TodoLit
-  - [x] BoolLit
-  - [x] IntLit
-    - [x] i32
-    - [ ] bigint
-  - [x] FloatLit
-  - [x] StringLit
-  - [x] SelfVal, SelfTy
-  - [x] Identifier
-  - [ ] argsLit
-- Control Flow
-  - [ ] block
-  - [x] Loop
-  - [x] While
-  - [x] For
-  - [x] Break
-  - [x] Continue
-  - [x] Return
-  - [x] If
-- Operations
-  - [ ] valueExpr
-  - [ ] typeExpr
-  - [ ] unOp
-    - [ ] RefMut
-    - [ ] Ref
-    - [ ] Mut
-    - [ ] deref
-  - [ ] binOp
-    - [x] select
-    - [ ] asExpr
-    - [ ] matchExpr
-    - [ ] apply
-      - [ ] applyCTypes
-      - [ ] applyFunc
-      - [ ] applyClass
-      - [ ] applyType
-      - [ ] applyTemplate
-    - [ ] keyedPair
-    - [ ] decorate
-- Declarations
-  - [ ] import
-  - [x] varItem
-  - [x] defItem
-  - [x] classItem
-  - [ ] implItem
-
-Type Operations:
-
-- [ ] associateImpl
-- [ ] cast
-  - [ ] castArgs
-  - [ ] castTo
-- [ ] eval
-- [ ] lift
-- [ ] coerce
-- [ ] normalize
-- [ ] isSubtype
-
-Type Guards:
-
-- [ ] checkedMut
-
-## Documentation
-
-See [Design Docs.](https://myriad-dreamin.github.io/cosmo/)
-
-## Syntax: Function
-
-External types can be handled by builtin `external` function:
-
-```scala
-def CppVec(T: Type): Type = cstd.vector(T);
+```sh
+COSMO_OUTPUT=target/cosmoc-dev ./scripts/build.sh
 ```
 
-Function body can be a type:
+The driver reads `.env` by default before running commands. Pass `-f <file>` to
+select another file, for example:
 
-```scala
-def Source /* inferred as : Type */ = class {
-  val data = Vec(u8)
-}
-def Pair(Lhs: Type, Rhs: Type) /* inferred as : Type */ = (Lhs, Rhs);
+```sh
+node cmd/cosmo/main.js -f .env.prod -p packages/cosmoc build -o target/cosmoc
 ```
 
-Lifted values must be known and evaluated at compile-time
+`packages/cosmoc` requests the native `cosmo-clang-sys` support library. Set
+`COSMO_LLVM_PATH` to a local LLVM/Clang install prefix when one is available; if
+it is unset, the CMake link step uses
+`packages/cosmo-clang-sys/config/llvm-manifest.json` and downloads the matching
+LLVM artifact into `target/cosmo/llvm`.
 
-```scala
-def lift(implicit T: Type)(v: T) = Type(v);
-val True = lift(true);
-// or
-val False = Type(false);
+## Minimal Commands
+
+The development driver commands below use Node.js.
+
+Run a minimal checked-in package sample:
+
+```sh
+node cmd/cosmo/main.js -p samples/Packages/basic run
 ```
 
-The signature of `lift` looks a bit unfamiliar, but when we _rewrite_ this with constraint list syntax, it looks like this:
+After building `target/cosmoc`, run a source file through the Cosmo-written
+driver. `cosmoc` walks upward from the file to find a package `cosmo.json`;
+when no package manifest is found, it compiles and runs the file as a
+standalone source:
 
-```scala
-def lift[T](v: T) = Type(v);
+```sh
+target/cosmoc run samples/workspaces/single-file/main.cos
 ```
 
-Or simply as:
+Run a package entrypoint:
 
-```scala
-type lift = Type;
+```sh
+node cmd/cosmo/main.js -p fixtures/cosmo0/package/run-smoke run -- --example-arg
 ```
 
-This tells us the "template arguments" in Cosmo, such as `[T]`, are the first arguments. The `T` is the first parameter of `lift` and has the type `Type`, which is the type of all cosmo types of values. When parameters are given, the cosmo compiler will evaluate these parameters at compile time and generate remaining part as a runtime function. In particular, functions whose parameters are all types, like `lift`, will be evaluated at compile time completely.
+Build the Cosmo-written compiler package to an executable path:
 
-## Syntax: Trait
-
-Traits are classes containing unimplemented methods, while you can provide default impls:
-
-```scala
-trait Unsigned[T] {
-  def asUint64(&self): u64 = staticCast(u64)(self);
-}
+```sh
+node cmd/cosmo/main.js -p packages/cosmoc build -o target/cosmoc
 ```
 
-Constraints are compile-time assertions containing type expressions:
+The package executable is built under the selected package's `target/`
+directory unless an explicit `-o` path is provided. It executes with the package
+root as its working directory and receives all arguments after `run` or after
+`--` as process arguments.
 
-```scala
-trait Unsigned[T] {
-  assert(T == u8 or T == u16 or T == u32 or T == u64);
-  def asUint64(&self): u64 = staticCast(u64)(self);
-}
-```
+## More Documentation
 
-You can also put constraints inside of the constraint list:
-
-```scala
-trait Unsigned[T, T == u8 or T == u16 or T == u32 or T == u64] {}
-```
-
-or simply as:
-
-```scala
-trait Unsigned[T <: u8 | u16 | u32 | u64] {}
-```
-
-## Syntax: Higher-Kinded Types
-
-Constructing a type from a type expression:
-
-```scala
-def RoundBits[T] = if (IsUnsigned(T)) {
-  u64
-} else {
-  i64
-}
-```
-
-## Syntax: ADT and Pattern Matching
-
-Enum classes and pattern matching share a same syntax:
-
-```scala
-// Enum class will be translated into tagged union
-class Nat {
-  case Zero
-  case Succ(Nat)
-}
-
-def add(A: Nat, B: Nat): Nat = A match {
-  case Zero => B
-  case Succ(B) => Succ(Add(A, B))
-}
-```
-
-GADT is also supported:
-
-```scala
-class VecGADT[n: u32, T] {
-  case Nil: VecGADT[0, T]
-  case Cons(T, VecGADT[n - 1, T]): VecGADT[n, T]
-}
-
-impl[n: u32, T] VecGADT[n, T] {
-  def concat[m: u32](self, v: VecGADT[m, T]): VecGADT[n + m, T] = self match {
-    case Nil => v
-    case Cons(h, t /* n - 1 */) => Cons(h, t.concat(v) /* n - 1 + m */) // n + m
-  }
-}
-```
-
-## Semantics
-
-The runtime behavior depends on C++.
+The older README notes were moved to [docs/introduction.md](docs/introduction.md)
+and will be reorganized with the rest of the documentation later.

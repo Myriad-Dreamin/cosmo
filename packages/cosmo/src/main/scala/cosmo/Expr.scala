@@ -116,6 +116,7 @@ trait ExprEnv { self: Env =>
       case s.Import(p, dest) => importDest(dest, $import(p, dest))
       case s.Val(x, ty, y)   => De($var(ct(x), ty.map(expr), y, false, false))
       case s.Typ(x, ty, y)   => De($var(ct(x), ty.map(expr), y, false, true))
+      case s.GenericTyp(x, _, ty, y) => De($var(ct(x), ty.map(expr), y, false, true))
       case s.Var(x, ty, y)   => De($var(ct(x), ty.map(expr), y, true, false))
       case d: s.Def          => De($def(d, ct(d.name)))
       case c: s.Class        => De($class(c, ct(c.name)))

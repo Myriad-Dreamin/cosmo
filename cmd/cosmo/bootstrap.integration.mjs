@@ -19,7 +19,7 @@ test(
   () => {
     assert.ok(
       existsSync(linkedCompilerModule),
-      `missing linked compiler module ${linkedCompilerModule}; run yarn compile first`,
+      `missing linked compiler module ${linkedCompilerModule}; run sbt fullLinkJS first when developing cosmo0`,
     );
     assert.ok(
       findCxxCompiler(),

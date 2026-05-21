@@ -239,7 +239,12 @@ object Parser {
   def sigItem[$: P](kw: String) = P(word(kw) ~/ ident ~ params.?)
   def valItem[$: P] = P(varLike("val")).map(Val.apply.tupled)
   def varItem[$: P] = P(varLike("var")).map(Var.apply.tupled)
-  def typeItem[$: P] = P(varLike("type")).map(Typ.apply.tupled)
+  def typeItem[$: P] =
+    P(word("type") ~/ ident ~ params.? ~ typeAnnotation.? ~ initExpression.?)
+      .map {
+        case (name, Some(params), ty, init) => GenericTyp(name, params, ty, init)
+        case (name, None, ty, init)         => Typ(name, ty, init)
+      }
   def varLike[$: P](kw: String) =
     P(word(kw) ~/ ident ~ typeAnnotation.? ~ initExpression.?)
   def loopItem[$: P] = P(word("loop") ~/ braces).map(Loop.apply)

@@ -38,6 +38,8 @@ class IrDeclarationLowerer {
       }
       case SyntaxDecl.Import(path, span) => {
       }
+      case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+      }
       case SyntaxDecl.TypeAlias(name, typ, span) => {
       }
       case SyntaxDecl.Value(name, mutable, typ, init, span) => {
@@ -663,6 +665,8 @@ class IrFunctionBodyBuilder {
         case SyntaxDecl.Unsupported(text, span) => {
         }
         case SyntaxDecl.Import(path, span) => {
+        }
+        case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
         }
         case SyntaxDecl.Function(function_name, params, return_type, body, span) => {
         }

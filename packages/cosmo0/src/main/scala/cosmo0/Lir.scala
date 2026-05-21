@@ -4,6 +4,7 @@ final case class LirModule(
     name: String,
     declarations: List[LirDeclaration],
     cIncludes: List[SourceCInclude] = Nil,
+    cppNamespaceImports: List[SourceCppNamespaceImport] = Nil,
 )
 
 sealed trait LirDeclaration:
@@ -85,6 +86,7 @@ final case class LirTypeAliasDecl(
     id: LirDeclId,
     name: String,
     target: LirTypeRef,
+    typeParams: List[String] = Nil,
 ) extends LirDeclaration
 
 final case class LirTypeDecl(

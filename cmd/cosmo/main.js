@@ -1,4 +1,7 @@
+#!/usr/bin/env node
+
 import { spawn, spawnSync } from "child_process";
+import { createHash } from "crypto";
 import {
   existsSync,
   mkdirSync,
@@ -7,11 +10,15 @@ import {
   writeFileSync,
 } from "fs";
 import { basename, dirname, join, resolve } from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import repl from "repl";
 
 const linkedCompilerModule =
   "../../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js";
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const nativeSupportLibrariesField = "nativeSupportLibraries";
+const cosmoClangSysLibrary = "cosmo-clang-sys";
+const nativePackageExecutableTarget = "cosmoPackageExecutable";
 const nlohmannJsonDependency = {
   repoUrl: "https://github.com/nlohmann/json.git",
   version: "v3.11.3",
@@ -46,6 +53,153 @@ export function parsePackageRunCommand(argv) {
   const trailing = argv.slice(3);
   const runArgs = trailing[0] === "--" ? trailing.slice(1) : trailing;
   return { packagePath, runArgs };
+}
+
+export function parseSourceRunCommand(argv) {
+  if (argv.length < 2 || argv[0] !== "run") {
+    return null;
+  }
+
+  const input = argv[1];
+  const trailing = argv.slice(2);
+  const runArgs = trailing[0] === "--" ? trailing.slice(1) : trailing;
+  return { input, runArgs };
+}
+
+export function parseEnvironmentOptions(argv) {
+  const commandArgs = [];
+  let envFile = ".env";
+  let explicit = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index];
+    if (current === "--") {
+      commandArgs.push(...argv.slice(index));
+      break;
+    }
+
+    if (current === "-f" || current === "--env-file") {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new CliError(`${current} requires an environment file path`);
+      }
+      envFile = value;
+      explicit = true;
+      index += 1;
+      continue;
+    }
+
+    if (current.startsWith("--env-file=")) {
+      const value = current.slice("--env-file=".length);
+      if (!value) {
+        throw new CliError("--env-file requires an environment file path");
+      }
+      envFile = value;
+      explicit = true;
+      continue;
+    }
+
+    commandArgs.push(current);
+  }
+
+  return { argv: commandArgs, envFile, explicit };
+}
+
+export function applyEnvironmentFile(
+  filePath = ".env",
+  {
+    env = process.env,
+    cwd = process.cwd(),
+    required = false,
+  } = {},
+) {
+  const resolved = resolve(cwd, filePath);
+  if (!existsSync(resolved)) {
+    if (required) {
+      throw new CliError(`environment file not found: ${filePath}`);
+    }
+    return {};
+  }
+
+  const values = parseEnvironmentFile(readFileSync(resolved, "utf8"), filePath);
+  for (const [key, value] of Object.entries(values)) {
+    env[key] = value;
+  }
+  return values;
+}
+
+export function parseEnvironmentFile(source, filePath = ".env") {
+  const values = {};
+  const lines = source.split(/\r?\n/);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+
+    const assignment = line.startsWith("export ") ? line.slice(7).trim() : line;
+    const equals = assignment.indexOf("=");
+    if (equals <= 0) {
+      throw new CliError(`${filePath}:${index + 1}: expected KEY=VALUE`);
+    }
+
+    const key = assignment.slice(0, equals).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new CliError(`${filePath}:${index + 1}: invalid environment key ${key}`);
+    }
+
+    values[key] = parseEnvironmentValue(
+      assignment.slice(equals + 1).trim(),
+      filePath,
+      index + 1,
+    );
+  }
+
+  return values;
+}
+
+function parseEnvironmentValue(value, filePath, line) {
+  if (!value) {
+    return "";
+  }
+
+  if (value.startsWith("\"")) {
+    if (!value.endsWith("\"") || value.length === 1) {
+      throw new CliError(`${filePath}:${line}: unterminated double-quoted value`);
+    }
+    return unescapeDoubleQuotedEnvironmentValue(value.slice(1, -1));
+  }
+
+  if (value.startsWith("'")) {
+    if (!value.endsWith("'") || value.length === 1) {
+      throw new CliError(`${filePath}:${line}: unterminated single-quoted value`);
+    }
+    return value.slice(1, -1);
+  }
+
+  return stripInlineEnvironmentComment(value).trim();
+}
+
+function unescapeDoubleQuotedEnvironmentValue(value) {
+  return value.replace(/\\([nrt"\\])/g, (_match, escaped) => {
+    switch (escaped) {
+      case "n":
+        return "\n";
+      case "r":
+        return "\r";
+      case "t":
+        return "\t";
+      default:
+        return escaped;
+    }
+  });
+}
+
+function stripInlineEnvironmentComment(value) {
+  const comment = value.search(/\s#/);
+  return comment >= 0 ? value.slice(0, comment) : value;
 }
 
 export function parsePackageBuildCommand(argv) {
@@ -110,40 +264,89 @@ export function packageBuildBuildPaths(packageRoot, moduleName, outputPath = "")
   };
 }
 
+function isPackageManifest(manifestPath) {
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    return typeof manifest.name === "string" && manifest.name.length > 0;
+  } catch {
+    return true;
+  }
+}
+
+export function findPackageRootForSource(sourcePath, cwd = process.cwd()) {
+  if (!sourcePath) {
+    return "";
+  }
+
+  let current = dirname(resolve(cwd, sourcePath));
+  while (true) {
+    const manifestPath = join(current, "cosmo.json");
+    if (existsSync(manifestPath) && isPackageManifest(manifestPath)) {
+      return current;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return "";
+    }
+    current = parent;
+  }
+}
+
 async function loadCompilerModule() {
   return import(linkedCompilerModule);
 }
 
 async function main(argv = process.argv.slice(2)) {
-  const packageBuild = parsePackageBuildCommand(argv);
+  const envOptions = parseEnvironmentOptions(argv);
+  applyEnvironmentFile(envOptions.envFile, { required: envOptions.explicit });
+
+  const packageBuild = parsePackageBuildCommand(envOptions.argv);
   if (packageBuild) {
     await runPackageBuildCommand(packageBuild.packagePath, packageBuild.outputPath);
     return;
   }
 
-  const packageRun = parsePackageRunCommand(argv);
+  const packageRun = parsePackageRunCommand(envOptions.argv);
   if (packageRun) {
     await runPackageCommand(packageRun.packagePath, packageRun.runArgs);
     return;
   }
 
-  const action = argv[0];
-  const input = argv[1];
+  const sourceRun = parseSourceRunCommand(envOptions.argv);
+  if (sourceRun) {
+    const packageRoot = findPackageRootForSource(sourceRun.input);
+    if (packageRoot) {
+      await runPackageCommand(packageRoot, sourceRun.runArgs);
+      return;
+    }
+
+    const cosmo = await loadCompilerModule();
+    const compiler = new cosmo.Cosmo0();
+    await runSingleFile(compiler, sourceRun.input, sourceRun.runArgs);
+    return;
+  }
+
+  const action = envOptions.argv[0];
+  const input = envOptions.argv[1];
   const cosmo = await loadCompilerModule();
-  const compiler = new cosmo.Cosmo();
 
   if (action === "run") {
-    await runSingleFile(compiler, input);
+    const compiler = new cosmo.Cosmo0();
+    await runSingleFile(compiler, input, []);
   } else if (action === "i") {
+    const compiler = new cosmo.Cosmo();
     startRepl(compiler);
   } else if (action === "parse") {
     requireInput(input, "parse");
+    const compiler = new cosmo.Cosmo();
     const inputData = readFileSync(input, "utf8");
     console.log(compiler.parseAsJson(inputData));
   } else {
     requireInput(input, "compile");
+    const compiler = new cosmo.Cosmo();
     const inputData = readFileSync(input, "utf8");
-    const output = argv[2];
+    const output = envOptions.argv[2];
     const outputData = compiler.convert(inputData);
 
     writeFileSync(output, outputData, "utf8");
@@ -194,6 +397,20 @@ function compilePackageExecutable(
   mkdirSync(dirname(paths.executablePath), { recursive: true });
   writeFileSync(paths.sourcePath, compiled.output, "utf8");
 
+  ensureNlohmannJsonDependency();
+  const supportLibraryLinkArguments = compiled.supportLibraryLinkArguments ?? [];
+  ensureSupportLibraries(supportLibraryLinkArguments);
+  const jsonInclude = resolve(nlohmannJsonDependency.includeDir);
+  const nativeSupportLibraries = readPackageNativeSupportLibraries(packageRoot);
+  if (nativeSupportLibraries.length > 0) {
+    return compilePackageExecutableWithCMake(
+      paths,
+      jsonInclude,
+      supportLibraryLinkArguments,
+      nativeSupportLibraries,
+    );
+  }
+
   const compiler = findCxxCompiler();
   if (!compiler) {
     throw new CliError(
@@ -201,14 +418,11 @@ function compilePackageExecutable(
     );
   }
 
-  ensureNlohmannJsonDependency();
-  ensureSupportLibraries(compiled.supportLibraryLinkArguments ?? []);
-  const jsonInclude = resolve(nlohmannJsonDependency.includeDir);
   const compileArgs = [
     "-std=c++17",
     `-I${jsonInclude}`,
     paths.sourcePath,
-    ...compiled.supportLibraryLinkArguments,
+    ...supportLibraryLinkArguments,
     "-o",
     paths.executablePath,
   ];
@@ -231,6 +445,186 @@ function compilePackageExecutable(
   throw new CliError(
     `cosmo package run C++ compile failed; log written to ${paths.logPath}`,
   );
+}
+
+export function readPackageNativeSupportLibraries(packageRoot) {
+  const manifestPath = join(packageRoot, "cosmo.json");
+  if (!existsSync(manifestPath)) {
+    return [];
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    throw new CliError(
+      `could not read package native support metadata at ${manifestPath}: ${error.message}`,
+    );
+  }
+
+  const value = parsed?.[nativeSupportLibrariesField];
+  if (value == null) {
+    return [];
+  }
+
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    throw new CliError(
+      `${manifestPath} field ${nativeSupportLibrariesField} must be an array of strings`,
+    );
+  }
+
+  return [...new Set(value)];
+}
+
+function compilePackageExecutableWithCMake(
+  paths,
+  jsonInclude,
+  supportLibraryLinkArguments,
+  nativeSupportLibraries,
+) {
+  validateNativeSupportLibraries(nativeSupportLibraries);
+
+  const cmake = findCmakeCommand();
+  if (!cmake) {
+    throw new CliError(
+      "cosmo package run could not find CMake; install cmake to build native support libraries",
+    );
+  }
+
+  const cmakeProjectDir = join(paths.buildDir, "native-link");
+  const cmakeBuildDir = join(paths.buildDir, "native-link-build");
+  mkdirSync(cmakeProjectDir, { recursive: true });
+  writeFileSync(
+    join(cmakeProjectDir, "CMakeLists.txt"),
+    nativePackageCMakeSource({
+      sourcePath: paths.sourcePath,
+      executablePath: paths.executablePath,
+      jsonInclude,
+      supportLibraryLinkArguments,
+    }),
+    "utf8",
+  );
+
+  const configureArgs = [
+    "-S",
+    cmakeProjectDir,
+    "-B",
+    cmakeBuildDir,
+    `-DCMAKE_BUILD_TYPE=${process.env.CMAKE_BUILD_TYPE ?? "RelWithDebInfo"}`,
+    ...cosmoClangSysCMakeCacheArgs(),
+  ];
+  const configure = spawnSync(cmake, configureArgs, { encoding: "utf8" });
+  if (configure.status !== 0) {
+    writeNativeBuildLog(paths.logPath, cmake, configureArgs, configure);
+    throw new CliError(
+      `cosmo package run native CMake configure failed; log written to ${paths.logPath}`,
+    );
+  }
+
+  const buildArgs = ["--build", cmakeBuildDir, "--target", nativePackageExecutableTarget];
+  const build = spawnSync(cmake, buildArgs, { encoding: "utf8" });
+  if (build.status === 0) {
+    return paths.executablePath;
+  }
+
+  writeNativeBuildLog(paths.logPath, cmake, buildArgs, build);
+  throw new CliError(
+    `cosmo package run native CMake build failed; log written to ${paths.logPath}`,
+  );
+}
+
+export function nativePackageCMakeSource({
+  sourcePath,
+  executablePath,
+  jsonInclude,
+  supportLibraryLinkArguments = [],
+}) {
+  const linkLibraries = [
+    "cosmoClang",
+    ...supportLibraryLinkArguments.map((argument) =>
+      cmakeStringLiteral(resolve(argument)),
+    ),
+  ];
+  const outputDir = dirname(executablePath);
+  const outputName = basename(executablePath);
+
+  return [
+    "cmake_minimum_required(VERSION 3.19)",
+    "project(cosmo_package_build LANGUAGES C CXX)",
+    "",
+    "set(CMAKE_CXX_STANDARD 17)",
+    "set(CMAKE_CXX_STANDARD_REQUIRED ON)",
+    "set(CMAKE_CXX_EXTENSIONS OFF)",
+    "",
+    `add_subdirectory(${cmakeStringLiteral(join(repoRoot, "packages", "cosmo-clang-sys"))} ${cmakeStringLiteral("${CMAKE_CURRENT_BINARY_DIR}/packages-cosmo-clang-sys")})`,
+    "",
+    `add_executable(${nativePackageExecutableTarget} ${cmakeStringLiteral(sourcePath)})`,
+    `target_include_directories(${nativePackageExecutableTarget} PRIVATE ${cmakeStringLiteral(jsonInclude)})`,
+    `target_link_libraries(${nativePackageExecutableTarget} PRIVATE`,
+    ...linkLibraries.map((library) => `    ${library}`),
+    ")",
+    `set_target_properties(${nativePackageExecutableTarget} PROPERTIES`,
+    `    RUNTIME_OUTPUT_DIRECTORY ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${cmakeStringLiteral(outputDir)}`,
+    `    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL ${cmakeStringLiteral(outputDir)}`,
+    `    OUTPUT_NAME ${cmakeStringLiteral(outputName)}`,
+    ")",
+    "",
+  ].join("\n");
+}
+
+function validateNativeSupportLibraries(libraries) {
+  const unsupported = libraries.filter((library) => library !== cosmoClangSysLibrary);
+  if (unsupported.length === 0) {
+    return;
+  }
+
+  throw new CliError(
+    `unsupported native support libraries: ${unsupported.join(", ")}`,
+  );
+}
+
+function cosmoClangSysCMakeCacheArgs() {
+  const values = {
+    COSMO_LLVM_PATH: process.env.COSMO_LLVM_PATH ?? "",
+    COSMO_LLVM_VERSION: process.env.COSMO_LLVM_VERSION ?? "21.1.8",
+    COSMO_LLVM_DOWNLOAD_DIR: join(repoRoot, "target", "cosmo", "llvm"),
+    COSMO_LLVM_MANIFEST_PATH: join(
+      repoRoot,
+      "packages",
+      "cosmo-clang-sys",
+      "config",
+      "llvm-manifest.json",
+    ),
+    COSMO_LLVM_ENABLE_LTO: process.env.COSMO_LLVM_ENABLE_LTO ?? "OFF",
+    COSMO_LLVM_OFFLINE: process.env.COSMO_LLVM_OFFLINE ?? "OFF",
+    COSMO_LLVM_TARGET_PLATFORM: process.env.COSMO_LLVM_TARGET_PLATFORM ?? "",
+    COSMO_LLVM_TARGET_ARCH: process.env.COSMO_LLVM_TARGET_ARCH ?? "",
+  };
+
+  return Object.entries(values).map(([key, value]) => {
+    return `-D${key}=${value}`;
+  });
+}
+
+function writeNativeBuildLog(logPath, command, args, result) {
+  const log = [
+    `command: ${command} ${args.join(" ")}`,
+    `status: ${result.status ?? "unknown"}`,
+    result.stdout?.trim() ?? "",
+    result.stderr?.trim() ?? "",
+    result.error?.message ?? "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  writeFileSync(logPath, log, "utf8");
+}
+
+function cmakeStringLiteral(value) {
+  const text = value.replaceAll("\\", "/").replaceAll('"', '\\"');
+  return `"${text}"`;
 }
 
 function ensureSupportLibraries(linkArguments) {
@@ -389,17 +783,60 @@ function findCxxCompiler() {
   });
 }
 
-async function runSingleFile(compiler, input) {
-  requireInput(input, "run");
-  compiler.loadPackageByPath("library/std");
-  compiler.preloadPackage("std");
-  const executable = compiler.getExecutable(input);
+function findCmakeCommand() {
+  const candidates = process.env.CMAKE ? [process.env.CMAKE] : ["cmake"];
+  return candidates.find((command) => {
+    const result = spawnSync(command, ["--version"], { encoding: "utf8" });
+    return result.status === 0;
+  });
+}
 
-  if (!executable) {
-    throw new CliError(`cosmo run could not build executable for ${input}`);
+function singleFilePackageRoot(sourcePath) {
+  const safeName =
+    basename(sourcePath).replace(/[^A-Za-z0-9_.-]+/g, "_") || "main.cos";
+  const digest = createHash("sha256").update(sourcePath).digest("hex").slice(0, 16);
+  return join(repoRoot, "target", "cosmo", "single-file", `${safeName}-${digest}`);
+}
+
+function prepareSingleFilePackage(input) {
+  requireInput(input, "run");
+  const sourcePath = resolve(input);
+  if (!existsSync(sourcePath)) {
+    throw new CliError(`cosmo run input not found: ${input}`);
   }
 
-  await spawnExecutable(executable, [], process.cwd());
+  const packageRoot = singleFilePackageRoot(sourcePath);
+  const sourceRoot = join(packageRoot, "src");
+  mkdirSync(sourceRoot, { recursive: true });
+  copyFileSync(sourcePath, join(sourceRoot, "main.cos"));
+  writeFileSync(
+    join(packageRoot, "cosmo.json"),
+    JSON.stringify(
+      {
+        name: "@cosmo/single-file",
+        version: "0.0.0",
+        target: "cosmo0",
+        sources: ["main.cos"],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  return packageRoot;
+}
+
+async function runSingleFile(compiler, input, runArgs = []) {
+  const packageRoot = prepareSingleFilePackage(input);
+  const compiled = compiler.compileRunnablePackageForHost(packageRoot);
+
+  if (!compiled.ok) {
+    printDiagnostics(compiled.diagnostics);
+    throw new CliError(`cosmo run failed during ${compiled.status}`);
+  }
+
+  const executablePath = compilePackageExecutable(packageRoot, compiled);
+  await spawnExecutable(executablePath, runArgs, process.cwd());
 }
 
 function startRepl(compiler) {

@@ -1,0 +1,2 @@
+/// diag(error, 2:1): cosmo1.name.unsupported-cpp-header-import
+import "c++/vector"
