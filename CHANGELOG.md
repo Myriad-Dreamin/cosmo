@@ -101,5 +101,6 @@ The changelog lines unspecified with authors are all written by the @Myriad-Drea
 * Split item/term decls and remove Item class in https://github.com/Myriad-Dreamin/cosmo/pull/9
 * Evaluate const func call in https://github.com/Myriad-Dreamin/cosmo/pull/10
 * Refactor a bit in https://github.com/Myriad-Dreamin/cosmo/pull/12
+* Prepare v0.1.0-rc1 release in https://github.com/Myriad-Dreamin/cosmo/pull/90
 
 **Full Changelog**: https://github.com/Myriad-Dreamin/cosmo/commits/v0.1.0-rc1

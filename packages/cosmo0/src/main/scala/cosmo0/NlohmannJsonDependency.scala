@@ -11,8 +11,11 @@ object NlohmannJsonDependency:
   val includeDir: String = s"$rootDir/single_include"
 
   private val externalsDir = "target/cosmo/externals"
+  private val installLockDir = s"$rootDir.lock"
   private val gitDir = s"$rootDir/.git"
   private val headerPath = s"$includeDir/nlohmann/json.hpp"
+  private val installLockAttempts = 480
+  private val installLockWaitMillis = 250
 
   def includeArg: String =
     ensureAvailable()
@@ -22,6 +25,14 @@ object NlohmannJsonDependency:
     if DependencyNodeFs.existsSync(headerPath) then return
 
     DependencyNodeFs.mkdirSync(externalsDir, js.Dynamic.literal(recursive = true))
+    if !acquireInstallLock() then return
+
+    try ensureAvailableUnderLock()
+    finally releaseInstallLock()
+
+  private def ensureAvailableUnderLock(): Unit =
+    if DependencyNodeFs.existsSync(headerPath) then return
+
     if DependencyNodeFs.existsSync(rootDir) && !DependencyNodeFs.existsSync(gitDir) then
       throw new IllegalStateException(
         s"nlohmann/json dependency path exists but is not a git checkout: $rootDir",
@@ -40,6 +51,30 @@ object NlohmannJsonDependency:
     throw new IllegalStateException(
       s"nlohmann/json checkout did not provide $headerPath at $version ($revision)",
     )
+
+  private def acquireInstallLock(): Boolean =
+    var attempt = 0
+    while attempt < installLockAttempts do
+      try
+        DependencyNodeFs.mkdirSync(installLockDir, js.Dynamic.literal())
+        return true
+      catch
+        case _: Throwable =>
+          if DependencyNodeFs.existsSync(headerPath) then return false
+          sleep(installLockWaitMillis)
+          attempt += 1
+
+    throw new IllegalStateException(
+      s"timed out waiting for nlohmann/json dependency lock: $installLockDir",
+    )
+
+  private def releaseInstallLock(): Unit =
+    DependencyNodeFs.rmSync(installLockDir, js.Dynamic.literal(recursive = true, force = true))
+
+  private def sleep(milliseconds: Int): Unit =
+    val buffer = js.Dynamic.newInstance(js.Dynamic.global.SharedArrayBuffer)(4)
+    val array = js.Dynamic.newInstance(js.Dynamic.global.Int32Array)(buffer)
+    js.Dynamic.global.Atomics.applyDynamic("wait")(array, 0, 0, milliseconds)
 
   private def clonePinnedDependency(): Unit =
     runGit(
@@ -102,6 +137,7 @@ object NlohmannJsonDependency:
 private object DependencyNodeFs extends js.Object:
   def existsSync(path: String): Boolean = js.native
   def mkdirSync(path: String, options: js.Any): Unit = js.native
+  def rmSync(path: String, options: js.Any): Unit = js.native
 
 @js.native
 @JSImport("child_process", "spawnSync")
