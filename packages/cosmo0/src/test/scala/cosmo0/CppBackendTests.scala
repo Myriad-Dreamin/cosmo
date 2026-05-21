@@ -86,6 +86,34 @@ class CppBackendTests extends munit.FunSuite:
     assert(secondOutput.isSuccess, secondOutput.diagnostics.map(_.message).mkString("\n"))
     assertEquals(firstOutput.value.get.source, secondOutput.value.get.source)
 
+  test("backend avoids stdio macro names in generated C++ identifiers"):
+    val result = CppBackend().emit(
+      LirModule(
+        "stdio_macro_names",
+        List(
+          LirTypeDecl(
+            Lir.declId("CommandResult"),
+            "CommandResult",
+            List(
+              LirField("stdout", Lir.t(SourceType.String)),
+              LirField("stderr", Lir.t(SourceType.String)),
+              LirField("stdin", Lir.t(SourceType.String)),
+            ),
+          ),
+        ),
+      ),
+    )
+
+    assert(result.isSuccess, result.diagnostics.map(_.message).mkString("\n"))
+    val source = result.value.get.source
+    assert(source.contains("std::string stdout_{};"))
+    assert(source.contains("std::string stderr_{};"))
+    assert(source.contains("std::string stdin_{};"))
+    assert(!source.contains("std::string stdout{};"))
+    assert(!source.contains("std::string stderr{};"))
+    assert(!source.contains("std::string stdin{};"))
+    assertCxxAccepts(source)
+
   test("backend diagnoses descriptor operations that are valid LIR but unsupported by C++ emission"):
     val boxType = SourceType.Standard("Box", List(SourceType.I32))
     val refType = SourceType.Ref(SourceType.I32, mutable = false)

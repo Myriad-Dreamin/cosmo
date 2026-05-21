@@ -1828,7 +1828,7 @@ final class CppBackend(
       val prefixed =
         if base.headOption.exists(_.isDigit) then s"${fallback}_$base"
         else base
-      if cppKeywords.contains(prefixed) then s"${prefixed}_"
+      if cppReservedIdentifiers.contains(prefixed) then s"${prefixed}_"
       else prefixed
 
     private def quote(value: String): String =
@@ -1952,4 +1952,11 @@ final class CppBackend(
         "volatile",
         "while",
         "xor",
+      )
+
+    private lazy val cppReservedIdentifiers: Set[String] =
+      cppKeywords ++ Set(
+        "stderr",
+        "stdin",
+        "stdout",
       )
