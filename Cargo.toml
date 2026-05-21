@@ -1,13 +1,9 @@
 [workspace]
 resolver = "2"
-members = [
-  "crates/support-smoke",
-  "crates/uri-sys",
-  "crates/ureq-sys",
-]
+members = ["crates/support-smoke", "crates/uri-sys", "crates/ureq-sys"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 
 [workspace.metadata.cosmo.support_libraries]
 artifact-root = "target/cosmo/support-libraries"

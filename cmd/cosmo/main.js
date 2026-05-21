@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "child_process";
+import { createHash } from "crypto";
 import {
   existsSync,
   mkdirSync,
@@ -52,6 +53,17 @@ export function parsePackageRunCommand(argv) {
   const trailing = argv.slice(3);
   const runArgs = trailing[0] === "--" ? trailing.slice(1) : trailing;
   return { packagePath, runArgs };
+}
+
+export function parseSourceRunCommand(argv) {
+  if (argv.length < 2 || argv[0] !== "run") {
+    return null;
+  }
+
+  const input = argv[1];
+  const trailing = argv.slice(2);
+  const runArgs = trailing[0] === "--" ? trailing.slice(1) : trailing;
+  return { input, runArgs };
 }
 
 export function parseEnvironmentOptions(argv) {
@@ -252,6 +264,35 @@ export function packageBuildBuildPaths(packageRoot, moduleName, outputPath = "")
   };
 }
 
+function isPackageManifest(manifestPath) {
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    return typeof manifest.name === "string" && manifest.name.length > 0;
+  } catch {
+    return true;
+  }
+}
+
+export function findPackageRootForSource(sourcePath, cwd = process.cwd()) {
+  if (!sourcePath) {
+    return "";
+  }
+
+  let current = dirname(resolve(cwd, sourcePath));
+  while (true) {
+    const manifestPath = join(current, "cosmo.json");
+    if (existsSync(manifestPath) && isPackageManifest(manifestPath)) {
+      return current;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return "";
+    }
+    current = parent;
+  }
+}
+
 async function loadCompilerModule() {
   return import(linkedCompilerModule);
 }
@@ -272,21 +313,38 @@ async function main(argv = process.argv.slice(2)) {
     return;
   }
 
+  const sourceRun = parseSourceRunCommand(envOptions.argv);
+  if (sourceRun) {
+    const packageRoot = findPackageRootForSource(sourceRun.input);
+    if (packageRoot) {
+      await runPackageCommand(packageRoot, sourceRun.runArgs);
+      return;
+    }
+
+    const cosmo = await loadCompilerModule();
+    const compiler = new cosmo.Cosmo0();
+    await runSingleFile(compiler, sourceRun.input, sourceRun.runArgs);
+    return;
+  }
+
   const action = envOptions.argv[0];
   const input = envOptions.argv[1];
   const cosmo = await loadCompilerModule();
-  const compiler = new cosmo.Cosmo();
 
   if (action === "run") {
-    await runSingleFile(compiler, input);
+    const compiler = new cosmo.Cosmo0();
+    await runSingleFile(compiler, input, []);
   } else if (action === "i") {
+    const compiler = new cosmo.Cosmo();
     startRepl(compiler);
   } else if (action === "parse") {
     requireInput(input, "parse");
+    const compiler = new cosmo.Cosmo();
     const inputData = readFileSync(input, "utf8");
     console.log(compiler.parseAsJson(inputData));
   } else {
     requireInput(input, "compile");
+    const compiler = new cosmo.Cosmo();
     const inputData = readFileSync(input, "utf8");
     const output = envOptions.argv[2];
     const outputData = compiler.convert(inputData);
@@ -733,17 +791,52 @@ function findCmakeCommand() {
   });
 }
 
-async function runSingleFile(compiler, input) {
-  requireInput(input, "run");
-  compiler.loadPackageByPath("library/std");
-  compiler.preloadPackage("std");
-  const executable = compiler.getExecutable(input);
+function singleFilePackageRoot(sourcePath) {
+  const safeName =
+    basename(sourcePath).replace(/[^A-Za-z0-9_.-]+/g, "_") || "main.cos";
+  const digest = createHash("sha256").update(sourcePath).digest("hex").slice(0, 16);
+  return join(repoRoot, "target", "cosmo", "single-file", `${safeName}-${digest}`);
+}
 
-  if (!executable) {
-    throw new CliError(`cosmo run could not build executable for ${input}`);
+function prepareSingleFilePackage(input) {
+  requireInput(input, "run");
+  const sourcePath = resolve(input);
+  if (!existsSync(sourcePath)) {
+    throw new CliError(`cosmo run input not found: ${input}`);
   }
 
-  await spawnExecutable(executable, [], process.cwd());
+  const packageRoot = singleFilePackageRoot(sourcePath);
+  const sourceRoot = join(packageRoot, "src");
+  mkdirSync(sourceRoot, { recursive: true });
+  copyFileSync(sourcePath, join(sourceRoot, "main.cos"));
+  writeFileSync(
+    join(packageRoot, "cosmo.json"),
+    JSON.stringify(
+      {
+        name: "@cosmo/single-file",
+        version: "0.0.0",
+        target: "cosmo0",
+        sources: ["main.cos"],
+      },
+      null,
+      2,
+    ).concat("\n"),
+    "utf8",
+  );
+  return packageRoot;
+}
+
+async function runSingleFile(compiler, input, runArgs = []) {
+  const packageRoot = prepareSingleFilePackage(input);
+  const compiled = compiler.compileRunnablePackageForHost(packageRoot);
+
+  if (!compiled.ok) {
+    printDiagnostics(compiled.diagnostics);
+    throw new CliError(`cosmo run failed during ${compiled.status}`);
+  }
+
+  const executablePath = compilePackageExecutable(packageRoot, compiled);
+  await spawnExecutable(executablePath, runArgs, process.cwd());
 }
 
 function startRepl(compiler) {

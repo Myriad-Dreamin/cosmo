@@ -83,6 +83,15 @@ Run a minimal checked-in package sample:
 node cmd/cosmo/main.js -p samples/Packages/basic run
 ```
 
+After building `target/cosmoc`, run a source file through the Cosmo-written
+driver. `cosmoc` walks upward from the file to find a package `cosmo.json`;
+when no package manifest is found, it compiles and runs the file as a
+standalone source:
+
+```sh
+target/cosmoc run samples/workspaces/single-file/main.cos
+```
+
 Run a package entrypoint:
 
 ```sh

@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   applyEnvironmentFile,
+  findPackageRootForSource,
   packageBuildBuildPaths,
   packageRunBuildPaths,
   nativePackageCMakeSource,
@@ -13,6 +14,7 @@ import {
   parseEnvironmentOptions,
   parsePackageBuildCommand,
   parsePackageRunCommand,
+  parseSourceRunCommand,
   readPackageNativeSupportLibraries,
 } from "./main.js";
 
@@ -47,6 +49,48 @@ test("package run parser forwards args after run without requiring --", () => {
       runArgs: ["--manifest", "fixtures/parser.manifest"],
     },
   );
+});
+
+test("source run parser accepts a file and forwards args after --", () => {
+  assert.deepEqual(
+    parseSourceRunCommand(["run", "src/main.cos", "--", "--emit", "types.json"]),
+    {
+      input: "src/main.cos",
+      runArgs: ["--emit", "types.json"],
+    },
+  );
+});
+
+test("source run parser forwards args after the file without requiring --", () => {
+  assert.deepEqual(
+    parseSourceRunCommand(["run", "main.cos", "--example-arg"]),
+    {
+      input: "main.cos",
+      runArgs: ["--example-arg"],
+    },
+  );
+});
+
+test("source package discovery walks upward from the selected source file", () => {
+  const root = mkdtempSync(join(tmpdir(), "cosmo-source-package-"));
+  mkdirSync(join(root, "src"));
+  writeFileSync(join(root, "cosmo.json"), '{"name":"sample"}\n', "utf8");
+  writeFileSync(join(root, "src", "main.cos"), "def main(): Unit = {}\n", "utf8");
+
+  assert.equal(findPackageRootForSource("src/main.cos", root), root);
+  assert.equal(findPackageRootForSource(join(root, "src", "main.cos")), root);
+});
+
+test("source package discovery ignores workspace-only manifests", () => {
+  const root = mkdtempSync(join(tmpdir(), "cosmo-single-file-"));
+  writeFileSync(
+    join(root, "cosmo.json"),
+    '{"workspace":{"members":["packages/app"]}}\n',
+    "utf8",
+  );
+  writeFileSync(join(root, "main.cos"), "def main(): Unit = {}\n", "utf8");
+
+  assert.equal(findPackageRootForSource("main.cos", root), "");
 });
 
 test("environment option parser defaults to .env and strips explicit file flag", () => {
