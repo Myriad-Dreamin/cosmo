@@ -2,300 +2,244 @@
 
 == Status
 
-This file records design notes for Cosmo effects. It is not yet a normative
-specification. The current goal is to keep the effect model explicit and avoid
-compiler magic or new surface syntax where a regular type-system rule can carry
-the same meaning.
+This file records design notes for Cosmo computation effects. It is not yet a
+normative specification. The current goal is to keep suspension and handler
+semantics explicit without forcing one runtime representation into source-level
+function types.
 
-Code snippets in this document are design sketches. A snippet that mentions
-future concepts such as `FnOnce`, `Owned`, `Send`, `Static`, or
-`ReifiableAcrossTask` is not committing to those exact names or syntax.
+The companion notes are:
 
-Current working assumptions:
+- `generator.typ`: the concrete `yield[Y]` protocol and stackless state-machine
+  lowering.
+- `async.typ`: the abstract `async` effect and the optional lowering of async
+  suspension through `yield[Pending]`.
 
-- `with` marks computation effects in type expressions.
-- Computations are second-class by default.
-- A computation containing `async` can be reified as a first-class future-like
-  value.
-- Other effects are not first-class by default unless they are explicitly boxed
-  or handled into an ordinary value.
+== Core Model
 
-The important distinction is between a computation that runs in the current
-lexical continuation and a value that can be stored, returned, scheduled, or
-moved to another thread.
-
-== Computation Types
-
-The preferred spelling for an effectful computation is:
+All functions and lambdas have one type shape:
 
 ```cos
-T with async
-T with throw[E]
-T with [async, throw[E]]
+A => R with E
 ```
 
-`T with async` is a type expression. It should not be spelled as `T async` or
-`async T`, because those forms look like type application and can become
-unstable if `T` later accepts type-level parameters.
-
-An alias can name a computation type:
+`A` is the parameter type or parameter tuple, `R` is the value produced when the
+computation completes, and `E` is an effect row. A function without effects has
+the shorter shape:
 
 ```cos
-def Future[T] = T with async
+A => R
 ```
 
-This means `Future[T]` is a source-level name for `T with async`, not necessarily
-the same thing as a concrete runtime object type. A backend may lower the default
-async representation to a concrete `Future<T>`, but the language-level type is
-still the computation type.
+The `with` clause describes computation behavior. It is not part of the ordinary
+value type `R`, and it should not be used to smuggle runtime representation
+choices into the user-facing return type.
 
-== First-Class Async
-
-An async computation may be reified as a future-like value:
+Examples:
 
 ```cos
-task: T => R with async
-
-val promises: Array[R with async] = ts.map(task)
-val results: Array[R] = await Future.all(promises)
+i32 => i32
+Path => String with async
+usize => Unit with yield[i32]
+Request => Response with [async, throw[HttpError]]
 ```
 
-`results` has the value type `Array[R]`. The ambient computation containing the
-`await` still has the `async` effect.
+`async` and `yield[Y]` are intentionally different effects:
 
-With a residual exception effect:
+- `async` is an abstract suspension effect. It says that a computation may
+  suspend, but it does not say whether that suspension is implemented by a
+  stackless frame, a fiber, a boxed runtime handle, a VM continuation, or another
+  representation.
+- `yield[Y]` is a concrete resumable protocol effect. It says that a computation
+  may produce zero or more `Y` payloads before completing with `R`. A computation
+  with `yield[Y]` has a defined generator protocol and is the source-facing way
+  to request stackless state-machine lowering.
+
+== Computation and Representation
+
+Effects describe computation semantics. Representations describe implementation
+strategy. The source type:
 
 ```cos
-task: T => R with [async, throw[E]]
-
-val promises: Array[R with [async, throw[E]]] = ts.map(task)
-val results: Array[R] = await Future.all(promises)
+R with async
 ```
 
-`results` is still `Array[R]`. The uncaught `throw[E]` belongs to the surrounding
-computation, not to the bound value:
+does not mean:
 
 ```cos
-def gather[T, R, E](ts: Array[T], task: T => R with [async, throw[E]]):
-  Array[R] with [async, throw[E]] = {
-  val promises = ts.map(task)
-  val results = await Future.all(promises)
-  results
+Generator[Pending, R]
+Task[R]
+Future[R]
+Box[Fiber]
+```
+
+A backend or runtime may use any of those representations when they preserve the
+observable `async` semantics. A public type should not need to change when the
+runtime switches between stackless and stackful execution.
+
+The source type:
+
+```cos
+R with yield[Y]
+```
+
+does commit to a generator-style protocol. See `generator.typ` for the complete
+`Yield(Y)` / `Ready(R)` model. In this design, `yield[Y]` is the explicit marker
+that a computation can be lowered as a stackless resumable activation.
+
+== Effect Inference
+
+Effects may be inferred from a function or lambda body:
+
+```cos
+def emit_one(value: i32): Unit = {
+  yield(value)
 }
 ```
 
-The intended row-polymorphic shape for `Future.all` is:
+The inferred type is:
 
 ```cos
-def Future.all[A, E](xs: Array[A with [async, ..E]]):
-  Array[A] with [async, ..E]
+i32 => Unit with yield[i32]
 ```
 
-`await` removes the `async` layer from the awaited computation and propagates the
-remaining row effects into the current computation. It does not catch exceptions.
+Likewise, a body that calls `reschedule()` or `await` will infer `async`:
 
-== Second-Class Computations
+```cos
+def later(): i32 = {
+  reschedule()
+  42
+}
+```
 
-Second-class computations are useful because they do not freely escape their
-handler scope. This gives effect handlers, borrowed resources, regions, and
-structured concurrency a clear lifetime.
+The inferred type is:
 
-The working rule is:
+```cos
+() => i32 with async
+```
+
+For public APIs, an implementation may later require explicit effect
+annotations so that adding `yield`, `async`, or another effect does not silently
+change a package boundary.
+
+== Explicit Effect Annotations
+
+An explicit `with` clause is a public computation contract. The implementation's
+inferred effects must fit inside the annotated effects.
+
+This is valid:
+
+```cos
+def empty(): Unit with yield[i32] = {
+  ()
+}
+```
+
+The body never yields, but the function is explicitly exposed as a computation
+that may use the `yield[i32]` protocol. It can be represented as a generator
+that immediately completes with `Ready(())`.
+
+This is invalid:
+
+```cos
+def invalid(): Unit with yield[i32] = {
+  yield("text")
+}
+```
+
+The body produces `yield[String]`, which does not satisfy the annotated
+`yield[i32]` contract.
+
+== Effect Widening
+
+A pure computation of type `T` may be widened to:
+
+```cos
+T with yield[Y]
+```
+
+This widening creates a computation that yields no values and completes
+immediately with the original `T`.
+
+Example:
+
+```cos
+def answer(): i32 with yield[Pending] = {
+  42
+}
+```
+
+The body computes an ordinary `i32`, but the annotated result type requests the
+`yield[Pending]` protocol. The widened activation has this behavior:
 
 ```text
-plain computation: runs in the current lexical continuation
-boxed/future computation: can be stored, returned, or scheduled
+resume #1 -> Ready(42)
 ```
 
-This lets ordinary higher-order functions use effectful callbacks without
-requiring every callback to become a heap-allocated or detached value.
+This rule is the explicit mechanism for forcing a value-producing computation
+into a resumable state-machine form without adding an ad hoc generator call
+syntax.
 
-The cost is that the language must say when a function parameter may escape.
-This is still unresolved.
+== Async and Yield Together
 
-== Row-Polymorphic Callbacks
-
-The desired simple signature for `map` is:
+A computation may carry both effects:
 
 ```cos
-def map[A, B](xs: Array[A], f: A => B): Array[B]
+R with [async, yield[Pending]]
 ```
 
-The hope is that this can be understood through row polymorphism rather than
-through a new contextual-block syntax. Operationally, a call such as:
+This means two things:
+
+- It has abstract async suspension semantics.
+- It also exposes a concrete yield protocol whose payload is `Pending`.
+
+An async handler may implement async suspension by translating each suspension
+point into `yield(Pending)`. Under that handler, a computation of type
+`R with [async, yield[Pending]]` can be lowered as a stackless state machine.
+
+The `yield` annotation does not magically make every async operation stackless.
+All async operations in the body must be expressible through the selected
+`yield[Pending]` protocol, or the compiler must reject the lowering. See
+`async.typ` for the async-specific rules.
+
+== Residual Effects
+
+A computation can have residual effects in addition to `yield` or `async`:
 
 ```cos
-def parse_all(xs: Array[String]): Array[Int] with throw[ParseError] = {
-  xs.map { x =>
-    parse_int(x)?
-  }
-}
+R with [yield[Y], throw[E]]
+R with [async, throw[E]]
+R with [async, yield[Pending], throw[E]]
 ```
 
-should behave like the explicit row-polymorphic form:
+Residual effects are not handled by the presence of `yield` alone. A generator
+or async runtime must either preserve them in its resume/poll operation or
+handle them before exposing the activation. The exact spelling of effect rows
+and residual propagation remains open.
 
-```cos
-def map[A, B, E](xs: Array[A], f: A => B with E): Array[B] with E
-```
+== Escape and Storage
 
-but without requiring every simple higher-order API to expose the row variable in
-surface syntax.
+Computations are direct-style by default. A first-class activation is created
+only when a computation is represented as a generator, async handle, fiber, or
+boxed runtime object.
 
-This is a promising direction, but only for callbacks that do not escape. If
-`map` stores `f`, returns it, sends it to another thread, or schedules it after
-the call returns, the callback can no longer borrow the caller's lexical effect
-context.
+Escaping activations need ownership and lifetime rules. In particular:
 
-== Escape Marking Problem
+- Stackless activations store live locals in an explicit frame.
+- Fiber-backed activations store a runtime-owned stack or stack segment.
+- Detached async work must not capture stack-only handlers or borrowed locals
+  unless the type system proves that the capture can outlive the task.
 
-The main unresolved issue is how to mark escaping callbacks without adding
-confusing new syntax or special compiler knowledge for individual functions.
-
-Examples that need a clear escape story:
-
-```cos
-def map[A, B](xs: Array[A], f: A => B): Array[B]
-```
-
-`f` should be usable with caller effects, because `map` calls it immediately and
-does not store it.
-
-```cos
-def register[A, B](f: A => B): Unit
-```
-
-If `register` stores `f`, the same signature is not enough. The type must say
-that `f` escapes.
-
-```cos
-def spawn(task: () => R with E): R with [async, ..E]
-```
-
-If `spawn` is scoped, the task may borrow from the current async scope, but the
-returned task handle must not escape that scope.
-
-```cos
-def spawn_detached(task: () => R with E): R with [async, ..E]
-```
-
-If `spawn_detached` detaches from the lexical scope, this signature is also not
-enough. The task must be closed over owned data, must not capture stack-only
-handlers, and must satisfy any thread-safety and lifetime requirements of the
-runtime.
-
-== Avoiding Detached Magic
-
-Introducing a type such as:
-
-```cos
-Detached[() => R with E]
-```
-
-is not preferred. It looks like a normal user-defined generic type, but it would
-need special compiler checks:
-
-- it must reject captured lexical handlers that cannot outlive the scope;
-- it must reject borrowed stack locals;
-- it must require owned or moved captures;
-- it may need `Send`, `Sync`, or runtime-specific thread-safety bounds;
-- it must decide which residual effects can cross a task boundary.
-
-Those checks are real type-system and closure-capture checks, but they should not
-be hidden behind a magic library type.
-
-A less magical shape would express `spawn_detached` in terms of ordinary closure
-and trait constraints:
-
-```cos
-def spawn_detached[R, E, F](task: F): R with [async, ..E]
-where
-  F: FnOnce[] => R with E,
-  F: Owned,
-  F: Send,
-  F: Static,
-  E: ReifiableAcrossTask
-```
-
-The exact spelling is unresolved because Cosmo does not yet have the final
-surface syntax for these bounds. The design constraint is clear: the compiler
-should check a general escape/capture rule, not recognize `spawn_detached` by
-name.
-
-== Scoped Spawn vs Detached Spawn
-
-Scoped spawn and detached spawn should have different safety rules.
-
-Scoped spawn:
-
-```cos
-with tokio {
-  val handle = spawn {
-    task()
-  }
-
-  await handle
-}
-```
-
-The spawned computation belongs to the current async scope. It may borrow
-handlers and values that are valid for that scope, but the handle must not escape
-the scope unless the task and its captures are promoted to a detached-safe form.
-
-Detached spawn:
-
-```cos
-with tokio {
-  val handle = spawn_detached {
-    task()
-  }
-}
-```
-
-The spelling above is intentionally incomplete. The detached task may outlive
-the lexical scope, so the signature must express that its closure is escaping,
-owned, and runtime-safe. The open question is how to express that without adding
-a new capture-mode syntax. Regardless of spelling, the detached task must not
-borrow stack-only handlers or local resources. If it needs a handler, that
-handler must be captured as an owned, spawn-safe value or the effect must remain
-in the future and be handled at `await`.
-
-For example, this should not be accepted without further ownership proof:
-
-```cos
-val some_use = new T
-
-with tokio(some_use) ExceptionHandler(some_use) {
-  spawn_detached {
-    my_task()
-  }
-}
-```
-
-The detached task could outlive `some_use` and the exception handler. A safe
-version must either use scoped spawn, await before the scope exits, or move owned
-spawn-safe handlers into the detached task.
+These rules are representation-independent safety constraints. A stackful fiber
+does not make a detached borrowed capture safe by itself.
 
 == Open Questions
 
 The following questions remain open:
 
-- Does `A => B` in a function parameter position always mean a non-escaping,
-  row-polymorphic callback, or does it mean a pure callback unless an effect row
-  is written explicitly?
-- How should an escaping callback be marked if the design avoids new contextual
-  block syntax?
-- Can escape be inferred from function bodies across module boundaries, or must
-  it be part of the public function signature?
-- What is the minimal non-magical spelling for `FnOnce`, ownership, `Send`, and
-  lifetime/static constraints?
-- Which effects are `ReifiableAcrossTask`? `throw[E]` can plausibly cross an
-  async boundary as a failed future, but `env[R]`, `state[S]`, regions, borrows,
-  and stack-only handlers probably cannot cross by default.
-- How should a scoped `JoinHandle` encode that it cannot escape its async scope?
-- Should `spawn { ... }` be scoped by default and require an explicit detached
-  operation for fire-and-forget work?
-
-The strongest current preference is to keep `map`-style APIs simple through
-row-polymorphic non-escaping callbacks, while making escaping and detached
-execution explicit through ordinary type and closure constraints rather than
-through special-purpose compiler magic.
+- What is the final surface spelling for row-polymorphic effect variables such
+  as `..E`?
+- Which effects are reifiable across detached async task boundaries?
+- How should escaping callbacks be marked in public function signatures?
+- Should public declarations require explicit effect annotations?
+- What is the exact ABI between residual effects and generator `resume` or async
+  `poll` operations?
