@@ -206,6 +206,25 @@ private[cosmo0] final class PackagePipeline(
       pkg.metadata.stageProfile.toList.flatMap(profileName => StageCapabilityRegistry.validate(profileName))
     if stageDiagnostics.nonEmpty then return Result.failure(Phase.Check, stageDiagnostics)
 
+    val checkerProfile =
+      pkg.metadata.checkerProfile match
+        case Some(profileId) =>
+          CheckerProfiles.byId(profileId) match
+            case Some(profile) => profile
+            case None =>
+              return Result.failure(Phase.Check, List(CheckerProfiles.unknownProfileDiagnostic(profileId)))
+        case None =>
+          CheckerProfiles.Cosmo0Subset
+
+    if checkerProfile.id != CheckerProfiles.Cosmo0Subset.id then
+      return Result.unsupported(
+        Phase.Check,
+        CheckerProfiles.unsupportedDiagnostic(
+          checkerProfile,
+          CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(checkerProfile),
+        ),
+      )
+
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
     val declarations = ordered.flatMap(_.localDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
@@ -219,7 +238,7 @@ private[cosmo0] final class PackagePipeline(
         cppNamespaceImports,
       )
 
-    SourceTyper().check(combinedModule) match
+    SourceTyper(checkerProfile).check(combinedModule) match
       case typed if typed.isFailure =>
         Result.failure(Phase.Check, typed.diagnostics)
       case typed =>
@@ -275,6 +294,7 @@ private[cosmo0] final class PackagePipeline(
     val sourceRoot = optionalString(parsed, "root").getOrElse("src")
     val target = optionalString(parsed, "target")
     val stageProfile = optionalString(parsed, "stageProfile")
+    val checkerProfile = optionalString(parsed, "checkerProfile")
     val sourceFiles = optionalStringList(parsed, "sources", metadataPath, errors)
     val dependencies = optionalStringList(parsed, "dependencies", metadataPath, errors).getOrElse(Nil)
 
@@ -307,6 +327,7 @@ private[cosmo0] final class PackagePipeline(
                   stageProfile,
                   sourceFiles,
                   dependencies,
+                  checkerProfile = checkerProfile,
                 ),
               )
 

@@ -165,6 +165,7 @@ class PackagePipelineTests extends munit.FunSuite:
       s"cosmoc Stage 1 package load failed with diagnostics: ${loaded.diagnostics.map(d => d.code -> d.message)}",
     )
     assertEquals(loaded.value.get.metadata.stageProfile, Some(StageCapabilityRegistry.Cosmo1Stage1))
+    assertEquals(loaded.value.get.metadata.checkerProfile, None)
     assertEquals(
       loaded.value.get.metadata.sourceFiles,
       Some(
@@ -184,6 +185,7 @@ class PackagePipelineTests extends munit.FunSuite:
           "names/resolution.cos",
           "package/module_graph.cos",
           "types/model.cos",
+          "types/profile.cos",
           "types/declaration_resolution.cos",
           "types/check.cos",
           "parser.cos",
@@ -221,6 +223,7 @@ class PackagePipelineTests extends munit.FunSuite:
         List("types", "check"),
         List("types", "declaration_resolution"),
         List("types", "model"),
+        List("types", "profile"),
       ),
     )
 
@@ -261,6 +264,7 @@ class PackagePipelineTests extends munit.FunSuite:
         "std/map_set_test",
         "types/model",
         "types/declaration_resolution",
+        "types/profile",
         "types/check",
       ),
     )

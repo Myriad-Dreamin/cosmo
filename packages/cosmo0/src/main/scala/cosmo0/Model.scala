@@ -133,6 +133,7 @@ final case class Cosmo0PackageMetadata(
     stageProfile: Option[String] = None,
     sourceFiles: Option[List[String]] = None,
     dependencies: List[String] = Nil,
+    checkerProfile: Option[String] = None,
 ):
   def outputModuleName: String =
     val raw = name.stripPrefix("@").replace('/', '_')

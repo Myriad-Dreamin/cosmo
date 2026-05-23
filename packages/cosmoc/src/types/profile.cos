@@ -1,0 +1,219 @@
+class CheckerFeatureRejection {
+  val feature: String
+  val diagnostic_code: String
+}
+
+class CheckerProfile {
+  val id: String
+  val owner: String
+  val input_artifact: String
+  val artifact_kind: String
+  val diagnostic_namespace: String
+  val supported_features: Vec[String]
+  val rejected_features: Vec[CheckerFeatureRejection]
+
+  def supports_feature(&self, feature: String): Bool = {
+    profile_string_list_contains(self.supported_features, feature)
+  }
+
+  def rejects_feature(&self, feature: String): Bool = {
+    !self.rejected_feature_code(feature).is_empty()
+  }
+
+  def rejected_feature_code(&self, feature: String): String = {
+    var index: usize = 0;
+    while (index < self.rejected_features.len()) {
+      val rejected = self.rejected_features.get(index);
+      if (rejected.feature == feature) {
+        return rejected.diagnostic_code
+      }
+      index = index + 1
+    }
+    ""
+  }
+
+  def summary(&self): String = {
+    self.id
+      .concat("|")
+      .concat(self.input_artifact)
+      .concat("|")
+      .concat(self.artifact_kind)
+      .concat("|")
+      .concat(self.diagnostic_namespace)
+  }
+}
+
+def checker_profile_cosmoc_basic_expr_id(): String = {
+  "cosmoc.basic-expr"
+}
+
+def checker_profile_cosmo0_subset_id(): String = {
+  "cosmo0.subset"
+}
+
+def checker_profile_mltt_core_id(): String = {
+  "mltt.core"
+}
+
+def checker_artifact_typed_expression_map(): String = {
+  "typed-expression-map"
+}
+
+def checker_artifact_typed_module(): String = {
+  "typed-module"
+}
+
+def checker_artifact_mltt_core_term(): String = {
+  "mltt-core-term"
+}
+
+def checker_unsupported_feature_code(): String = {
+  "cosmo.type.unsupported-feature"
+}
+
+def checker_unsupported_dependent_pattern_code(): String = {
+  "cosmo.type.unsupported-dependent-pattern"
+}
+
+def checker_unsupported_effect_row_code(): String = {
+  "cosmo.type.unsupported-effect-row"
+}
+
+def checker_unsupported_trait_constraint_code(): String = {
+  "cosmo.type.unsupported-trait-constraint"
+}
+
+def checker_unsupported_object_dispatch_code(): String = {
+  "cosmo.type.unsupported-object-dispatch"
+}
+
+def checker_unsupported_cpp_import_code(): String = {
+  "cosmo.type.unsupported-cpp-import"
+}
+
+def checker_implementation_limit_code(): String = {
+  "cosmo.type.implementation-limit"
+}
+
+def checker_feature_effects(): String = {
+  "effects"
+}
+
+def checker_feature_traits(): String = {
+  "traits"
+}
+
+def checker_feature_object_dispatch(): String = {
+  "object-dispatch"
+}
+
+def checker_feature_dependent_patterns(): String = {
+  "dependent-patterns"
+}
+
+def checker_feature_cpp_imports(): String = {
+  "cpp-imports"
+}
+
+def checker_profile_cosmoc_basic_expr(): CheckerProfile = {
+  CheckerProfile(
+    checker_profile_cosmoc_basic_expr_id(),
+    "packages/cosmoc/src/types",
+    "syntax-arenas+name-resolution+declaration-signatures",
+    checker_artifact_typed_expression_map(),
+    "cosmo.type",
+    checker_basic_expr_supported_features(),
+    checker_basic_expr_rejected_features()
+  )
+}
+
+def checker_profile_cosmo0_subset(): CheckerProfile = {
+  CheckerProfile(
+    checker_profile_cosmo0_subset_id(),
+    "packages/cosmo0/src/main/scala/cosmo0/SourceTyper.scala",
+    "cosmo0-untyped-module",
+    checker_artifact_typed_module(),
+    "cosmo0.type",
+    checker_cosmo0_subset_supported_features(),
+    checker_cosmo0_subset_rejected_features()
+  )
+}
+
+def checker_profile_mltt_core(): CheckerProfile = {
+  CheckerProfile(
+    checker_profile_mltt_core_id(),
+    "packages/cosmoc/src/types/mltt",
+    "syntax-arenas+name-resolution+declaration-signatures",
+    checker_artifact_mltt_core_term(),
+    "cosmo.type",
+    checker_mltt_core_supported_features(),
+    checker_mltt_core_rejected_features()
+  )
+}
+
+def checker_basic_expr_supported_features(): Vec[String] = {
+  val features = Vec[String]();
+  features.push("primitive-expressions");
+  features.push("locals");
+  features.push("functions");
+  features.push("classes");
+  features.push("methods");
+  features.push("control-flow");
+  features.push("standard-intrinsics");
+  features
+}
+
+def checker_basic_expr_rejected_features(): Vec[CheckerFeatureRejection] = {
+  val features = Vec[CheckerFeatureRejection]();
+  features.push(CheckerFeatureRejection(checker_feature_effects(), checker_unsupported_effect_row_code()));
+  features.push(CheckerFeatureRejection(checker_feature_traits(), checker_unsupported_trait_constraint_code()));
+  features.push(CheckerFeatureRejection(checker_feature_dependent_patterns(), checker_unsupported_dependent_pattern_code()));
+  features
+}
+
+def checker_cosmo0_subset_supported_features(): Vec[String] = {
+  val features = Vec[String]();
+  features.push("cosmo0-declarations");
+  features.push("cosmo0-expressions");
+  features.push("cosmo0-control-flow");
+  features.push("cosmo0-standard-generics");
+  features.push("cosmo0-cpp-namespace-imports");
+  features
+}
+
+def checker_cosmo0_subset_rejected_features(): Vec[CheckerFeatureRejection] = {
+  val features = Vec[CheckerFeatureRejection]();
+  features.push(CheckerFeatureRejection(checker_feature_effects(), checker_unsupported_effect_row_code()));
+  features.push(CheckerFeatureRejection(checker_feature_dependent_patterns(), checker_unsupported_dependent_pattern_code()));
+  features
+}
+
+def checker_mltt_core_supported_features(): Vec[String] = {
+  val features = Vec[String]();
+  features.push("mltt-core-terms");
+  features.push("universes");
+  features.push("pi-types");
+  features.push("conversion");
+  features
+}
+
+def checker_mltt_core_rejected_features(): Vec[CheckerFeatureRejection] = {
+  val features = Vec[CheckerFeatureRejection]();
+  features.push(CheckerFeatureRejection(checker_feature_effects(), checker_unsupported_effect_row_code()));
+  features.push(CheckerFeatureRejection(checker_feature_traits(), checker_unsupported_trait_constraint_code()));
+  features.push(CheckerFeatureRejection(checker_feature_object_dispatch(), checker_unsupported_object_dispatch_code()));
+  features.push(CheckerFeatureRejection(checker_feature_dependent_patterns(), checker_unsupported_dependent_pattern_code()));
+  features.push(CheckerFeatureRejection(checker_feature_cpp_imports(), checker_unsupported_cpp_import_code()));
+  features
+}
+
+def profile_string_list_contains(values: &Vec[String], target: String): Bool = {
+  var index: usize = 0;
+  while (index < values.len()) {
+    if (values.get(index) == target) {
+      return true
+    }
+    index = index + 1
+  }
+  false
+}
