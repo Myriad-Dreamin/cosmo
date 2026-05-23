@@ -126,6 +126,47 @@ def dependent_pattern_vec_head_elaborates_cons_and_omits_impossible_nil(): Bool 
     render_dependent_case_tree(tree) == "case xs : Vec(A, S(n)) of\n  Cons(head, tail) -> head [n=k]"
 }
 
+def dependent_pattern_cosmo0_profile_elaborates_vec_head(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val s_n = dependent_pattern_nat_successor(store, n);
+  val scrutinee_indices = dependent_pattern_vec_indices(store, s_n);
+  val head_pat = patterns.alloc_variable("head", make_span(12, 16));
+  val tail_pat = patterns.alloc_variable("tail", make_span(18, 22));
+  val args = Vec[DependentSourcePatternId]();
+  args.push(head_pat);
+  args.push(tail_pat);
+  val cons = patterns.alloc_constructor("Cons", args, make_span(8, 23));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(cons, "head", make_span(8, 31)));
+  val profile = checker_profile_cosmo0_subset();
+
+  val tree = elaborate_dependent_pattern_clauses(
+    profile,
+    env,
+    store,
+    patterns,
+    "Vec",
+    "xs",
+    scrutinee_indices,
+    "A",
+    clauses
+  );
+
+  dependent_pattern_profile_supports_elaboration(profile) and
+    tree.is_ok() and
+    tree.branches.len() == 1 and
+    tree.branches.get(0).constructor == "Cons" and
+    !tree.branches.get(0).impossible and
+    tree.refinements.get(0).context_bindings.len() == 2 and
+    render_dependent_case_tree(tree) == "case xs : Vec(A, S(n)) of\n  Cons(head, tail) -> head [n=k]"
+}
+
 def dependent_pattern_vec_append_fixture_elaborates_constructor_split(): Bool = {
   var store = dependent_pattern_term_store();
   var env = dependent_pattern_env();
@@ -353,6 +394,9 @@ def main(): i32 = {
     return 1
   }
   if (!dependent_pattern_vec_head_elaborates_cons_and_omits_impossible_nil()) {
+    return 1
+  }
+  if (!dependent_pattern_cosmo0_profile_elaborates_vec_head()) {
     return 1
   }
   if (!dependent_pattern_vec_append_fixture_elaborates_constructor_split()) {

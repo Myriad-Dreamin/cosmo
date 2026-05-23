@@ -9,6 +9,11 @@ declare support for dependent-pattern elaboration.
 - **THEN** its metadata declares support for dependent pattern matching
 - **AND** its metadata declares support for dependent-pattern elaboration
 
+#### Scenario: cosmo0 profile elaborates accepted dependent pattern
+- **WHEN** accepted dependent pattern clauses are elaborated with the `cosmo0.subset` checker profile
+- **THEN** the checker produces the deterministic case-tree artifact
+- **AND** the checker does not report an unsupported-dependent-pattern diagnostic
+
 #### Scenario: Unsupported profile rejects dependent pattern
 - **WHEN** a checker profile that does not support dependent patterns receives a dependent pattern match
 - **THEN** the checker reports an unsupported-dependent-pattern diagnostic

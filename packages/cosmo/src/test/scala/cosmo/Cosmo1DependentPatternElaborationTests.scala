@@ -41,6 +41,7 @@ class Cosmo1DependentPatternElaborationTests extends TestBase:
     assert(elaborator.contains("def dependent_pattern_add_nat_fixture("))
     assert(elaborator.contains("def dependent_pattern_add_vec_fixture("))
     assert(fixtures.contains("dependent_pattern_vec_head_elaborates_cons_and_omits_impossible_nil"))
+    assert(fixtures.contains("dependent_pattern_cosmo0_profile_elaborates_vec_head"))
     assert(fixtures.contains("dependent_pattern_vec_append_fixture_elaborates_constructor_split"))
     assert(fixtures.contains("dependent_pattern_variable_wildcard_and_impossible_patterns_elaborate"))
     assert(fixtures.contains("dependent_pattern_unsupported_profile_rejects_clauses"))

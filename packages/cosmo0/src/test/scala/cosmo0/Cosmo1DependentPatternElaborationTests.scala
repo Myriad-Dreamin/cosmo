@@ -35,6 +35,7 @@ class Cosmo1DependentPatternElaborationTests extends munit.FunSuite:
     assert(output.contains("inline bool dependent_pattern_profile_metadata_declares_elaboration_support()"))
     assert(output.contains("inline bool dependent_pattern_unifier_detects_impossible_constructor_index()"))
     assert(output.contains("inline bool dependent_pattern_vec_head_elaborates_cons_and_omits_impossible_nil()"))
+    assert(output.contains("inline bool dependent_pattern_cosmo0_profile_elaborates_vec_head()"))
     assert(output.contains("inline bool dependent_pattern_vec_append_fixture_elaborates_constructor_split()"))
     assert(output.contains("inline bool dependent_pattern_variable_wildcard_and_impossible_patterns_elaborate()"))
     assert(output.contains("inline bool dependent_pattern_unsupported_profile_rejects_clauses()"))
