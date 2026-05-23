@@ -3,10 +3,15 @@ import types.dependent_pattern
 import types.profile
 
 def dependent_pattern_profile_metadata_declares_elaboration_support(): Bool = {
+  val cosmo0 = checker_profile_cosmo0_subset();
   val core = checker_profile_mltt_core();
   val dependent = checker_profile_mltt_dependent_patterns();
 
-  core.rejects_feature(checker_feature_dependent_patterns()) and
+  cosmo0.id == "cosmo0.subset" and
+    cosmo0.supports_feature(checker_feature_dependent_patterns()) and
+    cosmo0.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    !cosmo0.rejects_feature(checker_feature_dependent_patterns()) and
+    core.rejects_feature(checker_feature_dependent_patterns()) and
     core.rejected_feature_code(checker_feature_dependent_patterns()) == checker_unsupported_dependent_pattern_code() and
     !core.supports_feature(checker_feature_dependent_pattern_elaboration()) and
     dependent.id == "mltt.dependent-patterns" and

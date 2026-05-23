@@ -18,6 +18,9 @@ class CheckerProfileTests extends munit.FunSuite:
     assertEquals(subset.id, "cosmo0.subset")
     assertEquals(subset.artifactKind, "typed-module")
     assert(subset.supports("cosmo0-expressions"))
+    assert(subset.supports(CheckerProfiles.DependentPatternsFeature))
+    assert(subset.supports(CheckerProfiles.DependentPatternElaborationFeature))
+    assert(!subset.rejects(CheckerProfiles.DependentPatternsFeature))
 
     assertEquals(mltt.id, "mltt.core")
     assertEquals(mltt.artifactKind, "mltt-core-term")

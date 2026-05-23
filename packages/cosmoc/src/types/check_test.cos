@@ -78,6 +78,9 @@ def checker_profile_metadata_declares_basic_and_mltt_features(): Bool = {
     basic.rejected_feature_code(checker_feature_dependent_patterns()) == checker_unsupported_dependent_pattern_code() and
     cosmo0.id == "cosmo0.subset" and
     cosmo0.artifact_kind == "typed-module" and
+    cosmo0.supports_feature(checker_feature_dependent_patterns()) and
+    cosmo0.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    !cosmo0.rejects_feature(checker_feature_dependent_patterns()) and
     mltt.id == "mltt.core" and
     mltt.artifact_kind == "mltt-core-term" and
     mltt.rejects_feature(checker_feature_object_dispatch()) and

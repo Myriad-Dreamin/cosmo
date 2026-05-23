@@ -1,11 +1,17 @@
 # cosmo-dependent-pattern-elaboration Specification
 
 ## Purpose
-TBD - created by archiving change elaborate-dependent-pattern-matching. Update Purpose after archive.
+Define profile-gated dependent pattern elaboration over constructor metadata,
+indexed-family unification, deterministic case trees, and coverage diagnostics.
 ## Requirements
 ### Requirement: Profile-Gated Dependent Patterns
 Dependent pattern matching SHALL be available only in checker profiles that
 declare support for dependent-pattern elaboration.
+
+#### Scenario: cosmo0 profile declares dependent-pattern support
+- **WHEN** the default `cosmo0.subset` checker profile is loaded
+- **THEN** its metadata declares support for dependent pattern matching
+- **AND** its metadata declares support for dependent-pattern elaboration
 
 #### Scenario: Unsupported profile rejects dependent pattern
 - **WHEN** a checker profile that does not support dependent patterns receives a dependent pattern match

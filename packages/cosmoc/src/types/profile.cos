@@ -202,13 +202,14 @@ def checker_cosmo0_subset_supported_features(): Vec[String] = {
   features.push("cosmo0-control-flow");
   features.push("cosmo0-standard-generics");
   features.push("cosmo0-cpp-namespace-imports");
+  features.push(checker_feature_dependent_patterns());
+  features.push(checker_feature_dependent_pattern_elaboration());
   features
 }
 
 def checker_cosmo0_subset_rejected_features(): Vec[CheckerFeatureRejection] = {
   val features = Vec[CheckerFeatureRejection]();
   features.push(CheckerFeatureRejection(checker_feature_effects(), checker_unsupported_effect_row_code()));
-  features.push(CheckerFeatureRejection(checker_feature_dependent_patterns(), checker_unsupported_dependent_pattern_code()));
   features
 }
 

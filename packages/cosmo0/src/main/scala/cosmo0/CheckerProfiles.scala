@@ -78,10 +78,11 @@ object CheckerProfiles:
         "cosmo0-control-flow",
         "cosmo0-standard-generics",
         "cosmo0-cpp-namespace-imports",
+        DependentPatternsFeature,
+        DependentPatternElaborationFeature,
       ),
       Map(
         EffectsFeature -> UnsupportedEffectRowCode,
-        DependentPatternsFeature -> UnsupportedDependentPatternCode,
       ),
     )
 

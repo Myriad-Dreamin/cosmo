@@ -4,6 +4,11 @@
 Dependent pattern matching SHALL be available only in checker profiles that
 declare support for dependent-pattern elaboration.
 
+#### Scenario: cosmo0 profile declares dependent-pattern support
+- **WHEN** the default `cosmo0.subset` checker profile is loaded
+- **THEN** its metadata declares support for dependent pattern matching
+- **AND** its metadata declares support for dependent-pattern elaboration
+
 #### Scenario: Unsupported profile rejects dependent pattern
 - **WHEN** a checker profile that does not support dependent patterns receives a dependent pattern match
 - **THEN** the checker reports an unsupported-dependent-pattern diagnostic

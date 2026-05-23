@@ -47,6 +47,8 @@ Current diagnostic fixture coverage is indexed in `docs/cosmo0/syntax-corpus-mat
 
 Type-checking tests must identify the checker profile under test. The default cosmo0 source checker profile is `cosmo0.subset`; the current `packages/cosmoc/src/types` expression checker profile is `cosmoc.basic-expr`; the initial MLTT experiment placeholder is `mltt.core`.
 
+The `cosmo0.subset` profile declares support for dependent pattern matching and dependent-pattern elaboration. Simpler experimental profiles may still reject that feature explicitly; such rejections do not imply that the same source is outside cosmo0.
+
 Checker profile fixtures should assert:
 
 - the selected profile id;
