@@ -42,6 +42,7 @@ class Cosmo1BasicExpressionTypecheckingTests extends munit.FunSuite:
     assert(output.contains("struct LocalBinding"))
     assert(output.contains("struct ExpressionCheckResult"))
     assert(output.contains("inline CheckerProfile checker_profile_cosmoc_basic_expr()"))
+    assert(output.contains("inline CheckerProfile checker_profile_mltt_dependent_patterns()"))
     assert(output.contains("inline bool checker_profile_metadata_declares_basic_and_mltt_features()"))
     assert(output.contains("inline bool basic_expression_checker_result_names_profile()"))
     assert(output.contains("inline bool basic_expression_checker_reports_unsupported_decl_as_result()"))
@@ -73,6 +74,8 @@ class Cosmo1BasicExpressionTypecheckingTests extends munit.FunSuite:
     assert(output.contains("cosmo1.type.mismatch"))
     assert(output.contains("cosmo.type.unsupported-dependent-pattern"))
     assert(output.contains("cosmo.type.unsupported-object-dispatch"))
+    assert(output.contains("mltt.dependent-patterns"))
+    assert(output.contains("dependent-pattern-elaboration"))
 
   private def combineSources(paths: List[String]): String =
     paths.map(readCosmoSource).mkString("\n")

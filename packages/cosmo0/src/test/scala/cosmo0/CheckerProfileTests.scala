@@ -5,6 +5,7 @@ class CheckerProfileTests extends munit.FunSuite:
     val basic = CheckerProfiles.CosmocBasicExpr
     val subset = CheckerProfiles.Cosmo0Subset
     val mltt = CheckerProfiles.MlttCore
+    val dependent = CheckerProfiles.MlttDependentPatterns
 
     assertEquals(basic.id, "cosmoc.basic-expr")
     assertEquals(basic.artifactKind, "typed-expression-map")
@@ -24,6 +25,12 @@ class CheckerProfileTests extends munit.FunSuite:
       mltt.rejectedFeatureCode(CheckerProfiles.ObjectDispatchFeature),
       CheckerProfiles.UnsupportedObjectDispatchCode,
     )
+    assert(!mltt.supports(CheckerProfiles.DependentPatternElaborationFeature))
+    assertEquals(dependent.id, "mltt.dependent-patterns")
+    assertEquals(dependent.artifactKind, "mltt-case-tree")
+    assert(dependent.supports(CheckerProfiles.DependentPatternsFeature))
+    assert(dependent.supports(CheckerProfiles.DependentPatternElaborationFeature))
+    assert(!dependent.rejects(CheckerProfiles.DependentPatternsFeature))
 
   test("default cosmo0 check result identifies the cosmo0 subset profile"):
     val result = Cosmo0().check("val answer = 42")

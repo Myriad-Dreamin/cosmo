@@ -55,6 +55,10 @@ def checker_profile_mltt_core_id(): String = {
   "mltt.core"
 }
 
+def checker_profile_mltt_dependent_patterns_id(): String = {
+  "mltt.dependent-patterns"
+}
+
 def checker_artifact_typed_expression_map(): String = {
   "typed-expression-map"
 }
@@ -65,6 +69,10 @@ def checker_artifact_typed_module(): String = {
 
 def checker_artifact_mltt_core_term(): String = {
   "mltt-core-term"
+}
+
+def checker_artifact_mltt_case_tree(): String = {
+  "mltt-case-tree"
 }
 
 def checker_unsupported_feature_code(): String = {
@@ -111,6 +119,10 @@ def checker_feature_dependent_patterns(): String = {
   "dependent-patterns"
 }
 
+def checker_feature_dependent_pattern_elaboration(): String = {
+  "dependent-pattern-elaboration"
+}
+
 def checker_feature_cpp_imports(): String = {
   "cpp-imports"
 }
@@ -148,6 +160,18 @@ def checker_profile_mltt_core(): CheckerProfile = {
     "cosmo.type",
     checker_mltt_core_supported_features(),
     checker_mltt_core_rejected_features()
+  )
+}
+
+def checker_profile_mltt_dependent_patterns(): CheckerProfile = {
+  CheckerProfile(
+    checker_profile_mltt_dependent_patterns_id(),
+    "packages/cosmoc/src/types/dependent_pattern.cos",
+    "mltt-core-term+constructor-metadata+source-pattern-clauses",
+    checker_artifact_mltt_case_tree(),
+    "cosmo.type",
+    checker_mltt_dependent_pattern_supported_features(),
+    checker_mltt_dependent_pattern_rejected_features()
   )
 }
 
@@ -197,12 +221,31 @@ def checker_mltt_core_supported_features(): Vec[String] = {
   features
 }
 
+def checker_mltt_dependent_pattern_supported_features(): Vec[String] = {
+  val features = checker_mltt_core_supported_features();
+  features.push(checker_feature_dependent_patterns());
+  features.push(checker_feature_dependent_pattern_elaboration());
+  features.push("inductive-family-constructors");
+  features.push("case-trees");
+  features.push("constructor-split-coverage");
+  features
+}
+
 def checker_mltt_core_rejected_features(): Vec[CheckerFeatureRejection] = {
   val features = Vec[CheckerFeatureRejection]();
   features.push(CheckerFeatureRejection(checker_feature_effects(), checker_unsupported_effect_row_code()));
   features.push(CheckerFeatureRejection(checker_feature_traits(), checker_unsupported_trait_constraint_code()));
   features.push(CheckerFeatureRejection(checker_feature_object_dispatch(), checker_unsupported_object_dispatch_code()));
   features.push(CheckerFeatureRejection(checker_feature_dependent_patterns(), checker_unsupported_dependent_pattern_code()));
+  features.push(CheckerFeatureRejection(checker_feature_cpp_imports(), checker_unsupported_cpp_import_code()));
+  features
+}
+
+def checker_mltt_dependent_pattern_rejected_features(): Vec[CheckerFeatureRejection] = {
+  val features = Vec[CheckerFeatureRejection]();
+  features.push(CheckerFeatureRejection(checker_feature_effects(), checker_unsupported_effect_row_code()));
+  features.push(CheckerFeatureRejection(checker_feature_traits(), checker_unsupported_trait_constraint_code()));
+  features.push(CheckerFeatureRejection(checker_feature_object_dispatch(), checker_unsupported_object_dispatch_code()));
   features.push(CheckerFeatureRejection(checker_feature_cpp_imports(), checker_unsupported_cpp_import_code()));
   features
 }

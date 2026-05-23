@@ -25,6 +25,7 @@ object CheckerProfiles:
   val CosmocBasicExprId = "cosmoc.basic-expr"
   val Cosmo0SubsetId = "cosmo0.subset"
   val MlttCoreId = "mltt.core"
+  val MlttDependentPatternsId = "mltt.dependent-patterns"
 
   val UnsupportedFeatureCode = "cosmo.type.unsupported-feature"
   val UnsupportedDependentPatternCode = "cosmo.type.unsupported-dependent-pattern"
@@ -38,6 +39,7 @@ object CheckerProfiles:
   val TraitsFeature = "traits"
   val ObjectDispatchFeature = "object-dispatch"
   val DependentPatternsFeature = "dependent-patterns"
+  val DependentPatternElaborationFeature = "dependent-pattern-elaboration"
   val CppImportsFeature = "cpp-imports"
 
   val CosmocBasicExpr: CheckerProfile =
@@ -105,8 +107,34 @@ object CheckerProfiles:
       ),
     )
 
+  val MlttDependentPatterns: CheckerProfile =
+    CheckerProfile(
+      MlttDependentPatternsId,
+      "packages/cosmoc/src/types/dependent_pattern.cos",
+      "mltt-core-term+constructor-metadata+source-pattern-clauses",
+      "mltt-case-tree",
+      "cosmo.type",
+      Set(
+        "mltt-core-terms",
+        "universes",
+        "pi-types",
+        "conversion",
+        DependentPatternsFeature,
+        DependentPatternElaborationFeature,
+        "inductive-family-constructors",
+        "case-trees",
+        "constructor-split-coverage",
+      ),
+      Map(
+        EffectsFeature -> UnsupportedEffectRowCode,
+        TraitsFeature -> UnsupportedTraitConstraintCode,
+        ObjectDispatchFeature -> UnsupportedObjectDispatchCode,
+        CppImportsFeature -> UnsupportedCppImportCode,
+      ),
+    )
+
   val all: List[CheckerProfile] =
-    List(CosmocBasicExpr, Cosmo0Subset, MlttCore)
+    List(CosmocBasicExpr, Cosmo0Subset, MlttCore, MlttDependentPatterns)
 
   def byId(id: String): Option[CheckerProfile] =
     all.find(_.id == id)

@@ -1,0 +1,372 @@
+import source.span
+import types.dependent_pattern
+import types.profile
+
+def dependent_pattern_profile_metadata_declares_elaboration_support(): Bool = {
+  val core = checker_profile_mltt_core();
+  val dependent = checker_profile_mltt_dependent_patterns();
+
+  core.rejects_feature(checker_feature_dependent_patterns()) and
+    core.rejected_feature_code(checker_feature_dependent_patterns()) == checker_unsupported_dependent_pattern_code() and
+    !core.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    dependent.id == "mltt.dependent-patterns" and
+    dependent.artifact_kind == "mltt-case-tree" and
+    dependent.supports_feature(checker_feature_dependent_patterns()) and
+    dependent.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    !dependent.rejects_feature(checker_feature_dependent_patterns())
+}
+
+def dependent_pattern_nat_and_vec_metadata_is_deterministic(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val maybe_vec = env.find_inductive("Vec");
+  maybe_vec match {
+    case Option[DependentPatternInductiveDecl]::Some(vec_decl) => {
+      val nil = vec_decl.constructors.get(0);
+      val cons = vec_decl.constructors.get(1);
+      vec_decl.parameters.get(0).name == "A" and
+        vec_decl.indices.get(0).name == "n" and
+        nil.name == "Nil" and
+        dependent_pattern_indices_display(store, nil.result_indices) == "A, Z" and
+        cons.name == "Cons" and
+        cons.telescope.get(0).name == "head" and
+        cons.telescope.get(1).name == "tail" and
+        dependent_pattern_indices_display(store, cons.result_indices) == "A, S(k)"
+    }
+    case Option[DependentPatternInductiveDecl]::None => {
+      false
+    }
+  }
+}
+
+def dependent_pattern_unifier_detects_impossible_constructor_index(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val s_n = dependent_pattern_nat_successor(store, n);
+  val scrutinee_indices = dependent_pattern_vec_indices(store, s_n);
+  val maybe_nil = env.find_constructor("Nil");
+
+  maybe_nil match {
+    case Option[DependentPatternConstructorDecl]::Some(nil_ctor) => {
+      val unified = dependent_pattern_unify_indices(store, scrutinee_indices, nil_ctor.result_indices, make_span(4, 7));
+      !unified.is_ok() and
+        unified.impossible and
+        unified.first_code() == "cosmo.type.dependent-pattern.impossible-branch" and
+        unified.diagnostics.get(0).span.start == 4
+    }
+    case Option[DependentPatternConstructorDecl]::None => {
+      false
+    }
+  }
+}
+
+def dependent_pattern_unifier_reports_occurs_check(): Bool = {
+  var store = dependent_pattern_term_store();
+  val n = store.alloc_var("n");
+  val s_n = dependent_pattern_nat_successor(store, n);
+  val expected = Vec[DependentPatternTermId]();
+  expected.push(n);
+  val actual = Vec[DependentPatternTermId]();
+  actual.push(s_n);
+
+  val unified = dependent_pattern_unify_indices(store, expected, actual, make_span(10, 14));
+  !unified.is_ok() and
+    unified.first_code() == "cosmo.type.dependent-pattern.occurs-check" and
+    unified.diagnostics.get(0).summary == "n in S(n)"
+}
+
+def dependent_pattern_vec_head_elaborates_cons_and_omits_impossible_nil(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val s_n = dependent_pattern_nat_successor(store, n);
+  val scrutinee_indices = dependent_pattern_vec_indices(store, s_n);
+  val head_pat = patterns.alloc_variable("head", make_span(12, 16));
+  val tail_pat = patterns.alloc_variable("tail", make_span(18, 22));
+  val args = Vec[DependentSourcePatternId]();
+  args.push(head_pat);
+  args.push(tail_pat);
+  val cons = patterns.alloc_constructor("Cons", args, make_span(8, 23));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(cons, "head", make_span(8, 31)));
+
+  val tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Vec",
+    "xs",
+    scrutinee_indices,
+    "A",
+    clauses
+  );
+
+  tree.is_ok() and
+    tree.branches.len() == 1 and
+    tree.branches.get(0).constructor == "Cons" and
+    !tree.branches.get(0).impossible and
+    tree.refinements.get(0).context_bindings.len() == 2 and
+    render_dependent_case_tree(tree) == "case xs : Vec(A, S(n)) of\n  Cons(head, tail) -> head [n=k]"
+}
+
+def dependent_pattern_vec_append_fixture_elaborates_constructor_split(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val scrutinee_indices = dependent_pattern_vec_indices(store, n);
+
+  val nil = patterns.alloc_constructor("Nil", Vec[DependentSourcePatternId](), make_span(8, 11));
+  val cons_head = patterns.alloc_variable("head", make_span(20, 24));
+  val cons_tail = patterns.alloc_variable("tail", make_span(26, 30));
+  val cons_args = Vec[DependentSourcePatternId]();
+  cons_args.push(cons_head);
+  cons_args.push(cons_tail);
+  val cons = patterns.alloc_constructor("Cons", cons_args, make_span(15, 31));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(nil, "ys", make_span(8, 17)));
+  clauses.push(DependentPatternClause(cons, "Cons(head, append(tail, ys))", make_span(15, 57)));
+
+  val tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Vec",
+    "xs",
+    scrutinee_indices,
+    "Vec(A, plus(n, m))",
+    clauses
+  );
+
+  tree.is_ok() and
+    tree.branches.len() == 2 and
+    tree.refinements.len() == 2 and
+    tree.refinements.get(0).substitution_summary == "n=Z" and
+    tree.refinements.get(1).substitution_summary == "n=S(k)" and
+    tree.refinements.get(1).expected_type == "Vec(A, plus(n, m)) under n=S(k)"
+}
+
+def dependent_pattern_variable_wildcard_and_impossible_patterns_elaborate(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+
+  val variable = patterns.alloc_variable("value", make_span(0, 5));
+  val variable_clauses = Vec[DependentPatternClause]();
+  variable_clauses.push(DependentPatternClause(variable, "value", make_span(0, 13)));
+  val indices = Vec[DependentPatternTermId]();
+
+  val variable_tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Nat",
+    "n",
+    indices,
+    "Nat",
+    variable_clauses
+  );
+
+  val wildcard = patterns.alloc_wildcard(make_span(20, 21));
+  val impossible = patterns.alloc_impossible(make_span(30, 31));
+  val wildcard_clauses = Vec[DependentPatternClause]();
+  wildcard_clauses.push(DependentPatternClause(wildcard, "Z", make_span(20, 26)));
+  wildcard_clauses.push(DependentPatternClause(impossible, "absurd", make_span(30, 40)));
+
+  val wildcard_tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Nat",
+    "n",
+    indices,
+    "Nat",
+    wildcard_clauses
+  );
+
+  variable_tree.is_ok() and
+    variable_tree.branches.len() == 1 and
+    variable_tree.branches.get(0).constructor == "_" and
+    wildcard_tree.is_ok() and
+    wildcard_tree.branches.len() == 2 and
+    wildcard_tree.branches.get(1).constructor == "!" and
+    wildcard_tree.branches.get(1).impossible
+}
+
+def dependent_pattern_unsupported_profile_rejects_clauses(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val scrutinee_indices = dependent_pattern_vec_indices(store, n);
+  val wildcard = patterns.alloc_wildcard(make_span(0, 1));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(wildcard, "xs", make_span(0, 6)));
+
+  val tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_core(),
+    env,
+    store,
+    patterns,
+    "Vec",
+    "xs",
+    scrutinee_indices,
+    "Vec(A, n)",
+    clauses
+  );
+
+  !tree.is_ok() and
+    tree.first_code() == checker_unsupported_dependent_pattern_code() and
+    tree.branches.len() == 0
+}
+
+def dependent_pattern_equality_pattern_is_rejected(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+
+  val left = store.alloc_var("proof");
+  val right = store.alloc_constructor("Refl", Vec[DependentPatternTermId]());
+  val eq = patterns.alloc_equality(left, right, make_span(3, 11));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(eq, "proof", make_span(3, 19)));
+  val indices = Vec[DependentPatternTermId]();
+
+  val tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Nat",
+    "p",
+    indices,
+    "Eq(A, x, y)",
+    clauses
+  );
+
+  !tree.is_ok() and tree.first_code() == "cosmo.type.unsupported-equality-pattern"
+}
+
+def dependent_pattern_coverage_reports_missing_branch(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val scrutinee_indices = dependent_pattern_vec_indices(store, n);
+  val nil = patterns.alloc_constructor("Nil", Vec[DependentSourcePatternId](), make_span(8, 11));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(nil, "ys", make_span(8, 17)));
+
+  val tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Vec",
+    "xs",
+    scrutinee_indices,
+    "Vec(A, n)",
+    clauses
+  );
+
+  !tree.is_ok() and
+    tree.first_code() == "cosmo.type.dependent-pattern.missing-branch" and
+    tree.diagnostics.get(0).summary == "Vec A, n lacks Cons"
+}
+
+def dependent_pattern_coverage_reports_redundant_branch_with_span(): Bool = {
+  var store = dependent_pattern_term_store();
+  var env = dependent_pattern_env();
+  var patterns = dependent_source_pattern_store();
+  dependent_pattern_add_nat_fixture(store, env);
+  dependent_pattern_add_vec_fixture(store, env);
+
+  val n = store.alloc_var("n");
+  val s_n = dependent_pattern_nat_successor(store, n);
+  val scrutinee_indices = dependent_pattern_vec_indices(store, s_n);
+  val first = patterns.alloc_constructor("Cons", Vec[DependentSourcePatternId](), make_span(8, 12));
+  val second = patterns.alloc_constructor("Cons", Vec[DependentSourcePatternId](), make_span(20, 24));
+  val clauses = Vec[DependentPatternClause]();
+  clauses.push(DependentPatternClause(first, "head", make_span(8, 17)));
+  clauses.push(DependentPatternClause(second, "again", make_span(20, 31)));
+
+  val tree = elaborate_dependent_pattern_clauses(
+    checker_profile_mltt_dependent_patterns(),
+    env,
+    store,
+    patterns,
+    "Vec",
+    "xs",
+    scrutinee_indices,
+    "A",
+    clauses
+  );
+
+  !tree.is_ok() and
+    tree.first_code() == "cosmo.type.dependent-pattern.redundant-branch" and
+    tree.diagnostics.get(0).span.start == 20 and
+    tree.diagnostics.get(0).span.end == 24
+}
+
+def main(): i32 = {
+  if (!dependent_pattern_profile_metadata_declares_elaboration_support()) {
+    return 1
+  }
+  if (!dependent_pattern_nat_and_vec_metadata_is_deterministic()) {
+    return 1
+  }
+  if (!dependent_pattern_unifier_detects_impossible_constructor_index()) {
+    return 1
+  }
+  if (!dependent_pattern_unifier_reports_occurs_check()) {
+    return 1
+  }
+  if (!dependent_pattern_vec_head_elaborates_cons_and_omits_impossible_nil()) {
+    return 1
+  }
+  if (!dependent_pattern_vec_append_fixture_elaborates_constructor_split()) {
+    return 1
+  }
+  if (!dependent_pattern_variable_wildcard_and_impossible_patterns_elaborate()) {
+    return 1
+  }
+  if (!dependent_pattern_unsupported_profile_rejects_clauses()) {
+    return 1
+  }
+  if (!dependent_pattern_equality_pattern_is_rejected()) {
+    return 1
+  }
+  if (!dependent_pattern_coverage_reports_missing_branch()) {
+    return 1
+  }
+  if (!dependent_pattern_coverage_reports_redundant_branch_with_span()) {
+    return 1
+  }
+  0
+}
