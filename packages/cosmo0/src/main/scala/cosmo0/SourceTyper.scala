@@ -5,10 +5,14 @@ import scala.collection.mutable.ListBuffer
 
 object SourceTyper:
   def apply(): SourceTyper =
-    new SourceTyper(StandardGenericDescriptors.all)
+    new SourceTyper(StandardGenericDescriptors.all, CheckerProfiles.Cosmo0Subset)
+
+  def apply(profile: CheckerProfile): SourceTyper =
+    new SourceTyper(StandardGenericDescriptors.all, profile)
 
 final class SourceTyper(
     standardGenerics: Map[String, StandardGenericDescriptor],
+    profile: CheckerProfile = CheckerProfiles.Cosmo0Subset,
 ):
   def check(module: UntypedModule): Result[TypedModule] =
     val state = State(module)
@@ -155,6 +159,8 @@ final class SourceTyper(
         module.span,
         module.cIncludes,
         foreignAliases.values.toList,
+        profile.id,
+        profile.artifactKind,
       )
       if diagnostics.isEmpty then Result.success(Phase.Check, result)
       else Result.failure(Phase.Check, diagnostics.toList)

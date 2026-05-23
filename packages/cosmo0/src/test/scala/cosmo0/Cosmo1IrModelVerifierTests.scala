@@ -11,6 +11,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
   private val scopePath = "packages/cosmoc/src/names/scope.cos"
   private val resolutionPath = "packages/cosmoc/src/names/resolution.cos"
   private val modelPath = "packages/cosmoc/src/types/model.cos"
+  private val profilePath = "packages/cosmoc/src/types/profile.cos"
   private val declarationResolutionPath = "packages/cosmoc/src/types/declaration_resolution.cos"
   private val typeCheckPath = "packages/cosmoc/src/types/check.cos"
   private val irModelPath = "packages/cosmoc/src/ir/model.cos"
@@ -100,6 +101,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
         scopePath,
         resolutionPath,
         modelPath,
+        profilePath,
         declarationResolutionPath,
         typeCheckPath,
         irModelPath,
@@ -119,6 +121,7 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
         scopePath,
         resolutionPath,
         modelPath,
+        profilePath,
         declarationResolutionPath,
         typeCheckPath,
         irModelPath,

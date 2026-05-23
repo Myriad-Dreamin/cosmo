@@ -43,6 +43,30 @@ Unsupported syntax, type, declaration, expression, control-flow, runtime, and pa
 
 Current diagnostic fixture coverage is indexed in `docs/cosmo0/syntax-corpus-matrix.md`. Each fixture row names the expected diagnostic while keeping convention-style embedded source programs in `fixtures/diagnostics/*.cos`.
 
+== Checker Profile Tests
+
+Type-checking tests must identify the checker profile under test. The default cosmo0 source checker profile is `cosmo0.subset`; the current `packages/cosmoc/src/types` expression checker profile is `cosmoc.basic-expr`; the initial MLTT experiment placeholder is `mltt.core`.
+
+Checker profile fixtures should assert:
+
+- the selected profile id;
+- the produced artifact kind, such as `typed-module`, `typed-expression-map`, or `mltt-core-term`;
+- accepted and deliberately rejected feature lists;
+- unsupported-feature diagnostics as ordinary checker results, not internal errors;
+- deterministic artifact summaries for comparable typed output.
+
+The shared unsupported-feature diagnostic codes are:
+
+- `cosmo.type.unsupported-feature`
+- `cosmo.type.unsupported-dependent-pattern`
+- `cosmo.type.unsupported-effect-row`
+- `cosmo.type.unsupported-trait-constraint`
+- `cosmo.type.unsupported-object-dispatch`
+- `cosmo.type.unsupported-cpp-import`
+- `cosmo.type.implementation-limit`
+
+Profile selection is currently a development and test-harness feature. `Cosmo0.checkWithProfile` and package `checkerProfile` metadata can select `cosmo0.subset`; experimental profiles such as `mltt.core` are isolated and return unsupported-feature diagnostics until their checker implementation exists.
+
 == Determinism Tests
 
 Package ordering, runtime support emission, generated code, and diagnostic stability checks should run through the package pipeline. The `packages/cosmoc` Stage 1 package must check and compile deterministically, including stable module order and repeated C++ backend output.

@@ -46,6 +46,9 @@ final class Cosmo0:
   def check(sourceText: String): Result[CheckedModule] =
     check(SourceFile("<memory>", sourceText))
 
+  def checkWithProfile(sourceText: String, profileId: String): Result[CheckedModule] =
+    checkWithProfile(SourceFile("<memory>", sourceText), profileId)
+
   def elaborate(sourceText: String): Result[UntypedModule] =
     elaborate(SourceFile("<memory>", sourceText))
 
@@ -57,9 +60,28 @@ final class Cosmo0:
         Result.failure(Phase.Check, failed.diagnostics)
 
   def check(source: SourceFile): Result[CheckedModule] =
+    checkWithProfile(source, CheckerProfiles.Cosmo0Subset.id)
+
+  def checkWithProfile(source: SourceFile, profileId: String): Result[CheckedModule] =
+    CheckerProfiles.byId(profileId) match
+      case Some(profile) if profile.id == CheckerProfiles.Cosmo0Subset.id =>
+        checkWithProfile(source, profile)
+      case Some(profile) =>
+        Result.unsupported(
+          Phase.Check,
+          CheckerProfiles.unsupportedDiagnostic(
+            profile,
+            CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(profile),
+            Some(source.span(0, source.text.length)),
+          ),
+        )
+      case None =>
+        Result.failure(Phase.Check, List(CheckerProfiles.unknownProfileDiagnostic(profileId)))
+
+  private def checkWithProfile(source: SourceFile, profile: CheckerProfile): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
-        SourceTyper().check(elaborated.value.get) match
+        SourceTyper(profile).check(elaborated.value.get) match
           case checked if checked.isSuccess =>
             Result.success(Phase.Check, CheckedModule(checked.value.get))
           case failed =>

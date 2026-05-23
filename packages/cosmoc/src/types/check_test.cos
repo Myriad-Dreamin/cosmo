@@ -65,6 +65,115 @@ def diagnostic_has_mismatch(result: ExpressionCheckResult, index: usize, expecte
     expression_diagnostic_actual_text(types, diagnostic) == actual
 }
 
+def checker_profile_metadata_declares_basic_and_mltt_features(): Bool = {
+  val basic = checker_profile_cosmoc_basic_expr();
+  val cosmo0 = checker_profile_cosmo0_subset();
+  val mltt = checker_profile_mltt_core();
+
+  basic.id == "cosmoc.basic-expr" and
+    basic.artifact_kind == "typed-expression-map" and
+    basic.supports_feature("primitive-expressions") and
+    basic.rejects_feature(checker_feature_dependent_patterns()) and
+    basic.rejected_feature_code(checker_feature_dependent_patterns()) == checker_unsupported_dependent_pattern_code() and
+    cosmo0.id == "cosmo0.subset" and
+    cosmo0.artifact_kind == "typed-module" and
+    mltt.id == "mltt.core" and
+    mltt.artifact_kind == "mltt-core-term" and
+    mltt.rejects_feature(checker_feature_object_dispatch()) and
+    mltt.rejected_feature_code(checker_feature_object_dispatch()) == checker_unsupported_object_dispatch_code()
+}
+
+def basic_expression_checker_result_names_profile(): Bool = {
+  var arenas = syntax_arenas();
+
+  val value = arenas.make_numeric_literal_expr("1", make_span(15, 16));
+  val return_type = arenas.make_name_type("i32", make_span(10, 13));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, value, make_span(0, 16));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 16));
+
+  val checked = check_module_basic_expressions_with_profile(arenas, root, checker_profile_cosmoc_basic_expr());
+  checked.is_ok() and
+    checked.profile_id == "cosmoc.basic-expr" and
+    checked.artifact_kind == "typed-expression-map" and
+    checked.status == "accepted" and
+    checked.unsupported_features.is_empty()
+}
+
+def basic_expression_checker_reports_unsupported_decl_as_result(): Bool = {
+  var arenas = syntax_arenas();
+
+  val unsupported = arenas.make_unsupported_decl(checker_feature_dependent_patterns(), make_span(0, 18));
+  val declarations = Vec[DeclId]();
+  declarations.push(unsupported);
+  val root = arenas.make_module(declarations, make_span(0, 18));
+
+  val checked = check_module_basic_expressions(arenas, root);
+  !checked.is_ok() and
+    checked.is_unsupported() and
+    checked.status == "unsupported" and
+    checked.first_diagnostic_code() == checker_unsupported_dependent_pattern_code() and
+    checked.typed_exprs.len() == 0 and
+    checked.unsupported_features.len() == 1
+}
+
+def mltt_core_profile_rejects_object_source_without_artifacts(): Bool = {
+  var arenas = syntax_arenas();
+
+  val field_type = arenas.make_name_type("i32", make_span(10, 13));
+  val field = arenas.make_field_member("value", false, field_type, make_span(0, 13));
+  val members = Vec[MemberId]();
+  members.push(field);
+  val cls = arenas.make_class_decl("Box", members, make_span(0, 14));
+  val declarations = Vec[DeclId]();
+  declarations.push(cls);
+  val root = arenas.make_module(declarations, make_span(0, 14));
+
+  val basic = check_module_with_profile(arenas, root, checker_profile_cosmoc_basic_expr());
+  val mltt = check_module_with_profile(arenas, root, checker_profile_mltt_core());
+  basic.is_ok() and
+    !mltt.is_ok() and
+    mltt.is_unsupported() and
+    mltt.profile_id == "mltt.core" and
+    mltt.artifact_kind == "mltt-core-term" and
+    mltt.first_diagnostic_code() == checker_unsupported_object_dispatch_code() and
+    mltt.typed_exprs.len() == 0
+}
+
+def mltt_core_profile_reserves_dependent_patterns(): Bool = {
+  var arenas = syntax_arenas();
+
+  val unsupported = arenas.make_unsupported_decl("dependent-pattern", make_span(0, 17));
+  val declarations = Vec[DeclId]();
+  declarations.push(unsupported);
+  val root = arenas.make_module(declarations, make_span(0, 17));
+
+  val basic = check_module_with_profile(arenas, root, checker_profile_cosmoc_basic_expr());
+  val mltt = check_module_with_profile(arenas, root, checker_profile_mltt_core());
+  !basic.is_ok() and
+    basic.first_diagnostic_code() == checker_unsupported_dependent_pattern_code() and
+    !mltt.is_ok() and
+    mltt.first_diagnostic_code() == checker_unsupported_dependent_pattern_code() and
+    mltt.artifact_kind == "mltt-core-term"
+}
+
+def basic_expression_checker_artifact_summary_is_deterministic(): Bool = {
+  var arenas = syntax_arenas();
+
+  val value = arenas.make_numeric_literal_expr("1", make_span(15, 16));
+  val return_type = arenas.make_name_type("i32", make_span(10, 13));
+  val decl = arenas.make_function_decl("main", Vec[ParamId](), return_type, value, make_span(0, 16));
+  val declarations = Vec[DeclId]();
+  declarations.push(decl);
+  val root = arenas.make_module(declarations, make_span(0, 16));
+
+  val first = check_module_basic_expressions(arenas, root);
+  val second = check_module_basic_expressions(arenas, root);
+  first.artifact_summary() == second.artifact_summary() and
+    first.artifact_summary() == "cosmoc.basic-expr|typed-expression-map|typed=1|diagnostics=0|unsupported=0"
+}
+
 def basic_expression_checker_types_supported_expressions(): Bool = {
   var arenas = syntax_arenas();
 
@@ -560,6 +669,24 @@ def control_flow_checker_reports_missing_return(): Bool = {
 }
 
 def main(): i32 = {
+  if (!checker_profile_metadata_declares_basic_and_mltt_features()) {
+    return 1
+  }
+  if (!basic_expression_checker_result_names_profile()) {
+    return 1
+  }
+  if (!basic_expression_checker_reports_unsupported_decl_as_result()) {
+    return 1
+  }
+  if (!mltt_core_profile_rejects_object_source_without_artifacts()) {
+    return 1
+  }
+  if (!mltt_core_profile_reserves_dependent_patterns()) {
+    return 1
+  }
+  if (!basic_expression_checker_artifact_summary_is_deterministic()) {
+    return 1
+  }
   if (!basic_expression_checker_types_supported_expressions()) {
     return 1
   }

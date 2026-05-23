@@ -9,7 +9,27 @@ final case class TypedModule(
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
     cppNamespaceImports: List[SourceCppNamespaceImport] = Nil,
-) extends TypedNode
+    checkerProfileId: String = CheckerProfiles.Cosmo0Subset.id,
+    checkerArtifactKind: String = CheckerProfiles.Cosmo0Subset.artifactKind,
+) extends TypedNode:
+  def checkerArtifactSummary: String =
+    val declarationSummary = declarations.map(checkerDeclarationSummary).mkString(",")
+    s"$checkerProfileId|$checkerArtifactKind|decls=${declarations.length}|$declarationSummary"
+
+  private def checkerDeclarationSummary(declaration: TypedDecl): String =
+    declaration match
+      case value: TypedValueDecl =>
+        s"val:${value.name}:${value.valueType.display}"
+      case fn: TypedFunction =>
+        s"def:${fn.name}:${fn.returnType.display}"
+      case cls: TypedClass =>
+        s"class:${cls.name}:${cls.fields.length}:${cls.methods.length}"
+      case alias: TypedTypeAlias =>
+        s"type:${alias.name}:${alias.target.display}"
+      case importDecl: TypedImport =>
+        s"import:${importDecl.name}"
+      case cppImport: TypedCppNamespaceImport =>
+        s"cpp-import:${cppImport.name}"
 
 sealed trait TypedDecl extends TypedNode:
   def name: String
