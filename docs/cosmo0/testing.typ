@@ -49,6 +49,11 @@ Type-checking tests must identify the checker profile under test. The default co
 
 The `cosmo0.subset` profile declares support for dependent pattern matching and dependent-pattern elaboration. Simpler experimental profiles may still reject that feature explicitly; such rejections do not imply that the same source is outside cosmo0.
 
+Scala-side checker experiments under `packages/cosmo0` are allowed when they are
+profile-gated, directly tested, and reported through deterministic diagnostics.
+They do not expand the default cosmo0 source subset unless the owning
+`docs/cosmo0/` file and OpenSpec capability explicitly admit the behavior.
+
 Checker profile fixtures should assert:
 
 - the selected profile id;

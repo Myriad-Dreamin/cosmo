@@ -21,6 +21,11 @@ The goal is not to turn Cosmo into Agda, Idris, or Coq in one step. The goal is
 to build a small, modular checker that can be compared against other checkers and
 used to explore theory without making full Cosmo depend on every experiment.
 
+cosmo0 remains the small bootstrap source subset. That boundary does not forbid
+Scala-side experimental checker implementations under `packages/cosmo0`. Such
+implementations are compiler infrastructure and conformance references, not new
+host-language features accepted by ordinary cosmo0 source.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -34,6 +39,8 @@ used to explore theory without making full Cosmo depend on every experiment.
 - Keep effectful computations out of definitional equality.
 - Keep the first implementation small enough to be a useful thousand-line-scale
   experiment with clear comments.
+- Allow a cosmo0-side reference or mirror implementation when it gives faster
+  feedback on checker behavior, diagnostics, or profile conformance.
 - Produce guidance documentation that explains the theory and implementation
   choices.
 
@@ -46,6 +53,8 @@ used to explore theory without making full Cosmo depend on every experiment.
 - Support general recursion in type-level computation.
 - Select or evaluate advanced normalization strategies in the first MLTT profile.
 - Implement dependent pattern matching in this change.
+- Enable MLTT as the default cosmo0 package checker or expand the default
+  cosmo0 source subset.
 - Commit to HoTT, cubical type theory, quotient types, sized types, or QTT.
 - Replace the existing parser-subset checker.
 
@@ -196,6 +205,24 @@ The first implementation should aim for roughly a thousand lines per slice:
 This is a budget guideline, not a hard size limit. The important property is
 that each slice can be reviewed independently and heavily commented.
 
+### Use cosmo0 As A Profile-Gated Theory Lab
+
+The Scala `packages/cosmo0` implementation may host small MLTT or
+dependent-checker experiments when they are profile-gated, directly tested, and
+kept out of the default source subset. This is useful for fast iteration on
+diagnostics, fixture shape, and reference behavior before or alongside the
+Cosmo-written `packages/cosmoc` implementation.
+
+The boundary is behavioral: a cosmo0-side experiment must identify its checker
+profile, report unsupported features as ordinary diagnostics, and avoid becoming
+the package/LSP default until it reaches the conformance level required by the
+theory roadmap.
+
+Alternative considered: keep every type-theory experiment only in
+`packages/cosmoc`. That protects cosmo0 from growth, but it also removes the
+fastest place to validate profile metadata, diagnostics, and edge cases while
+the Cosmo-written compiler is still staged.
+
 ## Risks / Trade-offs
 
 - MLTT core diverges from surface Cosmo -> Mitigation: keep it behind the
@@ -211,8 +238,9 @@ that each slice can be reviewed independently and heavily commented.
   conservative local solving and report postponed constraints.
 - Universe design is under-specified -> Mitigation: start with predicative
   universe levels and no cumulativity unless explicitly added.
-- cosmo0 cannot host the whole checker early -> Mitigation: define behavioral
-  conformance first, then implement the Cosmo-written version as staged source.
+- cosmo0 experiments grow into default source behavior -> Mitigation: keep them
+  profile-gated, require diagnostics and conformance fixtures, and do not enable
+  them for package-level checking by default.
 
 ## Migration Plan
 
@@ -226,8 +254,8 @@ that each slice can be reviewed independently and heavily commented.
    beta-reduction and transparent lets.
 6. Add Sigma and equality.
 7. Add inductive-family declaration metadata and small Nat/Vec fixtures.
-8. Add a cosmo0-side conformance harness or mirror implementation when the
-   Cosmo-written profile has stable behavior.
+8. Add a cosmo0-side conformance harness or mirror implementation for the same
+   accepted and rejected examples when it helps validate behavior earlier.
 9. Evaluate stronger normalization strategies only after a separate research
    pass and proposal define the formal and implementation requirements.
 

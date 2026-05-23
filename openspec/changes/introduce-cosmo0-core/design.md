@@ -6,6 +6,12 @@ cosmo0 is intended to be a Scala-implemented core compiler, not a language self-
 
 The cosmo1 architecture proposal makes the target concrete: cosmo0 must compile a traditional, multi-file, arena-based compiler implementation. Full Cosmo features such as `Type`, user generics, trait solving, reflection, and staging are implemented by cosmo1 as data structures and algorithms; they are not host-language features that cosmo0 must provide.
 
+The Scala `packages/cosmo0` implementation may still host profile-gated checker
+experiments, such as MLTT or dependent-pattern reference implementations. Those
+experiments are implementation infrastructure used for diagnostics and
+conformance; they do not mean ordinary cosmo0 source accepts type-level
+programming or full-language features.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -19,6 +25,8 @@ The cosmo1 architecture proposal makes the target concrete: cosmo0 must compile 
 - Force standard generic instances to lower to core0 registered implementations rather than user-defined alternatives.
 - Keep the cosmo0 IR and type checker smaller than the full `cosmo.ir` and `Typer` pipeline.
 - Make rejection of unsupported full-language constructs explicit and testable.
+- Permit small profile-gated checker experiments in `packages/cosmo0` when they
+  help validate compiler behavior without changing the default source subset.
 
 **Non-Goals:**
 
@@ -27,6 +35,8 @@ The cosmo1 architecture proposal makes the target concrete: cosmo0 must compile 
 - User-defined generic classes, functions, traits, or impls.
 - General iterator traits, generic higher-order collection APIs, closures, and parser-combinator-style programming in the initial cosmo0 subset.
 - Type-level computation using `Type`, dependent type normalization, HKT, trait solving, reflection, staging, macros, or quotation.
+- Enabling experimental checker profiles as default cosmo0 package behavior
+  before they pass explicit conformance gates.
 - Replacing the existing Scala full Cosmo compiler.
 
 ## Decisions
@@ -77,9 +87,24 @@ Alternative considered: only support single-file bootstrap targets. That is simp
 
 ### Keep full Cosmo as the high-level path
 
-cosmo0 is an additional core path. Full Cosmo remains responsible for experiments and high-level language features. A source file can target cosmo0 only if it passes the subset checker.
+cosmo0 is an additional core path. Full Cosmo remains responsible for the
+high-level source language, while `packages/cosmo0` may still host
+profile-gated checker experiments as implementation infrastructure. A source
+file can target cosmo0 only if it passes the subset checker.
 
 Alternative considered: migrate large parts of the full compiler to cosmo0 immediately. That creates pressure to expand cosmo0 before the subset boundary is proven.
+
+### Keep Checker Experiments Profile-Gated
+
+Some type-checker experiments benefit from a Scala cosmo0 reference
+implementation before the Cosmo-written compiler can host the same behavior.
+These experiments are allowed under `packages/cosmo0` only when they are selected
+by explicit checker profile metadata, produce deterministic diagnostics, and are
+covered by focused tests.
+
+Alternative considered: ban all advanced checker experiments from cosmo0. That
+keeps the source subset boundary simple, but it slows down theory work and makes
+diagnostic behavior harder to validate while cosmo1 is still staged.
 
 ## Risks / Trade-offs
 
@@ -89,6 +114,9 @@ Alternative considered: migrate large parts of the full compiler to cosmo0 immed
 - `Vec<T>` support may expand into full generics -> Mitigation: only registered constructors are valid, and user-defined generic parameters remain invalid in cosmo0 source.
 - Runtime API mismatch with C++ containers -> Mitigation: prefer a core0 wrapper API in descriptors so source-level `Vec<T>` does not expose arbitrary STL details.
 - cosmo1 pressure expands cosmo0 into full Cosmo -> Mitigation: require full Cosmo features to be represented as cosmo1 compiler data and explicitly reject host-language `Type`, user generics, traits, reflection, and staging.
+- Experimental checker work expands default cosmo0 behavior -> Mitigation:
+  require explicit checker profiles, direct tests, and conformance gates before
+  any experiment can affect package-level checking.
 - Insufficient runtime support blocks cosmo1 stages -> Mitigation: classify core0 runtime requirements by stage and implement only the first stage's required descriptors first.
 - Non-deterministic map iteration destabilizes snapshots and generated code -> Mitigation: make `Map<K, V>` deterministic by default or require an explicit deterministic map for output-affecting state.
 

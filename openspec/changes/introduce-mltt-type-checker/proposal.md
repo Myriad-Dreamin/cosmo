@@ -16,9 +16,9 @@ elaboration while preserving the existing staged bootstrap path.
 - Define MLTT core data for universes, Pi types, Sigma types, variables, lambdas,
   applications, lets, inductive-family references, constructors, equality, and
   neutral terms.
-- Define implementation guidance for cosmo0 and `packages/cosmoc`, with the
-  initial implementation scoped to a small and well-commented core rather than
-  full language support.
+- Define implementation guidance for both Scala-side cosmo0 experiments and
+  `packages/cosmoc`, with the initial implementation scoped to a small and
+  well-commented core rather than full language support.
 - Scope the first conversion implementation to a declared WHNF-style
   normalization strategy and defer other normalization techniques to later
   research and separate proposals.
@@ -43,8 +43,10 @@ None.
 
 - Adds OpenSpec requirements and design notes for a new checker profile; it does
   not replace the current `packages/cosmoc/src/types` checker.
-- Future implementation will add MLTT-oriented modules under `packages/cosmoc`
-  and a corresponding cosmo0-side experiment or conformance harness.
+- Future implementation may add MLTT-oriented modules under `packages/cosmoc`
+  and Scala-side cosmo0 reference or conformance implementations. Using
+  `packages/cosmo0` as an experimental checker host does not make MLTT the
+  default cosmo0 source language.
 - The first MLTT profile may reject traits, effects, async, object dispatch, C++
   imports, general recursion, and dependent pattern matching until later
   profiles add those capabilities.

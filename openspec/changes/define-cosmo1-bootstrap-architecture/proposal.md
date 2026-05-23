@@ -29,3 +29,6 @@ None.
 - Adds an OpenSpec planning layer above `introduce-cosmo0-core`; this change does not implement cosmo1 and does not change existing compiler behavior.
 - Future implementation is expected to evolve the existing `packages/cosmoc` package with cosmo0-compatible source files, core0 descriptor coverage for required standard types, and smoke tests that compile cosmo1/cosmoc components through cosmo0.
 - The proposal intentionally keeps full Cosmo language features as data and algorithms inside cosmo1 rather than as required cosmo0 host-language features.
+- This does not prevent `packages/cosmo0` from hosting profile-gated Scala
+  reference implementations for checker experiments; those are conformance
+  infrastructure, not required source features for writing cosmo1.
