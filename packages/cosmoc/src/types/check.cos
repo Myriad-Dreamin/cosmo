@@ -4,6 +4,7 @@ import source.span
 import syntax.ast
 import types.declaration_resolution
 import types.model
+import types.profile
 
 class ExpressionResolutionDiagnostic {
   val code: String
@@ -49,12 +50,29 @@ class IntrinsicSignature {
 }
 
 class ExpressionCheckResult {
+  val profile_id: String
+  val artifact_kind: String
+  val status: String
   val types: TypeStore
   val diagnostics: Vec[ExpressionResolutionDiagnostic]
   val typed_exprs: Map[ExprId, TypedExpr]
+  val unsupported_features: Vec[String]
+  val implementation_limits: Vec[String]
 
   def is_ok(&self): Bool = {
     self.diagnostics.is_empty()
+  }
+
+  def is_unsupported(&self): Bool = {
+    !self.unsupported_features.is_empty()
+  }
+
+  def has_type_errors(&self): Bool = {
+    !self.diagnostics.is_empty() and self.unsupported_features.is_empty() and self.implementation_limits.is_empty()
+  }
+
+  def has_implementation_limits(&self): Bool = {
+    !self.implementation_limits.is_empty()
   }
 
   def first_diagnostic_code(&self): String = {
@@ -94,6 +112,18 @@ class ExpressionCheckResult {
       .concat(":")
       .concat(type_check_ordinal_text(self.first_diagnostic_span_end()))
   }
+
+  def artifact_summary(&self): String = {
+    self.profile_id
+      .concat("|")
+      .concat(self.artifact_kind)
+      .concat("|typed=")
+      .concat(type_check_ordinal_text(self.typed_exprs.len()))
+      .concat("|diagnostics=")
+      .concat(type_check_ordinal_text(self.diagnostics.len()))
+      .concat("|unsupported=")
+      .concat(type_check_ordinal_text(self.unsupported_features.len()))
+  }
 }
 
 class ExpressionChecker {
@@ -104,6 +134,9 @@ class ExpressionChecker {
   var types: TypeStore
   var diagnostics: Vec[ExpressionResolutionDiagnostic]
   var typed_exprs: Map[ExprId, TypedExpr]
+  val profile: CheckerProfile
+  var unsupported_features: Vec[String]
+  var implementation_limits: Vec[String]
 
   def check_module(&mut self, module_id: ModuleId): Unit = {
     val module_bindings = self.collect_module_bindings(module_id);
@@ -216,6 +249,7 @@ class ExpressionChecker {
       case SyntaxDecl.AEmpty => {
       }
       case SyntaxDecl.Unsupported(text, span) => {
+        self.unsupported_decl(text, span)
       }
       case SyntaxDecl.Import(path, span) => {
       }
@@ -244,6 +278,7 @@ class ExpressionChecker {
       case SyntaxMember.AEmpty => {
       }
       case SyntaxMember.Unsupported(text, span) => {
+        self.unsupported_member(text, span)
       }
       case SyntaxMember.Field(name, mutable, typ, span) => {
       }
@@ -2270,6 +2305,41 @@ class ExpressionChecker {
     self.diagnostics.push(ExpressionResolutionDiagnostic(code, message, span, Option[TypeMismatch]::None))
   }
 
+  def unsupported_decl(&mut self, text: String, span: Span): Unit = {
+    val feature = checker_unsupported_feature_from_text(text);
+    self.unsupported_feature(
+      feature,
+      self.profile.rejected_feature_code(feature),
+      "checker profile "
+        .concat(self.profile.id)
+        .concat(" does not support declaration feature ")
+        .concat(feature),
+      span
+    )
+  }
+
+  def unsupported_member(&mut self, text: String, span: Span): Unit = {
+    val feature = checker_unsupported_feature_from_text(text);
+    self.unsupported_feature(
+      feature,
+      self.profile.rejected_feature_code(feature),
+      "checker profile "
+        .concat(self.profile.id)
+        .concat(" does not support member feature ")
+        .concat(feature),
+      span
+    )
+  }
+
+  def unsupported_feature(&mut self, feature: String, code: String, message: String, span: Span): Unit = {
+    var diagnostic_code = code;
+    if (diagnostic_code.is_empty()) {
+      diagnostic_code = checker_unsupported_feature_code()
+    }
+    self.unsupported_features.push(feature);
+    self.diagnostic(diagnostic_code, message, span)
+  }
+
   def record_typed_expr(&mut self, id: ExprId, kind: TypedExprKind, typ: TypeId): TypeId = {
     self.typed_exprs.insert(id, TypedExpr(id, kind, typ));
     typ
@@ -2579,7 +2649,16 @@ class ExpressionChecker {
   }
 
   def finish(&self): ExpressionCheckResult = {
-    ExpressionCheckResult(self.types, self.diagnostics, self.typed_exprs)
+    ExpressionCheckResult(
+      self.profile.id,
+      self.profile.artifact_kind,
+      checker_result_status(self.diagnostics, self.unsupported_features, self.implementation_limits),
+      self.types,
+      self.diagnostics,
+      self.typed_exprs,
+      self.unsupported_features,
+      self.implementation_limits
+    )
   }
 }
 
@@ -2685,10 +2764,35 @@ def expression_diagnostic_actual_text(types: &TypeStore, diagnostic: &Expression
   }
 }
 
+def checker_result_status(
+  diagnostics: &Vec[ExpressionResolutionDiagnostic],
+  unsupported_features: &Vec[String],
+  implementation_limits: &Vec[String]
+): String = {
+  if (!implementation_limits.is_empty()) {
+    return "limit"
+  }
+  if (!unsupported_features.is_empty()) {
+    return "unsupported"
+  }
+  if (!diagnostics.is_empty()) {
+    return "rejected"
+  }
+  "accepted"
+}
+
 def check_module_basic_expressions(arenas: &SyntaxArenas, module_id: ModuleId): ExpressionCheckResult = {
+  check_module_basic_expressions_with_profile(arenas, module_id, checker_profile_cosmoc_basic_expr())
+}
+
+def check_module_basic_expressions_with_profile(
+  arenas: &SyntaxArenas,
+  module_id: ModuleId,
+  profile: CheckerProfile
+): ExpressionCheckResult = {
   val names = resolve_module_names(arenas, module_id);
   val declarations = resolve_module_declarations_with_names(arenas, module_id, names);
-  check_module_basic_expressions_with_resolution(arenas, module_id, names, declarations)
+  check_module_basic_expressions_with_resolution_and_profile(arenas, module_id, names, declarations, profile)
 }
 
 def check_module_basic_expressions_with_resolution(
@@ -2697,6 +2801,22 @@ def check_module_basic_expressions_with_resolution(
   names: &NameResolution,
   declarations: &DeclarationResolution
 ): ExpressionCheckResult = {
+  check_module_basic_expressions_with_resolution_and_profile(
+    arenas,
+    module_id,
+    names,
+    declarations,
+    checker_profile_cosmoc_basic_expr()
+  )
+}
+
+def check_module_basic_expressions_with_resolution_and_profile(
+  arenas: &SyntaxArenas,
+  module_id: ModuleId,
+  names: &NameResolution,
+  declarations: &DeclarationResolution,
+  profile: CheckerProfile
+): ExpressionCheckResult = {
   var checker = ExpressionChecker(
     arenas,
     module_id,
@@ -2704,10 +2824,163 @@ def check_module_basic_expressions_with_resolution(
     declarations,
     declarations.types,
     Vec[ExpressionResolutionDiagnostic](),
-    Map[ExprId, TypedExpr]()
+    Map[ExprId, TypedExpr](),
+    profile,
+    Vec[String](),
+    Vec[String]()
   );
   checker.check_module(module_id);
   checker.finish()
+}
+
+def check_module_with_profile(
+  arenas: &SyntaxArenas,
+  module_id: ModuleId,
+  profile: CheckerProfile
+): ExpressionCheckResult = {
+  if (profile.id == checker_profile_cosmoc_basic_expr_id()) {
+    return check_module_basic_expressions_with_profile(arenas, module_id, profile)
+  }
+  check_module_profile_unsupported(arenas, module_id, profile)
+}
+
+def check_module_profile_unsupported(
+  arenas: &SyntaxArenas,
+  module_id: ModuleId,
+  profile: CheckerProfile
+): ExpressionCheckResult = {
+  val feature = first_rejected_feature_for_profile(arenas, module_id, profile);
+  var code = profile.rejected_feature_code(feature);
+  if (code.is_empty()) {
+    code = checker_unsupported_feature_code()
+  }
+  val unsupported_features = Vec[String]();
+  unsupported_features.push(feature);
+  val diagnostics = Vec[ExpressionResolutionDiagnostic]();
+  diagnostics.push(
+    ExpressionResolutionDiagnostic(
+      code,
+      "checker profile ".concat(profile.id).concat(" does not support feature ").concat(feature),
+      arenas.module_value(module_id).span,
+      Option[TypeMismatch]::None
+    )
+  );
+  ExpressionCheckResult(
+    profile.id,
+    profile.artifact_kind,
+    "unsupported",
+    type_store(),
+    diagnostics,
+    Map[ExprId, TypedExpr](),
+    unsupported_features,
+    Vec[String]()
+  )
+}
+
+def first_rejected_feature_for_profile(
+  arenas: &SyntaxArenas,
+  module_id: ModuleId,
+  profile: CheckerProfile
+): String = {
+  val module_value = arenas.module_value(module_id);
+  var index: usize = 0;
+  while (index < module_value.declarations.len()) {
+    val decl_id = module_value.declarations.get(index);
+    val feature = rejected_feature_for_decl(arenas, decl_id, profile);
+    if (!feature.is_empty()) {
+      return feature
+    }
+    index = index + 1
+  }
+  "profile-implementation"
+}
+
+def rejected_feature_for_decl(
+  arenas: &SyntaxArenas,
+  decl_id: DeclId,
+  profile: CheckerProfile
+): String = {
+  val decl = arenas.decl_value(decl_id);
+  decl match {
+    case SyntaxDecl.CppNamespaceImport(namespace, alias, header, span) => {
+      if (profile.rejects_feature(checker_feature_cpp_imports())) {
+        return checker_feature_cpp_imports()
+      }
+      ""
+    }
+    case SyntaxDecl.Class(name, members, span) => {
+      if (profile.rejects_feature(checker_feature_object_dispatch())) {
+        return checker_feature_object_dispatch()
+      }
+      rejected_feature_for_members(arenas, members, profile)
+    }
+    case SyntaxDecl.Unsupported(text, span) => {
+      checker_unsupported_feature_from_text(text)
+    }
+    case SyntaxDecl.AEmpty => {
+      ""
+    }
+    case SyntaxDecl.Import(path, span) => {
+      ""
+    }
+    case SyntaxDecl.Function(name, params, return_type, body, span) => {
+      ""
+    }
+    case SyntaxDecl.TypeAlias(name, typ, span) => {
+      ""
+    }
+    case SyntaxDecl.Value(name, mutable, typ, init, span) => {
+      ""
+    }
+  }
+}
+
+def rejected_feature_for_members(
+  arenas: &SyntaxArenas,
+  members: &Vec[MemberId],
+  profile: CheckerProfile
+): String = {
+  var index: usize = 0;
+  while (index < members.len()) {
+    val member_id = members.get(index);
+    val member = arenas.member_value(member_id);
+    member match {
+      case SyntaxMember.Unsupported(text, span) => {
+        return checker_unsupported_feature_from_text(text)
+      }
+      case SyntaxMember.AEmpty => {
+      }
+      case SyntaxMember.Field(name, mutable, typ, span) => {
+      }
+      case SyntaxMember.Method(name, params, return_type, body, span) => {
+      }
+      case SyntaxMember.TypeAlias(name, typ, span) => {
+      }
+      case SyntaxMember.Variant(name, fields, span) => {
+      }
+    }
+    index = index + 1
+  }
+  ""
+}
+
+def checker_unsupported_feature_from_text(text: String): String = {
+  if (text == checker_feature_dependent_patterns() or text == "dependent-pattern") {
+    return checker_feature_dependent_patterns()
+  }
+  if (text == checker_feature_effects() or text == "effect-row") {
+    return checker_feature_effects()
+  }
+  if (text == checker_feature_traits() or text == "trait-constraint") {
+    return checker_feature_traits()
+  }
+  if (text == checker_feature_object_dispatch()) {
+    return checker_feature_object_dispatch()
+  }
+  if (text == checker_feature_cpp_imports() or text == "cpp-import") {
+    return checker_feature_cpp_imports()
+  }
+  text
 }
 
 def expression_type_equals(types: &TypeStore, left: TypeId, right: TypeId): Bool = {

@@ -25,6 +25,7 @@
     "names/resolution.cos",
     "package/module_graph.cos",
     "types/model.cos",
+    "types/profile.cos",
     "types/declaration_resolution.cos",
     "types/check.cos",
     "parser.cos"

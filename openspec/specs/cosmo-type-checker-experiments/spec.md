@@ -1,5 +1,8 @@
-## ADDED Requirements
+# cosmo-type-checker-experiments Specification
 
+## Purpose
+TBD - created by archiving change modularize-type-checker-experiments. Update Purpose after archive.
+## Requirements
 ### Requirement: Checker Profiles
 Cosmo type checking experiments SHALL be represented by named checker profiles.
 Each profile SHALL declare its supported language features, rejected language
@@ -18,6 +21,16 @@ features, required inputs, produced artifact kind, and diagnostic namespace.
 A checker result SHALL identify the checker profile that produced it and SHALL
 distinguish successful typed artifacts, ordinary type errors, unsupported
 features, and implementation limits.
+
+Shared unsupported-feature diagnostics SHALL include:
+
+- `cosmo.type.unsupported-feature`
+- `cosmo.type.unsupported-dependent-pattern`
+- `cosmo.type.unsupported-effect-row`
+- `cosmo.type.unsupported-trait-constraint`
+- `cosmo.type.unsupported-object-dispatch`
+- `cosmo.type.unsupported-cpp-import`
+- `cosmo.type.implementation-limit`
 
 #### Scenario: Unsupported source is rejected as a checker result
 - **WHEN** a profile sees a source construct outside its declared feature set
@@ -50,3 +63,4 @@ Checker profiles SHALL be allowed to reject features that other profiles accept.
 - **WHEN** an MLTT-only profile receives source that uses traits, async, object dispatch, or C++ imports before that profile supports them
 - **THEN** the profile reports unsupported-feature diagnostics
 - **AND** the rejection does not imply that the same source is invalid for all checker profiles
+

@@ -13,6 +13,7 @@ class CppBackendTests extends munit.FunSuite:
   private val scopeSourcePath = "packages/cosmoc/src/names/scope.cos"
   private val resolutionSourcePath = "packages/cosmoc/src/names/resolution.cos"
   private val typeModelSourcePath = "packages/cosmoc/src/types/model.cos"
+  private val profileSourcePath = "packages/cosmoc/src/types/profile.cos"
   private val declarationResolutionSourcePath = "packages/cosmoc/src/types/declaration_resolution.cos"
   private val typeCheckSourcePath = "packages/cosmoc/src/types/check.cos"
 
@@ -518,6 +519,7 @@ class CppBackendTests extends munit.FunSuite:
           ParserFixtureManifest.readFile(scopeSourcePath),
           ParserFixtureManifest.readFile(resolutionSourcePath),
           ParserFixtureManifest.readFile(typeModelSourcePath),
+          ParserFixtureManifest.readFile(profileSourcePath),
           ParserFixtureManifest.readFile(declarationResolutionSourcePath),
           ParserFixtureManifest.readFile(typeCheckSourcePath),
           ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
