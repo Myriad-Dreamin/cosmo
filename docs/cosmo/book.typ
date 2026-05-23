@@ -16,6 +16,10 @@
     #prefix-chapter("syntax-bnf.typ")[BNF Specification]
     #prefix-chapter("trait.typ")[Trait Design]
     #prefix-chapter("ufcs.typ")[Method Call Design]
+    #prefix-chapter("../effect.typ")[Effect Design Notes]
+    #prefix-chapter("../async.typ")[Async Design Notes]
+    #prefix-chapter("../generator.typ")[Generator Design Notes]
+    #prefix-chapter("../mltt-typechecking-guidance.typ")[MLTT Type Checking Guidance]
   ],
 )
 
