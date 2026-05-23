@@ -10,7 +10,12 @@ Cosmo is currently difficult to bootstrap because compiler-critical code quickly
 - Add core0 runtime-backed scalar, utility, filesystem, JSON, numeric, and deterministic-collection capabilities needed by cosmo1 compiler stages.
 - Add a separate cosmo0 compiler pipeline with subset checking, a low-level IR, simple type checking, and descriptor-driven C++ code generation.
 - Add package-level checking/compilation and cosmo1 stage validation targets so cosmo0 can be measured against the compiler it must host.
-- Keep full Cosmo, full `library/std`, reflection, staging, user-defined generics, trait constraints, and type-level programming outside cosmo0.
+- Keep full Cosmo, full `library/std`, reflection, staging, user-defined generics,
+  trait constraints, and type-level programming outside the default
+  source-facing cosmo0 subset.
+- Allow profile-gated checker experiments inside the Scala `packages/cosmo0`
+  implementation when they are compiler infrastructure rather than accepted
+  cosmo0 source behavior.
 
 ## Capabilities
 
@@ -29,4 +34,7 @@ None.
 
 - Adds OpenSpec coverage for a new cosmo0 architecture before implementation.
 - Future implementation is expected to add Scala sources under a cosmo0 namespace, a command entry point, core0 standard/runtime descriptors, tests, and staged bootstrap-focused sources that exercise cosmo1-style compiler code.
-- No existing Cosmo language behavior is changed by this proposal; full Cosmo remains the experimental/high-level compiler path.
+- No existing Cosmo language behavior is changed by this proposal; full Cosmo
+  remains the high-level source compiler path.
+- Experimental checker implementations under `packages/cosmo0` do not by
+  themselves expand the default cosmo0 source subset or package checker.

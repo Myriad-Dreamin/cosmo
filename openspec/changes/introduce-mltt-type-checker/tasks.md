@@ -12,6 +12,7 @@
 - [ ] 2.2 Add a cosmo0-side profile name or conformance marker for `mltt.core`.
 - [ ] 2.3 Add unsupported-feature diagnostics for traits, effects, async, object dispatch, and C++ imports under `mltt.core`.
 - [ ] 2.4 Add fixture metadata selecting `mltt.core`.
+- [ ] 2.5 Add direct cosmo0-side profile-gate tests when a Scala reference implementation exists.
 
 ## 3. Core Data
 
@@ -45,6 +46,7 @@
 ## 7. cosmo0 And cosmoc Validation
 
 - [ ] 7.1 Add `packages/cosmoc` tests for the MLTT profile.
-- [ ] 7.2 Add cosmo0 conformance fixtures for the same accepted and rejected examples.
+- [ ] 7.2 Add cosmo0 conformance fixtures or Scala mirror tests for the same accepted and rejected examples.
 - [ ] 7.3 Confirm the existing `cosmoc.basic-expr` checker remains the default for current parser-source tests.
 - [ ] 7.4 Document implementation gaps before enabling any package-level MLTT selection.
+- [ ] 7.5 Confirm cosmo0-side experiments remain profile-gated and do not expand the default cosmo0 source subset.

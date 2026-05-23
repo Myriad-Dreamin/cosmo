@@ -69,6 +69,7 @@ def checker_profile_metadata_declares_basic_and_mltt_features(): Bool = {
   val basic = checker_profile_cosmoc_basic_expr();
   val cosmo0 = checker_profile_cosmo0_subset();
   val mltt = checker_profile_mltt_core();
+  val dependent = checker_profile_mltt_dependent_patterns();
 
   basic.id == "cosmoc.basic-expr" and
     basic.artifact_kind == "typed-expression-map" and
@@ -77,10 +78,18 @@ def checker_profile_metadata_declares_basic_and_mltt_features(): Bool = {
     basic.rejected_feature_code(checker_feature_dependent_patterns()) == checker_unsupported_dependent_pattern_code() and
     cosmo0.id == "cosmo0.subset" and
     cosmo0.artifact_kind == "typed-module" and
+    cosmo0.supports_feature(checker_feature_dependent_patterns()) and
+    cosmo0.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    !cosmo0.rejects_feature(checker_feature_dependent_patterns()) and
     mltt.id == "mltt.core" and
     mltt.artifact_kind == "mltt-core-term" and
     mltt.rejects_feature(checker_feature_object_dispatch()) and
-    mltt.rejected_feature_code(checker_feature_object_dispatch()) == checker_unsupported_object_dispatch_code()
+    mltt.rejected_feature_code(checker_feature_object_dispatch()) == checker_unsupported_object_dispatch_code() and
+    !mltt.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    dependent.id == "mltt.dependent-patterns" and
+    dependent.artifact_kind == "mltt-case-tree" and
+    dependent.supports_feature(checker_feature_dependent_pattern_elaboration()) and
+    !dependent.rejects_feature(checker_feature_dependent_patterns())
 }
 
 def basic_expression_checker_result_names_profile(): Bool = {

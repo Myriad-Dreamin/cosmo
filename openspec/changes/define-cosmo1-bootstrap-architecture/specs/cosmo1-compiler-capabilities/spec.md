@@ -9,6 +9,12 @@ cosmo1 SHALL require only cosmo0 host-language capabilities for ordinary compile
 - **WHEN** cosmo1 implements a full Cosmo feature such as user-defined generics, traits, or `Type`
 - **THEN** the feature is represented by cosmo1 data structures and algorithms rather than by an equivalent cosmo0 host-language feature
 
+#### Scenario: cosmo0 reference checker remains infrastructure
+
+- **WHEN** a Scala-side cosmo0 reference checker experiments with a full Cosmo feature
+- **THEN** that experiment is treated as compiler infrastructure
+- **AND** cosmo1 source is not required to use an equivalent cosmo0 host-language feature
+
 ### Requirement: Source Loading and Lexing
 
 cosmo1 SHALL provide compiler capabilities for source loading, source mapping, tokenization, and lexical diagnostics.

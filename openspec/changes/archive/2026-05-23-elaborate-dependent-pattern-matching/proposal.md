@@ -9,7 +9,8 @@ metadata and remain optional for simpler checker profiles.
 
 - Define dependent pattern matching as an elaboration capability over typed core
   declarations, constructor metadata, unification, and coverage checking.
-- Require checker profiles to declare whether they support dependent patterns.
+- Require checker profiles to declare whether they support dependent patterns,
+  including `cosmo0.subset` declaring support.
 - Specify that unsupported dependent patterns are valid rejection results for
   profiles that do not implement the capability.
 - Define the first implementation scope: constructor pattern elaboration,
@@ -32,8 +33,9 @@ None.
 
 ## Impact
 
-- Adds a planning layer for dependent pattern matching without changing current
-  expression matching behavior.
+- Adds a planning layer for dependent pattern matching while keeping support
+  explicit in checker profile metadata.
 - Future implementation will affect parser AST pattern metadata, MLTT declaration
   metadata, case-tree generation, coverage checking, and diagnostics.
-- Simpler checker profiles may continue to reject dependent patterns explicitly.
+- Simpler checker profiles may continue to reject dependent patterns explicitly,
+  while `cosmo0.subset` declares support.
