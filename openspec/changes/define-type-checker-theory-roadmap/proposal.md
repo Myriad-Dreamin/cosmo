@@ -22,6 +22,9 @@ project needs a long-term roadmap before those experiments become incompatible.
 - Require each theory profile to document its scope, invariants, unsupported
   features, performance envelope, host-language assumptions, and fixture coverage
   before integration into the compiler pipeline.
+- Clarify that `packages/cosmo0` may host profile-gated Scala reference
+  implementations for theory experiments while the default cosmo0 source subset
+  remains small.
 - Establish a test-suite matrix that can verify whether a checker is suitable
   for integration without requiring every checker to implement every feature.
 
@@ -46,3 +49,6 @@ None.
   level before becoming compiler integration candidates.
 - Existing checkers can remain narrow, but they must become explicit about which
   common goals they support and which features they reject.
+- cosmo0-side experiments are valid roadmap participants when they are
+  profile-gated, directly tested, and not treated as default cosmo0 source
+  behavior.

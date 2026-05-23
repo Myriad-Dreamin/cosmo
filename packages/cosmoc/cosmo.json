@@ -27,6 +27,7 @@
     "types/model.cos",
     "types/profile.cos",
     "types/declaration_resolution.cos",
+    "types/dependent_pattern.cos",
     "types/check.cos",
     "parser.cos"
   ]

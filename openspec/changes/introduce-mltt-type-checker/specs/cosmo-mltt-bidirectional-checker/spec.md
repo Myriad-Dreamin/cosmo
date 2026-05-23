@@ -52,3 +52,17 @@ core context summary, and deterministic expected/actual display where applicable
 - **WHEN** infer mode sees a variable not present in the MLTT context
 - **THEN** the checker reports an unknown-variable diagnostic
 - **AND** the diagnostic identifies the `mltt.core` profile
+
+### Requirement: cosmo0 Experimental Hosting
+MLTT checker experiments SHALL be permitted in Scala-side cosmo0 infrastructure
+only when they are selected by checker profile metadata and kept out of the
+default cosmo0 source subset.
+
+#### Scenario: cosmo0 experiment identifies profile
+- **WHEN** a cosmo0-side MLTT experiment checks or rejects an input
+- **THEN** its result identifies the selected checker profile
+- **AND** unsupported features are reported as ordinary diagnostics
+
+#### Scenario: cosmo0 default subset remains stable
+- **WHEN** the default `cosmo0.subset` package checker runs ordinary bootstrap source
+- **THEN** MLTT-only features are not enabled implicitly by the presence of a cosmo0-side experiment

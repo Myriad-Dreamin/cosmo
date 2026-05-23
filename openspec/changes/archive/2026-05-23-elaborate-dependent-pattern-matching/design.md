@@ -13,9 +13,11 @@ constructor result is `Vec(A, Z)`. Matching against `Cons` refines the branch
 context with the constructor fields and the equality between expected and actual
 indices.
 
-Cosmo should support this eventually, but not every checker needs it. A basic
-expression checker can reject dependent patterns; an MLTT checker can first
-support the core types; a later profile can add dependent pattern elaboration.
+Cosmo should support this without making every checker implement the feature. A
+basic expression checker can reject dependent patterns; `cosmo0.subset` can
+declare support for the bootstrap surface; an MLTT checker can first support the
+core types; and a later profile can add MLTT-specific dependent pattern
+elaboration.
 
 ## Goals / Non-Goals
 
@@ -38,7 +40,6 @@ support the core types; a later profile can add dependent pattern elaboration.
   in the first slice.
 - Decide whether Cosmo assumes K/UIP.
 - Support object dispatch over dependent pattern methods.
-- Make dependent pattern matching available in cosmo0 source.
 
 ## Decisions
 
@@ -58,7 +59,8 @@ cosmo.type.unsupported-dependent-pattern
 ```
 
 Alternative considered: make dependent patterns part of all match typing. That
-would force every checker to support indexed unification and coverage.
+would force every checker to support indexed unification and coverage, including
+the intentionally smaller `cosmoc.basic-expr` and `mltt.core` profiles.
 
 ### Elaborate Through Constructor Metadata
 
@@ -157,9 +159,9 @@ systems language, but it should be a deliberate theory proposal.
 5. Implement clause elaboration into case trees.
 6. Implement coverage and impossible-branch diagnostics.
 7. Add Nat and Vec fixtures.
-8. Add cosmo0 and cosmoc conformance tests that show unsupported profiles reject
-   dependent patterns while the dependent-pattern profile accepts the small
-   fragment.
+8. Add cosmo0 and cosmoc conformance tests that show `cosmo0.subset` and the
+   dependent-pattern profile accept the feature metadata while unsupported
+   profiles reject dependent patterns.
 
 Rollback is additive: disable the dependent-pattern profile and keep ordinary
 match typing unchanged.

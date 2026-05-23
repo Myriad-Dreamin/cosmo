@@ -12,6 +12,12 @@ The subset is intentionally smaller than full Cosmo. User-defined generic progra
 
 Source-facing behavior is specified by the `docs/cosmo0/` files. Compiler descriptors, backend intrinsics, and extern hooks are implementation mechanisms unless `runtime.typ` says they are visible capability behavior.
 
+The subset boundary is source-facing. Scala-side checker experiments under
+`packages/cosmo0` may implement profile-gated reference behavior for diagnostics
+and conformance. Those experiments do not change ordinary cosmo0 package
+behavior unless the owning spec file and OpenSpec capability admit the source
+behavior explicitly.
+
 == Examples
 
 Accepted shape for a small bootstrap data type:

@@ -14,6 +14,18 @@ cosmo0 SHALL parse source using the Cosmo syntax accepted by the shared parser a
 - **WHEN** source is valid full Cosmo syntax but contains a construct outside the cosmo0 subset
 - **THEN** cosmo0 rejects the source before lowering with a diagnostic naming the unsupported construct
 
+### Requirement: Profile-Gated Checker Experiments
+
+cosmo0 SHALL allow experimental checker implementations as Scala compiler
+infrastructure only when those experiments are selected by explicit checker
+profile metadata and do not expand the default cosmo0 source subset.
+
+#### Scenario: Experiment does not change default subset
+
+- **WHEN** a profile-gated checker experiment is present under `packages/cosmo0`
+- **THEN** ordinary cosmo0 source is still accepted or rejected by the documented subset checker
+- **AND** the experimental behavior is used only when a test or explicit profile selection requests it
+
 ### Requirement: Supported Core Declarations
 
 cosmo0 SHALL support non-generic `class`, enum-style `case` variants, `def`, `val`, `var`, simple `type` aliases, and imports needed to reference core0 standard capabilities.

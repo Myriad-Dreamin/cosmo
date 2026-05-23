@@ -2965,7 +2965,7 @@ def rejected_feature_for_members(
 }
 
 def checker_unsupported_feature_from_text(text: String): String = {
-  if (text == checker_feature_dependent_patterns() or text == "dependent-pattern") {
+  if (text == checker_feature_dependent_patterns() or text == checker_feature_dependent_pattern_elaboration() or text == "dependent-pattern") {
     return checker_feature_dependent_patterns()
   }
   if (text == checker_feature_effects() or text == "effect-row") {

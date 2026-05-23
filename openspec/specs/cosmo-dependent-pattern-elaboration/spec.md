@@ -1,8 +1,22 @@
-## ADDED Requirements
+# cosmo-dependent-pattern-elaboration Specification
 
+## Purpose
+Define profile-gated dependent pattern elaboration over constructor metadata,
+indexed-family unification, deterministic case trees, and coverage diagnostics.
+## Requirements
 ### Requirement: Profile-Gated Dependent Patterns
 Dependent pattern matching SHALL be available only in checker profiles that
 declare support for dependent-pattern elaboration.
+
+#### Scenario: cosmo0 profile declares dependent-pattern support
+- **WHEN** the default `cosmo0.subset` checker profile is loaded
+- **THEN** its metadata declares support for dependent pattern matching
+- **AND** its metadata declares support for dependent-pattern elaboration
+
+#### Scenario: cosmo0 profile elaborates accepted dependent pattern
+- **WHEN** accepted dependent pattern clauses are elaborated with the `cosmo0.subset` checker profile
+- **THEN** the checker produces the deterministic case-tree artifact
+- **AND** the checker does not report an unsupported-dependent-pattern diagnostic
 
 #### Scenario: Unsupported profile rejects dependent pattern
 - **WHEN** a checker profile that does not support dependent patterns receives a dependent pattern match

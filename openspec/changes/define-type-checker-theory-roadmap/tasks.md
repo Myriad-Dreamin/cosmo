@@ -18,6 +18,7 @@
 - [ ] 3.2 Define fixture manifest fields for profile id, required features, goals, expected diagnostics, and artifact summaries.
 - [ ] 3.3 Add common harness fixtures that every checker must run.
 - [ ] 3.4 Add deterministic artifact-summary expectations for repeated checker runs.
+- [ ] 3.5 Define how cosmo0-side reference implementations report the same profile goals as `packages/cosmoc`.
 
 ## 4. Normalization Profiles
 
@@ -32,3 +33,4 @@
 - [ ] 5.2 Define which level is required for package checking.
 - [ ] 5.3 Define which level is required for LSP use.
 - [ ] 5.4 Add reporting that lists each checker profile, supported features, conformance level, and missing test groups.
+- [ ] 5.5 Require cosmo0-side experiments to remain profile-gated until they reach the integration level required for package or LSP use.

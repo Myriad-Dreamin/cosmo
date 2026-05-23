@@ -17,6 +17,11 @@ assumptions when applicable, and conformance suite groups.
 - **THEN** the checker may still participate in conformance tests for that subset
 - **AND** unsupported features are reported as unsupported rather than as internal errors
 
+#### Scenario: cosmo0 reference implementation is profile-gated
+- **WHEN** a theory profile has a Scala-side implementation under `packages/cosmo0`
+- **THEN** the implementation identifies the same profile id and supported goals as the registry entry
+- **AND** it remains behind explicit profile selection until it reaches the required integration level
+
 ### Requirement: Common Checking Goals
 Cosmo SHALL define common checking goals that every checker profile either
 implements or explicitly rejects.

@@ -4,6 +4,10 @@ The prior cosmo0 proposal defines a Scala-implemented core compiler that accepts
 
 cosmo1 is the next architectural target: the full Cosmo compiler written in cosmo0-compatible source. cosmo1 must be able to implement full Cosmo features such as type-level values, user generics, trait resolution, reflection, and staging. Those features should appear as cosmo1 compiler data structures and algorithms, not as cosmo0 host-language features.
 
+This host-language boundary is about cosmo0 source. It does not forbid
+profile-gated Scala implementations under `packages/cosmo0` that act as
+reference checkers or diagnostic experiments for the same compiler features.
+
 The immediate design problem is to list what cosmo1 needs so cosmo0 can be built to support the compiler without becoming full Cosmo prematurely.
 
 ## Goals / Non-Goals
@@ -21,6 +25,8 @@ The immediate design problem is to list what cosmo1 needs so cosmo0 can be built
 
 - Implement cosmo1.
 - Require cosmo0 to support user-defined generics, trait solving, type-level computation, reflection, staging, or macros.
+- Treat cosmo0-side reference checker experiments as source features required to
+  write cosmo1.
 - Require cosmo1 to match the current Scala compiler behavior in the first stage.
 - Remove the current Scala full compiler before cosmo1 reaches parity.
 

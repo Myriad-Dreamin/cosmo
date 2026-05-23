@@ -1,0 +1,985 @@
+import source.span
+import types.profile
+
+type DependentPatternTermId = Id[DependentPatternTerm]
+type DependentSourcePatternId = Id[DependentSourcePattern]
+
+class DependentPatternTerm {
+  case Var(String)
+  case Meta(usize)
+  case Constructor(String, Vec[DependentPatternTermId])
+  case Family(String, Vec[DependentPatternTermId])
+  case Error
+}
+
+class DependentPatternTermStore {
+  var terms: Arena[DependentPatternTerm]
+
+  def alloc(&mut self, value: DependentPatternTerm): DependentPatternTermId = {
+    var terms = self.terms;
+    val id = terms.alloc(value);
+    self.terms = terms;
+    id
+  }
+
+  def term_value(&self, id: DependentPatternTermId): DependentPatternTerm = {
+    *self.terms.get(id)
+  }
+
+  def alloc_var(&mut self, name: String): DependentPatternTermId = {
+    self.alloc(DependentPatternTerm.Var(name))
+  }
+
+  def alloc_meta(&mut self, index: usize): DependentPatternTermId = {
+    self.alloc(DependentPatternTerm.Meta(index))
+  }
+
+  def alloc_constructor(&mut self, name: String, args: Vec[DependentPatternTermId]): DependentPatternTermId = {
+    self.alloc(DependentPatternTerm.Constructor(name, args))
+  }
+
+  def alloc_family(&mut self, name: String, args: Vec[DependentPatternTermId]): DependentPatternTermId = {
+    self.alloc(DependentPatternTerm.Family(name, args))
+  }
+
+  def alloc_error(&mut self): DependentPatternTermId = {
+    self.alloc(DependentPatternTerm.Error)
+  }
+
+  def len(&self): usize = {
+    self.terms.len()
+  }
+}
+
+class DependentPatternBinding {
+  val name: String
+  val typ: DependentPatternTermId
+}
+
+class DependentPatternConstructorDecl {
+  val name: String
+  val telescope: Vec[DependentPatternBinding]
+  val result_family: String
+  val result_indices: Vec[DependentPatternTermId]
+}
+
+class DependentPatternInductiveDecl {
+  val name: String
+  val parameters: Vec[DependentPatternBinding]
+  val indices: Vec[DependentPatternBinding]
+  val constructors: Vec[DependentPatternConstructorDecl]
+}
+
+class DependentPatternEnv {
+  var inductives: Vec[DependentPatternInductiveDecl]
+
+  def add_inductive(&mut self, decl: DependentPatternInductiveDecl): Unit = {
+    self.inductives.push(decl)
+  }
+
+  def find_inductive(&self, name: String): Option[DependentPatternInductiveDecl] = {
+    var index: usize = 0;
+    while (index < self.inductives.len()) {
+      val decl = self.inductives.get(index);
+      if (decl.name == name) {
+        return Option[DependentPatternInductiveDecl]::Some(decl)
+      }
+      index = index + 1
+    }
+    Option[DependentPatternInductiveDecl]::None
+  }
+
+  def find_constructor(&self, name: String): Option[DependentPatternConstructorDecl] = {
+    var family_index: usize = 0;
+    while (family_index < self.inductives.len()) {
+      val family = self.inductives.get(family_index);
+      var ctor_index: usize = 0;
+      while (ctor_index < family.constructors.len()) {
+        val ctor = family.constructors.get(ctor_index);
+        if (ctor.name == name) {
+          return Option[DependentPatternConstructorDecl]::Some(ctor)
+        }
+        ctor_index = ctor_index + 1
+      }
+      family_index = family_index + 1
+    }
+    Option[DependentPatternConstructorDecl]::None
+  }
+}
+
+class DependentPatternDiagnostic {
+  val code: String
+  val message: String
+  val span: Span
+  val summary: String
+}
+
+class DependentPatternUnifyResult {
+  val ok: Bool
+  val impossible: Bool
+  val substitutions: Map[String, DependentPatternTermId]
+  val diagnostics: Vec[DependentPatternDiagnostic]
+
+  def is_ok(&self): Bool = {
+    self.ok and self.diagnostics.is_empty()
+  }
+
+  def first_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      return ""
+    }
+    self.diagnostics.get(0).code
+  }
+}
+
+class DependentPatternUnifier {
+  val store: &DependentPatternTermStore
+  val span: Span
+  var substitutions: Map[String, DependentPatternTermId]
+  var diagnostics: Vec[DependentPatternDiagnostic]
+  var impossible: Bool
+  var failed: Bool
+
+  def unify(&mut self, left: DependentPatternTermId, right: DependentPatternTermId): Unit = {
+    if (!self.failed and !self.impossible) {
+      val left_value = self.store.term_value(left);
+      left_value match {
+        case DependentPatternTerm.Var(name) => {
+          self.unify_variable(name, right)
+        }
+        case DependentPatternTerm.Meta(index) => {
+          self.unify_variable("?m".concat(dependent_pattern_ordinal_text(index)), right)
+        }
+        case DependentPatternTerm.Constructor(name, args) => {
+          self.unify_constructor_like(left, name, args, right, false)
+        }
+        case DependentPatternTerm.Family(name, args) => {
+          self.unify_constructor_like(left, name, args, right, true)
+        }
+        case DependentPatternTerm.Error => {
+          self.failed = true;
+          self.add_diagnostic(
+            "cosmo.type.dependent-pattern.unsupported-unification",
+            "cannot unify an error index term",
+            "<error>"
+          )
+        }
+      }
+    }
+  }
+
+  def unify_variable(&mut self, name: String, value: DependentPatternTermId): Unit = {
+    val existing = self.substitutions.get(name);
+    existing match {
+      case Option[DependentPatternTermId]::Some(solution) => {
+        self.unify(solution, value)
+      }
+      case Option[DependentPatternTermId]::None => {
+        if (!self.term_is_same_variable(name, value)) {
+          if (self.occurs(name, value)) {
+            self.failed = true;
+            self.add_diagnostic(
+              "cosmo.type.dependent-pattern.occurs-check",
+              "index metavariable occurs in its own solution",
+              name.concat(" in ").concat(dependent_pattern_term_display(self.store, value))
+            )
+          } else {
+            self.substitutions.insert(name, value);
+          }
+        }
+      }
+    }
+  }
+
+  def unify_constructor_like(
+    &mut self,
+    left: DependentPatternTermId,
+    name: String,
+    args: &Vec[DependentPatternTermId],
+    right: DependentPatternTermId,
+    family: Bool
+  ): Unit = {
+    val right_value = self.store.term_value(right);
+    right_value match {
+      case DependentPatternTerm.Var(right_name) => {
+        self.unify_variable(right_name, left)
+      }
+      case DependentPatternTerm.Meta(index) => {
+        self.unify_variable("?m".concat(dependent_pattern_ordinal_text(index)), left)
+      }
+      case DependentPatternTerm.Constructor(right_name, right_args) => {
+        self.unify_same_head(name, args, right_name, right_args, family, false)
+      }
+      case DependentPatternTerm.Family(right_name, right_args) => {
+        self.unify_same_head(name, args, right_name, right_args, family, true)
+      }
+      case DependentPatternTerm.Error => {
+        self.failed = true;
+        self.add_diagnostic(
+          "cosmo.type.dependent-pattern.unsupported-unification",
+          "cannot unify an error index term",
+          "<error>"
+        )
+      }
+    }
+  }
+
+  def unify_same_head(
+    &mut self,
+    left_name: String,
+    left_args: &Vec[DependentPatternTermId],
+    right_name: String,
+    right_args: &Vec[DependentPatternTermId],
+    left_family: Bool,
+    right_family: Bool
+  ): Unit = {
+    if (left_family != right_family) {
+      self.mark_impossible(left_name.concat(" cannot refine ").concat(right_name))
+    } else {
+      if (left_name != right_name) {
+        self.mark_impossible(left_name.concat(" cannot refine ").concat(right_name))
+      } else {
+        if (left_args.len() != right_args.len()) {
+          self.failed = true;
+          self.add_diagnostic(
+            "cosmo.type.dependent-pattern.unsupported-unification",
+            "constructor index arity mismatch",
+            left_name.concat("/").concat(right_name)
+          )
+        } else {
+          var index: usize = 0;
+          while (index < left_args.len()) {
+            self.unify(left_args.get(index), right_args.get(index));
+            index = index + 1
+          }
+        }
+      }
+    }
+  }
+
+  def term_is_same_variable(&self, name: String, value: DependentPatternTermId): Bool = {
+    val term = self.store.term_value(value);
+    term match {
+      case DependentPatternTerm.Var(value_name) => {
+        name == value_name
+      }
+      case DependentPatternTerm.Meta(index) => {
+        name == "?m".concat(dependent_pattern_ordinal_text(index))
+      }
+      case DependentPatternTerm.Constructor(ctor_name, args) => {
+        false
+      }
+      case DependentPatternTerm.Family(family_name, args) => {
+        false
+      }
+      case DependentPatternTerm.Error => {
+        false
+      }
+    }
+  }
+
+  def occurs(&self, name: String, value: DependentPatternTermId): Bool = {
+    val term = self.store.term_value(value);
+    term match {
+      case DependentPatternTerm.Var(value_name) => {
+        name == value_name
+      }
+      case DependentPatternTerm.Meta(index) => {
+        name == "?m".concat(dependent_pattern_ordinal_text(index))
+      }
+      case DependentPatternTerm.Constructor(ctor_name, args) => {
+        self.occurs_in_args(name, args)
+      }
+      case DependentPatternTerm.Family(family_name, args) => {
+        self.occurs_in_args(name, args)
+      }
+      case DependentPatternTerm.Error => {
+        false
+      }
+    }
+  }
+
+  def occurs_in_args(&self, name: String, args: &Vec[DependentPatternTermId]): Bool = {
+    var index: usize = 0;
+    while (index < args.len()) {
+      if (self.occurs(name, args.get(index))) {
+        return true
+      }
+      index = index + 1
+    }
+    false
+  }
+
+  def mark_impossible(&mut self, summary: String): Unit = {
+    self.impossible = true;
+    self.add_diagnostic(
+      "cosmo.type.dependent-pattern.impossible-branch",
+      "constructor result indices cannot refine scrutinee indices",
+      summary
+    )
+  }
+
+  def add_diagnostic(&mut self, code: String, message: String, summary: String): Unit = {
+    self.diagnostics.push(DependentPatternDiagnostic(code, message, self.span, summary))
+  }
+
+  def finish(&self): DependentPatternUnifyResult = {
+    DependentPatternUnifyResult(!self.failed and !self.impossible, self.impossible, self.substitutions, self.diagnostics)
+  }
+}
+
+class DependentSourcePattern {
+  case Constructor(String, Vec[DependentSourcePatternId], Span)
+  case Variable(String, Span)
+  case Wildcard(Span)
+  case Impossible(Span)
+  case Equality(DependentPatternTermId, DependentPatternTermId, Span)
+}
+
+class DependentSourcePatternStore {
+  var patterns: Arena[DependentSourcePattern]
+
+  def alloc(&mut self, value: DependentSourcePattern): DependentSourcePatternId = {
+    var patterns = self.patterns;
+    val id = patterns.alloc(value);
+    self.patterns = patterns;
+    id
+  }
+
+  def pattern_value(&self, id: DependentSourcePatternId): DependentSourcePattern = {
+    *self.patterns.get(id)
+  }
+
+  def alloc_constructor(&mut self, name: String, args: Vec[DependentSourcePatternId], span: Span): DependentSourcePatternId = {
+    self.alloc(DependentSourcePattern.Constructor(name, args, span))
+  }
+
+  def alloc_variable(&mut self, name: String, span: Span): DependentSourcePatternId = {
+    self.alloc(DependentSourcePattern.Variable(name, span))
+  }
+
+  def alloc_wildcard(&mut self, span: Span): DependentSourcePatternId = {
+    self.alloc(DependentSourcePattern.Wildcard(span))
+  }
+
+  def alloc_impossible(&mut self, span: Span): DependentSourcePatternId = {
+    self.alloc(DependentSourcePattern.Impossible(span))
+  }
+
+  def alloc_equality(
+    &mut self,
+    left: DependentPatternTermId,
+    right: DependentPatternTermId,
+    span: Span
+  ): DependentSourcePatternId = {
+    self.alloc(DependentSourcePattern.Equality(left, right, span))
+  }
+
+  def pattern_span(&self, id: DependentSourcePatternId): Span = {
+    dependent_source_pattern_span(self.pattern_value(id))
+  }
+}
+
+class DependentPatternClause {
+  val pattern: DependentSourcePatternId
+  val body: String
+  val span: Span
+}
+
+class DependentPatternBranchRefinement {
+  val constructor: String
+  val impossible: Bool
+  val context_bindings: Vec[DependentPatternBinding]
+  val substitution_summary: String
+  val expected_type: String
+  val span: Span
+}
+
+class DependentCaseTreeBranch {
+  val constructor: String
+  val binders: Vec[String]
+  val body: String
+  val impossible: Bool
+  val span: Span
+  val refinement_summary: String
+}
+
+class DependentCaseTree {
+  val scrutinee: String
+  val family_display: String
+  val branches: Vec[DependentCaseTreeBranch]
+  val refinements: Vec[DependentPatternBranchRefinement]
+  val diagnostics: Vec[DependentPatternDiagnostic]
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def first_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      return ""
+    }
+    self.diagnostics.get(0).code
+  }
+}
+
+def dependent_pattern_term_store(): DependentPatternTermStore = {
+  DependentPatternTermStore(Arena[DependentPatternTerm]())
+}
+
+def dependent_source_pattern_store(): DependentSourcePatternStore = {
+  DependentSourcePatternStore(Arena[DependentSourcePattern]())
+}
+
+def dependent_pattern_env(): DependentPatternEnv = {
+  DependentPatternEnv(Vec[DependentPatternInductiveDecl]())
+}
+
+def dependent_pattern_unify_indices(
+  store: &DependentPatternTermStore,
+  expected: &Vec[DependentPatternTermId],
+  actual: &Vec[DependentPatternTermId],
+  span: Span
+): DependentPatternUnifyResult = {
+  var unifier = DependentPatternUnifier(
+    store,
+    span,
+    Map[String, DependentPatternTermId](),
+    Vec[DependentPatternDiagnostic](),
+    false,
+    false
+  );
+
+  if (expected.len() != actual.len()) {
+    unifier.failed = true;
+    unifier.add_diagnostic(
+      "cosmo.type.dependent-pattern.unsupported-unification",
+      "family index arity mismatch",
+      "expected ".concat(dependent_pattern_ordinal_text(expected.len())).concat(" indices")
+    );
+    return unifier.finish()
+  }
+
+  var index: usize = 0;
+  while (index < expected.len()) {
+    unifier.unify(expected.get(index), actual.get(index));
+    index = index + 1
+  }
+
+  unifier.finish()
+}
+
+def elaborate_dependent_pattern_clauses(
+  profile_value: CheckerProfile,
+  env: &DependentPatternEnv,
+  store: &DependentPatternTermStore,
+  patterns: &DependentSourcePatternStore,
+  family_name: String,
+  scrutinee: String,
+  scrutinee_indices: &Vec[DependentPatternTermId],
+  expected_type: String,
+  clauses: &Vec[DependentPatternClause]
+): DependentCaseTree = {
+  val diagnostics = Vec[DependentPatternDiagnostic]();
+  val branches = Vec[DependentCaseTreeBranch]();
+  val refinements = Vec[DependentPatternBranchRefinement]();
+
+  if (!profile_value.supports_feature(checker_feature_dependent_pattern_elaboration())) {
+    diagnostics.push(DependentPatternDiagnostic(
+      checker_unsupported_dependent_pattern_code(),
+      "checker profile does not support dependent pattern elaboration",
+      dependent_pattern_first_clause_span(clauses),
+      profile_value.id
+    ));
+    return DependentCaseTree(scrutinee, dependent_pattern_family_display(store, family_name, scrutinee_indices), branches, refinements, diagnostics)
+  }
+
+  var seen = Vec[String]();
+  var wildcard_seen = false;
+  var index: usize = 0;
+  while (index < clauses.len()) {
+    val clause = clauses.get(index);
+    val pattern = patterns.pattern_value(clause.pattern);
+    pattern match {
+      case DependentSourcePattern.Constructor(name, args, span) => {
+        val redundant = wildcard_seen or dependent_pattern_string_vec_contains(seen, name);
+        if (redundant) {
+          diagnostics.push(DependentPatternDiagnostic(
+            "cosmo.type.dependent-pattern.redundant-branch",
+            "an earlier clause already covers this refined constructor space",
+            span,
+            name
+          ))
+        }
+        elaborate_dependent_constructor_clause(env, store, name, args, span, expected_type, clause.body, scrutinee_indices, branches, refinements, diagnostics);
+        if (!dependent_pattern_string_vec_contains(seen, name)) {
+          seen.push(name)
+        }
+      }
+      case DependentSourcePattern.Variable(name, span) => {
+        if (wildcard_seen) {
+          diagnostics.push(DependentPatternDiagnostic(
+            "cosmo.type.dependent-pattern.redundant-branch",
+            "an earlier wildcard already covers this refined space",
+            span,
+            name
+          ))
+        }
+        wildcard_seen = true;
+        branches.push(DependentCaseTreeBranch("_", Vec[String](), clause.body, false, span, "catch-all"))
+      }
+      case DependentSourcePattern.Wildcard(span) => {
+        if (wildcard_seen) {
+          diagnostics.push(DependentPatternDiagnostic(
+            "cosmo.type.dependent-pattern.redundant-branch",
+            "an earlier wildcard already covers this refined space",
+            span,
+            "_"
+          ))
+        }
+        wildcard_seen = true;
+        branches.push(DependentCaseTreeBranch("_", Vec[String](), clause.body, false, span, "catch-all"))
+      }
+      case DependentSourcePattern.Impossible(span) => {
+        branches.push(DependentCaseTreeBranch("!", Vec[String](), clause.body, true, span, "source-impossible"))
+      }
+      case DependentSourcePattern.Equality(left, right, span) => {
+        diagnostics.push(DependentPatternDiagnostic(
+          "cosmo.type.unsupported-equality-pattern",
+          "equality pattern matching is outside the accepted dependent-pattern fragment",
+          span,
+          dependent_pattern_term_display(store, left).concat(" = ").concat(dependent_pattern_term_display(store, right))
+        ))
+      }
+    }
+    index = index + 1
+  }
+
+  dependent_pattern_check_coverage(env, store, family_name, scrutinee_indices, seen, wildcard_seen, diagnostics);
+  DependentCaseTree(scrutinee, dependent_pattern_family_display(store, family_name, scrutinee_indices), branches, refinements, diagnostics)
+}
+
+def elaborate_dependent_constructor_clause(
+  env: &DependentPatternEnv,
+  store: &DependentPatternTermStore,
+  name: String,
+  args: &Vec[DependentSourcePatternId],
+  span: Span,
+  expected_type: String,
+  body: String,
+  scrutinee_indices: &Vec[DependentPatternTermId],
+  branches: &mut Vec[DependentCaseTreeBranch],
+  refinements: &mut Vec[DependentPatternBranchRefinement],
+  diagnostics: &mut Vec[DependentPatternDiagnostic]
+): Unit = {
+  val maybe_ctor = env.find_constructor(name);
+  maybe_ctor match {
+    case Option[DependentPatternConstructorDecl]::Some(ctor) => {
+      val unified = dependent_pattern_unify_indices(store, scrutinee_indices, ctor.result_indices, span);
+      dependent_pattern_copy_diagnostics(unified.diagnostics, diagnostics);
+      val binders = dependent_pattern_constructor_binders(ctor);
+      val summary = dependent_pattern_refinement_summary(store, unified);
+      val specialized_expected = dependent_pattern_specialized_expected_type(expected_type, summary);
+      branches.push(DependentCaseTreeBranch(name, binders, body, unified.impossible, span, summary));
+      refinements.push(DependentPatternBranchRefinement(name, unified.impossible, ctor.telescope, summary, specialized_expected, span))
+    }
+    case Option[DependentPatternConstructorDecl]::None => {
+      diagnostics.push(DependentPatternDiagnostic(
+        "cosmo.type.dependent-pattern.unknown-constructor",
+        "constructor is unavailable in the dependent-pattern environment",
+        span,
+        name
+      ))
+    }
+  }
+}
+
+def dependent_pattern_check_coverage(
+  env: &DependentPatternEnv,
+  store: &DependentPatternTermStore,
+  family_name: String,
+  scrutinee_indices: &Vec[DependentPatternTermId],
+  seen: &Vec[String],
+  wildcard_seen: Bool,
+  diagnostics: &mut Vec[DependentPatternDiagnostic]
+): Unit = {
+  val maybe_family = env.find_inductive(family_name);
+  maybe_family match {
+    case Option[DependentPatternInductiveDecl]::Some(family) => {
+      var index: usize = 0;
+      while (index < family.constructors.len()) {
+        val ctor = family.constructors.get(index);
+        val unified = dependent_pattern_unify_indices(store, scrutinee_indices, ctor.result_indices, make_span(0, 0));
+        if (!unified.impossible and !wildcard_seen and !dependent_pattern_string_vec_contains(seen, ctor.name)) {
+          diagnostics.push(DependentPatternDiagnostic(
+            "cosmo.type.dependent-pattern.missing-branch",
+            "missing constructor branch for dependent pattern match",
+            make_span(0, 0),
+            family_name.concat(" ").concat(dependent_pattern_indices_display(store, scrutinee_indices)).concat(" lacks ").concat(ctor.name)
+          ))
+        }
+        index = index + 1
+      }
+    }
+    case Option[DependentPatternInductiveDecl]::None => {
+      diagnostics.push(DependentPatternDiagnostic(
+        "cosmo.type.dependent-pattern.unknown-family",
+        "family is unavailable in the dependent-pattern environment",
+        make_span(0, 0),
+        family_name
+      ))
+    }
+  }
+}
+
+def dependent_pattern_add_nat_fixture(store: &mut DependentPatternTermStore, env: &mut DependentPatternEnv): Unit = {
+  val nat_type = store.alloc_family("Nat", Vec[DependentPatternTermId]());
+
+  val z_indices = Vec[DependentPatternTermId]();
+  val z_ctor = DependentPatternConstructorDecl("Z", Vec[DependentPatternBinding](), "Nat", z_indices);
+
+  val pred = store.alloc_var("pred");
+  val pred_binding = DependentPatternBinding("pred", nat_type);
+  val s_tel = Vec[DependentPatternBinding]();
+  s_tel.push(pred_binding);
+  val s_indices = Vec[DependentPatternTermId]();
+  val s_ctor = DependentPatternConstructorDecl("S", s_tel, "Nat", s_indices);
+
+  val constructors = Vec[DependentPatternConstructorDecl]();
+  constructors.push(z_ctor);
+  constructors.push(s_ctor);
+  env.add_inductive(DependentPatternInductiveDecl("Nat", Vec[DependentPatternBinding](), Vec[DependentPatternBinding](), constructors))
+}
+
+def dependent_pattern_add_vec_fixture(store: &mut DependentPatternTermStore, env: &mut DependentPatternEnv): Unit = {
+  val type_universe = store.alloc_family("Type", Vec[DependentPatternTermId]());
+  val nat_type = store.alloc_family("Nat", Vec[DependentPatternTermId]());
+  val a = store.alloc_var("A");
+  val n = store.alloc_var("n");
+  val k = store.alloc_var("k");
+  val z = store.alloc_constructor("Z", Vec[DependentPatternTermId]());
+
+  val s_args = Vec[DependentPatternTermId]();
+  s_args.push(k);
+  val s_k = store.alloc_constructor("S", s_args);
+
+  val vec_a_n_args = Vec[DependentPatternTermId]();
+  vec_a_n_args.push(a);
+  vec_a_n_args.push(k);
+  val vec_a_k = store.alloc_family("Vec", vec_a_n_args);
+
+  val parameters = Vec[DependentPatternBinding]();
+  parameters.push(DependentPatternBinding("A", type_universe));
+
+  val indices = Vec[DependentPatternBinding]();
+  indices.push(DependentPatternBinding("n", nat_type));
+
+  val nil_result = Vec[DependentPatternTermId]();
+  nil_result.push(a);
+  nil_result.push(z);
+  val nil_ctor = DependentPatternConstructorDecl("Nil", Vec[DependentPatternBinding](), "Vec", nil_result);
+
+  val cons_tel = Vec[DependentPatternBinding]();
+  cons_tel.push(DependentPatternBinding("head", a));
+  cons_tel.push(DependentPatternBinding("tail", vec_a_k));
+
+  val cons_result = Vec[DependentPatternTermId]();
+  cons_result.push(a);
+  cons_result.push(s_k);
+  val cons_ctor = DependentPatternConstructorDecl("Cons", cons_tel, "Vec", cons_result);
+
+  val constructors = Vec[DependentPatternConstructorDecl]();
+  constructors.push(nil_ctor);
+  constructors.push(cons_ctor);
+  env.add_inductive(DependentPatternInductiveDecl("Vec", parameters, indices, constructors))
+}
+
+def dependent_pattern_vec_indices(
+  store: &mut DependentPatternTermStore,
+  length: DependentPatternTermId
+): Vec[DependentPatternTermId] = {
+  val indices = Vec[DependentPatternTermId]();
+  indices.push(store.alloc_var("A"));
+  indices.push(length);
+  indices
+}
+
+def dependent_pattern_nat_successor(store: &mut DependentPatternTermStore, value: DependentPatternTermId): DependentPatternTermId = {
+  val args = Vec[DependentPatternTermId]();
+  args.push(value);
+  store.alloc_constructor("S", args)
+}
+
+def dependent_pattern_family_display(
+  store: &DependentPatternTermStore,
+  name: String,
+  indices: &Vec[DependentPatternTermId]
+): String = {
+  name.concat("(").concat(dependent_pattern_indices_display(store, indices)).concat(")")
+}
+
+def dependent_pattern_indices_display(store: &DependentPatternTermStore, indices: &Vec[DependentPatternTermId]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < indices.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(dependent_pattern_term_display(store, indices.get(index)));
+    index = index + 1
+  }
+  text
+}
+
+def dependent_pattern_term_display(store: &DependentPatternTermStore, id: DependentPatternTermId): String = {
+  val value = store.term_value(id);
+  value match {
+    case DependentPatternTerm.Var(name) => {
+      name
+    }
+    case DependentPatternTerm.Meta(index) => {
+      "?m".concat(dependent_pattern_ordinal_text(index))
+    }
+    case DependentPatternTerm.Constructor(name, args) => {
+      dependent_pattern_head_display(store, name, args)
+    }
+    case DependentPatternTerm.Family(name, args) => {
+      dependent_pattern_head_display(store, name, args)
+    }
+    case DependentPatternTerm.Error => {
+      "<error>"
+    }
+  }
+}
+
+def dependent_pattern_head_display(
+  store: &DependentPatternTermStore,
+  name: String,
+  args: &Vec[DependentPatternTermId]
+): String = {
+  if (args.is_empty()) {
+    return name
+  }
+  name.concat("(").concat(dependent_pattern_indices_display(store, args)).concat(")")
+}
+
+def dependent_pattern_refinement_summary(
+  store: &DependentPatternTermStore,
+  result: DependentPatternUnifyResult
+): String = {
+  if (result.impossible) {
+    return "impossible"
+  }
+  if (!result.diagnostics.is_empty()) {
+    return result.first_code()
+  }
+  val n_summary = dependent_pattern_solution_summary(store, result, "n");
+  if (!n_summary.is_empty()) {
+    return n_summary
+  }
+  val a_summary = dependent_pattern_solution_summary(store, result, "A");
+  if (!a_summary.is_empty()) {
+    return a_summary
+  }
+  "identity"
+}
+
+def dependent_pattern_solution_summary(
+  store: &DependentPatternTermStore,
+  result: DependentPatternUnifyResult,
+  name: String
+): String = {
+  val maybe_solution = result.substitutions.get(name);
+  maybe_solution match {
+    case Option[DependentPatternTermId]::Some(value) => {
+      name.concat("=").concat(dependent_pattern_term_display(store, value))
+    }
+    case Option[DependentPatternTermId]::None => {
+      ""
+    }
+  }
+}
+
+def dependent_pattern_specialized_expected_type(expected_type: String, refinement_summary: String): String = {
+  if (refinement_summary == "identity") {
+    return expected_type
+  }
+  if (refinement_summary == "impossible") {
+    return expected_type.concat(" under impossible")
+  }
+  if (refinement_summary.is_empty()) {
+    return expected_type
+  }
+  expected_type.concat(" under ").concat(refinement_summary)
+}
+
+def render_dependent_case_tree(tree: &DependentCaseTree): String = {
+  var text = "case ".concat(tree.scrutinee).concat(" : ").concat(tree.family_display).concat(" of");
+  var index: usize = 0;
+  while (index < tree.branches.len()) {
+    val branch = tree.branches.get(index);
+    text = text.concat("\n  ").concat(render_dependent_case_branch(branch));
+    index = index + 1
+  }
+  text
+}
+
+def render_dependent_case_branch(branch: DependentCaseTreeBranch): String = {
+  val binders = dependent_pattern_binder_display(branch.binders);
+  if (branch.impossible) {
+    return branch.constructor.concat(binders).concat(" -> impossible")
+  }
+  branch.constructor
+    .concat(binders)
+    .concat(" -> ")
+    .concat(branch.body)
+    .concat(" [")
+    .concat(branch.refinement_summary)
+    .concat("]")
+}
+
+def dependent_pattern_binder_display(binders: &Vec[String]): String = {
+  if (binders.is_empty()) {
+    return ""
+  }
+  var text = "(";
+  var index: usize = 0;
+  while (index < binders.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(binders.get(index));
+    index = index + 1
+  }
+  text.concat(")")
+}
+
+def dependent_pattern_constructor_binders(ctor: DependentPatternConstructorDecl): Vec[String] = {
+  val binders = Vec[String]();
+  var index: usize = 0;
+  while (index < ctor.telescope.len()) {
+    binders.push(ctor.telescope.get(index).name);
+    index = index + 1
+  }
+  binders
+}
+
+def dependent_pattern_copy_diagnostics(
+  from: &Vec[DependentPatternDiagnostic],
+  to: &mut Vec[DependentPatternDiagnostic]
+): Unit = {
+  var index: usize = 0;
+  while (index < from.len()) {
+    to.push(from.get(index));
+    index = index + 1
+  }
+}
+
+def dependent_source_pattern_span(pattern: DependentSourcePattern): Span = {
+  pattern match {
+    case DependentSourcePattern.Constructor(name, args, span) => {
+      span
+    }
+    case DependentSourcePattern.Variable(name, span) => {
+      span
+    }
+    case DependentSourcePattern.Wildcard(span) => {
+      span
+    }
+    case DependentSourcePattern.Impossible(span) => {
+      span
+    }
+    case DependentSourcePattern.Equality(left, right, span) => {
+      span
+    }
+  }
+}
+
+def dependent_pattern_first_clause_span(clauses: &Vec[DependentPatternClause]): Span = {
+  if (clauses.is_empty()) {
+    return make_span(0, 0)
+  }
+  clauses.get(0).span
+}
+
+def dependent_pattern_string_vec_contains(values: &Vec[String], target: String): Bool = {
+  var index: usize = 0;
+  while (index < values.len()) {
+    if (values.get(index) == target) {
+      return true
+    }
+    index = index + 1
+  }
+  false
+}
+
+def dependent_pattern_term_matches_head(value: DependentPatternTerm, name: String, arity: usize, family: Bool): Bool = {
+  value match {
+    case DependentPatternTerm.Constructor(ctor_name, args) => {
+      !family and ctor_name == name and args.len() == arity
+    }
+    case DependentPatternTerm.Family(family_name, args) => {
+      family and family_name == name and args.len() == arity
+    }
+    case DependentPatternTerm.Var(var_name) => {
+      false
+    }
+    case DependentPatternTerm.Meta(index) => {
+      false
+    }
+    case DependentPatternTerm.Error => {
+      false
+    }
+  }
+}
+
+def dependent_pattern_profile_supports_elaboration(profile_value: CheckerProfile): Bool = {
+  profile_value.supports_feature(checker_feature_dependent_pattern_elaboration())
+}
+
+def dependent_pattern_unsupported_profile_diagnostic(profile_value: CheckerProfile, span: Span): DependentPatternDiagnostic = {
+  DependentPatternDiagnostic(
+    checker_unsupported_dependent_pattern_code(),
+    "checker profile does not support dependent pattern elaboration",
+    span,
+    profile_value.id
+  )
+}
+
+def dependent_pattern_ordinal_text(value: usize): String = {
+  if (value < 10) {
+    return dependent_pattern_digit_text(value)
+  }
+  dependent_pattern_ordinal_text(value / 10).concat(dependent_pattern_digit_text(value % 10))
+}
+
+def dependent_pattern_digit_text(value: usize): String = {
+  if (value == 0) {
+    return "0"
+  }
+  if (value == 1) {
+    return "1"
+  }
+  if (value == 2) {
+    return "2"
+  }
+  if (value == 3) {
+    return "3"
+  }
+  if (value == 4) {
+    return "4"
+  }
+  if (value == 5) {
+    return "5"
+  }
+  if (value == 6) {
+    return "6"
+  }
+  if (value == 7) {
+    return "7"
+  }
+  if (value == 8) {
+    return "8"
+  }
+  "9"
+}

@@ -20,6 +20,12 @@ The roadmap should make those limits explicit. A theory profile can be useful
 even if it only covers a subset, as long as the compiler knows how to test it and
 how to reject unsupported programs deterministically.
 
+The roadmap also needs a practical experimentation lane. `packages/cosmo0` is
+allowed to host small Scala reference implementations for theory profiles when
+that gives better diagnostics and faster feedback. This does not widen the
+ordinary cosmo0 source subset; it creates profile-gated compiler infrastructure
+that can be compared with the Cosmo-written `packages/cosmoc` implementation.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -34,6 +40,8 @@ how to reject unsupported programs deterministically.
   normalization reference checker later.
 - Define a test-suite matrix that can evaluate partial checkers without
   overclaiming support.
+- Define how cosmo0-side experiments participate in conformance without
+  becoming default source behavior.
 
 **Non-Goals:**
 
@@ -44,6 +52,8 @@ how to reject unsupported programs deterministically.
   erasure in the first MLTT checker.
 - Replace existing parser-subset type checking.
 - Fully specify final surface syntax for all advanced type-system features.
+- Treat every cosmo0-side experiment as eligible for package or LSP integration
+  before it passes the required conformance level.
 
 ## Decisions
 
@@ -84,6 +94,23 @@ objects.safety
 Alternative considered: one global "full type checker" profile. That hides the
 fact that different theories solve different problems and makes partial
 implementations look like failures.
+
+### Allow cosmo0 Reference Implementations
+
+Theory profiles can have more than one implementation. A profile may have a
+Scala cosmo0 reference implementation, a Cosmo-written `packages/cosmoc`
+implementation, or both. The conformance contract is the same: profile id,
+supported and rejected goals, deterministic diagnostics, and artifact summaries.
+
+cosmo0 reference implementations are useful when the experiment needs quick
+iteration over data models, diagnostics, or coverage algorithms. They must stay
+behind explicit profile selection and must not silently change the default
+`cosmo0.subset` behavior.
+
+Alternative considered: permit only `packages/cosmoc` experiments. That keeps
+the bootstrap compiler smaller on paper, but it makes it harder to validate
+experimental diagnostics and profile contracts while the Cosmo-written compiler
+is still incomplete.
 
 ### Define Common Goals Before Theory-Specific Goals
 
@@ -246,6 +273,9 @@ rejections. That makes conformance tests vague and theory debugging harder.
   strategy; simple checkers can remain syntax-directed.
 - Partial support confuses integration -> Mitigation: conformance levels and
   unsupported-feature diagnostics are required before integration.
+- cosmo0 becomes a dumping ground for unfinished theory work -> Mitigation:
+  require explicit profile ownership, small focused slices, direct tests, and
+  conformance reporting before any experiment is considered for integration.
 
 ## Migration Plan
 
@@ -261,7 +291,9 @@ rejections. That makes conformance tests vague and theory debugging harder.
 6. Add fixture groups for common goals, MLTT core, WHNF conversion, future
    normalization strategies, dependent patterns, effects, traits, and object
    safety.
-7. Promote profiles into package-level compiler integration only after they reach
+7. Add cosmo0-side reference implementations or conformance harnesses for
+   experiments that need faster diagnostic and behavior iteration.
+8. Promote profiles into package-level compiler integration only after they reach
    the required conformance level.
 
 Rollback is additive: keep the roadmap as planning documentation and do not
