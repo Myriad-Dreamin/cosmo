@@ -45,7 +45,7 @@ Current diagnostic fixture coverage is indexed in `docs/cosmo0/syntax-corpus-mat
 
 == Checker Profile Tests
 
-Type-checking tests must identify the checker profile under test. The default cosmo0 source checker profile is `cosmo0.subset`; the current `packages/cosmoc/src/types` expression checker profile is `cosmoc.basic-expr`; the initial MLTT experiment placeholder is `mltt.core`.
+Type-checking tests must identify the checker profile under test. The default cosmo0 source checker profile is `cosmo0.subset`; the current `packages/cosmoc/src/types` expression checker profile is `cosmoc.basic-expr`; the initial MLTT core-data experiment is `mltt.core`.
 
 The `cosmo0.subset` profile declares support for dependent pattern matching and dependent-pattern elaboration. Simpler experimental profiles may still reject that feature explicitly; such rejections do not imply that the same source is outside cosmo0.
 
@@ -72,7 +72,7 @@ The shared unsupported-feature diagnostic codes are:
 - `cosmo.type.unsupported-cpp-import`
 - `cosmo.type.implementation-limit`
 
-Profile selection is currently a development and test-harness feature. `Cosmo0.checkWithProfile` and package `checkerProfile` metadata can select `cosmo0.subset`; experimental profiles such as `mltt.core` are isolated and return unsupported-feature diagnostics until their checker implementation exists.
+Profile selection is currently a development and test-harness feature. `Cosmo0.checkWithProfile` and package `checkerProfile` metadata can select `cosmo0.subset`; experimental profiles such as `mltt.core` stay isolated for ordinary source/package checking and return unsupported-feature diagnostics until a surface elaborator can produce their core artifacts. The MLTT core checker itself is tested through `packages/cosmoc/src/types/mltt/` fixture programs and the Scala mirror at `packages/cosmo0/src/main/scala/cosmo0/MlttTypeChecker.scala`.
 
 == Determinism Tests
 

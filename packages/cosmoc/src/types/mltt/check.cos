@@ -1,0 +1,1970 @@
+import source.span
+import types.mltt.core
+import types.profile
+
+class MlttDiagnostic {
+  val code: String
+  val message: String
+  val span: Span
+  val profile_id: String
+  val context_summary: String
+  val expected: String
+  val actual: String
+}
+
+class MlttConversionResult {
+  val ok: Bool
+  val strategy: String
+  val diagnostics: Vec[MlttDiagnostic]
+
+  def is_ok(&self): Bool = {
+    self.ok and self.diagnostics.is_empty()
+  }
+
+  def first_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      return ""
+    }
+    self.diagnostics.get(0).code
+  }
+}
+
+class MlttInferResult {
+  val profile_id: String
+  val artifact_kind: String
+  val term: MlttTermId
+  val typ: MlttTermId
+  val diagnostics: Vec[MlttDiagnostic]
+  val normalization_strategy: String
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def first_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      return ""
+    }
+    self.diagnostics.get(0).code
+  }
+}
+
+class MlttCheckResult {
+  val profile_id: String
+  val artifact_kind: String
+  val term: MlttTermId
+  val typ: MlttTermId
+  val diagnostics: Vec[MlttDiagnostic]
+  val metas: MlttMetaStore
+  val status: String
+  val normalization_strategy: String
+
+  def is_ok(&self): Bool = {
+    self.diagnostics.is_empty()
+  }
+
+  def first_code(&self): String = {
+    if (self.diagnostics.is_empty()) {
+      return ""
+    }
+    self.diagnostics.get(0).code
+  }
+
+  def artifact_summary(&self): String = {
+    self.profile_id
+      .concat("|")
+      .concat(self.artifact_kind)
+      .concat("|")
+      .concat(self.status)
+      .concat("|")
+      .concat(self.normalization_strategy)
+  }
+}
+
+def mltt_whnf_conversion_strategy(): String = {
+  "mltt.whnf-conversion"
+}
+
+def mltt_unknown_variable_code(): String = {
+  "cosmo.type.mltt.unknown-variable"
+}
+
+def mltt_non_function_application_code(): String = {
+  "cosmo.type.mltt.non-function-application"
+}
+
+def mltt_universe_mismatch_code(): String = {
+  "cosmo.type.mltt.universe-mismatch"
+}
+
+def mltt_type_mismatch_code(): String = {
+  "cosmo.type.mltt.type-mismatch"
+}
+
+def mltt_unsolved_constraint_code(): String = {
+  "cosmo.type.mltt.unsolved-constraint"
+}
+
+def mltt_unsupported_normalization_profile_code(): String = {
+  "cosmo.type.mltt.unsupported-normalization-profile"
+}
+
+def mltt_effectful_conversion_code(): String = {
+  "cosmo.type.mltt.effectful-conversion"
+}
+
+def mltt_unsupported_inference_code(): String = {
+  "cosmo.type.mltt.unsupported-inference"
+}
+
+def mltt_higher_order_unification_code(): String = {
+  "cosmo.type.mltt.higher-order-unification"
+}
+
+def mltt_diagnostic(
+  code: String,
+  message: String,
+  span: Span,
+  context: &MlttContext,
+  expected: String,
+  actual: String
+): MlttDiagnostic = {
+  MlttDiagnostic(
+    code,
+    message,
+    span,
+    checker_profile_mltt_core_id(),
+    context.summary(),
+    expected,
+    actual
+  )
+}
+
+def mltt_push_diagnostic(
+  diagnostics: &mut Vec[MlttDiagnostic],
+  code: String,
+  message: String,
+  span: Span,
+  context: &MlttContext,
+  expected: String,
+  actual: String
+): Unit = {
+  diagnostics.push(mltt_diagnostic(code, message, span, context, expected, actual))
+}
+
+def mltt_copy_diagnostics(from: &Vec[MlttDiagnostic], to: &mut Vec[MlttDiagnostic]): Unit = {
+  var index: usize = 0;
+  while (index < from.len()) {
+    to.push(from.get(index));
+    index = index + 1
+  }
+}
+
+def mltt_convert(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left: MlttTermId,
+  right: MlttTermId
+): MlttConversionResult = {
+  mltt_convert_with_strategy(store, context, left, right, mltt_whnf_conversion_strategy())
+}
+
+def mltt_convert_with_strategy(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left: MlttTermId,
+  right: MlttTermId,
+  strategy: String
+): MlttConversionResult = {
+  val diagnostics = Vec[MlttDiagnostic]();
+  if (strategy != mltt_whnf_conversion_strategy()) {
+    mltt_push_diagnostic(
+      diagnostics,
+      mltt_unsupported_normalization_profile_code(),
+      "checker profile mltt.core does not implement normalization profile ".concat(strategy),
+      make_span(0, 0),
+      context,
+      mltt_whnf_conversion_strategy(),
+      strategy
+    );
+    return MlttConversionResult(false, strategy, diagnostics)
+  }
+
+  val ok = mltt_convert_terms(store, context, left, right, diagnostics);
+  if (!ok and diagnostics.is_empty()) {
+    mltt_push_diagnostic(
+      diagnostics,
+      mltt_type_mismatch_code(),
+      "types are not definitionally equal after allowed normalization",
+      make_span(0, 0),
+      context,
+      mltt_term_display(store, left),
+      mltt_term_display(store, right)
+    )
+  }
+  MlttConversionResult(ok, strategy, diagnostics)
+}
+
+def mltt_convert_terms(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left: MlttTermId,
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  if (mltt_terms_equal(store, left, right)) {
+    return true
+  }
+
+  val left_whnf = mltt_whnf(store, context, left, diagnostics);
+  val right_whnf = mltt_whnf(store, context, right, diagnostics);
+  if (mltt_terms_equal(store, left_whnf, right_whnf)) {
+    return true
+  }
+
+  val left_value = store.term_value(left_whnf);
+  left_value match {
+    case MlttTerm.Pi(left_name, left_domain, left_body) => {
+      mltt_convert_pi_like(store, context, left_name, left_domain, left_body, right_whnf, diagnostics, false)
+    }
+    case MlttTerm.Sigma(left_name, left_first, left_second) => {
+      mltt_convert_pi_like(store, context, left_name, left_first, left_second, right_whnf, diagnostics, true)
+    }
+    case MlttTerm.Apply(left_function, left_argument) => {
+      mltt_convert_apply(store, context, left_function, left_argument, right_whnf, diagnostics)
+    }
+    case MlttTerm.Inductive(left_name, left_params, left_indices) => {
+      mltt_convert_inductive(store, context, left_name, left_params, left_indices, right_whnf, diagnostics)
+    }
+    case MlttTerm.Constructor(left_name, left_args) => {
+      mltt_convert_constructor(store, context, left_name, left_args, right_whnf, diagnostics)
+    }
+    case MlttTerm.Eq(left_type, left_left, left_right) => {
+      mltt_convert_eq(store, context, left_type, left_left, left_right, right_whnf, diagnostics)
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_convert_pi_like(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left_name: String,
+  left_domain: MlttTermId,
+  left_body: MlttTermId,
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  sigma: Bool
+): Bool = {
+  val right_value = store.term_value(right);
+  right_value match {
+    case MlttTerm.Pi(right_name, right_domain, right_body) => {
+      if (sigma) {
+        return false
+      }
+      mltt_convert_terms(store, context, left_domain, right_domain, diagnostics) and
+        mltt_convert_terms(store, context, left_body, right_body, diagnostics)
+    }
+    case MlttTerm.Sigma(right_name, right_first, right_second) => {
+      if (!sigma) {
+        return false
+      }
+      mltt_convert_terms(store, context, left_domain, right_first, diagnostics) and
+        mltt_convert_terms(store, context, left_body, right_second, diagnostics)
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Constructor(name, args) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_convert_apply(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left_function: MlttTermId,
+  left_argument: MlttTermId,
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val right_value = store.term_value(right);
+  right_value match {
+    case MlttTerm.Apply(right_function, right_argument) => {
+      mltt_convert_terms(store, context, left_function, right_function, diagnostics) and
+        mltt_convert_terms(store, context, left_argument, right_argument, diagnostics)
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Constructor(name, args) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_convert_inductive(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left_name: String,
+  left_params: &Vec[MlttTermId],
+  left_indices: &Vec[MlttTermId],
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val right_value = store.term_value(right);
+  right_value match {
+    case MlttTerm.Inductive(right_name, right_params, right_indices) => {
+      left_name == right_name and
+        mltt_convert_term_lists(store, context, left_params, right_params, diagnostics) and
+        mltt_convert_term_lists(store, context, left_indices, right_indices, diagnostics)
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Constructor(name, args) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_convert_constructor(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left_name: String,
+  left_args: &Vec[MlttTermId],
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val right_value = store.term_value(right);
+  right_value match {
+    case MlttTerm.Constructor(right_name, right_args) => {
+      left_name == right_name and mltt_convert_term_lists(store, context, left_args, right_args, diagnostics)
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_convert_eq(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left_type: MlttTermId,
+  left_left: MlttTermId,
+  left_right: MlttTermId,
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val right_value = store.term_value(right);
+  right_value match {
+    case MlttTerm.Eq(right_type, right_left, right_right) => {
+      mltt_convert_terms(store, context, left_type, right_type, diagnostics) and
+        mltt_convert_terms(store, context, left_left, right_left, diagnostics) and
+        mltt_convert_terms(store, context, left_right, right_right, diagnostics)
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Constructor(name, args) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_convert_term_lists(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  left: &Vec[MlttTermId],
+  right: &Vec[MlttTermId],
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  if (left.len() != right.len()) {
+    return false
+  }
+  var index: usize = 0;
+  while (index < left.len()) {
+    if (!mltt_convert_terms(store, context, left.get(index), right.get(index), diagnostics)) {
+      return false
+    }
+    index = index + 1
+  }
+  true
+}
+
+def mltt_whnf(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  mltt_whnf_fuel(store, context, term, diagnostics, 64)
+}
+
+def mltt_whnf_fuel(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  fuel: usize
+): MlttTermId = {
+  if (fuel == 0) {
+    return term
+  }
+
+  val value = store.term_value(term);
+  value match {
+    case MlttTerm.Var(name) => {
+      mltt_whnf_var(store, context, term, name, diagnostics, fuel)
+    }
+    case MlttTerm.Apply(function, argument) => {
+      mltt_whnf_apply(store, context, term, function, argument, diagnostics, fuel)
+    }
+    case MlttTerm.Let(name, local_value, body) => {
+      val substituted = mltt_substitute(store, body, name, local_value);
+      mltt_whnf_fuel(store, context, substituted, diagnostics, fuel - 1)
+    }
+    case MlttTerm.Fst(pair) => {
+      mltt_whnf_fst(store, context, term, pair, diagnostics, fuel)
+    }
+    case MlttTerm.Snd(pair) => {
+      mltt_whnf_snd(store, context, term, pair, diagnostics, fuel)
+    }
+    case MlttTerm.Universe(level) => {
+      term
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      term
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      term
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      term
+    }
+    case MlttTerm.Pair(first, second) => {
+      term
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      term
+    }
+    case MlttTerm.Constructor(name, args) => {
+      term
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      term
+    }
+    case MlttTerm.Refl(value) => {
+      term
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      term
+    }
+    case MlttTerm.Meta(index) => {
+      term
+    }
+    case MlttTerm.Error => {
+      term
+    }
+  }
+}
+
+def mltt_whnf_var(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  name: String,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  fuel: usize
+): MlttTermId = {
+  val maybe_entry = context.lookup(name);
+  maybe_entry match {
+    case Option[MlttContextEntry]::Some(entry) => {
+      entry.value match {
+        case Option[MlttTermId]::Some(value) => {
+          if (entry.transparent and entry.pure) {
+            return mltt_whnf_fuel(store, context, value, diagnostics, fuel - 1)
+          }
+          mltt_push_diagnostic(
+            diagnostics,
+            mltt_effectful_conversion_code(),
+            "conversion cannot reduce an opaque or effectful definition",
+            make_span(0, 0),
+            context,
+            "transparent pure definition",
+            name
+          );
+          term
+        }
+        case Option[MlttTermId]::None => {
+          term
+        }
+      }
+    }
+    case Option[MlttContextEntry]::None => {
+      term
+    }
+  }
+}
+
+def mltt_whnf_apply(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  function: MlttTermId,
+  argument: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  fuel: usize
+): MlttTermId = {
+  val function_whnf = mltt_whnf_fuel(store, context, function, diagnostics, fuel - 1);
+  val function_value = store.term_value(function_whnf);
+  function_value match {
+    case MlttTerm.Lambda(name, annotation, body) => {
+      val substituted = mltt_substitute(store, body, name, argument);
+      mltt_whnf_fuel(store, context, substituted, diagnostics, fuel - 1)
+    }
+    case MlttTerm.Var(name) => {
+      term
+    }
+    case MlttTerm.Universe(level) => {
+      term
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      term
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      term
+    }
+    case MlttTerm.Apply(inner_function, inner_argument) => {
+      term
+    }
+    case MlttTerm.Pair(first, second) => {
+      term
+    }
+    case MlttTerm.Fst(pair) => {
+      term
+    }
+    case MlttTerm.Snd(pair) => {
+      term
+    }
+    case MlttTerm.Let(name, value, body) => {
+      term
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      term
+    }
+    case MlttTerm.Constructor(name, args) => {
+      term
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      term
+    }
+    case MlttTerm.Refl(value) => {
+      term
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      term
+    }
+    case MlttTerm.Meta(index) => {
+      term
+    }
+    case MlttTerm.Error => {
+      term
+    }
+  }
+}
+
+def mltt_whnf_fst(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  pair: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  fuel: usize
+): MlttTermId = {
+  val pair_whnf = mltt_whnf_fuel(store, context, pair, diagnostics, fuel - 1);
+  val pair_value = store.term_value(pair_whnf);
+  pair_value match {
+    case MlttTerm.Pair(first, second) => {
+      mltt_whnf_fuel(store, context, first, diagnostics, fuel - 1)
+    }
+    case MlttTerm.Var(name) => {
+      term
+    }
+    case MlttTerm.Universe(level) => {
+      term
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      term
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      term
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      term
+    }
+    case MlttTerm.Apply(function, argument) => {
+      term
+    }
+    case MlttTerm.Fst(inner_pair) => {
+      term
+    }
+    case MlttTerm.Snd(inner_pair) => {
+      term
+    }
+    case MlttTerm.Let(name, value, body) => {
+      term
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      term
+    }
+    case MlttTerm.Constructor(name, args) => {
+      term
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      term
+    }
+    case MlttTerm.Refl(value) => {
+      term
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      term
+    }
+    case MlttTerm.Meta(index) => {
+      term
+    }
+    case MlttTerm.Error => {
+      term
+    }
+  }
+}
+
+def mltt_whnf_snd(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  pair: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  fuel: usize
+): MlttTermId = {
+  val pair_whnf = mltt_whnf_fuel(store, context, pair, diagnostics, fuel - 1);
+  val pair_value = store.term_value(pair_whnf);
+  pair_value match {
+    case MlttTerm.Pair(first, second) => {
+      mltt_whnf_fuel(store, context, second, diagnostics, fuel - 1)
+    }
+    case MlttTerm.Var(name) => {
+      term
+    }
+    case MlttTerm.Universe(level) => {
+      term
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      term
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      term
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      term
+    }
+    case MlttTerm.Apply(function, argument) => {
+      term
+    }
+    case MlttTerm.Fst(inner_pair) => {
+      term
+    }
+    case MlttTerm.Snd(inner_pair) => {
+      term
+    }
+    case MlttTerm.Let(name, value, body) => {
+      term
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      term
+    }
+    case MlttTerm.Constructor(name, args) => {
+      term
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      term
+    }
+    case MlttTerm.Refl(value) => {
+      term
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      term
+    }
+    case MlttTerm.Meta(index) => {
+      term
+    }
+    case MlttTerm.Error => {
+      term
+    }
+  }
+}
+
+def mltt_infer(store: &mut MlttTermStore, context: &MlttContext, term: MlttTermId): MlttInferResult = {
+  val diagnostics = Vec[MlttDiagnostic]();
+  val typ = mltt_infer_term(store, context, term, diagnostics);
+  MlttInferResult(
+    checker_profile_mltt_core_id(),
+    checker_artifact_mltt_core_term(),
+    term,
+    typ,
+    diagnostics,
+    mltt_whnf_conversion_strategy()
+  )
+}
+
+def mltt_check(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  expected: MlttTermId
+): MlttCheckResult = {
+  val diagnostics = Vec[MlttDiagnostic]();
+  val metas = mltt_meta_store();
+  val typ = mltt_check_term(store, context, term, expected, diagnostics);
+  mltt_report_unsolved_metas(store, context, metas, diagnostics);
+  MlttCheckResult(
+    checker_profile_mltt_core_id(),
+    checker_artifact_mltt_core_term(),
+    term,
+    typ,
+    diagnostics,
+    metas,
+    mltt_check_status(diagnostics),
+    mltt_whnf_conversion_strategy()
+  )
+}
+
+def mltt_infer_term(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  val value = store.term_value(term);
+  value match {
+    case MlttTerm.Var(name) => {
+      mltt_infer_var(store, context, term, name, diagnostics)
+    }
+    case MlttTerm.Universe(level) => {
+      store.alloc_universe(level + 1)
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      mltt_infer_pi_like(store, context, name, domain, body, diagnostics, false)
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      mltt_infer_pi_like(store, context, name, first, second, diagnostics, true)
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      mltt_infer_lambda(store, context, name, annotation, body, diagnostics)
+    }
+    case MlttTerm.Apply(function, argument) => {
+      mltt_infer_apply(store, context, term, function, argument, diagnostics)
+    }
+    case MlttTerm.Pair(first, second) => {
+      mltt_push_diagnostic(
+        diagnostics,
+        mltt_unsupported_inference_code(),
+        "pair inference requires an expected Sigma type",
+        make_span(0, 0),
+        context,
+        "Sigma",
+        mltt_term_display(store, term)
+      );
+      store.alloc_error()
+    }
+    case MlttTerm.Fst(pair) => {
+      mltt_infer_projection(store, context, term, pair, diagnostics, true)
+    }
+    case MlttTerm.Snd(pair) => {
+      mltt_infer_projection(store, context, term, pair, diagnostics, false)
+    }
+    case MlttTerm.Let(name, local_value, body) => {
+      val local_type = mltt_infer_term(store, context, local_value, diagnostics);
+      val next_context = mltt_context_extend_definition(context, name, local_type, local_value, true, true);
+      mltt_infer_term(store, next_context, body, diagnostics)
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      store.alloc_universe(0)
+    }
+    case MlttTerm.Constructor(name, args) => {
+      mltt_infer_constructor(store, context, term, name, args, diagnostics)
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      mltt_infer_eq(store, context, term, typ, left, right, diagnostics)
+    }
+    case MlttTerm.Refl(value) => {
+      mltt_push_diagnostic(
+        diagnostics,
+        mltt_unsupported_inference_code(),
+        "Refl inference requires an expected equality type",
+        make_span(0, 0),
+        context,
+        "Eq",
+        mltt_term_display(store, term)
+      );
+      store.alloc_error()
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      mltt_push_diagnostic(
+        diagnostics,
+        mltt_unsupported_inference_code(),
+        "neutral term inference requires an elaborated type annotation",
+        make_span(0, 0),
+        context,
+        "annotated neutral",
+        head
+      );
+      store.alloc_error()
+    }
+    case MlttTerm.Meta(index) => {
+      mltt_push_diagnostic(
+        diagnostics,
+        mltt_unsolved_constraint_code(),
+        "metavariable cannot be inferred until it is solved",
+        make_span(0, 0),
+        context,
+        "solved metavariable",
+        mltt_term_display(store, term)
+      );
+      store.alloc_error()
+    }
+    case MlttTerm.Error => {
+      store.alloc_error()
+    }
+  }
+}
+
+def mltt_infer_var(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  name: String,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  val maybe_entry = context.lookup(name);
+  maybe_entry match {
+    case Option[MlttContextEntry]::Some(entry) => {
+      entry.typ
+    }
+    case Option[MlttContextEntry]::None => {
+      mltt_push_diagnostic(
+        diagnostics,
+        mltt_unknown_variable_code(),
+        "unknown variable ".concat(name),
+        make_span(0, 0),
+        context,
+        "bound local",
+        name
+      );
+      store.alloc_error()
+    }
+  }
+}
+
+def mltt_infer_pi_like(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  name: String,
+  domain: MlttTermId,
+  body: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  sigma: Bool
+): MlttTermId = {
+  val domain_type = mltt_infer_term(store, context, domain, diagnostics);
+  val next_context = mltt_context_extend_local(context, name, domain);
+  val body_type = mltt_infer_term(store, next_context, body, diagnostics);
+  val domain_level = mltt_type_universe_level(store, domain_type);
+  val body_level = mltt_type_universe_level(store, body_type);
+  domain_level match {
+    case Option[usize]::Some(left_level) => {
+      body_level match {
+        case Option[usize]::Some(right_level) => {
+          store.alloc_universe(mltt_max_usize(left_level, right_level))
+        }
+        case Option[usize]::None => {
+          mltt_universe_mismatch(store, context, diagnostics, body_type);
+          store.alloc_error()
+        }
+      }
+    }
+    case Option[usize]::None => {
+      mltt_universe_mismatch(store, context, diagnostics, domain_type);
+      store.alloc_error()
+    }
+  }
+}
+
+def mltt_infer_lambda(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  name: String,
+  annotation: MlttTermId,
+  body: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  val annotation_type = mltt_infer_term(store, context, annotation, diagnostics);
+  val maybe_level = mltt_type_universe_level(store, annotation_type);
+  maybe_level match {
+    case Option[usize]::Some(level) => {
+    }
+    case Option[usize]::None => {
+      mltt_universe_mismatch(store, context, diagnostics, annotation_type)
+    }
+  }
+  val next_context = mltt_context_extend_local(context, name, annotation);
+  val body_type = mltt_infer_term(store, next_context, body, diagnostics);
+  store.alloc_pi(name, annotation, body_type)
+}
+
+def mltt_infer_apply(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  function: MlttTermId,
+  argument: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  val function_type = mltt_infer_term(store, context, function, diagnostics);
+  val function_type_whnf = mltt_whnf(store, context, function_type, diagnostics);
+  val function_value = store.term_value(function_type_whnf);
+  function_value match {
+    case MlttTerm.Pi(name, domain, body) => {
+      mltt_check_term(store, context, argument, domain, diagnostics);
+      mltt_substitute(store, body, name, argument)
+    }
+    case MlttTerm.Var(name) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Universe(level) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Apply(inner_function, inner_argument) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Pair(first, second) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Fst(pair) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Snd(pair) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Let(name, value, body) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Constructor(name, args) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Refl(value) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Meta(index) => {
+      mltt_non_function_application(store, context, term, function_type_whnf, diagnostics)
+    }
+    case MlttTerm.Error => {
+      store.alloc_error()
+    }
+  }
+}
+
+def mltt_infer_projection(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  pair: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  first: Bool
+): MlttTermId = {
+  val pair_type = mltt_infer_term(store, context, pair, diagnostics);
+  val pair_type_whnf = mltt_whnf(store, context, pair_type, diagnostics);
+  val pair_value = store.term_value(pair_type_whnf);
+  pair_value match {
+    case MlttTerm.Sigma(name, first_type, second_type) => {
+      if (first) {
+        return first_type
+      }
+      val projected_first = store.alloc_fst(pair);
+      mltt_substitute(store, second_type, name, projected_first)
+    }
+    case MlttTerm.Var(name) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Universe(level) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Apply(function, argument) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Pair(first_value, second_value) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Fst(inner_pair) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Snd(inner_pair) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Let(name, value, body) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Constructor(name, args) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Refl(value) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Meta(index) => {
+      mltt_non_sigma_projection(store, context, term, pair_type_whnf, diagnostics)
+    }
+    case MlttTerm.Error => {
+      store.alloc_error()
+    }
+  }
+}
+
+def mltt_infer_constructor(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  name: String,
+  args: &Vec[MlttTermId],
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  if (name == "Z" and args.is_empty()) {
+    return store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]())
+  }
+  if (name == "S" and args.len() == 1) {
+    val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+    mltt_check_term(store, context, args.get(0), nat, diagnostics);
+    return nat
+  }
+  mltt_push_diagnostic(
+    diagnostics,
+    mltt_unsupported_inference_code(),
+    "constructor inference requires an expected inductive family",
+    make_span(0, 0),
+    context,
+    "constructor type",
+    mltt_term_display(store, term)
+  );
+  store.alloc_error()
+}
+
+def mltt_infer_eq(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  typ: MlttTermId,
+  left: MlttTermId,
+  right: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  val type_type = mltt_infer_term(store, context, typ, diagnostics);
+  val maybe_level = mltt_type_universe_level(store, type_type);
+  maybe_level match {
+    case Option[usize]::Some(level) => {
+    }
+    case Option[usize]::None => {
+      mltt_universe_mismatch(store, context, diagnostics, type_type)
+    }
+  }
+  mltt_check_term(store, context, left, typ, diagnostics);
+  mltt_check_term(store, context, right, typ, diagnostics);
+  store.alloc_universe(0)
+}
+
+def mltt_check_term(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  expected: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  val term_value = store.term_value(term);
+  val expected_whnf = mltt_whnf(store, context, expected, diagnostics);
+  term_value match {
+    case MlttTerm.Lambda(name, annotation, body) => {
+      if (mltt_check_lambda(store, context, name, body, expected_whnf, diagnostics)) {
+        return expected
+      }
+    }
+    case MlttTerm.Pair(first, second) => {
+      if (mltt_check_pair(store, context, first, second, expected_whnf, diagnostics)) {
+        return expected
+      }
+    }
+    case MlttTerm.Refl(value) => {
+      if (mltt_check_refl(store, context, value, expected_whnf, diagnostics)) {
+        return expected
+      }
+    }
+    case MlttTerm.Constructor(name, args) => {
+      if (mltt_check_constructor(store, context, term, name, args, expected_whnf, diagnostics)) {
+        return expected
+      }
+    }
+    case MlttTerm.Var(name) => {
+    }
+    case MlttTerm.Universe(level) => {
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+    }
+    case MlttTerm.Apply(function, argument) => {
+    }
+    case MlttTerm.Fst(pair) => {
+    }
+    case MlttTerm.Snd(pair) => {
+    }
+    case MlttTerm.Let(name, value, body) => {
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+    }
+    case MlttTerm.Neutral(head, spine) => {
+    }
+    case MlttTerm.Meta(index) => {
+    }
+    case MlttTerm.Error => {
+      return store.alloc_error()
+    }
+  }
+
+  val inferred = mltt_infer_term(store, context, term, diagnostics);
+  val converted = mltt_convert(store, context, inferred, expected);
+  mltt_copy_diagnostics(converted.diagnostics, diagnostics);
+  if (!converted.is_ok()) {
+    mltt_push_diagnostic(
+      diagnostics,
+      mltt_type_mismatch_code(),
+      "type mismatch",
+      make_span(0, 0),
+      context,
+      mltt_term_display(store, expected),
+      mltt_term_display(store, inferred)
+    )
+  }
+  expected
+}
+
+def mltt_check_lambda(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  name: String,
+  body: MlttTermId,
+  expected: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val expected_value = store.term_value(expected);
+  expected_value match {
+    case MlttTerm.Pi(expected_name, domain, codomain) => {
+      val param = store.alloc_var(name);
+      val body_type = mltt_substitute(store, codomain, expected_name, param);
+      val next_context = mltt_context_extend_local(context, name, domain);
+      mltt_check_term(store, next_context, body, body_type, diagnostics);
+      true
+    }
+    case MlttTerm.Var(var_name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Sigma(sigma_name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(lambda_name, annotation, lambda_body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(let_name, value, let_body) => {
+      false
+    }
+    case MlttTerm.Inductive(inductive_name, params, indices) => {
+      false
+    }
+    case MlttTerm.Constructor(ctor_name, args) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_check_pair(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  first: MlttTermId,
+  second: MlttTermId,
+  expected: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val expected_value = store.term_value(expected);
+  expected_value match {
+    case MlttTerm.Sigma(name, first_type, second_type) => {
+      mltt_check_term(store, context, first, first_type, diagnostics);
+      val second_expected = mltt_substitute(store, second_type, name, first);
+      mltt_check_term(store, context, second, second_expected, diagnostics);
+      true
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(left, right) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Constructor(name, args) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_check_refl(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  value: MlttTermId,
+  expected: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val expected_value = store.term_value(expected);
+  expected_value match {
+    case MlttTerm.Eq(typ, left, right) => {
+      mltt_check_term(store, context, value, typ, diagnostics);
+      val left_ok = mltt_convert(store, context, value, left);
+      val right_ok = mltt_convert(store, context, value, right);
+      mltt_copy_diagnostics(left_ok.diagnostics, diagnostics);
+      mltt_copy_diagnostics(right_ok.diagnostics, diagnostics);
+      left_ok.is_ok() and right_ok.is_ok()
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Constructor(name, args) => {
+      false
+    }
+    case MlttTerm.Refl(inner_value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_check_constructor(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  name: String,
+  args: &Vec[MlttTermId],
+  expected: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val expected_value = store.term_value(expected);
+  expected_value match {
+    case MlttTerm.Inductive(family, params, indices) => {
+      if (family == "Nat") {
+        return mltt_check_nat_constructor(store, context, name, args, expected, diagnostics)
+      }
+      if (family == "Vec") {
+        return mltt_check_vec_constructor(store, context, name, args, params, indices, diagnostics)
+      }
+      false
+    }
+    case MlttTerm.Var(var_name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(pi_name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(sigma_name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(lambda_name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(let_name, value, body) => {
+      false
+    }
+    case MlttTerm.Constructor(ctor_name, ctor_args) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_check_nat_constructor(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  name: String,
+  args: &Vec[MlttTermId],
+  expected: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  if (name == "Z" and args.is_empty()) {
+    return true
+  }
+  if (name == "S" and args.len() == 1) {
+    mltt_check_term(store, context, args.get(0), expected, diagnostics);
+    return true
+  }
+  false
+}
+
+def mltt_check_vec_constructor(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  name: String,
+  args: &Vec[MlttTermId],
+  params: &Vec[MlttTermId],
+  indices: &Vec[MlttTermId],
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  if (params.len() != 1 or indices.len() != 1) {
+    return false
+  }
+  if (name == "Nil" and args.is_empty()) {
+    return mltt_term_is_constructor(store, indices.get(0), "Z", 0)
+  }
+  if (name == "Cons" and args.len() == 3) {
+    return mltt_check_vec_cons_constructor(store, context, args, params.get(0), indices.get(0), diagnostics)
+  }
+  false
+}
+
+def mltt_check_vec_cons_constructor(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  args: &Vec[MlttTermId],
+  element_type: MlttTermId,
+  index: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Bool = {
+  val index_value = store.term_value(index);
+  index_value match {
+    case MlttTerm.Constructor(name, successor_args) => {
+      if (name != "S" or successor_args.len() != 1) {
+        return false
+      }
+      val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+      val length_arg = args.get(0);
+      val head_arg = args.get(1);
+      val tail_arg = args.get(2);
+      mltt_check_term(store, context, length_arg, nat, diagnostics);
+      mltt_check_term(store, context, head_arg, element_type, diagnostics);
+      val tail_indices = Vec[MlttTermId]();
+      tail_indices.push(successor_args.get(0));
+      val tail_type = store.alloc_inductive("Vec", mltt_single_term(element_type), tail_indices);
+      mltt_check_term(store, context, tail_arg, tail_type, diagnostics);
+      val converted = mltt_convert(store, context, length_arg, successor_args.get(0));
+      mltt_copy_diagnostics(converted.diagnostics, diagnostics);
+      converted.is_ok()
+    }
+    case MlttTerm.Var(name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      true
+    }
+  }
+}
+
+def mltt_term_is_constructor(store: &MlttTermStore, term: MlttTermId, name: String, arity: usize): Bool = {
+  val value = store.term_value(term);
+  value match {
+    case MlttTerm.Constructor(ctor_name, args) => {
+      ctor_name == name and args.len() == arity
+    }
+    case MlttTerm.Var(var_name) => {
+      false
+    }
+    case MlttTerm.Universe(level) => {
+      false
+    }
+    case MlttTerm.Pi(param, domain, body) => {
+      false
+    }
+    case MlttTerm.Sigma(param, first, second) => {
+      false
+    }
+    case MlttTerm.Lambda(param, annotation, body) => {
+      false
+    }
+    case MlttTerm.Apply(function, argument) => {
+      false
+    }
+    case MlttTerm.Pair(first, second) => {
+      false
+    }
+    case MlttTerm.Fst(pair) => {
+      false
+    }
+    case MlttTerm.Snd(pair) => {
+      false
+    }
+    case MlttTerm.Let(local_name, value, body) => {
+      false
+    }
+    case MlttTerm.Inductive(inductive_name, params, indices) => {
+      false
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      false
+    }
+    case MlttTerm.Refl(value) => {
+      false
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      false
+    }
+    case MlttTerm.Meta(index) => {
+      false
+    }
+    case MlttTerm.Error => {
+      false
+    }
+  }
+}
+
+def mltt_universe_mismatch(
+  store: &MlttTermStore,
+  context: &MlttContext,
+  diagnostics: &mut Vec[MlttDiagnostic],
+  actual: MlttTermId
+): Unit = {
+  mltt_push_diagnostic(
+    diagnostics,
+    mltt_universe_mismatch_code(),
+    "expected a universe-classified type",
+    make_span(0, 0),
+    context,
+    "Type",
+    mltt_term_display(store, actual)
+  )
+}
+
+def mltt_non_function_application(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  actual_type: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  mltt_push_diagnostic(
+    diagnostics,
+    mltt_non_function_application_code(),
+    "application callee does not have a Pi type",
+    make_span(0, 0),
+    context,
+    "Pi",
+    mltt_term_display(store, actual_type)
+  );
+  store.alloc_error()
+}
+
+def mltt_non_sigma_projection(
+  store: &mut MlttTermStore,
+  context: &MlttContext,
+  term: MlttTermId,
+  actual_type: MlttTermId,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): MlttTermId = {
+  mltt_push_diagnostic(
+    diagnostics,
+    mltt_type_mismatch_code(),
+    "projection target does not have a Sigma type",
+    make_span(0, 0),
+    context,
+    "Sigma",
+    mltt_term_display(store, actual_type)
+  );
+  store.alloc_error()
+}
+
+def mltt_report_unsolved_metas(
+  store: &MlttTermStore,
+  context: &MlttContext,
+  metas: MlttMetaStore,
+  diagnostics: &mut Vec[MlttDiagnostic]
+): Unit = {
+  if (metas.has_unsolved_public_meta()) {
+    mltt_push_diagnostic(
+      diagnostics,
+      mltt_unsolved_constraint_code(),
+      "checking completed with an unsolved metavariable",
+      make_span(0, 0),
+      context,
+      "solved constraints",
+      "unsolved metavariable"
+    )
+  }
+}
+
+def mltt_reject_higher_order_unification(context: &MlttContext): MlttDiagnostic = {
+  mltt_diagnostic(
+    mltt_higher_order_unification_code(),
+    "arbitrary higher-order unification is outside mltt.core",
+    make_span(0, 0),
+    context,
+    "first-order pattern constraint",
+    "higher-order constraint"
+  )
+}
+
+def mltt_check_status(diagnostics: &Vec[MlttDiagnostic]): String = {
+  if (diagnostics.is_empty()) {
+    return "accepted"
+  }
+  "rejected"
+}

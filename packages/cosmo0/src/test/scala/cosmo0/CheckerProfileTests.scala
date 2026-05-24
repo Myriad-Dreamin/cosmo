@@ -24,10 +24,18 @@ class CheckerProfileTests extends munit.FunSuite:
 
     assertEquals(mltt.id, "mltt.core")
     assertEquals(mltt.artifactKind, "mltt-core-term")
+    assert(mltt.supports("sigma-types"))
+    assert(mltt.supports("equality-types"))
+    assert(mltt.supports("whnf-conversion"))
     assertEquals(
       mltt.rejectedFeatureCode(CheckerProfiles.ObjectDispatchFeature),
       CheckerProfiles.UnsupportedObjectDispatchCode,
     )
+    assertEquals(
+      mltt.rejectedFeatureCode(CheckerProfiles.AsyncFeature),
+      CheckerProfiles.UnsupportedEffectRowCode,
+    )
+    assert(mltt.rejects(CheckerProfiles.StagingFeature))
     assert(!mltt.supports(CheckerProfiles.DependentPatternElaborationFeature))
     assertEquals(dependent.id, "mltt.dependent-patterns")
     assertEquals(dependent.artifactKind, "mltt-case-tree")
@@ -108,6 +116,19 @@ class CheckerProfileTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Unsupported)
     assertEquals(result.diagnostics.head.code, CheckerProfiles.UnsupportedObjectDispatchCode)
+
+  test("fixture metadata can select the experimental MLTT profile"):
+    val loaded = Cosmo0().loadPackage("fixtures/cosmo0/package/mltt-core-profile")
+
+    assertEquals(loaded.phase, Phase.Check)
+    assert(loaded.isSuccess, s"MLTT profile fixture failed to load: ${loaded.diagnostics}")
+    assertEquals(loaded.value.get.metadata.checkerProfile, Some(CheckerProfiles.MlttCore.id))
+
+    val checked = Cosmo0().checkPackage(loaded.value.get)
+
+    assertEquals(checked.phase, Phase.Check)
+    assertEquals(checked.status, PhaseStatus.Unsupported)
+    assertEquals(checked.diagnostics.head.code, CheckerProfiles.UnsupportedObjectDispatchCode)
 
   test("typed artifact profile summary is deterministic"):
     val first = Cosmo0().check("val answer = 42").value.get.typed.checkerArtifactSummary
