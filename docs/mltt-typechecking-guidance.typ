@@ -9,7 +9,7 @@ trait-aware checking, effect-aware checking, and object-safety checks.
 
 The first implementation slice lives under
 `packages/cosmoc/src/types/mltt/`, with a Scala-side mirror under
-`packages/cosmo0/src/main/scala/cosmo0/MlttTypeChecker.scala`. It provides
+`packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala`. It provides
 explicit MLTT core data, profile-aware diagnostics, bidirectional check/infer
 entry points, conservative metavariable records, Nat/Vec metadata fixtures, and
 the first declared conversion strategy `mltt.whnf-conversion`. Selecting

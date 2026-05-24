@@ -16,11 +16,11 @@ enum SourceType:
 
   def display: String =
     this match
-      case SourceType.Builtin(name) => name
-      case SourceType.User(name)    => name
-      case SourceType.Alias(name, _) => name
-      case SourceType.TypeParam(name) => name
-      case SourceType.ForeignNamespace(value) => value.alias
+      case SourceType.Builtin(name)                => name
+      case SourceType.User(name)                   => name
+      case SourceType.Alias(name, _)               => name
+      case SourceType.TypeParam(name)              => name
+      case SourceType.ForeignNamespace(value)      => value.alias
       case SourceType.ForeignSymbol(canonicalName) => canonicalName
       case SourceType.ForeignApplied(canonicalName, args) =>
         s"$canonicalName[${args.map(_.display).mkString(", ")}]"
@@ -73,9 +73,9 @@ object SourceType:
 
   def dealias(value: SourceType): SourceType =
     value match
-      case Alias(_, target) => dealias(target)
-      case TypeParam(name) => TypeParam(name)
-      case ForeignNamespace(value) => ForeignNamespace(value)
+      case Alias(_, target)             => dealias(target)
+      case TypeParam(name)              => TypeParam(name)
+      case ForeignNamespace(value)      => ForeignNamespace(value)
       case ForeignSymbol(canonicalName) => ForeignSymbol(canonicalName)
       case ForeignApplied(canonicalName, args) =>
         ForeignApplied(canonicalName, args.map(dealias))
@@ -89,21 +89,27 @@ object SourceType:
 
   def same(left: SourceType, right: SourceType): Boolean =
     (dealias(left), dealias(right)) match
-      case (Error, _) | (_, Error)     => true
-      case (Never, _) | (_, Never)     => true
-      case (Builtin(a), Builtin(b))    => a == b
-      case (User(a), User(b))          => a == b
+      case (Error, _) | (_, Error)      => true
+      case (Never, _) | (_, Never)      => true
+      case (Builtin(a), Builtin(b))     => a == b
+      case (User(a), User(b))           => a == b
       case (TypeParam(a), TypeParam(b)) => a == b
       case (ForeignNamespace(a), ForeignNamespace(b)) =>
         a.alias == b.alias && a.namespace == b.namespace && a.headers == b.headers
       case (ForeignSymbol(a), ForeignSymbol(b)) => a == b
       case (ForeignApplied(na, aa), ForeignApplied(nb, ab)) =>
-        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) => same(a, b) }
-      case (Ref(a, ma), Ref(b, mb))    => ma == mb && same(a, b)
+        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) =>
+          same(a, b)
+        }
+      case (Ref(a, ma), Ref(b, mb)) => ma == mb && same(a, b)
       case (Standard(na, aa), Standard(nb, ab)) =>
-        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) => same(a, b) }
+        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) =>
+          same(a, b)
+        }
       case (Function(ap, ar), Function(bp, br)) =>
-        ap.length == bp.length && ap.zip(bp).forall { case (a, b) => same(a, b) } && same(ar, br)
+        ap.length == bp.length && ap.zip(bp).forall { case (a, b) =>
+          same(a, b)
+        } && same(ar, br)
       case _ => false
 
   def assignable(from: SourceType, to: SourceType): Boolean =
@@ -117,7 +123,10 @@ object SourceType:
 
   def isInteger(value: SourceType): Boolean =
     dealias(value) match
-      case Builtin("i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize") =>
+      case Builtin(
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" |
+            "usize",
+          ) =>
         true
       case _ => false
 
@@ -150,7 +159,8 @@ object SourceTypeTemplate:
   final case class Concrete(value: SourceType) extends SourceTypeTemplate:
     def instantiate(args: List[SourceType]): SourceType = value
 
-  final case class Ref(target: SourceTypeTemplate, mutable: Boolean) extends SourceTypeTemplate:
+  final case class Ref(target: SourceTypeTemplate, mutable: Boolean)
+      extends SourceTypeTemplate:
     def instantiate(args: List[SourceType]): SourceType =
       SourceType.Ref(target.instantiate(args), mutable)
 
@@ -291,18 +301,27 @@ object StandardGenericDescriptors:
   validateDescriptorBoundary(implementationDescriptors)
 
   val all: Map[String, StandardGenericDescriptor] =
-    implementationDescriptors.map(descriptor => descriptor.name -> descriptor).toMap
+    implementationDescriptors
+      .map(descriptor => descriptor.name -> descriptor)
+      .toMap
 
   private def standardGenericDescriptors: List[StandardGenericDescriptor] =
     List(
       descriptor(
         "Vec",
         1,
-        constructors = List(call("<init>", Nil, SourceTypeTemplate.Standard("Vec", List(T)))),
+        constructors = List(
+          call("<init>", Nil, SourceTypeTemplate.Standard("Vec", List(T))),
+        ),
         methods = List(
           call("push", List(param("value", T)), UnitT, receiverMutable = true),
           call("get", List(param("index", UsizeT)), T),
-          call("set", List(param("index", UsizeT), param("value", T)), UnitT, receiverMutable = true),
+          call(
+            "set",
+            List(param("index", UsizeT), param("value", T)),
+            UnitT,
+            receiverMutable = true,
+          ),
           call("size", Nil, UsizeT),
           call("len", Nil, UsizeT),
           call("is_empty", Nil, BoolT),
@@ -312,7 +331,11 @@ object StandardGenericDescriptors:
         "Option",
         1,
         constructors = List(
-          call("Some", List(param("value", T)), SourceTypeTemplate.Standard("Option", List(T))),
+          call(
+            "Some",
+            List(param("value", T)),
+            SourceTypeTemplate.Standard("Option", List(T)),
+          ),
           call("None", Nil, SourceTypeTemplate.Standard("Option", List(T))),
         ),
         methods = List(
@@ -324,8 +347,16 @@ object StandardGenericDescriptors:
         "Result",
         2,
         constructors = List(
-          call("Ok", List(param("value", T)), SourceTypeTemplate.Standard("Result", List(T, U))),
-          call("Err", List(param("error", U)), SourceTypeTemplate.Standard("Result", List(T, U))),
+          call(
+            "Ok",
+            List(param("value", T)),
+            SourceTypeTemplate.Standard("Result", List(T, U)),
+          ),
+          call(
+            "Err",
+            List(param("error", U)),
+            SourceTypeTemplate.Standard("Result", List(T, U)),
+          ),
         ),
         methods = List(
           call("is_ok", Nil, BoolT),
@@ -335,7 +366,9 @@ object StandardGenericDescriptors:
       descriptor(
         "Arena",
         1,
-        constructors = List(call("<init>", Nil, SourceTypeTemplate.Standard("Arena", List(T)))),
+        constructors = List(
+          call("<init>", Nil, SourceTypeTemplate.Standard("Arena", List(T))),
+        ),
         methods = List(
           call(
             "alloc",
@@ -362,9 +395,15 @@ object StandardGenericDescriptors:
       descriptor(
         "Map",
         2,
-        constructors = List(call("<init>", Nil, SourceTypeTemplate.Standard("Map", List(T, U)))),
+        constructors = List(
+          call("<init>", Nil, SourceTypeTemplate.Standard("Map", List(T, U))),
+        ),
         methods = List(
-          call("get", List(param("key", T)), SourceTypeTemplate.Standard("Option", List(U))),
+          call(
+            "get",
+            List(param("key", T)),
+            SourceTypeTemplate.Standard("Option", List(U)),
+          ),
           call(
             "insert",
             List(param("key", T), param("value", U)),
@@ -381,9 +420,16 @@ object StandardGenericDescriptors:
       descriptor(
         "Set",
         1,
-        constructors = List(call("<init>", Nil, SourceTypeTemplate.Standard("Set", List(T)))),
+        constructors = List(
+          call("<init>", Nil, SourceTypeTemplate.Standard("Set", List(T))),
+        ),
         methods = List(
-          call("insert", List(param("value", T)), UnitT, receiverMutable = true),
+          call(
+            "insert",
+            List(param("value", T)),
+            UnitT,
+            receiverMutable = true,
+          ),
           call("contains", List(param("value", T)), BoolT),
           call("size", Nil, UsizeT),
           call("len", Nil, UsizeT),
@@ -406,11 +452,20 @@ object StandardGenericDescriptors:
         "Box",
         1,
         constructors = List(
-          call("<init>", List(param("value", T)), SourceTypeTemplate.Standard("Box", List(T))),
+          call(
+            "<init>",
+            List(param("value", T)),
+            SourceTypeTemplate.Standard("Box", List(T)),
+          ),
         ),
         methods = List(
           call("get", Nil, SourceTypeTemplate.Ref(T, mutable = false)),
-          call("get_mut", Nil, SourceTypeTemplate.Ref(T, mutable = true), receiverMutable = true),
+          call(
+            "get_mut",
+            Nil,
+            SourceTypeTemplate.Ref(T, mutable = true),
+            receiverMutable = true,
+          ),
         ),
       ),
       descriptor("Ref", 1, constructors = Nil, methods = Nil),
@@ -445,7 +500,11 @@ object StandardGenericDescriptors:
           call("size", Nil, UsizeT),
           call("len", Nil, UsizeT),
           call("is_empty", Nil, BoolT),
-          call("slice", List(param("start", UsizeT), param("end", UsizeT)), StringT),
+          call(
+            "slice",
+            List(param("start", UsizeT), param("end", UsizeT)),
+            StringT,
+          ),
           call("char_at", List(param("index", UsizeT)), CharT),
           call("byte_at", List(param("index", UsizeT)), ByteT),
           call("concat", List(param("right", StringT)), StringT),
@@ -485,7 +544,9 @@ object StandardGenericDescriptors:
       descriptors: List[StandardGenericDescriptor],
   ): Unit =
     val rejected =
-      descriptors.map(_.name).filter(Boundary.rejectedRuntimeDescriptorFamilies.contains)
+      descriptors
+        .map(_.name)
+        .filter(Boundary.rejectedRuntimeDescriptorFamilies.contains)
     require(
       rejected.isEmpty,
       s"rejected runtime descriptor families registered: ${rejected.distinct.sorted.mkString(", ")}",
@@ -497,7 +558,9 @@ object StandardGenericDescriptors:
       s"descriptor families are outside the cosmo0 primitive boundary: ${unknown.distinct.sorted.mkString(", ")}",
     )
 
-  private def numericMethods(valueType: SourceTypeTemplate): List[DescriptorCallable] =
+  private def numericMethods(
+      valueType: SourceTypeTemplate,
+  ): List[DescriptorCallable] =
     List(
       call("neg", Nil, valueType),
       call("add", List(param("right", valueType)), valueType),
@@ -507,7 +570,9 @@ object StandardGenericDescriptors:
       call("mod", List(param("right", valueType)), valueType),
     ) ++ comparableMethods(valueType)
 
-  private def comparableMethods(valueType: SourceTypeTemplate): List[DescriptorCallable] =
+  private def comparableMethods(
+      valueType: SourceTypeTemplate,
+  ): List[DescriptorCallable] =
     List(
       call("eq", List(param("right", valueType)), BoolT),
       call("ne", List(param("right", valueType)), BoolT),

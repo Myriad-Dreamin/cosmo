@@ -11,11 +11,12 @@ final case class BackendRequirement(
 
   def legacyName: String =
     kind match
-      case BackendRequirementKind.Descriptor => value
-      case BackendRequirementKind.RuntimeSymbol => s"runtime-symbol:$value"
-      case BackendRequirementKind.Include => s"include:$value"
+      case BackendRequirementKind.Descriptor     => value
+      case BackendRequirementKind.RuntimeSymbol  => s"runtime-symbol:$value"
+      case BackendRequirementKind.Include        => s"include:$value"
       case BackendRequirementKind.SupportLibrary => s"support-library:$value"
-      case BackendRequirementKind.CppNamespaceImport => s"cpp-namespace-import:$value"
+      case BackendRequirementKind.CppNamespaceImport =>
+        s"cpp-namespace-import:$value"
 
 object BackendRequirement:
   def descriptor(name: String): BackendRequirement =
@@ -57,14 +58,22 @@ final case class SourceCppNamespaceImport(
     span: SourceSpan,
 ):
   require(alias.nonEmpty, "C++ namespace aliases must be non-empty")
-  require(headers.nonEmpty, "C++ namespace imports must name at least one header")
-  require(headers.forall(_.startsWith(SourceCppNamespaceImport.headerPrefix)), s"C++ header imports must start with ${SourceCppNamespaceImport.headerPrefix}")
+  require(
+    headers.nonEmpty,
+    "C++ namespace imports must name at least one header",
+  )
+  require(
+    headers.forall(_.startsWith(SourceCppNamespaceImport.headerPrefix)),
+    s"C++ header imports must start with ${SourceCppNamespaceImport.headerPrefix}",
+  )
 
   def canonicalNamespace: String =
     namespace.cppName
 
   def includeHeaders: List[String] =
-    headers.map(header => s"<${header.stripPrefix(SourceCppNamespaceImport.headerPrefix)}>")
+    headers.map(header =>
+      s"<${header.stripPrefix(SourceCppNamespaceImport.headerPrefix)}>",
+    )
 
   def requirementValue: String =
     s"$alias=${namespace.cppName} from ${headers.mkString(",")}"
@@ -110,7 +119,10 @@ object CppQualifiedSymbol:
   def relative(parts: String*): CppQualifiedSymbol =
     CppQualifiedSymbol(parts.toList, absolute = false)
 
-  def parse(value: String, absoluteByDefault: Boolean = true): CppQualifiedSymbol =
+  def parse(
+      value: String,
+      absoluteByDefault: Boolean = true,
+  ): CppQualifiedSymbol =
     require(value.nonEmpty, "C++ qualified symbols must be non-empty")
     val absolute = value.startsWith("::") || absoluteByDefault
     val trimmed =
@@ -162,10 +174,14 @@ object TrustedExternAbi:
   private val jsonValueType = SourceType.User("JsonValue")
   private val jsonParseErrorType = SourceType.User("JsonParseError")
   private val jsonValueRefType = SourceType.Ref(jsonValueType, mutable = false)
-  private val jsonValueOptionType = SourceType.Standard("Option", List(jsonValueType))
-  private val boolOptionType = SourceType.Standard("Option", List(SourceType.Bool))
-  private val stringOptionType = SourceType.Standard("Option", List(SourceType.String))
-  private val usizeOptionType = SourceType.Standard("Option", List(SourceType.Usize))
+  private val jsonValueOptionType =
+    SourceType.Standard("Option", List(jsonValueType))
+  private val boolOptionType =
+    SourceType.Standard("Option", List(SourceType.Bool))
+  private val stringOptionType =
+    SourceType.Standard("Option", List(SourceType.String))
+  private val usizeOptionType =
+    SourceType.Standard("Option", List(SourceType.Usize))
   private val u8PtrType = SourceType.Standard("Ptr", List(SourceType.Byte))
 
   private final case class TrustedBinding(
@@ -191,7 +207,7 @@ object TrustedExternAbi:
       params.length == signature.params.length &&
         params.zip(signature.params).forall { case (expected, actual) =>
           SourceType.dealias(expected) == SourceType.Error ||
-            SourceType.assignable(actual.valueType, expected)
+          SourceType.assignable(actual.valueType, expected)
         } &&
         SourceType.assignable(signature.returnType, returnType)
 
@@ -326,7 +342,10 @@ object TrustedExternAbi:
       TrustedBinding(
         "command_run",
         List(commandRefType),
-        SourceType.Standard("Result", List(commandResultType, commandErrorType)),
+        SourceType.Standard(
+          "Result",
+          List(commandResultType, commandErrorType),
+        ),
         commandRunSymbol,
         List(
           BackendRequirement.runtimeSymbol(commandRunSymbol),
@@ -338,11 +357,23 @@ object TrustedExternAbi:
       ),
       jsonBinding("json_is_null", List(jsonValueRefType), SourceType.Bool),
       jsonBinding("json_as_bool", List(jsonValueRefType), boolOptionType),
-      jsonBinding("json_as_number_text", List(jsonValueRefType), stringOptionType),
+      jsonBinding(
+        "json_as_number_text",
+        List(jsonValueRefType),
+        stringOptionType,
+      ),
       jsonBinding("json_as_string", List(jsonValueRefType), stringOptionType),
       jsonBinding("json_array_len", List(jsonValueRefType), usizeOptionType),
-      jsonBinding("json_array_get", List(jsonValueRefType, SourceType.Usize), jsonValueOptionType),
-      jsonBinding("json_field", List(jsonValueRefType, SourceType.String), jsonValueOptionType),
+      jsonBinding(
+        "json_array_get",
+        List(jsonValueRefType, SourceType.Usize),
+        jsonValueOptionType,
+      ),
+      jsonBinding(
+        "json_field",
+        List(jsonValueRefType, SourceType.String),
+        jsonValueOptionType,
+      ),
     ).map(binding => binding.sourceName -> binding).toMap
 
   private def jsonBinding(
@@ -373,20 +404,23 @@ object TrustedExternAbi:
     name == abiName || name == directCAbiName
 
   def bindingForDeclaration(function: TypedFunction): Option[LirExternBinding] =
-    function.externBinding.flatMap(directCBindingForDeclaration(function, _)).orElse {
-      if function.owner.nonEmpty || function.body.nonEmpty then None
-      else
-        trustedBindings
-          .get(function.name)
-          .filter(_.accepts(function.signature))
-          .map(_.lirBinding)
-    }
+    function.externBinding
+      .flatMap(directCBindingForDeclaration(function, _))
+      .orElse {
+        if function.owner.nonEmpty || function.body.nonEmpty then None
+        else
+          trustedBindings
+            .get(function.name)
+            .filter(_.accepts(function.signature))
+            .map(_.lirBinding)
+      }
 
   private def directCBindingForDeclaration(
       function: TypedFunction,
       sourceBinding: SourceExternBinding,
   ): Option[LirExternBinding] =
-    if function.owner.nonEmpty || function.body.nonEmpty || sourceBinding.abi != directCAbiName then None
+    if function.owner.nonEmpty || function.body.nonEmpty || sourceBinding.abi != directCAbiName
+    then None
     else
       val symbolName = sourceBinding.name.getOrElse(function.name)
       if !CppQualifiedSymbol.isIdentifier(symbolName) then None
@@ -397,7 +431,9 @@ object TrustedExternAbi:
             directCAbiName,
             symbol,
             List(BackendRequirement.runtimeSymbol(symbol)) ++
-              sourceBinding.supportLibrary.map(BackendRequirement.supportLibrary),
+              sourceBinding.supportLibrary.map(
+                BackendRequirement.supportLibrary,
+              ),
           ),
         )
 
