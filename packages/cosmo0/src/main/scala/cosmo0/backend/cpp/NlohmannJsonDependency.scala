@@ -24,7 +24,10 @@ object NlohmannJsonDependency:
   def ensureAvailable(): Unit =
     if DependencyNodeFs.existsSync(headerPath) then return
 
-    DependencyNodeFs.mkdirSync(externalsDir, js.Dynamic.literal(recursive = true))
+    DependencyNodeFs.mkdirSync(
+      externalsDir,
+      js.Dynamic.literal(recursive = true),
+    )
     if !acquireInstallLock() then return
 
     try ensureAvailableUnderLock()
@@ -33,7 +36,10 @@ object NlohmannJsonDependency:
   private def ensureAvailableUnderLock(): Unit =
     if DependencyNodeFs.existsSync(headerPath) then return
 
-    if DependencyNodeFs.existsSync(rootDir) && !DependencyNodeFs.existsSync(gitDir) then
+    if DependencyNodeFs.existsSync(rootDir) && !DependencyNodeFs.existsSync(
+        gitDir,
+      )
+    then
       throw new IllegalStateException(
         s"nlohmann/json dependency path exists but is not a git checkout: $rootDir",
       )
@@ -69,7 +75,10 @@ object NlohmannJsonDependency:
     )
 
   private def releaseInstallLock(): Unit =
-    DependencyNodeFs.rmSync(installLockDir, js.Dynamic.literal(recursive = true, force = true))
+    DependencyNodeFs.rmSync(
+      installLockDir,
+      js.Dynamic.literal(recursive = true, force = true),
+    )
 
   private def sleep(milliseconds: Int): Unit =
     val buffer = js.Dynamic.newInstance(js.Dynamic.global.SharedArrayBuffer)(4)
@@ -133,7 +142,7 @@ object NlohmannJsonDependency:
     throw new IllegalStateException(output)
 
 @js.native
-@JSImport("fs",JSImport.Namespace)
+@JSImport("fs", JSImport.Namespace)
 private object DependencyNodeFs extends js.Object:
   def existsSync(path: String): Boolean = js.native
   def mkdirSync(path: String, options: js.Any): Unit = js.native
@@ -142,7 +151,11 @@ private object DependencyNodeFs extends js.Object:
 @js.native
 @JSImport("child_process", "spawnSync")
 private object DependencyNodeSpawnSync extends js.Object:
-  def apply(command: String, args: js.Array[String], options: js.Any): DependencyNodeSpawnSyncResult =
+  def apply(
+      command: String,
+      args: js.Array[String],
+      options: js.Any,
+  ): DependencyNodeSpawnSyncResult =
     js.native
 
 @js.native

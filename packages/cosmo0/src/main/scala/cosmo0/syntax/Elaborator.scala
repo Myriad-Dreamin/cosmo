@@ -8,14 +8,24 @@ import cosmo.syntax.*
 
 object Elaborator:
   val defaultStandardGenericNames: Set[String] =
-    Set("Arena", "Box", "Id", "Map", "Option", "Ptr", "Ref", "RefMut", "Result", "Set", "Vec")
+    Set(
+      "Arena",
+      "Box",
+      "Id",
+      "Map",
+      "Option",
+      "Ptr",
+      "Ref",
+      "RefMut",
+      "Result",
+      "Set",
+      "Vec",
+    )
 
   def apply(): Elaborator =
     new Elaborator(defaultStandardGenericNames)
 
-final class Elaborator(
-    standardGenericNames: Set[String],
-):
+final class Elaborator(standardGenericNames: Set[String]):
   def elaborate(parsed: ParsedModule): Result[UntypedModule] =
     val state = State(parsed.source, standardGenericNames)
     val declarations = parsed.ast.stmts.flatMap(state.moduleDecl)
@@ -46,7 +56,8 @@ final class Elaborator(
   ):
     val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
     val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
-    val cppNamespaceImports: ListBuffer[SourceCppNamespaceImport] = ListBuffer.empty
+    val cppNamespaceImports: ListBuffer[SourceCppNamespaceImport] =
+      ListBuffer.empty
     private val genericTypeAliasNames = mutable.LinkedHashSet.empty[String]
 
     private val assignmentOps =
@@ -57,16 +68,16 @@ final class Elaborator(
 
     def moduleDecl(node: syntax.Node): Option[UntypedDecl] =
       unwrapSemi(node) match
-        case None => None
+        case None                     => None
         case Some(importNode: Import) => importDecl(importNode)
         case Some(classNode: Class)   => classDecl(classNode)
         case Some(defNode: Def)       => functionDecl(defNode)
-        case Some(valueNode: Val)     => valueDecl(valueNode, UntypedValueKind.Val)
-        case Some(valueNode: Var)     => valueDecl(valueNode, UntypedValueKind.Var)
-        case Some(typeNode: Typ)      => typeAlias(typeNode)
+        case Some(valueNode: Val) => valueDecl(valueNode, UntypedValueKind.Val)
+        case Some(valueNode: Var) => valueDecl(valueNode, UntypedValueKind.Var)
+        case Some(typeNode: Typ)  => typeAlias(typeNode)
         case Some(typeNode: GenericTyp) => genericTypeAlias(typeNode)
-        case Some(implNode: Impl)     => implDecl(implNode)
-        case Some(decorated: Decorate) => decoratedModuleDecl(decorated)
+        case Some(implNode: Impl)       => implDecl(implNode)
+        case Some(decorated: Decorate)  => decoratedModuleDecl(decorated)
         case Some(caseNode: Case) =>
           unsupported(
             caseNode,
@@ -130,7 +141,9 @@ final class Elaborator(
           includeDecoratorArgs(node, args).flatMap { values =>
             validateIncludeKind(values, node).flatMap {
               case "c" =>
-                cIncludeHeader(values.path, node).map(header => SourceCInclude(header, nodeSpan(node)))
+                cIncludeHeader(values.path, node).map(header =>
+                  SourceCInclude(header, nodeSpan(node)),
+                )
               case kind =>
                 unsupported(
                   node,
@@ -155,9 +168,9 @@ final class Elaborator(
 
     private def isIncludeDecorator(node: syntax.Node): Boolean =
       node match
-        case Ident("include") | Apply(Ident("include"), _, false) => true
+        case Ident("include") | Apply(Ident("include"), _, false)     => true
         case Ident("include-c") | Apply(Ident("include-c"), _, false) => true
-        case _ => false
+        case _                                                        => false
 
     private def includeDecoratorArgs(
         node: syntax.Node,
@@ -222,7 +235,9 @@ final class Elaborator(
             "include path must be a string literal",
           )
 
-    private def externDecorator(node: syntax.Node): Option[SourceExternBinding] =
+    private def externDecorator(
+        node: syntax.Node,
+    ): Option[SourceExternBinding] =
       node match
         case Apply(Ident("extern"), args, false) =>
           externDecoratorArgs(node, args)
@@ -276,7 +291,9 @@ final class Elaborator(
             "extern decorator ABI must be a string literal",
           )
 
-    private def collectExternDecoratorArgs(args: List[syntax.Node]): Option[ExternDecoratorArgs] =
+    private def collectExternDecoratorArgs(
+        args: List[syntax.Node],
+    ): Option[ExternDecoratorArgs] =
       var values = ExternDecoratorArgs()
       var ok = true
 
@@ -328,7 +345,8 @@ final class Elaborator(
             "extern decorators do not accept include; use a file-level @include(\"header.h\", kind = \"c\") directive",
           )
           ok = false
-        case arg @ KeyedArg(Ident(key), _) if Set("name", "symbol", "supportLibrary").contains(key) =>
+        case arg @ KeyedArg(Ident(key), _)
+            if Set("name", "symbol", "supportLibrary").contains(key) =>
           report(
             arg,
             "cosmo0.elaborate.invalid-extern",
@@ -423,7 +441,10 @@ final class Elaborator(
       if isIncludeSpecifier(path) then path.substring(1, path.length - 1)
       else path
 
-    private def cIncludeHeader(path: String, node: syntax.Node): Option[String] =
+    private def cIncludeHeader(
+        path: String,
+        node: syntax.Node,
+    ): Option[String] =
       if isIncludeSpecifier(path) then Some(path)
       else if isRequirementValue(path) then Some(s"<$path>")
       else
@@ -443,7 +464,8 @@ final class Elaborator(
 
     private def importDecl(node: Import): Option[UntypedDecl] =
       node.path match
-        case StrLit(header) if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
+        case StrLit(header)
+            if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
           cppImportDecl(node)
         case _ =>
           cosmoImportDecl(node)
@@ -459,17 +481,28 @@ final class Elaborator(
                 s"C++ header import $header must bind an explicit namespace alias",
               )
             case Some(As(namespaceNode, Ident(alias))) =>
-              cppNamespacePath(namespaceNode, Some(nodeSpan(node))).flatMap { namespace =>
-                if !CppQualifiedSymbol.isIdentifier(alias) then
-                  unsupported(
-                    namespaceNode,
-                    "cosmo1.name.invalid-cpp-namespace-import",
-                    s"C++ namespace alias $alias is not a valid identifier",
-                  )
-                else
-                  val importValue = SourceCppNamespaceImport(namespace, alias, List(header), nodeSpan(node))
-                  cppNamespaceImports += importValue
-                  Some(UntypedCppNamespaceImport(importValue, declarationVisibility(node)))
+              cppNamespacePath(namespaceNode, Some(nodeSpan(node))).flatMap {
+                namespace =>
+                  if !CppQualifiedSymbol.isIdentifier(alias) then
+                    unsupported(
+                      namespaceNode,
+                      "cosmo1.name.invalid-cpp-namespace-import",
+                      s"C++ namespace alias $alias is not a valid identifier",
+                    )
+                  else
+                    val importValue = SourceCppNamespaceImport(
+                      namespace,
+                      alias,
+                      List(header),
+                      nodeSpan(node),
+                    )
+                    cppNamespaceImports += importValue
+                    Some(
+                      UntypedCppNamespaceImport(
+                        importValue,
+                        declarationVisibility(node),
+                      ),
+                    )
               }
             case Some(_) =>
               unsupported(
@@ -477,7 +510,8 @@ final class Elaborator(
                 "cosmo1.name.invalid-cpp-namespace-import",
                 s"C++ import $header must use import <namespace> as <alias> from \"$header\"",
               )
-        case StrLit(header) if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
+        case StrLit(header)
+            if header.startsWith(SourceCppNamespaceImport.headerPrefix) =>
           unsupported(
             node,
             "cosmo1.name.invalid-cpp-namespace-import",
@@ -503,8 +537,9 @@ final class Elaborator(
     private def cosmoImportDecl(node: Import): Option[UntypedImport] =
       val span = nodeSpan(node)
       val path = pathFromNode(node.path, Some(span))
-      val dest = node.dest.fold[Option[Option[UntypedPath]]](Some(None)) { destNode =>
-        pathFromNode(destNode, Some(span)).map(Some(_))
+      val dest = node.dest.fold[Option[Option[UntypedPath]]](Some(None)) {
+        destNode =>
+          pathFromNode(destNode, Some(span)).map(Some(_))
       }
       path.zip(dest).map { case (p, d) =>
         UntypedImport(p, d, span, declarationVisibility(node))
@@ -529,7 +564,14 @@ final class Elaborator(
         )
       else
         val members = classMembers(node.body)
-        sequence(members).map(UntypedClass(node.name.name, _, nodeSpan(node), declarationVisibility(node)))
+        sequence(members).map(
+          UntypedClass(
+            node.name.name,
+            _,
+            nodeSpan(node),
+            declarationVisibility(node),
+          ),
+        )
 
     private def traitDecl(node: Class): Option[UntypedTrait] =
       if hasExplicitTypeParams(node.ps) then
@@ -546,7 +588,14 @@ final class Elaborator(
         )
       else
         val members = traitMembers(node.body)
-        sequence(members).map(UntypedTrait(node.name.name, _, nodeSpan(node), declarationVisibility(node)))
+        sequence(members).map(
+          UntypedTrait(
+            node.name.name,
+            _,
+            nodeSpan(node),
+            declarationVisibility(node),
+          ),
+        )
 
     private def traitMembers(node: syntax.Node): List[Option[UntypedFunction]] =
       unwrapSemi(node) match
@@ -582,7 +631,9 @@ final class Elaborator(
             s"${constructName(other)} is not a supported cosmo0 trait member",
           )
 
-    private def classMembers(node: syntax.Node): List[Option[UntypedClassMember]] =
+    private def classMembers(
+        node: syntax.Node,
+    ): List[Option[UntypedClassMember]] =
       unwrapSemi(node) match
         case None => Nil
         case Some(block: Block) =>
@@ -600,7 +651,7 @@ final class Elaborator(
 
     private def classMember(node: syntax.Node): Option[UntypedClassMember] =
       unwrapSemi(node) match
-        case None => None
+        case None                 => None
         case Some(valueNode: Val) => valueDecl(valueNode, UntypedValueKind.Val)
         case Some(valueNode: Var) => valueDecl(valueNode, UntypedValueKind.Var)
         case Some(defNode: Def)   => functionDecl(defNode)
@@ -644,14 +695,24 @@ final class Elaborator(
       else
         val span = nodeSpan(node)
         val params = sequence(node.params.getOrElse(Nil).map(param))
-        val returnType = node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
-          typeFromNode(ret, Some(span)).map(Some(_))
-        }
-        val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) { rhs =>
-          expr(rhs).map(Some(_))
+        val returnType =
+          node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
+            typeFromNode(ret, Some(span)).map(Some(_))
+          }
+        val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) {
+          rhs =>
+            expr(rhs).map(Some(_))
         }
         params.zip(returnType).zip(body).map { case ((ps, rt), b) =>
-          UntypedFunction(node.name.name, ps, rt, b, span, externBinding, declarationVisibility(node))
+          UntypedFunction(
+            node.name.name,
+            ps,
+            rt,
+            b,
+            span,
+            externBinding,
+            declarationVisibility(node),
+          )
         }
 
     private def valueDecl(
@@ -659,14 +720,23 @@ final class Elaborator(
         kind: UntypedValueKind,
     ): Option[UntypedValueDecl] =
       val span = nodeSpan(node)
-      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
+        ty =>
+          typeFromNode(ty, Some(span)).map(Some(_))
       }
-      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
-        expr(value).map(Some(_))
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
+        value =>
+          expr(value).map(Some(_))
       }
       valueType.zip(init).map { case (t, i) =>
-        UntypedValueDecl(kind, node.name.name, t, i, span, declarationVisibility(node))
+        UntypedValueDecl(
+          kind,
+          node.name.name,
+          t,
+          i,
+          span,
+          declarationVisibility(node),
+        )
       }
 
     private def valueDecl(
@@ -674,21 +744,35 @@ final class Elaborator(
         kind: UntypedValueKind,
     ): Option[UntypedValueDecl] =
       val span = nodeSpan(node)
-      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
+        ty =>
+          typeFromNode(ty, Some(span)).map(Some(_))
       }
-      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
-        expr(value).map(Some(_))
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
+        value =>
+          expr(value).map(Some(_))
       }
       valueType.zip(init).map { case (t, i) =>
-        UntypedValueDecl(kind, node.name.name, t, i, span, declarationVisibility(node))
+        UntypedValueDecl(
+          kind,
+          node.name.name,
+          t,
+          i,
+          span,
+          declarationVisibility(node),
+        )
       }
 
     private def typeAlias(node: Typ): Option[UntypedTypeAlias] =
       node.init.orElse(node.ty) match
         case Some(targetNode) =>
           typeFromNode(targetNode, Some(nodeSpan(node))).map(target =>
-            UntypedTypeAlias(node.name.name, target, nodeSpan(node), declarationVisibility(node)),
+            UntypedTypeAlias(
+              node.name.name,
+              target,
+              nodeSpan(node),
+              declarationVisibility(node),
+            ),
           )
         case None =>
           unsupported(
@@ -703,8 +787,15 @@ final class Elaborator(
       val target = node.init.orElse(node.ty) match
         case Some(targetNode) =>
           typeParams.flatMap(params =>
-            typeFromNode(targetNode, Some(nodeSpan(node)), params.toSet).map(target =>
-              UntypedTypeAlias(node.name.name, target, nodeSpan(node), declarationVisibility(node), params),
+            typeFromNode(targetNode, Some(nodeSpan(node)), params.toSet).map(
+              target =>
+                UntypedTypeAlias(
+                  node.name.name,
+                  target,
+                  nodeSpan(node),
+                  declarationVisibility(node),
+                  params,
+                ),
             ),
           )
         case None =>
@@ -715,7 +806,10 @@ final class Elaborator(
           )
       target
 
-    private def typeAliasParamNames(params: List[Param], node: syntax.Node): Option[List[String]] =
+    private def typeAliasParamNames(
+        params: List[Param],
+        node: syntax.Node,
+    ): Option[List[String]] =
       val names = ListBuffer.empty[String]
       var ok = true
 
@@ -767,10 +861,17 @@ final class Elaborator(
         )
 
       val members = sequence(classMembers(node.body))
-      traitPath.zip(targetPath).zip(members).flatMap { case ((traitName, target), implMembers) =>
-        validateTraitImplMembers(node, implMembers).map(_ =>
-          UntypedImpl(traitName, target, implMembers, nodeSpan(node), UntypedVisibility.Private),
-        )
+      traitPath.zip(targetPath).zip(members).flatMap {
+        case ((traitName, target), implMembers) =>
+          validateTraitImplMembers(node, implMembers).map(_ =>
+            UntypedImpl(
+              traitName,
+              target,
+              implMembers,
+              nodeSpan(node),
+              UntypedVisibility.Private,
+            ),
+          )
       }
 
     private def validateTraitImplMembers(
@@ -841,11 +942,13 @@ final class Elaborator(
         )
       else
         val span = nodeSpan(node)
-        val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
-          typeFromNode(ty, Some(span)).map(Some(_))
+        val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
+          ty =>
+            typeFromNode(ty, Some(span)).map(Some(_))
         }
-        val default = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
-          expr(value).map(Some(_))
+        val default = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
+          value =>
+            expr(value).map(Some(_))
         }
         valueType.zip(default).map { case (t, d) =>
           UntypedParam(node.name.name, t, d, span)
@@ -856,14 +959,14 @@ final class Elaborator(
         case Semi(None) => None
         case Semi(Some(inner)) =>
           unwrapSemi(inner) match
-            case None => None
+            case None                 => None
             case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
             case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
             case Some(other) =>
               expr(other).map(value => UntypedExprStmt(value, nodeSpan(node)))
         case other =>
           unwrapSemi(other) match
-            case None => None
+            case None                 => None
             case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
             case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
             case Some(value)          => expr(value)
@@ -873,11 +976,13 @@ final class Elaborator(
         kind: UntypedValueKind,
     ): Option[UntypedLocal] =
       val span = nodeSpan(node)
-      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
+        ty =>
+          typeFromNode(ty, Some(span)).map(Some(_))
       }
-      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
-        expr(value).map(Some(_))
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
+        value =>
+          expr(value).map(Some(_))
       }
       valueType.zip(init).map { case (t, i) =>
         UntypedLocal(kind, node.name.name, t, i, span)
@@ -888,11 +993,13 @@ final class Elaborator(
         kind: UntypedValueKind,
     ): Option[UntypedLocal] =
       val span = nodeSpan(node)
-      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
+        ty =>
+          typeFromNode(ty, Some(span)).map(Some(_))
       }
-      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) { value =>
-        expr(value).map(Some(_))
+      val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
+        value =>
+          expr(value).map(Some(_))
       }
       valueType.zip(init).map { case (t, i) =>
         UntypedLocal(kind, node.name.name, t, i, span)
@@ -905,7 +1012,12 @@ final class Elaborator(
           val items = block.stmts.map(blockItem)
           sequence(items).map(UntypedBlock(_, nodeSpan(block)))
         case Some(name: Ident) =>
-          Some(UntypedName(UntypedPath(List(name.name), nodeSpan(name)), nodeSpan(name)))
+          Some(
+            UntypedName(
+              UntypedPath(List(name.name), nodeSpan(name)),
+              nodeSpan(name),
+            ),
+          )
         case Some(BoolLit(value)) =>
           Some(UntypedBoolLiteral(value, nodeSpan(node)))
         case Some(IntLit(value)) =>
@@ -919,7 +1031,9 @@ final class Elaborator(
         case Some(RuneLit(value)) =>
           Some(UntypedRuneLiteral(value, nodeSpan(node)))
         case Some(Select(lhs, rhs, false)) =>
-          expr(lhs).map(receiver => UntypedSelect(receiver, rhs.name, nodeSpan(node)))
+          expr(lhs).map(receiver =>
+            UntypedSelect(receiver, rhs.name, nodeSpan(node)),
+          )
         case Some(Select(lhs, rhs, true)) =>
           typeFromNode(lhs, Some(nodeSpan(node))).map(owner =>
             UntypedVariantConstructor(owner, rhs.name, nodeSpan(node)),
@@ -932,9 +1046,10 @@ final class Elaborator(
             s"${rhs.name} is outside the initial cosmo0 higher-order API subset",
           )
         case Some(Apply(typeApply @ Apply(_, _, true), args, false)) =>
-          val callee = typeFromNode(typeApply, Some(nodeSpan(typeApply))).map(t =>
-            UntypedTypeConstructor(t, nodeSpan(typeApply)),
-          )
+          val callee =
+            typeFromNode(typeApply, Some(nodeSpan(typeApply))).map(t =>
+              UntypedTypeConstructor(t, nodeSpan(typeApply)),
+            )
           val callArgs = args.map(expr)
           for
             c <- callee
@@ -973,11 +1088,13 @@ final class Elaborator(
           expr(lhs).map(value => UntypedUnary(op, value, nodeSpan(node)))
         case Some(If(cond, thenBranch, elseBranch)) =>
           val span = nodeSpan(node)
-          val elseValue = elseBranch.fold[Option[Option[UntypedExpr]]](Some(None)) { branch =>
-            expr(branch).map(Some(_))
-          }
-          expr(cond).zip(expr(thenBranch)).zip(elseValue).map { case ((c, t), e) =>
-            UntypedIf(c, t, e, span)
+          val elseValue =
+            elseBranch.fold[Option[Option[UntypedExpr]]](Some(None)) { branch =>
+              expr(branch).map(Some(_))
+            }
+          expr(cond).zip(expr(thenBranch)).zip(elseValue).map {
+            case ((c, t), e) =>
+              UntypedIf(c, t, e, span)
           }
         case Some(Loop(body)) =>
           expr(body).map(UntypedLoop(_, nodeSpan(node)))
@@ -1057,7 +1174,10 @@ final class Elaborator(
             "cosmo0.elaborate.unsupported.decorator",
             "decorators and staging annotations are outside the initial cosmo0 subset",
           )
-        case Some(_: Val | _: Var | _: Typ | _: Def | _: Class | _: Impl | _: Import | _: Case) =>
+        case Some(
+              _: Val | _: Var | _: Typ | _: Def | _: Class | _: Impl |
+              _: Import | _: Case,
+            ) =>
           unsupported(
             node,
             "cosmo0.elaborate.unsupported.declaration-expression",
@@ -1084,8 +1204,9 @@ final class Elaborator(
 
     private def matchArm(node: Case): Option[UntypedMatchArm] =
       val span = nodeSpan(node)
-      val body = node.body.fold[Option[Option[UntypedExpr]]](Some(None)) { bodyNode =>
-        expr(bodyNode).map(Some(_))
+      val body = node.body.fold[Option[Option[UntypedExpr]]](Some(None)) {
+        bodyNode =>
+          expr(bodyNode).map(Some(_))
       }
       pattern(node.cond).zip(body).map { case (patternValue, bodyValue) =>
         UntypedMatchArm(patternValue, bodyValue, span)
@@ -1117,7 +1238,9 @@ final class Elaborator(
             as <- sequence(argPatterns)
           yield UntypedVariantPattern(c, as, nodeSpan(node))
         case select: Select =>
-          expr(select).map(constructor => UntypedVariantPattern(constructor, Nil, nodeSpan(node)))
+          expr(select).map(constructor =>
+            UntypedVariantPattern(constructor, Nil, nodeSpan(node)),
+          )
         case other =>
           unsupported(
             other,
@@ -1147,25 +1270,54 @@ final class Elaborator(
           )
         case Apply(lhs, args, true) =>
           pathFromNode(lhs, fallbackSpan) match
-            case Some(base) if standardGenericNames.contains(base.parts.lastOption.getOrElse("")) =>
-              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
+            case Some(base)
+                if standardGenericNames.contains(
+                  base.parts.lastOption.getOrElse(""),
+                ) =>
+              val typeArgs = args.map(
+                typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams),
+              )
               sequence(typeArgs).map { values =>
                 base.parts.lastOption match
                   case Some("Ref") if values.size == 1 =>
-                    UntypedRefType(values.head, mutable = false, nodeSpan(node, fallbackSpan))
+                    UntypedRefType(
+                      values.head,
+                      mutable = false,
+                      nodeSpan(node, fallbackSpan),
+                    )
                   case Some("RefMut") if values.size == 1 =>
-                    UntypedRefType(values.head, mutable = true, nodeSpan(node, fallbackSpan))
+                    UntypedRefType(
+                      values.head,
+                      mutable = true,
+                      nodeSpan(node, fallbackSpan),
+                    )
                   case _ =>
-                    UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan))
+                    UntypedAppliedType(
+                      base,
+                      values,
+                      nodeSpan(node, fallbackSpan),
+                    )
               }
-            case Some(base) if base.parts.headOption.exists(alias =>
-                cppNamespaceImports.exists(_.alias == alias),
-              ) =>
-              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
-              sequence(typeArgs).map(values => UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)))
-            case Some(base) if base.parts.length == 1 && genericTypeAliasNames.contains(base.parts.head) =>
-              val typeArgs = args.map(typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams))
-              sequence(typeArgs).map(values => UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)))
+            case Some(base)
+                if base.parts.headOption.exists(alias =>
+                  cppNamespaceImports.exists(_.alias == alias),
+                ) =>
+              val typeArgs = args.map(
+                typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams),
+              )
+              sequence(typeArgs).map(values =>
+                UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)),
+              )
+            case Some(base)
+                if base.parts.length == 1 && genericTypeAliasNames.contains(
+                  base.parts.head,
+                ) =>
+              val typeArgs = args.map(
+                typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams),
+              )
+              sequence(typeArgs).map(values =>
+                UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)),
+              )
             case Some(base) =>
               unsupported(
                 node,
@@ -1209,7 +1361,8 @@ final class Elaborator(
         node: syntax.Node,
         fallbackSpan: Option[SourceSpan],
     ): SourceSpan =
-      if node.offset >= 0 && node.end >= node.offset then source.span(node.offset, node.end)
+      if node.offset >= 0 && node.end >= node.offset then
+        source.span(node.offset, node.end)
       else fallbackSpan.getOrElse(source.span(0, 0))
 
     private def declarationVisibility(node: syntax.Node): UntypedVisibility =
@@ -1219,7 +1372,9 @@ final class Elaborator(
       else UntypedVisibility.Public
 
     private def startsWithWord(text: String, word: String): Boolean =
-      text.startsWith(word) && text.lift(word.length).forall(ch => !isIdentContinue(ch))
+      text.startsWith(word) && text
+        .lift(word.length)
+        .forall(ch => !isIdentContinue(ch))
 
     private def isIdentContinue(char: Char): Boolean =
       char.isLetterOrDigit || char == '_'

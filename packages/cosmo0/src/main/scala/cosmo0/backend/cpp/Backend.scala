@@ -8,7 +8,8 @@ final case class CppOutput(
     namespace: List[String],
     source: String,
     backendRequirements: List[BackendRequirement] = Nil,
-    supportLibraryLinkPlan: SupportLibraryLinkPlan = SupportLibraryLinkPlan.empty,
+    supportLibraryLinkPlan: SupportLibraryLinkPlan =
+      SupportLibraryLinkPlan.empty,
 ):
   def runtimeRequirements: List[String] =
     backendRequirements.map(_.legacyName).distinct.sorted
@@ -20,23 +21,30 @@ object CppBackend:
   def apply(): CppBackend =
     new CppBackend(LirTypeChecker())
 
-final class CppBackend(
-    checker: LirTypeChecker,
-):
+final class CppBackend(checker: LirTypeChecker):
   def emit(module: LirModule): Result[CppOutput] =
     checker.check(module) match
       case checked if checked.isSuccess =>
         val state = State(module)
         val source = state.emit()
-        if state.diagnostics.nonEmpty then Result.failure(Phase.Compile, state.diagnostics)
+        if state.diagnostics.nonEmpty then
+          Result.failure(Phase.Compile, state.diagnostics)
         else
-          SupportLibraryLinkPlan.fromBackendRequirements(state.backendRequirements) match
+          SupportLibraryLinkPlan.fromBackendRequirements(
+            state.backendRequirements,
+          ) match
             case Left(diagnostics) =>
               Result.failure(Phase.Compile, diagnostics)
             case Right(linkPlan) =>
               Result.success(
                 Phase.Compile,
-                CppOutput(module.name, state.namespace, source, state.backendRequirements, linkPlan),
+                CppOutput(
+                  module.name,
+                  state.namespace,
+                  source,
+                  state.backendRequirements,
+                  linkPlan,
+                ),
               )
       case failed =>
         Result.failure(
@@ -64,7 +72,9 @@ final class CppBackend(
     private val env = buildDeclEnv(module)
     private val names = BackendNames(env)
 
-    requirements ++= module.cIncludes.map(include => BackendRequirement.include(include.header))
+    requirements ++= module.cIncludes.map(include =>
+      BackendRequirement.include(include.header),
+    )
     requirements ++= module.cppNamespaceImports.flatMap(importValue =>
       importValue.includeHeaders.map(BackendRequirement.include),
     )
@@ -107,15 +117,31 @@ final class CppBackend(
 
     private def buildDeclEnv(module: LirModule): DeclEnv =
       val declarations = module.declarations.sortBy(_.id.value)
-      val byId = declarations.foldLeft(Map.empty[LirDeclId, LirDeclaration]) { (acc, declaration) =>
-        if acc.contains(declaration.id) then acc else acc.updated(declaration.id, declaration)
+      val byId = declarations.foldLeft(Map.empty[LirDeclId, LirDeclaration]) {
+        (acc, declaration) =>
+          if acc.contains(declaration.id) then acc
+          else acc.updated(declaration.id, declaration)
       }
-      val functions = byId.collect { case (id, function: LirFunction) => id -> function }
-      val globals = byId.collect { case (id, global: LirGlobal) => id -> global }
+      val functions = byId.collect { case (id, function: LirFunction) =>
+        id -> function
+      }
+      val globals = byId.collect { case (id, global: LirGlobal) =>
+        id -> global
+      }
       val typesById = byId.collect { case (id, ty: LirTypeDecl) => id -> ty }
       val typesByName = typesById.values.map(ty => ty.name -> ty).toMap
-      val aliasesByName = byId.collect { case (_, alias: LirTypeAliasDecl) => alias.name -> alias }
-      DeclEnv(declarations, byId, functions, globals, typesById, typesByName, aliasesByName)
+      val aliasesByName = byId.collect { case (_, alias: LirTypeAliasDecl) =>
+        alias.name -> alias
+      }
+      DeclEnv(
+        declarations,
+        byId,
+        functions,
+        globals,
+        typesById,
+        typesByName,
+        aliasesByName,
+      )
 
     private def runtimeIncludes: List[String] =
       val base = List(
@@ -144,7 +170,8 @@ final class CppBackend(
         "#include <variant>",
         "#include <vector>",
       )
-      val fileLevel = module.cIncludes.map(include => s"#include ${include.header}")
+      val fileLevel =
+        module.cIncludes.map(include => s"#include ${include.header}")
       val foreignHeaders = module.cppNamespaceImports.flatMap(importValue =>
         importValue.includeHeaders.map(header => s"#include $header"),
       )
@@ -633,13 +660,18 @@ final class CppBackend(
         |} // namespace cosmo0_runtime""".stripMargin
 
     private def typeForwardDeclarations: List[String] =
-      val lines = env.typesById.values.toList.sortBy(_.id.value).map(ty => s"struct ${names.typeName(ty.id)};")
+      val lines = env.typesById.values.toList
+        .sortBy(_.id.value)
+        .map(ty => s"struct ${names.typeName(ty.id)};")
       if lines.isEmpty then Nil else lines :+ ""
 
     private def typeAliasDeclarations: List[String] =
       val lines = env.declarations.collect { case alias: LirTypeAliasDecl =>
-        val typeParams = alias.typeParams.map(param => s"typename ${safeIdent(param, "T")}")
-        val template = if typeParams.isEmpty then "" else s"template <${typeParams.mkString(", ")}> "
+        val typeParams =
+          alias.typeParams.map(param => s"typename ${safeIdent(param, "T")}")
+        val template =
+          if typeParams.isEmpty then ""
+          else s"template <${typeParams.mkString(", ")}> "
         s"${template}using ${names.aliasName(alias.id)} = ${valueType(alias.target)};"
       }
       if lines.isEmpty then Nil else lines :+ ""
@@ -656,7 +688,9 @@ final class CppBackend(
       val result = ListBuffer.empty[LirTypeDecl]
 
       while pending.nonEmpty do
-        val ready = pending.values.find(ty => typeDependencies(ty).forall(emitted.contains))
+        val ready = pending.values.find(ty =>
+          typeDependencies(ty).forall(emitted.contains),
+        )
         ready match
           case Some(ty) =>
             result += ty
@@ -671,19 +705,29 @@ final class CppBackend(
       result.toList
 
     private def typeDependencies(ty: LirTypeDecl): Set[LirDeclId] =
-      val fieldDeps = ty.fields.flatMap(field => concreteTypeDependencies(field.valueType.source))
+      val fieldDeps = ty.fields.flatMap(field =>
+        concreteTypeDependencies(field.valueType.source),
+      )
       val variantDeps = ty.variants.flatMap { variant =>
-        variant.payload.flatMap(payload => concreteTypeDependencies(payload.valueType.source))
+        variant.payload.flatMap(payload =>
+          concreteTypeDependencies(payload.valueType.source),
+        )
       }
       (fieldDeps ++ variantDeps).filterNot(_ == ty.id).toSet
 
-    private def concreteTypeDependencies(valueType: SourceType): Set[LirDeclId] =
+    private def concreteTypeDependencies(
+        valueType: SourceType,
+    ): Set[LirDeclId] =
       SourceType.dealias(valueType) match
         case SourceType.User(name) =>
           env.typesByName.get(name).map(ty => Set(ty.id)).getOrElse(Set.empty)
         case SourceType.Alias(name, _) =>
-          env.aliasesByName.get(name).map(alias => concreteTypeDependencies(alias.target.source)).getOrElse(Set.empty)
-        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) | SourceType.ForeignApplied(_, _) | SourceType.TypeParam(_) =>
+          env.aliasesByName
+            .get(name)
+            .map(alias => concreteTypeDependencies(alias.target.source))
+            .getOrElse(Set.empty)
+        case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) |
+            SourceType.ForeignApplied(_, _) | SourceType.TypeParam(_) =>
           Set.empty
         case SourceType.Standard("Id", _ :: Nil) =>
           Set.empty
@@ -706,11 +750,16 @@ final class CppBackend(
       val variants = ty.variants.sortBy(_.name)
       val body = ListBuffer.empty[String]
       val drop = dropFunction(ty)
-      val ownership = drop.map(renderDropOwnership(ty, fields, _)).getOrElse(Nil)
+      val ownership =
+        drop.map(renderDropOwnership(ty, fields, _)).getOrElse(Nil)
 
-      if drop.nonEmpty then body += line(2, "mutable bool __cosmo0_drop_active = true;")
+      if drop.nonEmpty then
+        body += line(2, "mutable bool __cosmo0_drop_active = true;")
       fields.foreach { field =>
-        body += line(2, s"${valueType(field.valueType)} ${fieldName(field.name)}{};")
+        body += line(
+          2,
+          s"${valueType(field.valueType)} ${fieldName(field.name)}{};",
+        )
       }
 
       if variants.nonEmpty then
@@ -718,7 +767,10 @@ final class CppBackend(
           val variantName = variantStructName(variant.name)
           body += line(2, s"struct $variantName {")
           variant.payload.zipWithIndex.foreach { case (payload, index) =>
-            body += line(4, s"${valueType(payload.valueType)} ${payloadName(payload, index)}{};")
+            body += line(
+              4,
+              s"${valueType(payload.valueType)} ${payloadName(payload, index)}{};",
+            )
           }
           if variant.payload.nonEmpty then
             val params = variant.payload.zipWithIndex
@@ -736,9 +788,14 @@ final class CppBackend(
             body += line(4, s"$variantName($params) : $inits {}")
           body += line(2, "};")
         }
-        val variantTypes = variants.map(variant => variantStructName(variant.name)).mkString(", ")
+        val variantTypes = variants
+          .map(variant => variantStructName(variant.name))
+          .mkString(", ")
         body += line(2, s"std::variant<$variantTypes> data;")
-        body += line(2, "int32_t tag() const { return static_cast<int32_t>(data.index()); }")
+        body += line(
+          2,
+          "int32_t tag() const { return static_cast<int32_t>(data.index()); }",
+        )
         variants.foreach { variant =>
           val variantName = variantStructName(variant.name)
           val params = variant.payload.zipWithIndex
@@ -747,38 +804,60 @@ final class CppBackend(
             }
             .mkString(", ")
           val args = variant.payload.zipWithIndex
-            .map { case (payload, index) => s"std::move(arg_${payloadName(payload, index)})" }
+            .map { case (payload, index) =>
+              s"std::move(arg_${payloadName(payload, index)})"
+            }
             .mkString(", ")
           val callArgs = if args.nonEmpty then s"($args)" else "{}"
-          body += line(2, s"static $typeName make_${safeIdent(variant.name, "variant")}($params) {")
+          body += line(
+            2,
+            s"static $typeName make_${safeIdent(variant.name, "variant")}($params) {",
+          )
           body += line(4, s"$typeName result;")
           body += line(4, s"result.data = $variantName$callArgs;")
           body += line(4, "return result;")
           body += line(2, "}")
-          body += line(2, s"bool is_${safeIdent(variant.name, "variant")}() const {")
+          body += line(
+            2,
+            s"bool is_${safeIdent(variant.name, "variant")}() const {",
+          )
           body += line(4, s"return std::holds_alternative<$variantName>(data);")
           body += line(2, "}")
-          body += line(2, s"const $variantName &as_${safeIdent(variant.name, "variant")}() const {")
+          body += line(
+            2,
+            s"const $variantName &as_${safeIdent(variant.name, "variant")}() const {",
+          )
           body += line(4, s"return std::get<$variantName>(data);")
           body += line(2, "}")
         }
 
-      val params = fields.map(field => s"${valueType(field.valueType)} arg_${fieldName(field.name)}")
+      val params = fields.map(field =>
+        s"${valueType(field.valueType)} arg_${fieldName(field.name)}",
+      )
       val constructor =
         if fields.isEmpty && variants.isEmpty then Nil
         else
-          val variantInit = variants.headOption.map(variant => s"data(${variantStructName(variant.name)}{})")
-          val fieldInits = fields.map(field => s"${fieldName(field.name)}(std::move(arg_${fieldName(field.name)}))")
+          val variantInit = variants.headOption.map(variant =>
+            s"data(${variantStructName(variant.name)}{})",
+          )
+          val fieldInits = fields.map(field =>
+            s"${fieldName(field.name)}(std::move(arg_${fieldName(field.name)}))",
+          )
           val init = (fieldInits ++ variantInit.toList).mkString(", ")
           val defaultInit = variantInit.fold("")(value => s" : $value")
           val defaultConstructor = line(2, s"$typeName()$defaultInit {}")
           if fields.isEmpty then List(defaultConstructor)
-          else List(defaultConstructor, line(2, s"$typeName(${params.mkString(", ")}) : $init {}"))
+          else
+            List(
+              defaultConstructor,
+              line(2, s"$typeName(${params.mkString(", ")}) : $init {}"),
+            )
 
       val allLines = ListBuffer.empty[String]
       allLines += s"struct $typeName {"
       allLines ++= constructor
-      if constructor.nonEmpty && (ownership.nonEmpty || body.nonEmpty) then allLines += ""
+      if constructor.nonEmpty && (ownership.nonEmpty || body.nonEmpty) then
+        allLines += ""
       allLines ++= ownership
       if ownership.nonEmpty && body.nonEmpty then allLines += ""
       allLines ++= body
@@ -793,15 +872,26 @@ final class CppBackend(
       val typeName = names.typeName(ty.id)
       val dropName = names.functionName(drop.id)
       val copyInits = ("__cosmo0_drop_active(other.__cosmo0_drop_active)" +:
-        fields.map(field => s"${fieldName(field.name)}(other.${fieldName(field.name)})")).mkString(", ")
+        fields.map(field =>
+          s"${fieldName(field.name)}(other.${fieldName(field.name)})",
+        )).mkString(", ")
       val moveInits = ("__cosmo0_drop_active(other.__cosmo0_drop_active)" +:
-        fields.map(field => s"${fieldName(field.name)}(std::move(other.${fieldName(field.name)}))")).mkString(", ")
-      val copyAssignments = fields.map(field => s"${fieldName(field.name)} = other.${fieldName(field.name)};")
-      val moveAssignments = fields.map(field => s"${fieldName(field.name)} = std::move(other.${fieldName(field.name)});")
+        fields.map(field =>
+          s"${fieldName(field.name)}(std::move(other.${fieldName(field.name)}))",
+        )).mkString(", ")
+      val copyAssignments = fields.map(field =>
+        s"${fieldName(field.name)} = other.${fieldName(field.name)};",
+      )
+      val moveAssignments = fields.map(field =>
+        s"${fieldName(field.name)} = std::move(other.${fieldName(field.name)});",
+      )
 
       List(
         line(2, s"$typeName(const $typeName &other) : $copyInits {"),
-        line(4, s"const_cast<$typeName &>(other).__cosmo0_drop_active = false;"),
+        line(
+          4,
+          s"const_cast<$typeName &>(other).__cosmo0_drop_active = false;",
+        ),
         line(2, "}"),
         "",
         line(2, s"$typeName($typeName &&other) noexcept : $moveInits {"),
@@ -817,7 +907,10 @@ final class CppBackend(
         copyAssignments.map(line(6, _)) ++
         List(
           line(6, "__cosmo0_drop_active = other.__cosmo0_drop_active;"),
-          line(6, s"const_cast<$typeName &>(other).__cosmo0_drop_active = false;"),
+          line(
+            6,
+            s"const_cast<$typeName &>(other).__cosmo0_drop_active = false;",
+          ),
           line(4, "}"),
           line(4, "return *this;"),
           line(2, "}"),
@@ -854,54 +947,81 @@ final class CppBackend(
     private def globalDefinitions: List[String] =
       val lines = env.globals.values.toList.sortBy(_.id.value).map { global =>
         val qualifier = if global.mutable then "inline" else "inline const"
-        val init = global.initializer.fold(defaultValue(global.valueType))(renderValue)
+        val init =
+          global.initializer.fold(defaultValue(global.valueType))(renderValue)
         s"$qualifier ${valueType(global.valueType)} ${names.globalName(global.id)} = $init;"
       }
       if lines.isEmpty then Nil else lines :+ ""
 
     private def functionForwardDeclarations: List[String] =
-      val lines = env.functions.values.toList.filter(_.externBinding.isEmpty).sortBy(_.id.value).map { function =>
-        s"inline ${returnType(function.returnType)} ${names.functionName(function.id)}(${params(function)});"
-      }
+      val lines = env.functions.values.toList
+        .filter(_.externBinding.isEmpty)
+        .sortBy(_.id.value)
+        .map { function =>
+          s"inline ${returnType(function.returnType)} ${names.functionName(function.id)}(${params(function)});"
+        }
       if lines.isEmpty then Nil else lines :+ ""
 
     private def externFunctionDeclarations: List[String] =
-      val lines = env.functions.values.toList.flatMap { function =>
-        function.externBinding.filter(_.abi == TrustedExternAbi.directCAbiName).map { binding =>
-          s"""extern "C" ${returnType(function.returnType)} ${binding.symbol.cppName}(${params(function)});"""
+      val lines = env.functions.values.toList
+        .flatMap { function =>
+          function.externBinding
+            .filter(_.abi == TrustedExternAbi.directCAbiName)
+            .map { binding =>
+              s"""extern "C" ${returnType(
+                  function.returnType,
+                )} ${binding.symbol.cppName}(${params(function)});"""
+            }
         }
-      }.sortBy(identity)
+        .sortBy(identity)
       if lines.isEmpty then Nil else lines :+ ""
 
     private def functionDefinitions: List[String] =
-      intersperseBlank(env.functions.values.toList.filter(_.externBinding.isEmpty).sortBy(_.id.value).map(renderFunction))
+      intersperseBlank(
+        env.functions.values.toList
+          .filter(_.externBinding.isEmpty)
+          .sortBy(_.id.value)
+          .map(renderFunction),
+      )
 
     private def renderFunction(function: LirFunction): String =
       val locals = FunctionNames(function)
       val lines = ListBuffer.empty[String]
-      lines += s"inline ${returnType(function.returnType)} ${names.functionName(function.id)}(${params(function, locals)}) {"
+      lines += s"inline ${returnType(function.returnType)} ${names.functionName(
+          function.id,
+        )}(${params(function, locals)}) {"
       function.locals.sortBy(_.id.value).foreach { local =>
-        lines += line(2, s"${valueType(local.valueType)} ${locals.local(local.id)}{};")
+        lines += line(
+          2,
+          s"${valueType(local.valueType)} ${locals.local(local.id)}{};",
+        )
       }
       if function.blocks.nonEmpty then
         lines += line(2, s"goto ${locals.label(entryBlock(function).label)};")
       function.blocks.sortBy(_.label.value).foreach { block =>
         lines += s"${locals.label(block.label)}:"
-        block.operations.foreach(op => lines ++= renderOp(op, function, locals).map(line(2, _)))
-        lines ++= renderTerminator(block.terminator, function, locals).map(line(2, _))
+        block.operations.foreach(op =>
+          lines ++= renderOp(op, function, locals).map(line(2, _)),
+        )
+        lines ++= renderTerminator(block.terminator, function, locals)
+          .map(line(2, _))
       }
       lines += "}"
       lines.mkString("\n")
 
     private def entryBlock(function: LirFunction): LirBlock =
-      function.blocks.find(_.label == Lir.label("entry")).getOrElse(function.blocks.sortBy(_.label.value).head)
+      function.blocks
+        .find(_.label == Lir.label("entry"))
+        .getOrElse(function.blocks.sortBy(_.label.value).head)
 
     private def params(function: LirFunction): String =
       params(function, FunctionNames(function))
 
     private def params(function: LirFunction, locals: FunctionNames): String =
       function.params
-        .map(param => s"${valueType(param.valueType)} ${locals.local(param.id)}")
+        .map(param =>
+          s"${valueType(param.valueType)} ${locals.local(param.id)}",
+        )
         .mkString(", ")
 
     private def renderOp(
@@ -911,36 +1031,56 @@ final class CppBackend(
     ): List[String] =
       op match
         case LirAllocLocal(local, init) =>
-          init.map(value => List(s"${locals.local(local.id)} = ${renderValue(value, locals)};")).getOrElse(Nil)
+          init
+            .map(value =>
+              List(
+                s"${locals.local(local.id)} = ${renderValue(value, locals)};",
+              ),
+            )
+            .getOrElse(Nil)
 
         case LirAssign(target, value) =>
-          List(s"${renderPlace(target, locals)} = ${renderValue(value, locals)};")
+          List(
+            s"${renderPlace(target, locals)} = ${renderValue(value, locals)};",
+          )
 
         case LirFieldGet(output, receiver, field, _) =>
-          List(s"${locals.local(output)} = ${fieldAccess(receiver, field, locals)};")
+          List(
+            s"${locals.local(output)} = ${fieldAccess(receiver, field, locals)};",
+          )
 
         case LirFieldSet(receiver, field, value) =>
-          List(s"${fieldAccess(receiver, field, locals)} = ${renderValue(value, locals)};")
+          List(
+            s"${fieldAccess(receiver, field, locals)} = ${renderValue(value, locals)};",
+          )
 
         case LirDirectCall(output, callee, args, _) =>
           env.functions.get(callee).flatMap(_.externBinding) match
             case Some(binding) =>
               emitExternCall(output, callee, binding, args, locals)
             case None =>
-              val invocation = s"${names.functionName(callee)}(${args.map(renderValue(_, locals)).mkString(", ")})"
+              val invocation =
+                s"${names.functionName(callee)}(${args.map(renderValue(_, locals)).mkString(", ")})"
               assignOrStatement(output, invocation, locals)
 
         case LirLoweredMethodCall(output, receiver, method, args, _) =>
           methodFunction(receiver, method) match
             case Some(target) =>
               val receiverArg = methodReceiverArg(receiver, target, locals)
-              val invocation = s"${names.functionName(target.id)}(${(receiverArg :: args.map(renderValue(_, locals))).mkString(", ")})"
+              val invocation =
+                s"${names.functionName(target.id)}(${(receiverArg :: args
+                    .map(renderValue(_, locals))).mkString(", ")})"
               assignOrStatement(output, invocation, locals)
             case None =>
-              emitForeignMethodCall(output, receiver, method, args, locals).getOrElse {
-                unsupportedDescriptor(s"method", method, s"no lowered method target for ${receiver.valueType.display}.$method")
-                Nil
-              }
+              emitForeignMethodCall(output, receiver, method, args, locals)
+                .getOrElse {
+                  unsupportedDescriptor(
+                    s"method",
+                    method,
+                    s"no lowered method target for ${receiver.valueType.display}.$method",
+                  )
+                  Nil
+                }
 
         case LirDescriptorIntrinsic(output, descriptor, name, args, _) =>
           emitDescriptor(descriptor, name, args, locals) match
@@ -951,7 +1091,11 @@ final class CppBackend(
               requirements ++= needed.map(BackendRequirement.descriptor)
               output match
                 case Some(id) =>
-                  unsupportedDescriptor(descriptorText(descriptor), name, s"operation writes no value for $id")
+                  unsupportedDescriptor(
+                    descriptorText(descriptor),
+                    name,
+                    s"operation writes no value for $id",
+                  )
                   Nil
                 case None =>
                   List(s"$value;")
@@ -992,7 +1136,9 @@ final class CppBackend(
             case SourceType.Unit =>
               List("return;")
             case _ =>
-              value.map(value => List(s"return ${renderValue(value, locals)};")).getOrElse(List("return {};"))
+              value
+                .map(value => List(s"return ${renderValue(value, locals)};"))
+                .getOrElse(List("return {};"))
 
         case LirBranch(target) =>
           List(s"goto ${locals.label(target)};")
@@ -1007,10 +1153,14 @@ final class CppBackend(
           )
 
         case LirUnreachable(reason) =>
-          List(s"cosmo0_runtime::unreachable(${reason.fold("nullptr")(quote)});")
+          List(
+            s"cosmo0_runtime::unreachable(${reason.fold("nullptr")(quote)});",
+          )
 
         case LirErrorExit(code, message) =>
-          List(s"cosmo0_runtime::error_exit(${quote(code)}, ${message.fold("nullptr")(quote)});")
+          List(
+            s"cosmo0_runtime::error_exit(${quote(code)}, ${message.fold("nullptr")(quote)});",
+          )
 
     private def assignOrStatement(
         output: Option[LirLocalId],
@@ -1029,16 +1179,25 @@ final class CppBackend(
         locals: FunctionNames,
     ): List[String] =
       requirements ++= binding.requirements
-      if binding.abi != TrustedExternAbi.directCAbiName && !supportedExternSymbols.contains(binding.symbol) then
+      if binding.abi != TrustedExternAbi.directCAbiName && !supportedExternSymbols
+          .contains(binding.symbol)
+      then
         missingExternRuntimeSymbol(callee, binding)
         Nil
       else
         val invocation =
-          if binding.symbol == CppQualifiedSymbol.global("cosmo0_runtime", "json_parse") then
-            jsonParseInvocation(callee, binding, args, locals)
-          else if binding.symbol == CppQualifiedSymbol.global("cosmo0_runtime", "command_run") then
-            commandRunInvocation(callee, binding, args, locals)
-          else s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
+          if binding.symbol == CppQualifiedSymbol.global(
+              "cosmo0_runtime",
+              "json_parse",
+            )
+          then jsonParseInvocation(callee, binding, args, locals)
+          else if binding.symbol == CppQualifiedSymbol.global(
+              "cosmo0_runtime",
+              "command_run",
+            )
+          then commandRunInvocation(callee, binding, args, locals)
+          else
+            s"${binding.symbol.cppName}(${args.map(renderValue(_, locals)).mkString(", ")})"
         assignOrStatement(output, invocation, locals)
 
     private def jsonParseInvocation(
@@ -1076,7 +1235,11 @@ final class CppBackend(
         case LirFieldPlace(receiver, field, _) =>
           fieldAccess(receiver, field, locals)
 
-    private def fieldAccess(receiver: LirValue, field: String, locals: FunctionNames): String =
+    private def fieldAccess(
+        receiver: LirValue,
+        field: String,
+        locals: FunctionNames,
+    ): String =
       val op =
         SourceType.dealias(receiver.valueType.source) match
           case SourceType.Ref(_, _) => "->"
@@ -1131,25 +1294,31 @@ final class CppBackend(
 
     private def valueTypeName(valueType: SourceType): String =
       SourceType.dealias(valueType) match
-        case SourceType.Builtin("Unit")          => "std::monostate"
-        case SourceType.Builtin("Bool")          => "bool"
-        case SourceType.Builtin("i8")            => "int8_t"
-        case SourceType.Builtin("i16")           => "int16_t"
-        case SourceType.Builtin("i32")           => "int32_t"
-        case SourceType.Builtin("i64")           => "int64_t"
-        case SourceType.Builtin("u8")            => "uint8_t"
-        case SourceType.Builtin("u16")           => "uint16_t"
-        case SourceType.Builtin("u32")           => "uint32_t"
-        case SourceType.Builtin("u64")           => "uint64_t"
-        case SourceType.Builtin("usize")         => "std::size_t"
-        case SourceType.Builtin("String")        => "std::string"
-        case SourceType.Builtin("Char")          => "char32_t"
-        case SourceType.Builtin("f32")           => "float"
-        case SourceType.Builtin("f64")           => "double"
+        case SourceType.Builtin("Unit")   => "std::monostate"
+        case SourceType.Builtin("Bool")   => "bool"
+        case SourceType.Builtin("i8")     => "int8_t"
+        case SourceType.Builtin("i16")    => "int16_t"
+        case SourceType.Builtin("i32")    => "int32_t"
+        case SourceType.Builtin("i64")    => "int64_t"
+        case SourceType.Builtin("u8")     => "uint8_t"
+        case SourceType.Builtin("u16")    => "uint16_t"
+        case SourceType.Builtin("u32")    => "uint32_t"
+        case SourceType.Builtin("u64")    => "uint64_t"
+        case SourceType.Builtin("usize")  => "std::size_t"
+        case SourceType.Builtin("String") => "std::string"
+        case SourceType.Builtin("Char")   => "char32_t"
+        case SourceType.Builtin("f32")    => "float"
+        case SourceType.Builtin("f64")    => "double"
         case SourceType.User(name) =>
-          env.typesByName.get(name).map(ty => names.typeName(ty.id)).getOrElse(safeIdent(name, "type"))
+          env.typesByName
+            .get(name)
+            .map(ty => names.typeName(ty.id))
+            .getOrElse(safeIdent(name, "type"))
         case SourceType.Alias(name, _) =>
-          env.aliasesByName.get(name).map(alias => names.aliasName(alias.id)).getOrElse(safeIdent(name, "alias"))
+          env.aliasesByName
+            .get(name)
+            .map(alias => names.aliasName(alias.id))
+            .getOrElse(safeIdent(name, "alias"))
         case SourceType.TypeParam(name) =>
           safeIdent(name, "T")
         case SourceType.ForeignNamespace(value) =>
@@ -1191,11 +1360,16 @@ final class CppBackend(
           unsupportedType(other)
           "std::monostate"
 
-    private def methodFunction(receiver: LirValue, method: String): Option[LirFunction] =
+    private def methodFunction(
+        receiver: LirValue,
+        method: String,
+    ): Option[LirFunction] =
       SourceType.dealias(SourceType.deref(receiver.valueType.source)) match
         case SourceType.User(name) =>
           env.typesByName.get(name).flatMap { owner =>
-            env.functions.values.find(function => function.owner.contains(owner.id) && function.name == method)
+            env.functions.values.find(function =>
+              function.owner.contains(owner.id) && function.name == method,
+            )
           }
         case _ =>
           None
@@ -1263,18 +1437,52 @@ final class CppBackend(
     ): Option[EmittedDescriptor] =
       def arg(index: Int): String = renderValue(args(index), locals)
       name match
-        case "neg" if args.length == 1 => Some(EmittedDescriptor.Expr(s"(-${arg(0)})", Set("numeric")))
-        case "add" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} + ${arg(1)})", Set("numeric")))
-        case "sub" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} - ${arg(1)})", Set("numeric")))
-        case "mul" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} * ${arg(1)})", Set("numeric")))
-        case "div" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} / ${arg(1)})", Set("numeric")))
-        case "mod" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} % ${arg(1)})", Set("numeric")))
-        case "eq" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("numeric")))
-        case "ne" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("numeric")))
-        case "lt" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} < ${arg(1)})", Set("numeric")))
-        case "le" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} <= ${arg(1)})", Set("numeric")))
-        case "gt" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} > ${arg(1)})", Set("numeric")))
-        case "ge" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} >= ${arg(1)})", Set("numeric")))
+        case "neg" if args.length == 1 =>
+          Some(EmittedDescriptor.Expr(s"(-${arg(0)})", Set("numeric")))
+        case "add" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} + ${arg(1)})", Set("numeric")),
+          )
+        case "sub" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} - ${arg(1)})", Set("numeric")),
+          )
+        case "mul" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} * ${arg(1)})", Set("numeric")),
+          )
+        case "div" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} / ${arg(1)})", Set("numeric")),
+          )
+        case "mod" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} % ${arg(1)})", Set("numeric")),
+          )
+        case "eq" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("numeric")),
+          )
+        case "ne" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("numeric")),
+          )
+        case "lt" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} < ${arg(1)})", Set("numeric")),
+          )
+        case "le" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} <= ${arg(1)})", Set("numeric")),
+          )
+        case "gt" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} > ${arg(1)})", Set("numeric")),
+          )
+        case "ge" if args.length == 2 =>
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} >= ${arg(1)})", Set("numeric")),
+          )
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1287,11 +1495,16 @@ final class CppBackend(
     ): Option[EmittedDescriptor] =
       def arg(index: Int): String = renderValue(args(index), locals)
       name match
-        case "not" if args.length == 1 => Some(EmittedDescriptor.Expr(s"(!${arg(0)})", Set("bool")))
-        case "and" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} && ${arg(1)})", Set("bool")))
-        case "or" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} || ${arg(1)})", Set("bool")))
-        case "eq" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("bool")))
-        case "ne" if args.length == 2  => Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("bool")))
+        case "not" if args.length == 1 =>
+          Some(EmittedDescriptor.Expr(s"(!${arg(0)})", Set("bool")))
+        case "and" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} && ${arg(1)})", Set("bool")))
+        case "or" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} || ${arg(1)})", Set("bool")))
+        case "eq" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("bool")))
+        case "ne" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("bool")))
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1304,12 +1517,18 @@ final class CppBackend(
     ): Option[EmittedDescriptor] =
       def arg(index: Int): String = renderValue(args(index), locals)
       name match
-        case "eq" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("char")))
-        case "ne" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("char")))
-        case "lt" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} < ${arg(1)})", Set("char")))
-        case "le" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} <= ${arg(1)})", Set("char")))
-        case "gt" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} > ${arg(1)})", Set("char")))
-        case "ge" if args.length == 2 => Some(EmittedDescriptor.Expr(s"(${arg(0)} >= ${arg(1)})", Set("char")))
+        case "eq" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("char")))
+        case "ne" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("char")))
+        case "lt" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} < ${arg(1)})", Set("char")))
+        case "le" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} <= ${arg(1)})", Set("char")))
+        case "gt" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} > ${arg(1)})", Set("char")))
+        case "ge" if args.length == 2 =>
+          Some(EmittedDescriptor.Expr(s"(${arg(0)} >= ${arg(1)})", Set("char")))
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1327,17 +1546,38 @@ final class CppBackend(
         case "is_empty" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.empty()", Set("string")))
         case "slice" if args.length == 3 =>
-          Some(EmittedDescriptor.Expr(s"${arg(0)}.substr(${arg(1)}, ${arg(2)} - ${arg(1)})", Set("string")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"${arg(0)}.substr(${arg(1)}, ${arg(2)} - ${arg(1)})",
+              Set("string"),
+            ),
+          )
         case "char_at" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"static_cast<char32_t>(${arg(0)}.at(${arg(1)}))", Set("string")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"static_cast<char32_t>(${arg(0)}.at(${arg(1)}))",
+              Set("string"),
+            ),
+          )
         case "byte_at" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"static_cast<uint8_t>(${arg(0)}.at(${arg(1)}))", Set("string")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"static_cast<uint8_t>(${arg(0)}.at(${arg(1)}))",
+              Set("string"),
+            ),
+          )
         case "concat" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"(${arg(0)} + ${arg(1)})", Set("string")))
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} + ${arg(1)})", Set("string")),
+          )
         case "eq" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("string")))
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} == ${arg(1)})", Set("string")),
+          )
         case "ne" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("string")))
+          Some(
+            EmittedDescriptor.Expr(s"(${arg(0)} != ${arg(1)})", Set("string")),
+          )
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1352,21 +1592,43 @@ final class CppBackend(
       val ownerType = descriptorOwnerType(descriptor)
       name match
         case "<init>" if args.isEmpty =>
-          Some(EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("vec")))
+          Some(
+            EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("vec")),
+          )
         case "push" if args.length == 2 =>
-          Some(EmittedDescriptor.Stmt(s"${arg(0)}.push_back(${arg(1)})", Set("vec")))
+          Some(
+            EmittedDescriptor.Stmt(
+              s"${arg(0)}.push_back(${arg(1)})",
+              Set("vec"),
+            ),
+          )
         case "get" if args.length == 2 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.at(${arg(1)})", Set("vec")))
         case "set" if args.length == 3 =>
-          Some(EmittedDescriptor.Stmt(s"${arg(0)}.at(${arg(1)}) = ${arg(2)}", Set("vec")))
+          Some(
+            EmittedDescriptor.Stmt(
+              s"${arg(0)}.at(${arg(1)}) = ${arg(2)}",
+              Set("vec"),
+            ),
+          )
         case "size" | "len" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.size()", Set("vec")))
         case "is_empty" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.empty()", Set("vec")))
         case "iter_has_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_has_next(${arg(0)})", Set("vec.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_has_next(${arg(0)})",
+              Set("vec.iter"),
+            ),
+          )
         case "iter_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_next(${arg(0)})", Set("vec.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_next(${arg(0)})",
+              Set("vec.iter"),
+            ),
+          )
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1413,21 +1675,48 @@ final class CppBackend(
       val ownerType = descriptorOwnerType(descriptor)
       name match
         case "<init>" if args.isEmpty =>
-          Some(EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("map")))
+          Some(
+            EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("map")),
+          )
         case "get" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::map_get(${arg(0)}, ${arg(1)})", Set("map")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::map_get(${arg(0)}, ${arg(1)})",
+              Set("map"),
+            ),
+          )
         case "insert" if args.length == 3 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::map_insert(${arg(0)}, ${arg(1)}, ${arg(2)})", Set("map")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::map_insert(${arg(0)}, ${arg(1)}, ${arg(2)})",
+              Set("map"),
+            ),
+          )
         case "contains" | "contains_key" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"(${arg(0)}.find(${arg(1)}) != ${arg(0)}.end())", Set("map")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"(${arg(0)}.find(${arg(1)}) != ${arg(0)}.end())",
+              Set("map"),
+            ),
+          )
         case "size" | "len" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.size()", Set("map")))
         case "is_empty" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.empty()", Set("map")))
         case "iter_has_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_has_next(${arg(0)})", Set("map.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_has_next(${arg(0)})",
+              Set("map.iter"),
+            ),
+          )
         case "iter_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_next(${arg(0)})", Set("map.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_next(${arg(0)})",
+              Set("map.iter"),
+            ),
+          )
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1442,19 +1731,38 @@ final class CppBackend(
       val ownerType = descriptorOwnerType(descriptor)
       name match
         case "<init>" if args.isEmpty =>
-          Some(EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("set")))
+          Some(
+            EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("set")),
+          )
         case "insert" if args.length == 2 =>
-          Some(EmittedDescriptor.Stmt(s"${arg(0)}.insert(${arg(1)})", Set("set")))
+          Some(
+            EmittedDescriptor.Stmt(s"${arg(0)}.insert(${arg(1)})", Set("set")),
+          )
         case "contains" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"(${arg(0)}.find(${arg(1)}) != ${arg(0)}.end())", Set("set")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"(${arg(0)}.find(${arg(1)}) != ${arg(0)}.end())",
+              Set("set"),
+            ),
+          )
         case "size" | "len" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.size()", Set("set")))
         case "is_empty" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.empty()", Set("set")))
         case "iter_has_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_has_next(${arg(0)})", Set("set.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_has_next(${arg(0)})",
+              Set("set.iter"),
+            ),
+          )
         case "iter_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_next(${arg(0)})", Set("set.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_next(${arg(0)})",
+              Set("set.iter"),
+            ),
+          )
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1469,19 +1777,43 @@ final class CppBackend(
       val ownerType = descriptorOwnerType(descriptor)
       name match
         case "<init>" if args.isEmpty =>
-          Some(EmittedDescriptor.Expr(s"${valueTypeName(ownerType)}{}", Set("arena")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"${valueTypeName(ownerType)}{}",
+              Set("arena"),
+            ),
+          )
         case "alloc" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"${arg(0)}.alloc(${arg(1)})", Set("arena")))
+          Some(
+            EmittedDescriptor.Expr(s"${arg(0)}.alloc(${arg(1)})", Set("arena")),
+          )
         case "get" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"${arg(0)}.get(${arg(1)})", Set("arena")))
+          Some(
+            EmittedDescriptor.Expr(s"${arg(0)}.get(${arg(1)})", Set("arena")),
+          )
         case "get_mut" if args.length == 2 =>
-          Some(EmittedDescriptor.Expr(s"${arg(0)}.get_mut(${arg(1)})", Set("arena")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"${arg(0)}.get_mut(${arg(1)})",
+              Set("arena"),
+            ),
+          )
         case "size" | "len" if args.length == 1 =>
           Some(EmittedDescriptor.Expr(s"${arg(0)}.size()", Set("arena")))
         case "iter_has_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_has_next(${arg(0)})", Set("arena.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_has_next(${arg(0)})",
+              Set("arena.iter"),
+            ),
+          )
         case "iter_next" if args.length == 1 =>
-          Some(EmittedDescriptor.Expr(s"cosmo0_runtime::iter_next(${arg(0)})", Set("arena.iter")))
+          Some(
+            EmittedDescriptor.Expr(
+              s"cosmo0_runtime::iter_next(${arg(0)})",
+              Set("arena.iter"),
+            ),
+          )
         case _ =>
           unsupportedDescriptor(descriptorText(descriptor), name)
           None
@@ -1496,26 +1828,46 @@ final class CppBackend(
         case SourceType.Standard("Option", item :: Nil) =>
           variant match
             case "Some" if payload.length == 1 =>
-              Some(s"std::optional<${valueTypeName(item)}>(${renderValue(payload.head, locals)})")
+              Some(
+                s"std::optional<${valueTypeName(item)}>(${renderValue(payload.head, locals)})",
+              )
             case "None" if payload.isEmpty =>
               Some(s"std::optional<${valueTypeName(item)}>{}")
             case _ =>
-              unsupportedDescriptor(owner.display, variant, "unsupported Option variant")
+              unsupportedDescriptor(
+                owner.display,
+                variant,
+                "unsupported Option variant",
+              )
               None
         case SourceType.Standard("Result", ok :: err :: Nil) =>
           variant match
             case "Ok" if payload.length == 1 =>
-              Some(s"cosmo0_runtime::Result<${valueTypeName(ok)}, ${valueTypeName(err)}>::Ok(${renderValue(payload.head, locals)})")
+              Some(
+                s"cosmo0_runtime::Result<${valueTypeName(ok)}, ${valueTypeName(
+                    err,
+                  )}>::Ok(${renderValue(payload.head, locals)})",
+              )
             case "Err" if payload.length == 1 =>
-              Some(s"cosmo0_runtime::Result<${valueTypeName(ok)}, ${valueTypeName(err)}>::Err(${renderValue(payload.head, locals)})")
+              Some(
+                s"cosmo0_runtime::Result<${valueTypeName(ok)}, ${valueTypeName(
+                    err,
+                  )}>::Err(${renderValue(payload.head, locals)})",
+              )
             case _ =>
-              unsupportedDescriptor(owner.display, variant, "unsupported Result variant")
+              unsupportedDescriptor(
+                owner.display,
+                variant,
+                "unsupported Result variant",
+              )
               None
         case SourceType.User(name) =>
           env.typesByName.get(name) match
             case Some(ty) =>
               val args = payload.map(renderValue(_, locals)).mkString(", ")
-              Some(s"${names.typeName(ty.id)}::make_${safeIdent(variant, "variant")}($args)")
+              Some(
+                s"${names.typeName(ty.id)}::make_${safeIdent(variant, "variant")}($args)",
+              )
             case None =>
               unsupportedType(owner.source)
               None
@@ -1530,14 +1882,17 @@ final class CppBackend(
         locals: FunctionNames,
     ): List[String] =
       SourceType.dealias(owner.source) match
-        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) if fields.isEmpty =>
+        case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_)
+            if fields.isEmpty =>
           List(s"${locals.local(output)} = ${valueTypeName(owner)}{};")
         case SourceType.User(name) =>
           env.typesByName.get(name) match
             case Some(ty) =>
               val target = locals.local(output)
               s"$target = ${names.typeName(ty.id)}{};" ::
-                fields.map(field => s"$target.${fieldName(field.name)} = ${renderValue(field.value, locals)};")
+                fields.map(field =>
+                  s"$target.${fieldName(field.name)} = ${renderValue(field.value, locals)};",
+                )
             case None =>
               unsupportedType(owner.source)
               Nil
@@ -1575,7 +1930,9 @@ final class CppBackend(
         case SourceType.Standard("Result", _ :: _ :: Nil) =>
           Some(s"${renderValue(scrutinee, locals)}.tag()")
         case SourceType.User(name) =>
-          env.typesByName.get(name).map(_ => s"${renderValue(scrutinee, locals)}.tag()")
+          env.typesByName
+            .get(name)
+            .map(_ => s"${renderValue(scrutinee, locals)}.tag()")
         case _ =>
           unsupportedType(owner.source)
           None
@@ -1589,21 +1946,34 @@ final class CppBackend(
       SourceType.dealias(owner.source) match
         case SourceType.Standard("Option", _ :: Nil) =>
           variant match
-            case "Some" => Some(s"${renderValue(scrutinee, locals)}.has_value()")
-            case "None" => Some(s"!${renderValue(scrutinee, locals)}.has_value()")
+            case "Some" =>
+              Some(s"${renderValue(scrutinee, locals)}.has_value()")
+            case "None" =>
+              Some(s"!${renderValue(scrutinee, locals)}.has_value()")
             case _ =>
-              unsupportedDescriptor(owner.display, variant, "unsupported Option variant")
+              unsupportedDescriptor(
+                owner.display,
+                variant,
+                "unsupported Option variant",
+              )
               None
         case SourceType.Standard("Result", _ :: _ :: Nil) =>
           variant match
             case "Ok"  => Some(s"${renderValue(scrutinee, locals)}.is_ok()")
             case "Err" => Some(s"${renderValue(scrutinee, locals)}.is_err()")
             case _ =>
-              unsupportedDescriptor(owner.display, variant, "unsupported Result variant")
+              unsupportedDescriptor(
+                owner.display,
+                variant,
+                "unsupported Result variant",
+              )
               None
         case SourceType.User(name) =>
           env.typesByName.get(name) match
-            case Some(_) => Some(s"${renderValue(scrutinee, locals)}.is_${safeIdent(variant, "variant")}()")
+            case Some(_) =>
+              Some(
+                s"${renderValue(scrutinee, locals)}.is_${safeIdent(variant, "variant")}()",
+              )
             case None =>
               unsupportedType(owner.source)
               None
@@ -1618,20 +1988,31 @@ final class CppBackend(
         locals: FunctionNames,
     ): Option[String] =
       SourceType.dealias(SourceType.deref(scrutinee.valueType.source)) match
-        case SourceType.Standard("Option", _ :: Nil) if variant == "Some" && index == 0 =>
+        case SourceType.Standard("Option", _ :: Nil)
+            if variant == "Some" && index == 0 =>
           Some(s"${renderValue(scrutinee, locals)}.value()")
-        case SourceType.Standard("Result", _ :: _ :: Nil) if variant == "Ok" && index == 0 =>
+        case SourceType.Standard("Result", _ :: _ :: Nil)
+            if variant == "Ok" && index == 0 =>
           Some(s"${renderValue(scrutinee, locals)}.ok_value.value()")
-        case SourceType.Standard("Result", _ :: _ :: Nil) if variant == "Err" && index == 0 =>
+        case SourceType.Standard("Result", _ :: _ :: Nil)
+            if variant == "Err" && index == 0 =>
           Some(s"${renderValue(scrutinee, locals)}.err_value.value()")
         case SourceType.User(name) =>
           env.typesByName.get(name) match
             case Some(ty) =>
-              ty.variants.find(_.name == variant).flatMap(_.payload.lift(index)) match
+              ty.variants
+                .find(_.name == variant)
+                .flatMap(_.payload.lift(index)) match
                 case Some(payload) =>
-                  Some(s"${renderValue(scrutinee, locals)}.as_${safeIdent(variant, "variant")}().${payloadName(payload, index)}")
+                  Some(
+                    s"${renderValue(scrutinee, locals)}.as_${safeIdent(variant, "variant")}().${payloadName(payload, index)}",
+                  )
                 case None =>
-                  unsupportedDescriptor(name, variant, s"payload index $index is unavailable")
+                  unsupportedDescriptor(
+                    name,
+                    variant,
+                    s"payload index $index is unavailable",
+                  )
                   None
             case None =>
               unsupportedType(scrutinee.valueType.source)
@@ -1646,11 +2027,13 @@ final class CppBackend(
           function.externBinding.isEmpty &&
             function.owner.isEmpty &&
             function.name == "main" &&
-            isRunnableMain(function)
+            isRunnableMain(function),
         )
         .map { main =>
-          val qualified = (namespace :+ names.functionName(main.id)).mkString("::")
-          val parameterList = if main.params.isEmpty then "" else "int argc, char **argv"
+          val qualified =
+            (namespace :+ names.functionName(main.id)).mkString("::")
+          val parameterList =
+            if main.params.isEmpty then "" else "int argc, char **argv"
           val invocation =
             if main.params.isEmpty then s"$qualified()"
             else s"$qualified(cosmo0_runtime::argv_strings(argc, argv))"
@@ -1672,18 +2055,23 @@ final class CppBackend(
           case param :: Nil =>
             SourceType.same(
               param.valueType.source,
-              SourceType.Standard("Vec", List(SourceType.String))
+              SourceType.Standard("Vec", List(SourceType.String)),
             )
-          case _            => false)
+          case _ => false
+        )
 
     private def descriptorOwnerType(descriptor: LirDescriptorRef): SourceType =
-      SourceType.scalar(descriptor.name).filter(_ => descriptor.args.isEmpty).getOrElse {
-        SourceType.Standard(descriptor.name, descriptor.args.map(_.source))
-      }
+      SourceType
+        .scalar(descriptor.name)
+        .filter(_ => descriptor.args.isEmpty)
+        .getOrElse {
+          SourceType.Standard(descriptor.name, descriptor.args.map(_.source))
+        }
 
     private def descriptorText(descriptor: LirDescriptorRef): String =
       if descriptor.args.isEmpty then descriptor.name
-      else s"${descriptor.name}[${descriptor.args.map(_.display).mkString(", ")}]"
+      else
+        s"${descriptor.name}[${descriptor.args.map(_.display).mkString(", ")}]"
 
     private def unsupportedDescriptor(
         descriptor: String,
@@ -1721,12 +2109,19 @@ final class CppBackend(
       private val localNames =
         uniqueNames(
           (function.params.map(param => param.id -> param.name) ++
-            function.locals.map(local => local.id -> local.name)).sortBy(_._1.value),
+            function.locals.map(local => local.id -> local.name))
+            .sortBy(_._1.value),
           "v",
           _.value,
         )
       private val labelNames =
-        uniqueNames(function.blocks.map(block => block.label -> block.label.value).sortBy(_._1.value), "bb", _.value)
+        uniqueNames(
+          function.blocks
+            .map(block => block.label -> block.label.value)
+            .sortBy(_._1.value),
+          "bb",
+          _.value,
+        )
 
       def local(id: LirLocalId): String =
         localNames.getOrElse(id, safeIdent(id.value, "v"))
@@ -1752,19 +2147,37 @@ final class CppBackend(
 
     private final class BackendNames(env: DeclEnv):
       private val typeNames =
-        uniqueNames(env.typesById.values.toList.map(ty => ty.id -> ty.name).sortBy(_._1.value), "T", _.value)
+        uniqueNames(
+          env.typesById.values.toList
+            .map(ty => ty.id -> ty.name)
+            .sortBy(_._1.value),
+          "T",
+          _.value,
+        )
       private val aliasNames =
         uniqueNames(
-          env.declarations.collect { case alias: LirTypeAliasDecl => alias.id -> alias.name },
+          env.declarations.collect { case alias: LirTypeAliasDecl =>
+            alias.id -> alias.name
+          },
           "A",
           _.value,
         )
       private val globalNames =
-        uniqueNames(env.globals.values.toList.map(global => global.id -> global.name).sortBy(_._1.value), "g", _.value)
+        uniqueNames(
+          env.globals.values.toList
+            .map(global => global.id -> global.name)
+            .sortBy(_._1.value),
+          "g",
+          _.value,
+        )
       private val functionNames =
         uniqueNames(
           env.functions.values.toList
-            .map(function => function.id -> function.owner.fold(function.name)(owner => s"${owner.value}.${function.name}"))
+            .map(function =>
+              function.id -> function.owner.fold(function.name)(owner =>
+                s"${owner.value}.${function.name}",
+              ),
+            )
             .sortBy(_._1.value),
           "fn",
           _.value,
@@ -1856,7 +2269,19 @@ final class CppBackend(
       values.flatMap(value => List(value, "")).dropRight(1)
 
     private lazy val numericDescriptors: Set[String] =
-      Set("i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64")
+      Set(
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "usize",
+        "f32",
+        "f64",
+      )
 
     private lazy val supportedExternSymbols: Set[CppQualifiedSymbol] =
       Set(

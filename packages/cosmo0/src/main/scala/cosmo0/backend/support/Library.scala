@@ -20,14 +20,12 @@ object SupportLibraryId:
     raw"[a-z][a-z0-9]*(?:-[a-z0-9]+)*".r
 
   def parse(value: String): Either[String, SupportLibraryId] =
-    if value.isEmpty then
-      Left("support-library id must be non-empty")
+    if value.isEmpty then Left("support-library id must be non-empty")
     else if value.exists(ch => ch == '\n' || ch == '\r') then
       Left("support-library id must be a single line")
     else if Pattern.pattern.matcher(value).matches then
       Right(new SupportLibraryId(value))
-    else
-      Left("support-library id must match [a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+    else Left("support-library id must match [a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
   def validate(value: String): Option[String] =
     parse(value) match
@@ -66,8 +64,10 @@ final case class SupportLibraryArtifact(
 
   def fileName: String =
     kind match
-      case SupportLibraryArtifactKind.Static => platform.staticLibraryName(id.rustLibraryTarget)
-      case SupportLibraryArtifactKind.Shared => platform.sharedLibraryName(id.rustLibraryTarget)
+      case SupportLibraryArtifactKind.Static =>
+        platform.staticLibraryName(id.rustLibraryTarget)
+      case SupportLibraryArtifactKind.Shared =>
+        platform.sharedLibraryName(id.rustLibraryTarget)
 
   def directory: String =
     s"${SupportLibraryPipeline.artifactRoot}/$profile/${id.value}"
@@ -89,13 +89,13 @@ final case class SupportLibraryAvailableArtifact(
 ):
   require(path.nonEmpty, "support-library artifact paths must be non-empty")
 
-final case class SupportLibraryLinkPlan(
-    items: List[SupportLibraryLinkItem],
-):
+final case class SupportLibraryLinkPlan(items: List[SupportLibraryLinkItem]):
   def linkArguments: List[String] =
     items.map(_.linkArgument)
 
-  def validateArtifacts(available: List[SupportLibraryAvailableArtifact]): List[Diagnostic] =
+  def validateArtifacts(
+      available: List[SupportLibraryAvailableArtifact],
+  ): List[Diagnostic] =
     val byId = available.map(artifact => artifact.id -> artifact).toMap
     val missing = items.flatMap { item =>
       if byId.contains(item.id) then None
@@ -108,12 +108,15 @@ final case class SupportLibraryLinkPlan(
         )
     }
     val incompatible = items.flatMap { item =>
-      byId.get(item.id).filter(_.abiVersion != SupportLibraryPipeline.abiVersion).map { artifact =>
-        SupportLibraryPipeline.diagnostic(
-          "cosmo0.support-library.incompatible-artifact",
-          s"support-library ${item.id.value} artifact ${artifact.path} uses ABI ${artifact.abiVersion}; expected ABI ${SupportLibraryPipeline.abiVersion}",
-        )
-      }
+      byId
+        .get(item.id)
+        .filter(_.abiVersion != SupportLibraryPipeline.abiVersion)
+        .map { artifact =>
+          SupportLibraryPipeline.diagnostic(
+            "cosmo0.support-library.incompatible-artifact",
+            s"support-library ${item.id.value} artifact ${artifact.path} uses ABI ${artifact.abiVersion}; expected ABI ${SupportLibraryPipeline.abiVersion}",
+          )
+        }
     }
     missing ::: incompatible
 
@@ -138,13 +141,26 @@ object SupportLibraryLinkPlan:
     if diagnostics.nonEmpty then Left(diagnostics)
     else
       val items = parsed.collect { case (_, Right(id)) =>
-        SupportLibraryLinkItem(id, SupportLibraryArtifact(id, SupportLibraryArtifactKind.Static, profile, platform))
+        SupportLibraryLinkItem(
+          id,
+          SupportLibraryArtifact(
+            id,
+            SupportLibraryArtifactKind.Static,
+            profile,
+            platform,
+          ),
+        )
       }
       Right(SupportLibraryLinkPlan(items))
 
-  private def supportLibraryRequirementValues(requirements: List[BackendRequirement]): List[String] =
+  private def supportLibraryRequirementValues(
+      requirements: List[BackendRequirement],
+  ): List[String] =
     requirements
-      .collect { case BackendRequirement(BackendRequirementKind.SupportLibrary, value) => value }
+      .collect {
+        case BackendRequirement(BackendRequirementKind.SupportLibrary, value) =>
+          value
+      }
       .distinct
       .sorted
 

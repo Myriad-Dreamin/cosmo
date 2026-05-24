@@ -28,7 +28,8 @@ object CheckerProfiles:
   val MlttDependentPatternsId = "mltt.dependent-patterns"
 
   val UnsupportedFeatureCode = "cosmo.type.unsupported-feature"
-  val UnsupportedDependentPatternCode = "cosmo.type.unsupported-dependent-pattern"
+  val UnsupportedDependentPatternCode =
+    "cosmo.type.unsupported-dependent-pattern"
   val UnsupportedEffectRowCode = "cosmo.type.unsupported-effect-row"
   val UnsupportedTraitConstraintCode = "cosmo.type.unsupported-trait-constraint"
   val UnsupportedObjectDispatchCode = "cosmo.type.unsupported-object-dispatch"
@@ -166,10 +167,14 @@ object CheckerProfiles:
   def byId(id: String): Option[CheckerProfile] =
     all.find(_.id == id)
 
-  def firstUnsupportedFeatureForUnavailableProfile(profile: CheckerProfile): String =
+  def firstUnsupportedFeatureForUnavailableProfile(
+      profile: CheckerProfile,
+  ): String =
     if profile.rejects(ObjectDispatchFeature) then ObjectDispatchFeature
     else if profile.rejects(EffectsFeature) then EffectsFeature
-    else profile.rejectedFeatures.keys.toList.sorted.headOption.getOrElse("profile-implementation")
+    else
+      profile.rejectedFeatures.keys.toList.sorted.headOption
+        .getOrElse("profile-implementation")
 
   def unsupportedDiagnostic(
       profile: CheckerProfile,
