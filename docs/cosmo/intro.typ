@@ -12,3 +12,4 @@ Cosmo is a language replacing awful C++'s compile-time magics. This is only some
 - #cross-link("/async.typ")[Async Design Notes]
 - #cross-link("/generator.typ")[Generator Design Notes]
 - #cross-link("/mltt-typechecking-guidance.typ")[MLTT Type Checking Guidance]
+- #cross-link("/mltt-problem-ladder.typ")[MLTT Problem Ladder]

@@ -1,0 +1,760 @@
+type MlttTermId = Id[MlttTerm]
+
+class MlttTerm {
+  case Var(String)
+  case Universe(usize)
+  case Pi(String, MlttTermId, MlttTermId)
+  case Sigma(String, MlttTermId, MlttTermId)
+  case Lambda(String, MlttTermId, MlttTermId)
+  case Apply(MlttTermId, MlttTermId)
+  case Pair(MlttTermId, MlttTermId)
+  case Fst(MlttTermId)
+  case Snd(MlttTermId)
+  case Let(String, MlttTermId, MlttTermId)
+  case Inductive(String, Vec[MlttTermId], Vec[MlttTermId])
+  case Constructor(String, Vec[MlttTermId])
+  case Eq(MlttTermId, MlttTermId, MlttTermId)
+  case Refl(MlttTermId)
+  case Neutral(String, Vec[MlttTermId])
+  case Meta(usize)
+  case Error
+}
+
+class MlttTermStore {
+  var terms: Arena[MlttTerm]
+
+  def alloc(&mut self, value: MlttTerm): MlttTermId = {
+    var terms = self.terms;
+    val id = terms.alloc(value);
+    self.terms = terms;
+    id
+  }
+
+  def term_value(&self, id: MlttTermId): MlttTerm = {
+    *self.terms.get(id)
+  }
+
+  def alloc_var(&mut self, name: String): MlttTermId = {
+    self.alloc(MlttTerm.Var(name))
+  }
+
+  def alloc_universe(&mut self, level: usize): MlttTermId = {
+    self.alloc(MlttTerm.Universe(level))
+  }
+
+  def alloc_pi(&mut self, name: String, domain: MlttTermId, body: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Pi(name, domain, body))
+  }
+
+  def alloc_sigma(&mut self, name: String, first: MlttTermId, second: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Sigma(name, first, second))
+  }
+
+  def alloc_lambda(&mut self, name: String, annotation: MlttTermId, body: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Lambda(name, annotation, body))
+  }
+
+  def alloc_apply(&mut self, function: MlttTermId, argument: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Apply(function, argument))
+  }
+
+  def alloc_pair(&mut self, first: MlttTermId, second: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Pair(first, second))
+  }
+
+  def alloc_fst(&mut self, pair: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Fst(pair))
+  }
+
+  def alloc_snd(&mut self, pair: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Snd(pair))
+  }
+
+  def alloc_let(&mut self, name: String, value: MlttTermId, body: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Let(name, value, body))
+  }
+
+  def alloc_inductive(&mut self, name: String, params: Vec[MlttTermId], indices: Vec[MlttTermId]): MlttTermId = {
+    self.alloc(MlttTerm.Inductive(name, params, indices))
+  }
+
+  def alloc_constructor(&mut self, name: String, args: Vec[MlttTermId]): MlttTermId = {
+    self.alloc(MlttTerm.Constructor(name, args))
+  }
+
+  def alloc_eq(&mut self, typ: MlttTermId, left: MlttTermId, right: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Eq(typ, left, right))
+  }
+
+  def alloc_refl(&mut self, value: MlttTermId): MlttTermId = {
+    self.alloc(MlttTerm.Refl(value))
+  }
+
+  def alloc_neutral(&mut self, head: String, spine: Vec[MlttTermId]): MlttTermId = {
+    self.alloc(MlttTerm.Neutral(head, spine))
+  }
+
+  def alloc_meta(&mut self, index: usize): MlttTermId = {
+    self.alloc(MlttTerm.Meta(index))
+  }
+
+  def alloc_error(&mut self): MlttTermId = {
+    self.alloc(MlttTerm.Error)
+  }
+
+  def len(&self): usize = {
+    self.terms.len()
+  }
+}
+
+class MlttContextEntry {
+  val name: String
+  val typ: MlttTermId
+  val value: Option[MlttTermId]
+  val transparent: Bool
+  val pure: Bool
+  val universe_level: usize
+}
+
+class MlttContext {
+  val entries: Vec[MlttContextEntry]
+
+  def lookup(&self, name: String): Option[MlttContextEntry] = {
+    var remaining = self.entries.len();
+    while (remaining > 0) {
+      remaining = remaining - 1;
+      val entry = self.entries.get(remaining);
+      if (entry.name == name) {
+        return Option[MlttContextEntry]::Some(entry)
+      }
+    }
+    Option[MlttContextEntry]::None
+  }
+
+  def summary(&self): String = {
+    if (self.entries.is_empty()) {
+      return "<empty>"
+    }
+    var text = "";
+    var index: usize = 0;
+    while (index < self.entries.len()) {
+      if (index > 0) {
+        text = text.concat(", ")
+      }
+      text = text.concat(self.entries.get(index).name);
+      index = index + 1
+    }
+    text
+  }
+}
+
+class MlttBinder {
+  val name: String
+  val typ: MlttTermId
+}
+
+class MlttDefinitionDecl {
+  val name: String
+  val typ: MlttTermId
+  val value: MlttTermId
+  val transparent: Bool
+  val pure: Bool
+}
+
+class MlttConstructorDecl {
+  val name: String
+  val telescope: Vec[MlttBinder]
+  val result: MlttTermId
+}
+
+class MlttInductiveDecl {
+  val name: String
+  val parameters: Vec[MlttBinder]
+  val indices: Vec[MlttBinder]
+  val constructors: Vec[MlttConstructorDecl]
+}
+
+class MlttDeclarationEnv {
+  var definitions: Vec[MlttDefinitionDecl]
+  var inductives: Vec[MlttInductiveDecl]
+
+  def add_definition(&mut self, decl: MlttDefinitionDecl): Unit = {
+    self.definitions.push(decl)
+  }
+
+  def add_inductive(&mut self, decl: MlttInductiveDecl): Unit = {
+    self.inductives.push(decl)
+  }
+
+  def find_definition(&self, name: String): Option[MlttDefinitionDecl] = {
+    var index: usize = 0;
+    while (index < self.definitions.len()) {
+      val decl = self.definitions.get(index);
+      if (decl.name == name) {
+        return Option[MlttDefinitionDecl]::Some(decl)
+      }
+      index = index + 1
+    }
+    Option[MlttDefinitionDecl]::None
+  }
+
+  def find_inductive(&self, name: String): Option[MlttInductiveDecl] = {
+    var index: usize = 0;
+    while (index < self.inductives.len()) {
+      val decl = self.inductives.get(index);
+      if (decl.name == name) {
+        return Option[MlttInductiveDecl]::Some(decl)
+      }
+      index = index + 1
+    }
+    Option[MlttInductiveDecl]::None
+  }
+
+  def find_constructor(&self, name: String): Option[MlttConstructorDecl] = {
+    var family_index: usize = 0;
+    while (family_index < self.inductives.len()) {
+      val family = self.inductives.get(family_index);
+      var ctor_index: usize = 0;
+      while (ctor_index < family.constructors.len()) {
+        val ctor = family.constructors.get(ctor_index);
+        if (ctor.name == name) {
+          return Option[MlttConstructorDecl]::Some(ctor)
+        }
+        ctor_index = ctor_index + 1
+      }
+      family_index = family_index + 1
+    }
+    Option[MlttConstructorDecl]::None
+  }
+}
+
+class MlttMetaVar {
+  val id: usize
+  val context_summary: String
+  val expected_type: MlttTermId
+  val solution: Option[MlttTermId]
+}
+
+class MlttMetaStore {
+  var metas: Vec[MlttMetaVar]
+
+  def new_meta(&mut self, context: &MlttContext, expected_type: MlttTermId): usize = {
+    val id = self.metas.len();
+    self.metas.push(MlttMetaVar(id, context.summary(), expected_type, Option[MlttTermId]::None));
+    id
+  }
+
+  def solve_exact(&mut self, id: usize, value: MlttTermId): Bool = {
+    if (id >= self.metas.len()) {
+      return false
+    }
+    val current = self.metas.get(id);
+    val solved = MlttMetaVar(
+      current.id,
+      current.context_summary,
+      current.expected_type,
+      Option[MlttTermId]::Some(value)
+    );
+    val next = Vec[MlttMetaVar]();
+    var index: usize = 0;
+    while (index < self.metas.len()) {
+      if (index == id) {
+        next.push(solved)
+      } else {
+        next.push(self.metas.get(index))
+      }
+      index = index + 1
+    }
+    self.metas = next;
+    true
+  }
+
+  def has_unsolved_public_meta(&self): Bool = {
+    var index: usize = 0;
+    while (index < self.metas.len()) {
+      val meta = self.metas.get(index);
+      meta.solution match {
+        case Option[MlttTermId]::Some(value) => {
+        }
+        case Option[MlttTermId]::None => {
+          return true
+        }
+      }
+      index = index + 1
+    }
+    false
+  }
+}
+
+def mltt_term_store(): MlttTermStore = {
+  MlttTermStore(Arena[MlttTerm]())
+}
+
+def mltt_context(): MlttContext = {
+  MlttContext(Vec[MlttContextEntry]())
+}
+
+def mltt_declaration_env(): MlttDeclarationEnv = {
+  MlttDeclarationEnv(Vec[MlttDefinitionDecl](), Vec[MlttInductiveDecl]())
+}
+
+def mltt_meta_store(): MlttMetaStore = {
+  MlttMetaStore(Vec[MlttMetaVar]())
+}
+
+def mltt_context_extend_local(ctx: &MlttContext, name: String, typ: MlttTermId): MlttContext = {
+  val entries = mltt_copy_context_entries(ctx.entries);
+  entries.push(MlttContextEntry(name, typ, Option[MlttTermId]::None, false, true, 0));
+  MlttContext(entries)
+}
+
+def mltt_context_extend_definition(
+  ctx: &MlttContext,
+  name: String,
+  typ: MlttTermId,
+  value: MlttTermId,
+  transparent: Bool,
+  pure: Bool
+): MlttContext = {
+  val entries = mltt_copy_context_entries(ctx.entries);
+  entries.push(MlttContextEntry(name, typ, Option[MlttTermId]::Some(value), transparent, pure, 0));
+  MlttContext(entries)
+}
+
+def mltt_copy_context_entries(entries: &Vec[MlttContextEntry]): Vec[MlttContextEntry] = {
+  val copied = Vec[MlttContextEntry]();
+  var index: usize = 0;
+  while (index < entries.len()) {
+    copied.push(entries.get(index));
+    index = index + 1
+  }
+  copied
+}
+
+def mltt_empty_terms(): Vec[MlttTermId] = {
+  Vec[MlttTermId]()
+}
+
+def mltt_copy_terms(items: &Vec[MlttTermId]): Vec[MlttTermId] = {
+  val copied = Vec[MlttTermId]();
+  var index: usize = 0;
+  while (index < items.len()) {
+    copied.push(items.get(index));
+    index = index + 1
+  }
+  copied
+}
+
+def mltt_term_display(store: &MlttTermStore, id: MlttTermId): String = {
+  val value = store.term_value(id);
+  value match {
+    case MlttTerm.Var(name) => {
+      name
+    }
+    case MlttTerm.Universe(level) => {
+      "Type".concat(mltt_ordinal_text(level))
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      "(".concat(name)
+        .concat(": ")
+        .concat(mltt_term_display(store, domain))
+        .concat(") -> ")
+        .concat(mltt_term_display(store, body))
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      "Sigma(".concat(name)
+        .concat(": ")
+        .concat(mltt_term_display(store, first))
+        .concat("). ")
+        .concat(mltt_term_display(store, second))
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      "fun ".concat(name)
+        .concat(": ")
+        .concat(mltt_term_display(store, annotation))
+        .concat(" => ")
+        .concat(mltt_term_display(store, body))
+    }
+    case MlttTerm.Apply(function, argument) => {
+      mltt_term_display(store, function)
+        .concat("(")
+        .concat(mltt_term_display(store, argument))
+        .concat(")")
+    }
+    case MlttTerm.Pair(first, second) => {
+      "(".concat(mltt_term_display(store, first))
+        .concat(", ")
+        .concat(mltt_term_display(store, second))
+        .concat(")")
+    }
+    case MlttTerm.Fst(pair) => {
+      "fst(".concat(mltt_term_display(store, pair)).concat(")")
+    }
+    case MlttTerm.Snd(pair) => {
+      "snd(".concat(mltt_term_display(store, pair)).concat(")")
+    }
+    case MlttTerm.Let(name, value, body) => {
+      "let ".concat(name)
+        .concat(" = ")
+        .concat(mltt_term_display(store, value))
+        .concat("; ")
+        .concat(mltt_term_display(store, body))
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      mltt_head_display(store, name, params, indices)
+    }
+    case MlttTerm.Constructor(name, args) => {
+      mltt_args_display(store, name, args)
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      "Eq(".concat(mltt_term_display(store, typ))
+        .concat(", ")
+        .concat(mltt_term_display(store, left))
+        .concat(", ")
+        .concat(mltt_term_display(store, right))
+        .concat(")")
+    }
+    case MlttTerm.Refl(value) => {
+      "Refl(".concat(mltt_term_display(store, value)).concat(")")
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      mltt_args_display(store, head, spine)
+    }
+    case MlttTerm.Meta(index) => {
+      "?m".concat(mltt_ordinal_text(index))
+    }
+    case MlttTerm.Error => {
+      "<error>"
+    }
+  }
+}
+
+def mltt_head_display(
+  store: &MlttTermStore,
+  name: String,
+  params: &Vec[MlttTermId],
+  indices: &Vec[MlttTermId]
+): String = {
+  val args = Vec[MlttTermId]();
+  var param_index: usize = 0;
+  while (param_index < params.len()) {
+    args.push(params.get(param_index));
+    param_index = param_index + 1
+  }
+  var index_index: usize = 0;
+  while (index_index < indices.len()) {
+    args.push(indices.get(index_index));
+    index_index = index_index + 1
+  }
+  mltt_args_display(store, name, args)
+}
+
+def mltt_args_display(store: &MlttTermStore, name: String, args: &Vec[MlttTermId]): String = {
+  if (args.is_empty()) {
+    return name
+  }
+  name.concat("(").concat(mltt_term_list_display(store, args)).concat(")")
+}
+
+def mltt_term_list_display(store: &MlttTermStore, args: &Vec[MlttTermId]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < args.len()) {
+    if (index > 0) {
+      text = text.concat(", ")
+    }
+    text = text.concat(mltt_term_display(store, args.get(index)));
+    index = index + 1
+  }
+  text
+}
+
+def mltt_substitute(
+  store: &mut MlttTermStore,
+  term: MlttTermId,
+  name: String,
+  replacement: MlttTermId
+): MlttTermId = {
+  val value = store.term_value(term);
+  value match {
+    case MlttTerm.Var(var_name) => {
+      if (var_name == name) {
+        return replacement
+      }
+      store.alloc_var(var_name)
+    }
+    case MlttTerm.Universe(level) => {
+      store.alloc_universe(level)
+    }
+    case MlttTerm.Pi(param, domain, body) => {
+      val next_domain = mltt_substitute(store, domain, name, replacement);
+      var next_body = body;
+      if (param != name) {
+        next_body = mltt_substitute(store, body, name, replacement)
+      }
+      store.alloc_pi(param, next_domain, next_body)
+    }
+    case MlttTerm.Sigma(param, first, second) => {
+      val next_first = mltt_substitute(store, first, name, replacement);
+      var next_second = second;
+      if (param != name) {
+        next_second = mltt_substitute(store, second, name, replacement)
+      }
+      store.alloc_sigma(param, next_first, next_second)
+    }
+    case MlttTerm.Lambda(param, annotation, body) => {
+      val next_annotation = mltt_substitute(store, annotation, name, replacement);
+      var next_body = body;
+      if (param != name) {
+        next_body = mltt_substitute(store, body, name, replacement)
+      }
+      store.alloc_lambda(param, next_annotation, next_body)
+    }
+    case MlttTerm.Apply(function, argument) => {
+      val next_function = mltt_substitute(store, function, name, replacement);
+      val next_argument = mltt_substitute(store, argument, name, replacement);
+      store.alloc_apply(next_function, next_argument)
+    }
+    case MlttTerm.Pair(first, second) => {
+      val next_first = mltt_substitute(store, first, name, replacement);
+      val next_second = mltt_substitute(store, second, name, replacement);
+      store.alloc_pair(next_first, next_second)
+    }
+    case MlttTerm.Fst(pair) => {
+      store.alloc_fst(mltt_substitute(store, pair, name, replacement))
+    }
+    case MlttTerm.Snd(pair) => {
+      store.alloc_snd(mltt_substitute(store, pair, name, replacement))
+    }
+    case MlttTerm.Let(local_name, local_value, body) => {
+      val next_value = mltt_substitute(store, local_value, name, replacement);
+      var next_body = body;
+      if (local_name != name) {
+        next_body = mltt_substitute(store, body, name, replacement)
+      }
+      store.alloc_let(local_name, next_value, next_body)
+    }
+    case MlttTerm.Inductive(inductive_name, params, indices) => {
+      store.alloc_inductive(
+        inductive_name,
+        mltt_substitute_terms(store, params, name, replacement),
+        mltt_substitute_terms(store, indices, name, replacement)
+      )
+    }
+    case MlttTerm.Constructor(ctor_name, args) => {
+      store.alloc_constructor(ctor_name, mltt_substitute_terms(store, args, name, replacement))
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      store.alloc_eq(
+        mltt_substitute(store, typ, name, replacement),
+        mltt_substitute(store, left, name, replacement),
+        mltt_substitute(store, right, name, replacement)
+      )
+    }
+    case MlttTerm.Refl(refl_value) => {
+      store.alloc_refl(mltt_substitute(store, refl_value, name, replacement))
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      store.alloc_neutral(head, mltt_substitute_terms(store, spine, name, replacement))
+    }
+    case MlttTerm.Meta(index) => {
+      store.alloc_meta(index)
+    }
+    case MlttTerm.Error => {
+      store.alloc_error()
+    }
+  }
+}
+
+def mltt_substitute_terms(
+  store: &mut MlttTermStore,
+  items: &Vec[MlttTermId],
+  name: String,
+  replacement: MlttTermId
+): Vec[MlttTermId] = {
+  val copied = Vec[MlttTermId]();
+  var index: usize = 0;
+  while (index < items.len()) {
+    copied.push(mltt_substitute(store, items.get(index), name, replacement));
+    index = index + 1
+  }
+  copied
+}
+
+def mltt_terms_equal(store: &MlttTermStore, left: MlttTermId, right: MlttTermId): Bool = {
+  mltt_term_display(store, left) == mltt_term_display(store, right)
+}
+
+def mltt_universe_level_of_term(store: &MlttTermStore, id: MlttTermId): Option[usize] = {
+  val value = store.term_value(id);
+  value match {
+    case MlttTerm.Universe(level) => {
+      Option[usize]::Some(level)
+    }
+    case MlttTerm.Var(name) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Pi(name, domain, body) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Sigma(name, first, second) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Lambda(name, annotation, body) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Apply(function, argument) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Pair(first, second) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Fst(pair) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Snd(pair) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Let(name, value, body) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Inductive(name, params, indices) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Constructor(name, args) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Eq(typ, left, right) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Refl(value) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Neutral(head, spine) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Meta(index) => {
+      Option[usize]::None
+    }
+    case MlttTerm.Error => {
+      Option[usize]::None
+    }
+  }
+}
+
+def mltt_type_universe_level(store: &MlttTermStore, inferred_type: MlttTermId): Option[usize] = {
+  val maybe_level = mltt_universe_level_of_term(store, inferred_type);
+  maybe_level match {
+    case Option[usize]::Some(level) => {
+      if (level == 0) {
+        return Option[usize]::Some(0)
+      }
+      Option[usize]::Some(level - 1)
+    }
+    case Option[usize]::None => {
+      Option[usize]::None
+    }
+  }
+}
+
+def mltt_max_usize(left: usize, right: usize): usize = {
+  if (left > right) {
+    return left
+  }
+  right
+}
+
+def mltt_add_nat_fixture(store: &mut MlttTermStore, env: &mut MlttDeclarationEnv): Unit = {
+  val type0 = store.alloc_universe(0);
+  val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+  val z = MlttConstructorDecl("Z", Vec[MlttBinder](), nat);
+  val s_telescope = Vec[MlttBinder]();
+  s_telescope.push(MlttBinder("pred", nat));
+  val s = MlttConstructorDecl("S", s_telescope, nat);
+  val ctors = Vec[MlttConstructorDecl]();
+  ctors.push(z);
+  ctors.push(s);
+  env.add_inductive(MlttInductiveDecl("Nat", Vec[MlttBinder](), Vec[MlttBinder](), ctors));
+  env.add_definition(MlttDefinitionDecl("Nat", type0, nat, true, true))
+}
+
+def mltt_add_vec_fixture(store: &mut MlttTermStore, env: &mut MlttDeclarationEnv): Unit = {
+  val type0 = store.alloc_universe(0);
+  val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+  val a = store.alloc_var("A");
+  val n = store.alloc_var("n");
+  val k = store.alloc_var("k");
+  val z = store.alloc_constructor("Z", Vec[MlttTermId]());
+  val s_args = Vec[MlttTermId]();
+  s_args.push(k);
+  val s_k = store.alloc_constructor("S", s_args);
+  val nil_indices = Vec[MlttTermId]();
+  nil_indices.push(z);
+  val nil_result = store.alloc_inductive("Vec", mltt_single_term(a), nil_indices);
+  val tail_indices = Vec[MlttTermId]();
+  tail_indices.push(k);
+  val tail_type = store.alloc_inductive("Vec", mltt_single_term(a), tail_indices);
+  val cons_indices = Vec[MlttTermId]();
+  cons_indices.push(s_k);
+  val cons_result = store.alloc_inductive("Vec", mltt_single_term(a), cons_indices);
+
+  val params = Vec[MlttBinder]();
+  params.push(MlttBinder("A", type0));
+  val indices = Vec[MlttBinder]();
+  indices.push(MlttBinder("n", nat));
+  val nil = MlttConstructorDecl("Nil", Vec[MlttBinder](), nil_result);
+  val cons_telescope = Vec[MlttBinder]();
+  cons_telescope.push(MlttBinder("k", nat));
+  cons_telescope.push(MlttBinder("head", a));
+  cons_telescope.push(MlttBinder("tail", tail_type));
+  val cons = MlttConstructorDecl("Cons", cons_telescope, cons_result);
+  val ctors = Vec[MlttConstructorDecl]();
+  ctors.push(nil);
+  ctors.push(cons);
+  env.add_inductive(MlttInductiveDecl("Vec", params, indices, ctors));
+  env.add_definition(MlttDefinitionDecl("Vec", type0, store.alloc_inductive("Vec", mltt_single_term(a), mltt_single_term(n)), true, true))
+}
+
+def mltt_single_term(term: MlttTermId): Vec[MlttTermId] = {
+  val items = Vec[MlttTermId]();
+  items.push(term);
+  items
+}
+
+def mltt_ordinal_text(value: usize): String = {
+  if (value < 10) {
+    return mltt_digit_text(value)
+  }
+  mltt_ordinal_text(value / 10).concat(mltt_digit_text(value % 10))
+}
+
+def mltt_digit_text(value: usize): String = {
+  if (value == 0) {
+    return "0"
+  }
+  if (value == 1) {
+    return "1"
+  }
+  if (value == 2) {
+    return "2"
+  }
+  if (value == 3) {
+    return "3"
+  }
+  if (value == 4) {
+    return "4"
+  }
+  if (value == 5) {
+    return "5"
+  }
+  if (value == 6) {
+    return "6"
+  }
+  if (value == 7) {
+    return "7"
+  }
+  if (value == 8) {
+    return "8"
+  }
+  "9"
+}
