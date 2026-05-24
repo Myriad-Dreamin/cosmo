@@ -33,6 +33,10 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
     - name: Install pnpm
       uses: pnpm/action-setup@v4
       with:
@@ -46,6 +50,12 @@ jobs:
         cache-dependency-path: pnpm-lock.yaml
     - name: Install Node dependencies
       run: pnpm install --frozen-lockfile
+    - name: Check Rust crate formatting
+      run: cargo fmt --all --check
+    - name: Lint Rust crates
+      run: cargo clippy --workspace --all-targets -- -D warnings
+    - name: Test Rust crates
+      run: cargo test --workspace --all-targets
     # packages/cosmo tests are reference-only and skipped in build.sbt.
     # cosmo0/test owns active cosmo0 and packages/cosmoc validation.
     - name: Run cosmo0 and cosmoc Scala tests
