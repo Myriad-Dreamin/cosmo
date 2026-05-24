@@ -5,6 +5,7 @@
 - [x] 1.3 Add short examples for Pi, Sigma, equality, Nat, Vec, and conversion.
 - [x] 1.4 Add a section explaining why effects, traits, and object safety are outside the first MLTT profile.
 - [x] 1.5 Add a section explaining why advanced normalization strategies are deferred to separate research.
+- [x] 1.6 Add a source-tagged MLTT problem ladder that maps supported checker fixtures and future elaboration exercises.
 
 ## 2. Profile Scaffolding
 
@@ -50,3 +51,4 @@
 - [x] 7.3 Confirm the existing `cosmoc.basic-expr` checker remains the default for current parser-source tests.
 - [x] 7.4 Document implementation gaps before enabling any package-level MLTT selection.
 - [x] 7.5 Confirm cosmo0-side experiments remain profile-gated and do not expand the default cosmo0 source subset.
+- [x] 7.6 Add cosmo0 tests that keep the MLTT problem ladder source tags and supported entries executable.
