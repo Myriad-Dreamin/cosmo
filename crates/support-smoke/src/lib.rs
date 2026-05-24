@@ -7,12 +7,12 @@ pub struct CosmoSupportSmokeStatus {
     pub value: i32,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn cosmo_support_smoke_add(lhs: i32, rhs: i32) -> i32 {
     lhs + rhs
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn cosmo_support_smoke_status() -> CosmoSupportSmokeStatus {
     CosmoSupportSmokeStatus {
         abi_version: COSMO_RUST_FFI_ABI_VERSION,

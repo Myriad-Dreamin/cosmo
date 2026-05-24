@@ -1,4 +1,4 @@
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::ptr;
 use std::slice;
@@ -54,7 +54,7 @@ pub struct CosmoUriSysError {
     message: String,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn cosmo_uri_sys_abi_status() -> CosmoUriSysAbiStatus {
     CosmoUriSysAbiStatus {
         abi_version: COSMO_RUST_FFI_ABI_VERSION,
@@ -62,7 +62,13 @@ pub extern "C" fn cosmo_uri_sys_abi_status() -> CosmoUriSysAbiStatus {
     }
 }
 
-#[no_mangle]
+/// Parses a URI from a caller-owned UTF-8 byte buffer.
+///
+/// # Safety
+///
+/// `uri_ptr` must be null only when `uri_len` is 0. Otherwise it must point to
+/// `uri_len` readable bytes for the duration of the call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_parse(
     uri_ptr: *const u8,
     uri_len: usize,
@@ -73,7 +79,13 @@ pub unsafe extern "C" fn cosmo_uri_sys_parse(
     })
 }
 
-#[no_mangle]
+/// Resolves a URI reference against a base URI handle.
+///
+/// # Safety
+///
+/// `base` must be null or a live URI handle returned by this crate. The
+/// reference buffer follows the same pointer rules as `cosmo_uri_sys_parse`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_join(
     base: *const CosmoUriSysUri,
     reference_ptr: *const u8,
@@ -90,7 +102,13 @@ pub unsafe extern "C" fn cosmo_uri_sys_join(
     })
 }
 
-#[no_mangle]
+/// Converts a local file path byte buffer into a file URI handle.
+///
+/// # Safety
+///
+/// `path_ptr` must be null only when `path_len` is 0. Otherwise it must point to
+/// `path_len` readable bytes for the duration of the call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_from_file_path(
     path_ptr: *const u8,
     path_len: usize,
@@ -108,7 +126,12 @@ pub unsafe extern "C" fn cosmo_uri_sys_from_file_path(
     })
 }
 
-#[no_mangle]
+/// Converts a URI handle into a local file path byte buffer.
+///
+/// # Safety
+///
+/// `uri` must be null or a live URI handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_to_file_path(
     uri: *const CosmoUriSysUri,
 ) -> CosmoUriSysBytesResult {
@@ -126,52 +149,88 @@ pub unsafe extern "C" fn cosmo_uri_sys_to_file_path(
     })
 }
 
-#[no_mangle]
+/// Formats a URI handle into a byte buffer.
+///
+/// # Safety
+///
+/// `uri` must be null or a live URI handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_display(
     uri: *const CosmoUriSysUri,
 ) -> CosmoUriSysBytesResult {
     catch_uri_bytes(uri, |url| url.to_string())
 }
 
-#[no_mangle]
+/// Returns the scheme component of a URI handle.
+///
+/// # Safety
+///
+/// `uri` must be null or a live URI handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_scheme(
     uri: *const CosmoUriSysUri,
 ) -> CosmoUriSysBytesResult {
     catch_uri_bytes(uri, |url| url.scheme().to_string())
 }
 
-#[no_mangle]
+/// Returns the authority component of a URI handle.
+///
+/// # Safety
+///
+/// `uri` must be null or a live URI handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_authority(
     uri: *const CosmoUriSysUri,
 ) -> CosmoUriSysBytesResult {
     catch_uri_bytes(uri, uri_authority)
 }
 
-#[no_mangle]
+/// Returns the path component of a URI handle.
+///
+/// # Safety
+///
+/// `uri` must be null or a live URI handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_path(uri: *const CosmoUriSysUri) -> CosmoUriSysBytesResult {
     catch_uri_bytes(uri, |url| url.path().to_string())
 }
 
-#[no_mangle]
+/// Returns the query component of a URI handle.
+///
+/// # Safety
+///
+/// `uri` must be null or a live URI handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_query(uri: *const CosmoUriSysUri) -> CosmoUriSysBytesResult {
     catch_uri_bytes(uri, |url| url.query().unwrap_or("").to_string())
 }
 
-#[no_mangle]
+/// Releases a URI handle allocated by this crate.
+///
+/// # Safety
+///
+/// `uri` must be null or a URI handle returned by this crate that has not
+/// already been released. The pointer must not be used after this call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_uri_release(uri: *mut CosmoUriSysUri) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !uri.is_null() {
-            drop(Box::from_raw(uri));
+            drop(unsafe { Box::from_raw(uri) });
         }
     }));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn cosmo_uri_sys_error_ptr_is_some(error: *const CosmoUriSysError) -> u8 {
     u8::from(!error.is_null())
 }
 
-#[no_mangle]
+/// Returns the stable error kind for an error handle.
+///
+/// # Safety
+///
+/// `error` must be null or a live error handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_error_kind(error: *const CosmoUriSysError) -> u32 {
     catch_scalar(|| {
         let error = error_handle(error)?;
@@ -179,7 +238,12 @@ pub unsafe extern "C" fn cosmo_uri_sys_error_kind(error: *const CosmoUriSysError
     })
 }
 
-#[no_mangle]
+/// Copies the error message into a byte buffer.
+///
+/// # Safety
+///
+/// `error` must be null or a live error handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_error_message(
     error: *const CosmoUriSysError,
 ) -> CosmoUriSysBytes {
@@ -189,20 +253,32 @@ pub unsafe extern "C" fn cosmo_uri_sys_error_message(
     })
 }
 
-#[no_mangle]
+/// Releases an error handle allocated by this crate.
+///
+/// # Safety
+///
+/// `error` must be null or an error handle returned by this crate that has not
+/// already been released. The pointer must not be used after this call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_error_release(error: *mut CosmoUriSysError) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !error.is_null() {
-            drop(Box::from_raw(error));
+            drop(unsafe { Box::from_raw(error) });
         }
     }));
 }
 
-#[no_mangle]
+/// Releases a byte buffer allocated by this crate.
+///
+/// # Safety
+///
+/// `bytes` must be an empty/null buffer or a buffer returned by this crate that
+/// has not already been released.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_uri_sys_bytes_release(bytes: CosmoUriSysBytes) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !bytes.ptr.is_null() {
-            drop(Vec::from_raw_parts(bytes.ptr, bytes.len, bytes.capacity));
+            drop(unsafe { Vec::from_raw_parts(bytes.ptr, bytes.len, bytes.capacity) });
         }
     }));
 }
@@ -368,7 +444,7 @@ fn catch_scalar(function: impl FnOnce() -> Result<u32, CosmoUriSysError>) -> u32
     }
 }
 
-unsafe fn catch_uri_bytes(
+fn catch_uri_bytes(
     uri: *const CosmoUriSysUri,
     function: impl FnOnce(&Url) -> String,
 ) -> CosmoUriSysBytesResult {
@@ -387,16 +463,18 @@ mod tests {
     }
 
     unsafe fn result_text(bytes: CosmoUriSysBytes) -> String {
-        let slice = slice::from_raw_parts(bytes.ptr, bytes.len);
+        let slice = unsafe { slice::from_raw_parts(bytes.ptr, bytes.len) };
         let text = str::from_utf8(slice).unwrap().to_string();
-        cosmo_uri_sys_bytes_release(bytes);
+        unsafe {
+            cosmo_uri_sys_bytes_release(bytes);
+        }
         text
     }
 
     unsafe fn uri_text(uri: *const CosmoUriSysUri) -> String {
-        let result = cosmo_uri_sys_display(uri);
+        let result = unsafe { cosmo_uri_sys_display(uri) };
         assert!(result.error.is_null());
-        result_text(result.bytes)
+        unsafe { result_text(result.bytes) }
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use std::io::Read;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::slice;
 use std::str;
@@ -89,7 +89,7 @@ pub struct CosmoUreqSysError {
     message: String,
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn cosmo_ureq_sys_abi_status() -> CosmoUreqSysAbiStatus {
     CosmoUreqSysAbiStatus {
         abi_version: COSMO_RUST_FFI_ABI_VERSION,
@@ -97,7 +97,13 @@ pub extern "C" fn cosmo_ureq_sys_abi_status() -> CosmoUreqSysAbiStatus {
     }
 }
 
-#[no_mangle]
+/// Creates a request handle from caller-owned UTF-8 byte buffers.
+///
+/// # Safety
+///
+/// Pointer arguments must be null only when their matching length is 0.
+/// Otherwise they must point to readable bytes for the duration of the call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_new(
     method_ptr: *const u8,
     method_len: usize,
@@ -115,7 +121,14 @@ pub unsafe extern "C" fn cosmo_ureq_sys_request_new(
     })
 }
 
-#[no_mangle]
+/// Sets a header on a request handle.
+///
+/// # Safety
+///
+/// `request` must be null or a live request handle returned by this crate. Name
+/// and value buffers follow the same pointer rules as
+/// `cosmo_ureq_sys_request_new`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_set_header(
     request: *mut CosmoUreqSysRequest,
     name_ptr: *const u8,
@@ -134,7 +147,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_request_set_header(
     })
 }
 
-#[no_mangle]
+/// Sets the timeout on a request handle.
+///
+/// # Safety
+///
+/// `request` must be null or a live request handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_set_timeout_ms(
     request: *mut CosmoUreqSysRequest,
     timeout_ms: u64,
@@ -148,7 +166,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_request_set_timeout_ms(
     })
 }
 
-#[no_mangle]
+/// Executes a request without a body.
+///
+/// # Safety
+///
+/// `request` must be null or a live request handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_call(
     request: *mut CosmoUreqSysRequest,
 ) -> CosmoUreqSysResponseResult {
@@ -160,7 +183,13 @@ pub unsafe extern "C" fn cosmo_ureq_sys_request_call(
     })
 }
 
-#[no_mangle]
+/// Executes a request with a UTF-8 text body.
+///
+/// # Safety
+///
+/// `request` must be null or a live request handle returned by this crate. The
+/// body buffer follows the same pointer rules as `cosmo_ureq_sys_request_new`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_send_text(
     request: *mut CosmoUreqSysRequest,
     body_ptr: *const u8,
@@ -175,7 +204,14 @@ pub unsafe extern "C" fn cosmo_ureq_sys_request_send_text(
     })
 }
 
-#[no_mangle]
+/// Executes a request with a byte body.
+///
+/// # Safety
+///
+/// `request` must be null or a live request handle returned by this crate. The
+/// body buffer must be null only when `body_len` is 0; otherwise it must point to
+/// `body_len` readable bytes for the duration of the call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_send_bytes(
     request: *mut CosmoUreqSysRequest,
     body_ptr: *const u8,
@@ -190,16 +226,27 @@ pub unsafe extern "C" fn cosmo_ureq_sys_request_send_bytes(
     })
 }
 
-#[no_mangle]
+/// Releases a request handle allocated by this crate.
+///
+/// # Safety
+///
+/// `request` must be null or a request handle returned by this crate that has
+/// not already been released. The pointer must not be used after this call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_request_release(request: *mut CosmoUreqSysRequest) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !request.is_null() {
-            drop(Box::from_raw(request));
+            drop(unsafe { Box::from_raw(request) });
         }
     }));
 }
 
-#[no_mangle]
+/// Returns the status code from a response handle.
+///
+/// # Safety
+///
+/// `response` must be null or a live response handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_status(
     response: *const CosmoUreqSysResponse,
 ) -> u16 {
@@ -209,7 +256,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_status(
     })
 }
 
-#[no_mangle]
+/// Returns the status text from a response handle.
+///
+/// # Safety
+///
+/// `response` must be null or a live response handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_status_text(
     response: *const CosmoUreqSysResponse,
 ) -> CosmoUreqSysBytesResult {
@@ -219,7 +271,14 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_status_text(
     })
 }
 
-#[no_mangle]
+/// Looks up a response header by name.
+///
+/// # Safety
+///
+/// `response` must be null or a live response handle returned by this crate.
+/// `name_ptr` must be null only when `name_len` is 0; otherwise it must point to
+/// `name_len` readable bytes for the duration of the call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_header(
     response: *const CosmoUreqSysResponse,
     name_ptr: *const u8,
@@ -237,7 +296,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_header(
     })
 }
 
-#[no_mangle]
+/// Consumes a response handle body as UTF-8 text.
+///
+/// # Safety
+///
+/// `response` must be null or a live response handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_body_text(
     response: *mut CosmoUreqSysResponse,
 ) -> CosmoUreqSysBytesResult {
@@ -252,7 +316,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_body_text(
     })
 }
 
-#[no_mangle]
+/// Consumes a response handle body as bytes up to `max_bytes`.
+///
+/// # Safety
+///
+/// `response` must be null or a live response handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_body_bytes(
     response: *mut CosmoUreqSysResponse,
     max_bytes: usize,
@@ -283,7 +352,13 @@ pub unsafe extern "C" fn cosmo_ureq_sys_response_body_bytes(
     })
 }
 
-#[no_mangle]
+/// Performs a blocking GET request and returns the response body bytes.
+///
+/// # Safety
+///
+/// `url_ptr` must be null only when `url_len` is 0. Otherwise it must point to
+/// `url_len` readable bytes for the duration of the call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_get_text(
     url_ptr: *const u8,
     url_len: usize,
@@ -303,21 +378,32 @@ pub unsafe extern "C" fn cosmo_ureq_sys_get_text(
     })
 }
 
-#[no_mangle]
+/// Releases a response handle allocated by this crate.
+///
+/// # Safety
+///
+/// `response` must be null or a response handle returned by this crate that has
+/// not already been released. The pointer must not be used after this call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_response_release(response: *mut CosmoUreqSysResponse) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !response.is_null() {
-            drop(Box::from_raw(response));
+            drop(unsafe { Box::from_raw(response) });
         }
     }));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn cosmo_ureq_sys_error_ptr_is_some(error: *const CosmoUreqSysError) -> u8 {
     u8::from(!error.is_null())
 }
 
-#[no_mangle]
+/// Returns the stable error kind for an error handle.
+///
+/// # Safety
+///
+/// `error` must be null or a live error handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_error_kind(error: *const CosmoUreqSysError) -> u32 {
     catch_scalar(|| {
         let error = error_handle(error)?;
@@ -325,7 +411,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_error_kind(error: *const CosmoUreqSysErr
     })
 }
 
-#[no_mangle]
+/// Returns the HTTP status associated with an error handle.
+///
+/// # Safety
+///
+/// `error` must be null or a live error handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_error_status(error: *const CosmoUreqSysError) -> u16 {
     catch_scalar(|| {
         let error = error_handle(error)?;
@@ -333,7 +424,12 @@ pub unsafe extern "C" fn cosmo_ureq_sys_error_status(error: *const CosmoUreqSysE
     })
 }
 
-#[no_mangle]
+/// Copies the error message into a byte buffer.
+///
+/// # Safety
+///
+/// `error` must be null or a live error handle returned by this crate.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_error_message(
     error: *const CosmoUreqSysError,
 ) -> CosmoUreqSysBytes {
@@ -343,20 +439,32 @@ pub unsafe extern "C" fn cosmo_ureq_sys_error_message(
     })
 }
 
-#[no_mangle]
+/// Releases an error handle allocated by this crate.
+///
+/// # Safety
+///
+/// `error` must be null or an error handle returned by this crate that has not
+/// already been released. The pointer must not be used after this call.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_error_release(error: *mut CosmoUreqSysError) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !error.is_null() {
-            drop(Box::from_raw(error));
+            drop(unsafe { Box::from_raw(error) });
         }
     }));
 }
 
-#[no_mangle]
+/// Releases a byte buffer allocated by this crate.
+///
+/// # Safety
+///
+/// `bytes` must be an empty/null buffer or a buffer returned by this crate that
+/// has not already been released.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn cosmo_ureq_sys_bytes_release(bytes: CosmoUreqSysBytes) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !bytes.ptr.is_null() {
-            drop(Vec::from_raw_parts(bytes.ptr, bytes.len, bytes.capacity));
+            drop(unsafe { Vec::from_raw_parts(bytes.ptr, bytes.len, bytes.capacity) });
         }
     }));
 }
@@ -881,9 +989,12 @@ mod tests {
     }
 
     unsafe fn request_new(method: &str, url: &str) -> *mut CosmoUreqSysRequest {
-        let result =
-            cosmo_ureq_sys_request_new(method.as_ptr(), method.len(), url.as_ptr(), url.len());
-        assert_no_error(result.error);
+        let result = unsafe {
+            cosmo_ureq_sys_request_new(method.as_ptr(), method.len(), url.as_ptr(), url.len())
+        };
+        unsafe {
+            assert_no_error(result.error);
+        }
         assert!(!result.request.is_null());
         result.request
     }
@@ -893,17 +1004,22 @@ mod tests {
             return;
         }
 
-        let kind = cosmo_ureq_sys_error_kind(error);
-        let message =
-            String::from_utf8_lossy(&bytes_to_vec(cosmo_ureq_sys_error_message(error))).to_string();
-        cosmo_ureq_sys_error_release(error);
+        let kind = unsafe { cosmo_ureq_sys_error_kind(error) };
+        let message = unsafe {
+            String::from_utf8_lossy(&bytes_to_vec(cosmo_ureq_sys_error_message(error))).to_string()
+        };
+        unsafe {
+            cosmo_ureq_sys_error_release(error);
+        }
         panic!("unexpected ureq-sys error {kind}: {message}");
     }
 
     unsafe fn assert_error_kind(error: *mut CosmoUreqSysError, expected: u32) {
         assert!(!error.is_null(), "expected an error handle");
-        assert_eq!(cosmo_ureq_sys_error_kind(error), expected);
-        cosmo_ureq_sys_error_release(error);
+        assert_eq!(unsafe { cosmo_ureq_sys_error_kind(error) }, expected);
+        unsafe {
+            cosmo_ureq_sys_error_release(error);
+        }
     }
 
     unsafe fn bytes_to_vec(bytes: CosmoUreqSysBytes) -> Vec<u8> {
@@ -911,8 +1027,10 @@ mod tests {
             return Vec::new();
         }
 
-        let result = slice::from_raw_parts(bytes.ptr, bytes.len).to_vec();
-        cosmo_ureq_sys_bytes_release(bytes);
+        let result = unsafe { slice::from_raw_parts(bytes.ptr, bytes.len) }.to_vec();
+        unsafe {
+            cosmo_ureq_sys_bytes_release(bytes);
+        }
         result
     }
 }
