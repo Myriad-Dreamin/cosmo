@@ -72,7 +72,7 @@ object CheckerProfiles:
   val Cosmo0Subset: CheckerProfile =
     CheckerProfile(
       Cosmo0SubsetId,
-      "packages/cosmo0/src/main/scala/cosmo0/SourceTyper.scala",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/Typer.scala",
       "cosmo0-untyped-module",
       "typed-module",
       "cosmo0.type",
