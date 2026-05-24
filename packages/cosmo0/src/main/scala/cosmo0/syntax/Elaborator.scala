@@ -6,14 +6,14 @@ import scala.collection.mutable.ListBuffer
 import cosmo.syntax
 import cosmo.syntax.*
 
-object UntypedElaborator:
+object Elaborator:
   val defaultStandardGenericNames: Set[String] =
     Set("Arena", "Box", "Id", "Map", "Option", "Ptr", "Ref", "RefMut", "Result", "Set", "Vec")
 
-  def apply(): UntypedElaborator =
-    new UntypedElaborator(defaultStandardGenericNames)
+  def apply(): Elaborator =
+    new Elaborator(defaultStandardGenericNames)
 
-final class UntypedElaborator(
+final class Elaborator(
     standardGenericNames: Set[String],
 ):
   def elaborate(parsed: ParsedModule): Result[UntypedModule] =
