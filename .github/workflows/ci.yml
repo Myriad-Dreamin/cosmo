@@ -33,6 +33,12 @@ jobs:
         distribution: 'temurin'
         cache: 'sbt'
     - uses: sbt/setup-sbt@v1
+    - name: Set up Coursier
+      uses: coursier/setup-action@v1
+      with:
+        apps: scalafmt:3.7.15
+    - name: Check Scala formatting
+      run: ./scripts/check-scala-style.sh
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
       with:

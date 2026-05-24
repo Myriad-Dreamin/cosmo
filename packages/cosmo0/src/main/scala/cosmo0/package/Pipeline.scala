@@ -10,9 +10,7 @@ private[cosmo0] object PackagePipeline:
   def apply(compiler: Cosmo0): PackagePipeline =
     new PackagePipeline(compiler)
 
-private[cosmo0] final class PackagePipeline(
-    compiler: Cosmo0,
-):
+private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
   private final case class PackageLoadData(
       rootPath: String,
       metadata: Cosmo0PackageMetadata,
