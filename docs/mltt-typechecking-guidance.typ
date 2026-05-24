@@ -7,6 +7,15 @@ normative language specification. Its purpose is to give implementers and
 reviewers a shared vocabulary before Cosmo grows dependent pattern matching,
 trait-aware checking, effect-aware checking, and object-safety checks.
 
+The first implementation slice lives under
+`packages/cosmoc/src/types/mltt/`, with a Scala-side mirror under
+`packages/cosmo0/src/main/scala/cosmo0/MlttTypeChecker.scala`. It provides
+explicit MLTT core data, profile-aware diagnostics, bidirectional check/infer
+entry points, conservative metavariable records, Nat/Vec metadata fixtures, and
+the first declared conversion strategy `mltt.whnf-conversion`. Selecting
+`mltt.core` for ordinary Cosmo source or package checking remains isolated until
+a surface elaborator can produce MLTT core artifacts.
+
 The key design rule is:
 
 ```text
@@ -90,6 +99,50 @@ Implementers can choose de Bruijn indices, de Bruijn levels, or stable local IDs
 For Cosmo compiler code, stable IDs plus explicit context entries are easier to
 debug. For conversion and substitution, de Bruijn levels often make
 alpha-equivalence and reification back to core syntax cleaner.
+
+== Short Examples
+
+Pi type:
+
+```text
+(A: Type0) -> (x: A) -> A
+```
+
+Sigma type:
+
+```text
+Sigma(x: A). B(x)
+```
+
+Equality type:
+
+```text
+Eq(A, x, x)
+Refl(x)
+```
+
+Nat metadata:
+
+```text
+Nat : Type0
+Z   : Nat
+S   : Nat -> Nat
+```
+
+Vec metadata:
+
+```text
+Vec(A: Type0, n: Nat) : Type0
+Nil  : Vec(A, Z)
+Cons : (k: Nat) -> A -> Vec(A, k) -> Vec(A, S(k))
+```
+
+Conversion:
+
+```text
+(fun x: A => x)(y) == y
+let z = y; z == y
+```
 
 == Bidirectional Checking
 

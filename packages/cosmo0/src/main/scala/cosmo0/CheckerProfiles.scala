@@ -36,11 +36,15 @@ object CheckerProfiles:
   val ImplementationLimitCode = "cosmo.type.implementation-limit"
 
   val EffectsFeature = "effects"
+  val AsyncFeature = "async"
   val TraitsFeature = "traits"
   val ObjectDispatchFeature = "object-dispatch"
   val DependentPatternsFeature = "dependent-patterns"
   val DependentPatternElaborationFeature = "dependent-pattern-elaboration"
   val CppImportsFeature = "cpp-imports"
+  val MacrosFeature = "macros"
+  val ReflectionFeature = "reflection"
+  val StagingFeature = "staging"
 
   val CosmocBasicExpr: CheckerProfile =
     CheckerProfile(
@@ -97,14 +101,25 @@ object CheckerProfiles:
         "mltt-core-terms",
         "universes",
         "pi-types",
+        "sigma-types",
+        "equality-types",
+        "let-reduction",
+        "nat-metadata",
+        "vec-metadata",
+        "metavariables",
         "conversion",
+        "whnf-conversion",
       ),
       Map(
         EffectsFeature -> UnsupportedEffectRowCode,
+        AsyncFeature -> UnsupportedEffectRowCode,
         TraitsFeature -> UnsupportedTraitConstraintCode,
         ObjectDispatchFeature -> UnsupportedObjectDispatchCode,
         DependentPatternsFeature -> UnsupportedDependentPatternCode,
         CppImportsFeature -> UnsupportedCppImportCode,
+        MacrosFeature -> UnsupportedFeatureCode,
+        ReflectionFeature -> UnsupportedFeatureCode,
+        StagingFeature -> UnsupportedFeatureCode,
       ),
     )
 
@@ -119,7 +134,14 @@ object CheckerProfiles:
         "mltt-core-terms",
         "universes",
         "pi-types",
+        "sigma-types",
+        "equality-types",
+        "let-reduction",
+        "nat-metadata",
+        "vec-metadata",
+        "metavariables",
         "conversion",
+        "whnf-conversion",
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
         "inductive-family-constructors",
@@ -128,9 +150,13 @@ object CheckerProfiles:
       ),
       Map(
         EffectsFeature -> UnsupportedEffectRowCode,
+        AsyncFeature -> UnsupportedEffectRowCode,
         TraitsFeature -> UnsupportedTraitConstraintCode,
         ObjectDispatchFeature -> UnsupportedObjectDispatchCode,
         CppImportsFeature -> UnsupportedCppImportCode,
+        MacrosFeature -> UnsupportedFeatureCode,
+        ReflectionFeature -> UnsupportedFeatureCode,
+        StagingFeature -> UnsupportedFeatureCode,
       ),
     )
 

@@ -186,6 +186,8 @@ class PackagePipelineTests extends munit.FunSuite:
           "package/module_graph.cos",
           "types/model.cos",
           "types/profile.cos",
+          "types/mltt/core.cos",
+          "types/mltt/check.cos",
           "types/declaration_resolution.cos",
           "types/dependent_pattern.cos",
           "types/check.cos",
@@ -224,6 +226,8 @@ class PackagePipelineTests extends munit.FunSuite:
         List("types", "check"),
         List("types", "declaration_resolution"),
         List("types", "dependent_pattern"),
+        List("types", "mltt", "check"),
+        List("types", "mltt", "core"),
         List("types", "model"),
         List("types", "profile"),
       ),
@@ -269,6 +273,8 @@ class PackagePipelineTests extends munit.FunSuite:
         "types/profile",
         "types/check",
         "types/dependent_pattern",
+        "types/mltt/core",
+        "types/mltt/check",
       ),
     )
 

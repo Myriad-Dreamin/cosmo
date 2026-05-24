@@ -1,0 +1,6 @@
+{
+  "name": "@cosmo0/package-mltt-core-profile",
+  "version": "0.0.0",
+  "target": "cosmo0",
+  "checkerProfile": "mltt.core"
+}

@@ -20,6 +20,7 @@
     #prefix-chapter("async.typ")[Async Design Notes]
     #prefix-chapter("generator.typ")[Generator Design Notes]
     #prefix-chapter("mltt-typechecking-guidance.typ")[MLTT Type Checking Guidance]
+    #prefix-chapter("mltt-problem-ladder.typ")[MLTT Problem Ladder]
   ],
 )
 

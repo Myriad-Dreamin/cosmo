@@ -1,0 +1,345 @@
+import source.span
+import types.mltt.check
+import types.mltt.core
+import types.profile
+
+def mltt_profile_metadata_declares_core_checker(): Bool = {
+  val profile = checker_profile_mltt_core();
+  profile.id == "mltt.core" and
+    profile.artifact_kind == checker_artifact_mltt_core_term() and
+    profile.supports_feature("mltt-core-terms") and
+    profile.supports_feature("conversion") and
+    profile.supports_feature("sigma-types") and
+    profile.supports_feature("equality-types") and
+    profile.rejects_feature(checker_feature_effects()) and
+    profile.rejects_feature(checker_feature_async()) and
+    profile.rejects_feature(checker_feature_traits()) and
+    profile.rejects_feature(checker_feature_object_dispatch()) and
+    profile.rejects_feature(checker_feature_cpp_imports()) and
+    profile.rejects_feature(checker_feature_staging())
+}
+
+def mltt_core_display_covers_pi_sigma_eq_nat_vec(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val a = store.alloc_var("A");
+  val n = store.alloc_var("n");
+  val vec = store.alloc_inductive("Vec", mltt_single_term(a), mltt_single_term(n));
+  val pi = store.alloc_pi("x", a, a);
+  val sigma = store.alloc_sigma("x", a, a);
+  val eq = store.alloc_eq(a, n, n);
+
+  mltt_term_display(store, type0) == "Type0" and
+    mltt_term_display(store, pi) == "(x: A) -> A" and
+    mltt_term_display(store, sigma) == "Sigma(x: A). A" and
+    mltt_term_display(store, eq) == "Eq(A, n, n)" and
+    mltt_term_display(store, vec) == "Vec(A, n)"
+}
+
+def mltt_infers_universes_and_variables(): Bool = {
+  var store = mltt_term_store();
+  val context = mltt_context();
+  val type0 = store.alloc_universe(0);
+  val type_result = mltt_infer(store, context, type0);
+  val context_with_a = mltt_context_extend_local(context, "A", type0);
+  val a = store.alloc_var("A");
+  val var_result = mltt_infer(store, context_with_a, a);
+
+  type_result.is_ok() and
+    mltt_term_display(store, type_result.typ) == "Type1" and
+    var_result.is_ok() and
+    mltt_term_display(store, var_result.typ) == "Type0"
+}
+
+def mltt_lambda_checks_against_pi(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val a = store.alloc_var("A");
+  val context = mltt_context_extend_local(mltt_context(), "A", type0);
+  val body = store.alloc_var("x");
+  val lambda = store.alloc_lambda("x", a, body);
+  val expected = store.alloc_pi("x", a, a);
+
+  val checked = mltt_check(store, context, lambda, expected);
+  checked.is_ok() and
+    checked.profile_id == "mltt.core" and
+    checked.artifact_kind == "mltt-core-term" and
+    checked.artifact_summary() == "mltt.core|mltt-core-term|accepted|mltt.whnf-conversion"
+}
+
+def mltt_application_infers_through_pi(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val a = store.alloc_var("A");
+  var context = mltt_context_extend_local(mltt_context(), "A", type0);
+  context = mltt_context_extend_local(context, "y", a);
+
+  val body = store.alloc_var("x");
+  val lambda = store.alloc_lambda("x", a, body);
+  val y = store.alloc_var("y");
+  val apply = store.alloc_apply(lambda, y);
+  val inferred = mltt_infer(store, context, apply);
+
+  inferred.is_ok() and mltt_term_display(store, inferred.typ) == "A"
+}
+
+def mltt_unknown_variable_reports_profile_diagnostic(): Bool = {
+  var store = mltt_term_store();
+  val context = mltt_context();
+  val missing = store.alloc_var("missing");
+  val inferred = mltt_infer(store, context, missing);
+
+  !inferred.is_ok() and
+    inferred.first_code() == mltt_unknown_variable_code() and
+    inferred.diagnostics.get(0).profile_id == "mltt.core" and
+    inferred.diagnostics.get(0).context_summary == "<empty>"
+}
+
+def mltt_non_function_application_reports_diagnostic(): Bool = {
+  var store = mltt_term_store();
+  val context = mltt_context();
+  val type0 = store.alloc_universe(0);
+  val arg = store.alloc_universe(0);
+  val apply = store.alloc_apply(type0, arg);
+  val inferred = mltt_infer(store, context, apply);
+
+  !inferred.is_ok() and inferred.first_code() == mltt_non_function_application_code()
+}
+
+def mltt_conversion_accepts_beta_and_let(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val a = store.alloc_var("A");
+  var context = mltt_context_extend_local(mltt_context(), "A", type0);
+  context = mltt_context_extend_local(context, "y", a);
+
+  val x = store.alloc_var("x");
+  val lambda = store.alloc_lambda("x", a, x);
+  val y = store.alloc_var("y");
+  val apply = store.alloc_apply(lambda, y);
+  val beta = mltt_convert(store, context, apply, y);
+  val let_term = store.alloc_let("z", y, store.alloc_var("z"));
+  val let_conversion = mltt_convert(store, context, let_term, y);
+
+  beta.is_ok() and
+    beta.strategy == mltt_whnf_conversion_strategy() and
+    let_conversion.is_ok()
+}
+
+def mltt_conversion_reduces_transparent_nat_definition(): Bool = {
+  var store = mltt_term_store();
+  val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+  val n = store.alloc_var("n");
+  var context = mltt_context_extend_local(mltt_context(), "n", nat);
+  context = mltt_context_extend_definition(context, "add_Z_n", nat, n, true, true);
+  val add_z_n = store.alloc_var("add_Z_n");
+  val converted = mltt_convert(store, context, add_z_n, n);
+
+  converted.is_ok()
+}
+
+def mltt_conversion_rejects_effectful_definition(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val a = store.alloc_var("A");
+  val y = store.alloc_var("y");
+  var context = mltt_context_extend_local(mltt_context(), "A", type0);
+  context = mltt_context_extend_local(context, "y", a);
+  context = mltt_context_extend_definition(context, "effectful", a, y, false, false);
+  val effectful = store.alloc_var("effectful");
+  val converted = mltt_convert(store, context, effectful, y);
+
+  !converted.is_ok() and converted.first_code() == mltt_effectful_conversion_code()
+}
+
+def mltt_conversion_rejects_unknown_normalization_profile(): Bool = {
+  var store = mltt_term_store();
+  val context = mltt_context();
+  val type0 = store.alloc_universe(0);
+  val converted = mltt_convert_with_strategy(store, context, type0, type0, "mltt.full-normalization");
+
+  !converted.is_ok() and converted.first_code() == mltt_unsupported_normalization_profile_code()
+}
+
+def mltt_sigma_pair_and_refl_check(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val a = store.alloc_var("A");
+  val x = store.alloc_var("x");
+  var context = mltt_context_extend_local(mltt_context(), "A", type0);
+  context = mltt_context_extend_local(context, "x", a);
+
+  val sigma = store.alloc_sigma("left", a, a);
+  val pair = store.alloc_pair(x, x);
+  val pair_checked = mltt_check(store, context, pair, sigma);
+  val eq = store.alloc_eq(a, x, x);
+  val refl = store.alloc_refl(x);
+  val refl_checked = mltt_check(store, context, refl, eq);
+
+  pair_checked.is_ok() and refl_checked.is_ok()
+}
+
+def mltt_nat_and_vec_declaration_metadata_is_deterministic(): Bool = {
+  var store = mltt_term_store();
+  var env = mltt_declaration_env();
+  mltt_add_nat_fixture(store, env);
+  mltt_add_vec_fixture(store, env);
+
+  val maybe_nat = env.find_inductive("Nat");
+  val maybe_vec = env.find_inductive("Vec");
+  maybe_nat match {
+    case Option[MlttInductiveDecl]::Some(nat) => {
+      maybe_vec match {
+        case Option[MlttInductiveDecl]::Some(vec) => {
+          val nil = vec.constructors.get(0);
+          val cons = vec.constructors.get(1);
+          nat.constructors.get(0).name == "Z" and
+            nat.constructors.get(1).name == "S" and
+            vec.parameters.get(0).name == "A" and
+            vec.indices.get(0).name == "n" and
+            mltt_term_display(store, nil.result) == "Vec(A, Z)" and
+            mltt_term_display(store, cons.result) == "Vec(A, S(k))" and
+            cons.telescope.get(2).name == "tail"
+        }
+        case Option[MlttInductiveDecl]::None => {
+          false
+        }
+      }
+    }
+    case Option[MlttInductiveDecl]::None => {
+      false
+    }
+  }
+}
+
+def mltt_nat_constructor_checks_without_pattern_matching(): Bool = {
+  var store = mltt_term_store();
+  val context = mltt_context();
+  val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+  val z = store.alloc_constructor("Z", Vec[MlttTermId]());
+  val s_args = Vec[MlttTermId]();
+  s_args.push(z);
+  val s_z = store.alloc_constructor("S", s_args);
+  val checked = mltt_check(store, context, s_z, nat);
+
+  checked.is_ok()
+}
+
+def mltt_vec_constructor_signatures_check_without_pattern_matching(): Bool = {
+  var store = mltt_term_store();
+  val type0 = store.alloc_universe(0);
+  val nat = store.alloc_inductive("Nat", Vec[MlttTermId](), Vec[MlttTermId]());
+  val a = store.alloc_var("A");
+  val k = store.alloc_var("k");
+  val head = store.alloc_var("head");
+  val tail = store.alloc_var("tail");
+  var context = mltt_context_extend_local(mltt_context(), "A", type0);
+  context = mltt_context_extend_local(context, "k", nat);
+  context = mltt_context_extend_local(context, "head", a);
+  val tail_indices = Vec[MlttTermId]();
+  tail_indices.push(k);
+  val tail_type = store.alloc_inductive("Vec", mltt_single_term(a), tail_indices);
+  context = mltt_context_extend_local(context, "tail", tail_type);
+
+  val z = store.alloc_constructor("Z", Vec[MlttTermId]());
+  val nil_indices = Vec[MlttTermId]();
+  nil_indices.push(z);
+  val vec_a_z = store.alloc_inductive("Vec", mltt_single_term(a), nil_indices);
+  val nil = store.alloc_constructor("Nil", Vec[MlttTermId]());
+
+  val s_args = Vec[MlttTermId]();
+  s_args.push(k);
+  val s_k = store.alloc_constructor("S", s_args);
+  val cons_indices = Vec[MlttTermId]();
+  cons_indices.push(s_k);
+  val vec_a_s_k = store.alloc_inductive("Vec", mltt_single_term(a), cons_indices);
+  val cons_args = Vec[MlttTermId]();
+  cons_args.push(k);
+  cons_args.push(head);
+  cons_args.push(tail);
+  val cons = store.alloc_constructor("Cons", cons_args);
+
+  val nil_checked = mltt_check(store, context, nil, vec_a_z);
+  val cons_checked = mltt_check(store, context, cons, vec_a_s_k);
+
+  nil_checked.is_ok() and cons_checked.is_ok()
+}
+
+def mltt_metavariables_are_local_and_reportable(): Bool = {
+  var store = mltt_term_store();
+  var metas = mltt_meta_store();
+  val context = mltt_context();
+  val type0 = store.alloc_universe(0);
+  val id = metas.new_meta(context, type0);
+  val meta_term = store.alloc_meta(id);
+  val has_unsolved = metas.has_unsolved_public_meta();
+  val solved = metas.solve_exact(id, type0);
+
+  id == 0 and
+    mltt_term_display(store, meta_term) == "?m0" and
+    has_unsolved and
+    solved and
+    !metas.has_unsolved_public_meta()
+}
+
+def mltt_higher_order_unification_is_rejected_deterministically(): Bool = {
+  val diagnostic = mltt_reject_higher_order_unification(mltt_context());
+  diagnostic.code == mltt_higher_order_unification_code() and
+    diagnostic.profile_id == "mltt.core" and
+    diagnostic.expected == "first-order pattern constraint"
+}
+
+def main(): i32 = {
+  if (!mltt_profile_metadata_declares_core_checker()) {
+    return 1
+  }
+  if (!mltt_core_display_covers_pi_sigma_eq_nat_vec()) {
+    return 1
+  }
+  if (!mltt_infers_universes_and_variables()) {
+    return 1
+  }
+  if (!mltt_lambda_checks_against_pi()) {
+    return 1
+  }
+  if (!mltt_application_infers_through_pi()) {
+    return 1
+  }
+  if (!mltt_unknown_variable_reports_profile_diagnostic()) {
+    return 1
+  }
+  if (!mltt_non_function_application_reports_diagnostic()) {
+    return 1
+  }
+  if (!mltt_conversion_accepts_beta_and_let()) {
+    return 1
+  }
+  if (!mltt_conversion_reduces_transparent_nat_definition()) {
+    return 1
+  }
+  if (!mltt_conversion_rejects_effectful_definition()) {
+    return 1
+  }
+  if (!mltt_conversion_rejects_unknown_normalization_profile()) {
+    return 1
+  }
+  if (!mltt_sigma_pair_and_refl_check()) {
+    return 1
+  }
+  if (!mltt_nat_and_vec_declaration_metadata_is_deterministic()) {
+    return 1
+  }
+  if (!mltt_nat_constructor_checks_without_pattern_matching()) {
+    return 1
+  }
+  if (!mltt_vec_constructor_signatures_check_without_pattern_matching()) {
+    return 1
+  }
+  if (!mltt_metavariables_are_local_and_reportable()) {
+    return 1
+  }
+  if (!mltt_higher_order_unification_is_rejected_deterministically()) {
+    return 1
+  }
+  0
+}

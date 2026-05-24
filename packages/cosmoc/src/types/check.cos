@@ -2971,6 +2971,9 @@ def checker_unsupported_feature_from_text(text: String): String = {
   if (text == checker_feature_effects() or text == "effect-row") {
     return checker_feature_effects()
   }
+  if (text == checker_feature_async()) {
+    return checker_feature_async()
+  }
   if (text == checker_feature_traits() or text == "trait-constraint") {
     return checker_feature_traits()
   }
@@ -2979,6 +2982,15 @@ def checker_unsupported_feature_from_text(text: String): String = {
   }
   if (text == checker_feature_cpp_imports() or text == "cpp-import") {
     return checker_feature_cpp_imports()
+  }
+  if (text == checker_feature_macros() or text == "macro") {
+    return checker_feature_macros()
+  }
+  if (text == checker_feature_reflection() or text == "reflect") {
+    return checker_feature_reflection()
+  }
+  if (text == checker_feature_staging() or text == "stage") {
+    return checker_feature_staging()
   }
   text
 }

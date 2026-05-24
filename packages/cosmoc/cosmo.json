@@ -26,6 +26,8 @@
     "package/module_graph.cos",
     "types/model.cos",
     "types/profile.cos",
+    "types/mltt/core.cos",
+    "types/mltt/check.cos",
     "types/declaration_resolution.cos",
     "types/dependent_pattern.cos",
     "types/check.cos",
