@@ -162,8 +162,10 @@ final case class DependentCaseTree(
     diagnostics.headOption.map(_.code).getOrElse("")
 
 object DependentPatterns:
-  private val UnsupportedUnificationCode = "cosmo.type.dependent-pattern.unsupported-unification"
-  private val ImpossibleBranchCode = "cosmo.type.dependent-pattern.impossible-branch"
+  private val UnsupportedUnificationCode =
+    "cosmo.type.dependent-pattern.unsupported-unification"
+  private val ImpossibleBranchCode =
+    "cosmo.type.dependent-pattern.impossible-branch"
 
   def termStore(): DependentPatternTermStore =
     DependentPatternTermStore()
@@ -224,7 +226,10 @@ object DependentPatterns:
     val refinements = ListBuffer.empty[DependentPatternBranchRefinement]
 
     if !profileSupportsElaboration(profile) then
-      diagnostics += unsupportedProfileDiagnostic(profile, firstClauseSpan(clauses))
+      diagnostics += unsupportedProfileDiagnostic(
+        profile,
+        firstClauseSpan(clauses),
+      )
       return DependentCaseTree(
         scrutinee,
         familyDisplay(store, familyName, scrutineeIndices),
@@ -269,7 +274,14 @@ object DependentPatterns:
               name,
             )
           wildcardSeen = true
-          branches += DependentCaseTreeBranch("_", Nil, clause.body, impossible = false, span, "catch-all")
+          branches += DependentCaseTreeBranch(
+            "_",
+            Nil,
+            clause.body,
+            impossible = false,
+            span,
+            "catch-all",
+          )
 
         case DependentSourcePattern.Wildcard(span) =>
           if wildcardSeen then
@@ -280,10 +292,24 @@ object DependentPatterns:
               "_",
             )
           wildcardSeen = true
-          branches += DependentCaseTreeBranch("_", Nil, clause.body, impossible = false, span, "catch-all")
+          branches += DependentCaseTreeBranch(
+            "_",
+            Nil,
+            clause.body,
+            impossible = false,
+            span,
+            "catch-all",
+          )
 
         case DependentSourcePattern.Impossible(span) =>
-          branches += DependentCaseTreeBranch("!", Nil, clause.body, impossible = true, span, "source-impossible")
+          branches += DependentCaseTreeBranch(
+            "!",
+            Nil,
+            clause.body,
+            impossible = true,
+            span,
+            "source-impossible",
+          )
 
         case DependentSourcePattern.Equality(left, right, span) =>
           diagnostics += DependentPatternDiagnostic(
@@ -294,7 +320,15 @@ object DependentPatterns:
           )
     }
 
-    checkCoverage(env, store, familyName, scrutineeIndices, seen.toList, wildcardSeen, diagnostics)
+    checkCoverage(
+      env,
+      store,
+      familyName,
+      scrutineeIndices,
+      seen.toList,
+      wildcardSeen,
+      diagnostics,
+    )
     DependentCaseTree(
       scrutinee,
       familyDisplay(store, familyName, scrutineeIndices),
@@ -310,8 +344,11 @@ object DependentPatterns:
     val natType = store.allocFamily("Nat")
     val zCtor = DependentPatternConstructorDecl("Z", Nil, "Nat", Nil)
     val predBinding = DependentPatternBinding("pred", natType)
-    val sCtor = DependentPatternConstructorDecl("S", List(predBinding), "Nat", Nil)
-    env.addInductive(DependentPatternInductiveDecl("Nat", Nil, Nil, List(zCtor, sCtor)))
+    val sCtor =
+      DependentPatternConstructorDecl("S", List(predBinding), "Nat", Nil)
+    env.addInductive(
+      DependentPatternInductiveDecl("Nat", Nil, Nil, List(zCtor, sCtor)),
+    )
 
   def addVecFixture(
       store: DependentPatternTermStore,
@@ -333,8 +370,16 @@ object DependentPatterns:
         DependentPatternBinding("head", a),
         DependentPatternBinding("tail", vecAK),
       )
-    val consCtor = DependentPatternConstructorDecl("Cons", consTelescope, "Vec", List(a, sK))
-    env.addInductive(DependentPatternInductiveDecl("Vec", parameters, indices, List(nilCtor, consCtor)))
+    val consCtor =
+      DependentPatternConstructorDecl("Cons", consTelescope, "Vec", List(a, sK))
+    env.addInductive(
+      DependentPatternInductiveDecl(
+        "Vec",
+        parameters,
+        indices,
+        List(nilCtor, consCtor),
+      ),
+    )
 
   def vecIndices(
       store: DependentPatternTermStore,
@@ -379,7 +424,8 @@ object DependentPatterns:
 
   def renderCaseTree(tree: DependentCaseTree): String =
     val head = s"case ${tree.scrutinee} : ${tree.familyDisplay} of"
-    val branchText = tree.branches.map(branch => s"  ${renderCaseBranch(branch)}")
+    val branchText =
+      tree.branches.map(branch => s"  ${renderCaseBranch(branch)}")
     (head :: branchText).mkString("\n")
 
   private def elaborateConstructorClause(
@@ -396,12 +442,20 @@ object DependentPatterns:
   ): Unit =
     env.findConstructor(name) match
       case Some(ctor) =>
-        val unified = unifyIndices(store, scrutineeIndices, ctor.resultIndices, span)
+        val unified =
+          unifyIndices(store, scrutineeIndices, ctor.resultIndices, span)
         diagnostics ++= unified.diagnostics
         val binders = ctor.telescope.map(_.name)
         val summary = refinementSummary(store, unified)
         val specializedExpected = specializedExpectedType(expectedType, summary)
-        branches += DependentCaseTreeBranch(name, binders, body, unified.impossible, span, summary)
+        branches += DependentCaseTreeBranch(
+          name,
+          binders,
+          body,
+          unified.impossible,
+          span,
+          summary,
+        )
         refinements += DependentPatternBranchRefinement(
           name,
           unified.impossible,
@@ -430,8 +484,10 @@ object DependentPatterns:
     env.findInductive(familyName) match
       case Some(family) =>
         family.constructors.foreach { ctor =>
-          val unified = unifyIndices(store, scrutineeIndices, ctor.resultIndices, emptySpan)
-          if !unified.impossible && !wildcardSeen && !seen.contains(ctor.name) then
+          val unified =
+            unifyIndices(store, scrutineeIndices, ctor.resultIndices, emptySpan)
+          if !unified.impossible && !wildcardSeen && !seen.contains(ctor.name)
+          then
             diagnostics += DependentPatternDiagnostic(
               "cosmo.type.dependent-pattern.missing-branch",
               "missing constructor branch for dependent pattern match",
@@ -447,7 +503,9 @@ object DependentPatterns:
           familyName,
         )
 
-  private def firstClauseSpan(clauses: List[DependentPatternClause]): SourceSpan =
+  private def firstClauseSpan(
+      clauses: List[DependentPatternClause],
+  ): SourceSpan =
     clauses.headOption.map(_.span).getOrElse(emptySpan)
 
   private def headDisplay(
@@ -474,9 +532,14 @@ object DependentPatterns:
       result: DependentPatternUnifyResult,
       name: String,
   ): Option[String] =
-    result.substitutions.get(name).map(value => s"$name=${termDisplay(store, value)}")
+    result.substitutions
+      .get(name)
+      .map(value => s"$name=${termDisplay(store, value)}")
 
-  private def specializedExpectedType(expectedType: String, refinementSummary: String): String =
+  private def specializedExpectedType(
+      expectedType: String,
+      refinementSummary: String,
+  ): String =
     refinementSummary match
       case "identity" | "" =>
         expectedType
@@ -488,7 +551,8 @@ object DependentPatterns:
   private def renderCaseBranch(branch: DependentCaseTreeBranch): String =
     val binders = binderDisplay(branch.binders)
     if branch.impossible then s"${branch.constructor}$binders -> impossible"
-    else s"${branch.constructor}$binders -> ${branch.body} [${branch.refinementSummary}]"
+    else
+      s"${branch.constructor}$binders -> ${branch.body} [${branch.refinementSummary}]"
 
   private def binderDisplay(binders: List[String]): String =
     if binders.isEmpty then ""
@@ -568,9 +632,23 @@ private final class DependentPatternUnifier(
       case DependentPatternTerm.Meta(index) =>
         unifyVariable(s"?m$index", left)
       case DependentPatternTerm.Constructor(rightName, rightArgs) =>
-        unifySameHead(name, args, rightName, rightArgs, family, rightFamily = false)
+        unifySameHead(
+          name,
+          args,
+          rightName,
+          rightArgs,
+          family,
+          rightFamily = false,
+        )
       case DependentPatternTerm.Family(rightName, rightArgs) =>
-        unifySameHead(name, args, rightName, rightArgs, family, rightFamily = true)
+        unifySameHead(
+          name,
+          args,
+          rightName,
+          rightArgs,
+          family,
+          rightFamily = true,
+        )
       case DependentPatternTerm.Error =>
         fail(
           "cosmo.type.dependent-pattern.unsupported-unification",

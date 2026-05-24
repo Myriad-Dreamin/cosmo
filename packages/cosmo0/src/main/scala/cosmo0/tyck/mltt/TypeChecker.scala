@@ -62,7 +62,11 @@ final class MlttTermStore:
   def allocLet(name: String, value: Int, body: Int): Int =
     alloc(MlttTerm.Let(name, value, body))
 
-  def allocInductive(name: String, params: List[Int] = Nil, indices: List[Int] = Nil): Int =
+  def allocInductive(
+      name: String,
+      params: List[Int] = Nil,
+      indices: List[Int] = Nil,
+  ): Int =
     alloc(MlttTerm.Inductive(name, params, indices))
 
   def allocConstructor(name: String, args: List[Int] = Nil): Int =
@@ -109,7 +113,15 @@ final case class MlttContext(entries: List[MlttContextEntry] = Nil):
       transparent: Boolean,
       pure: Boolean,
   ): MlttContext =
-    copy(entries = entries :+ MlttContextEntry(name, valueType, Some(value), transparent, pure))
+    copy(entries =
+      entries :+ MlttContextEntry(
+        name,
+        valueType,
+        Some(value),
+        transparent,
+        pure,
+      ),
+    )
 
   def summary: String =
     if entries.isEmpty then "<empty>" else entries.map(_.name).mkString(", ")
@@ -246,7 +258,8 @@ object MlttTypeChecker:
   val UniverseMismatchCode = "cosmo.type.mltt.universe-mismatch"
   val TypeMismatchCode = "cosmo.type.mltt.type-mismatch"
   val UnsolvedConstraintCode = "cosmo.type.mltt.unsolved-constraint"
-  val UnsupportedNormalizationProfileCode = "cosmo.type.mltt.unsupported-normalization-profile"
+  val UnsupportedNormalizationProfileCode =
+    "cosmo.type.mltt.unsupported-normalization-profile"
   val EffectfulConversionCode = "cosmo.type.mltt.effectful-conversion"
   val UnsupportedInferenceCode = "cosmo.type.mltt.unsupported-inference"
   val HigherOrderUnificationCode = "cosmo.type.mltt.higher-order-unification"
@@ -263,7 +276,11 @@ object MlttTypeChecker:
   def metaStore(): MlttMetaStore =
     MlttMetaStore()
 
-  def infer(store: MlttTermStore, context: MlttContext, term: Int): MlttInferResult =
+  def infer(
+      store: MlttTermStore,
+      context: MlttContext,
+      term: Int,
+  ): MlttInferResult =
     val diagnostics = ListBuffer.empty[MlttDiagnostic]
     val valueType = inferTerm(store, context, term, diagnostics)
     MlttInferResult(
@@ -275,7 +292,12 @@ object MlttTypeChecker:
       WhnfConversionStrategy,
     )
 
-  def check(store: MlttTermStore, context: MlttContext, term: Int, expected: Int): MlttCheckResult =
+  def check(
+      store: MlttTermStore,
+      context: MlttContext,
+      term: Int,
+      expected: Int,
+  ): MlttCheckResult =
     val diagnostics = ListBuffer.empty[MlttDiagnostic]
     val metas = metaStore()
     val valueType = checkTerm(store, context, term, expected, diagnostics)
@@ -335,7 +357,9 @@ object MlttTypeChecker:
     val z = MlttConstructorDecl("Z", Nil, nat)
     val s = MlttConstructorDecl("S", List(MlttBinder("pred", nat)), nat)
     env.addInductive(MlttInductiveDecl("Nat", Nil, Nil, List(z, s)))
-    env.addDefinition(MlttDefinitionDecl("Nat", type0, nat, transparent = true, pure = true))
+    env.addDefinition(
+      MlttDefinitionDecl("Nat", type0, nat, transparent = true, pure = true),
+    )
 
   def addVecFixture(store: MlttTermStore, env: MlttDeclarationEnv): Unit =
     val type0 = store.allocUniverse(0)
@@ -379,7 +403,7 @@ object MlttTypeChecker:
 
   def display(store: MlttTermStore, id: Int): String =
     store.termValue(id) match
-      case MlttTerm.Var(name) => name
+      case MlttTerm.Var(name)       => name
       case MlttTerm.Universe(level) => s"Type$level"
       case MlttTerm.Pi(name, domain, body) =>
         s"($name: ${display(store, domain)}) -> ${display(store, body)}"
@@ -412,7 +436,11 @@ object MlttTypeChecker:
       case MlttTerm.Error =>
         "<error>"
 
-  private def headDisplay(store: MlttTermStore, name: String, args: List[Int]): String =
+  private def headDisplay(
+      store: MlttTermStore,
+      name: String,
+      args: List[Int],
+  ): String =
     if args.isEmpty then name
     else s"$name(${args.map(display(store, _)).mkString(", ")})"
 
@@ -468,7 +496,18 @@ object MlttTypeChecker:
         inferProjection(store, context, term, pair, diagnostics, first = false)
       case MlttTerm.Let(name, value, body) =>
         val valueType = inferTerm(store, context, value, diagnostics)
-        inferTerm(store, context.extendDefinition(name, valueType, value, transparent = true, pure = true), body, diagnostics)
+        inferTerm(
+          store,
+          context.extendDefinition(
+            name,
+            valueType,
+            value,
+            transparent = true,
+            pure = true,
+          ),
+          body,
+          diagnostics,
+        )
       case MlttTerm.Inductive(_, _, _) =>
         store.allocUniverse(0)
       case MlttTerm.Constructor(name, args) =>
@@ -532,7 +571,8 @@ object MlttTypeChecker:
       diagnostics: ListBuffer[MlttDiagnostic],
   ): Int =
     val domainType = inferTerm(store, context, domain, diagnostics)
-    val bodyType = inferTerm(store, context.extendLocal(name, domain), body, diagnostics)
+    val bodyType =
+      inferTerm(store, context.extendLocal(name, domain), body, diagnostics)
     val domainLevel = typeUniverseLevel(store, domainType)
     val bodyLevel = typeUniverseLevel(store, bodyType)
     (domainLevel, bodyLevel) match
@@ -556,7 +596,8 @@ object MlttTypeChecker:
     val annotationType = inferTerm(store, context, annotation, diagnostics)
     if typeUniverseLevel(store, annotationType).isEmpty then
       universeMismatch(store, context, annotationType, diagnostics)
-    val bodyType = inferTerm(store, context.extendLocal(name, annotation), body, diagnostics)
+    val bodyType =
+      inferTerm(store, context.extendLocal(name, annotation), body, diagnostics)
     store.allocPi(name, annotation, bodyType)
 
   private def inferApply(
@@ -593,10 +634,16 @@ object MlttTypeChecker:
       diagnostics: ListBuffer[MlttDiagnostic],
       first: Boolean,
   ): Int =
-    val pairType = whnf(store, context, inferTerm(store, context, pair, diagnostics), diagnostics)
+    val pairType = whnf(
+      store,
+      context,
+      inferTerm(store, context, pair, diagnostics),
+      diagnostics,
+    )
     store.termValue(pairType) match
       case MlttTerm.Sigma(name, firstType, secondType) =>
-        if first then firstType else substitute(store, secondType, name, store.allocFst(pair))
+        if first then firstType
+        else substitute(store, secondType, name, store.allocFst(pair))
       case MlttTerm.Error =>
         store.allocError()
       case _ =>
@@ -655,13 +702,38 @@ object MlttTypeChecker:
   ): Int =
     val expectedWhnf = whnf(store, context, expected, diagnostics)
     store.termValue(term) match
-      case MlttTerm.Lambda(name, _, body) if checkLambda(store, context, name, body, expectedWhnf, diagnostics) =>
+      case MlttTerm.Lambda(name, _, body)
+          if checkLambda(
+            store,
+            context,
+            name,
+            body,
+            expectedWhnf,
+            diagnostics,
+          ) =>
         return expected
-      case MlttTerm.Pair(first, second) if checkPair(store, context, first, second, expectedWhnf, diagnostics) =>
+      case MlttTerm.Pair(first, second)
+          if checkPair(
+            store,
+            context,
+            first,
+            second,
+            expectedWhnf,
+            diagnostics,
+          ) =>
         return expected
-      case MlttTerm.Refl(value) if checkRefl(store, context, value, expectedWhnf, diagnostics) =>
+      case MlttTerm.Refl(value)
+          if checkRefl(store, context, value, expectedWhnf, diagnostics) =>
         return expected
-      case MlttTerm.Constructor(name, args) if checkConstructor(store, context, name, args, expectedWhnf, diagnostics) =>
+      case MlttTerm.Constructor(name, args)
+          if checkConstructor(
+            store,
+            context,
+            name,
+            args,
+            expectedWhnf,
+            diagnostics,
+          ) =>
         return expected
       case MlttTerm.Error =>
         return store.allocError()
@@ -690,11 +762,18 @@ object MlttTypeChecker:
   ): Boolean =
     store.termValue(expected) match
       case MlttTerm.Pi(expectedName, domain, codomain) =>
-        val bodyType = substitute(store, codomain, expectedName, store.allocVar(name))
-        checkTerm(store, context.extendLocal(name, domain), body, bodyType, diagnostics)
+        val bodyType =
+          substitute(store, codomain, expectedName, store.allocVar(name))
+        checkTerm(
+          store,
+          context.extendLocal(name, domain),
+          body,
+          bodyType,
+          diagnostics,
+        )
         true
       case MlttTerm.Error => true
-      case _ => false
+      case _              => false
 
   private def checkPair(
       store: MlttTermStore,
@@ -707,10 +786,16 @@ object MlttTypeChecker:
     store.termValue(expected) match
       case MlttTerm.Sigma(name, firstType, secondType) =>
         checkTerm(store, context, first, firstType, diagnostics)
-        checkTerm(store, context, second, substitute(store, secondType, name, first), diagnostics)
+        checkTerm(
+          store,
+          context,
+          second,
+          substitute(store, secondType, name, first),
+          diagnostics,
+        )
         true
       case MlttTerm.Error => true
-      case _ => false
+      case _              => false
 
   private def checkRefl(
       store: MlttTermStore,
@@ -728,7 +813,7 @@ object MlttTypeChecker:
         diagnostics ++= rightOk.diagnostics
         leftOk.isOk && rightOk.isOk
       case MlttTerm.Error => true
-      case _ => false
+      case _              => false
 
   private def checkConstructor(
       store: MlttTermStore,
@@ -742,9 +827,17 @@ object MlttTypeChecker:
       case MlttTerm.Inductive("Nat", _, _) =>
         checkNatConstructor(store, context, name, args, expected, diagnostics)
       case MlttTerm.Inductive("Vec", params, indices) =>
-        checkVecConstructor(store, context, name, args, params, indices, diagnostics)
+        checkVecConstructor(
+          store,
+          context,
+          name,
+          args,
+          params,
+          indices,
+          diagnostics,
+        )
       case MlttTerm.Error => true
-      case _ => false
+      case _              => false
 
   private def checkNatConstructor(
       store: MlttTermStore,
@@ -770,9 +863,17 @@ object MlttTypeChecker:
       diagnostics: ListBuffer[MlttDiagnostic],
   ): Boolean =
     if params.length != 1 || indices.length != 1 then return false
-    if name == "Nil" && args.isEmpty then return isConstructor(store, indices.head, "Z", 0)
+    if name == "Nil" && args.isEmpty then
+      return isConstructor(store, indices.head, "Z", 0)
     if name == "Cons" && args.length == 3 then
-      return checkVecConsConstructor(store, context, args, params.head, indices.head, diagnostics)
+      return checkVecConsConstructor(
+        store,
+        context,
+        args,
+        params.head,
+        indices.head,
+        diagnostics,
+      )
     false
 
   private def checkVecConsConstructor(
@@ -788,16 +889,23 @@ object MlttTypeChecker:
         val nat = store.allocInductive("Nat")
         checkTerm(store, context, args(0), nat, diagnostics)
         checkTerm(store, context, args(1), elementType, diagnostics)
-        val tailType = store.allocInductive("Vec", List(elementType), List(predecessor))
+        val tailType =
+          store.allocInductive("Vec", List(elementType), List(predecessor))
         checkTerm(store, context, args(2), tailType, diagnostics)
         val lengthOk = convert(store, context, args(0), predecessor)
         diagnostics ++= lengthOk.diagnostics
         lengthOk.isOk
       case _ => false
 
-  private def isConstructor(store: MlttTermStore, term: Int, name: String, arity: Int): Boolean =
+  private def isConstructor(
+      store: MlttTermStore,
+      term: Int,
+      name: String,
+      arity: Int,
+  ): Boolean =
     store.termValue(term) match
-      case MlttTerm.Constructor(ctorName, args) => ctorName == name && args.length == arity
+      case MlttTerm.Constructor(ctorName, args) =>
+        ctorName == name && args.length == arity
       case _ => false
 
   private def convertTerms(
@@ -813,27 +921,63 @@ object MlttTypeChecker:
     if sameTerm(store, leftWhnf, rightWhnf) then return true
 
     (store.termValue(leftWhnf), store.termValue(rightWhnf)) match
-      case (MlttTerm.Pi(_, leftDomain, leftBody), MlttTerm.Pi(_, rightDomain, rightBody)) =>
+      case (
+            MlttTerm.Pi(_, leftDomain, leftBody),
+            MlttTerm.Pi(_, rightDomain, rightBody),
+          ) =>
         convertTerms(store, context, leftDomain, rightDomain, diagnostics) &&
-          convertTerms(store, context, leftBody, rightBody, diagnostics)
-      case (MlttTerm.Sigma(_, leftFirst, leftSecond), MlttTerm.Sigma(_, rightFirst, rightSecond)) =>
+        convertTerms(store, context, leftBody, rightBody, diagnostics)
+      case (
+            MlttTerm.Sigma(_, leftFirst, leftSecond),
+            MlttTerm.Sigma(_, rightFirst, rightSecond),
+          ) =>
         convertTerms(store, context, leftFirst, rightFirst, diagnostics) &&
-          convertTerms(store, context, leftSecond, rightSecond, diagnostics)
-      case (MlttTerm.Apply(leftFunction, leftArgument), MlttTerm.Apply(rightFunction, rightArgument)) =>
-        convertTerms(store, context, leftFunction, rightFunction, diagnostics) &&
-          convertTerms(store, context, leftArgument, rightArgument, diagnostics)
-      case (MlttTerm.Inductive(leftName, leftParams, leftIndices), MlttTerm.Inductive(rightName, rightParams, rightIndices)) =>
+        convertTerms(store, context, leftSecond, rightSecond, diagnostics)
+      case (
+            MlttTerm.Apply(leftFunction, leftArgument),
+            MlttTerm.Apply(rightFunction, rightArgument),
+          ) =>
+        convertTerms(
+          store,
+          context,
+          leftFunction,
+          rightFunction,
+          diagnostics,
+        ) &&
+        convertTerms(store, context, leftArgument, rightArgument, diagnostics)
+      case (
+            MlttTerm.Inductive(leftName, leftParams, leftIndices),
+            MlttTerm.Inductive(rightName, rightParams, rightIndices),
+          ) =>
         leftName == rightName &&
-          convertTermLists(store, context, leftParams, rightParams, diagnostics) &&
-          convertTermLists(store, context, leftIndices, rightIndices, diagnostics)
-      case (MlttTerm.Constructor(leftName, leftArgs), MlttTerm.Constructor(rightName, rightArgs)) =>
-        leftName == rightName && convertTermLists(store, context, leftArgs, rightArgs, diagnostics)
-      case (MlttTerm.Eq(leftType, leftLeft, leftRight), MlttTerm.Eq(rightType, rightLeft, rightRight)) =>
+        convertTermLists(
+          store,
+          context,
+          leftParams,
+          rightParams,
+          diagnostics,
+        ) &&
+        convertTermLists(store, context, leftIndices, rightIndices, diagnostics)
+      case (
+            MlttTerm.Constructor(leftName, leftArgs),
+            MlttTerm.Constructor(rightName, rightArgs),
+          ) =>
+        leftName == rightName && convertTermLists(
+          store,
+          context,
+          leftArgs,
+          rightArgs,
+          diagnostics,
+        )
+      case (
+            MlttTerm.Eq(leftType, leftLeft, leftRight),
+            MlttTerm.Eq(rightType, rightLeft, rightRight),
+          ) =>
         convertTerms(store, context, leftType, rightType, diagnostics) &&
-          convertTerms(store, context, leftLeft, rightLeft, diagnostics) &&
-          convertTerms(store, context, leftRight, rightRight, diagnostics)
+        convertTerms(store, context, leftLeft, rightLeft, diagnostics) &&
+        convertTerms(store, context, leftRight, rightRight, diagnostics)
       case (MlttTerm.Error, _) | (_, MlttTerm.Error) => true
-      case _ => false
+      case _                                         => false
 
   private def convertTermLists(
       store: MlttTermStore,
@@ -861,7 +1005,13 @@ object MlttTypeChecker:
       case MlttTerm.Apply(function, argument) =>
         whnfApply(store, context, term, function, argument, diagnostics, fuel)
       case MlttTerm.Let(name, value, body) =>
-        whnf(store, context, substitute(store, body, name, value), diagnostics, fuel - 1)
+        whnf(
+          store,
+          context,
+          substitute(store, body, name, value),
+          diagnostics,
+          fuel - 1,
+        )
       case MlttTerm.Fst(pair) =>
         whnfFst(store, context, term, pair, diagnostics, fuel)
       case MlttTerm.Snd(pair) =>
@@ -879,7 +1029,8 @@ object MlttTypeChecker:
     context.lookup(name).flatMap(_.value) match
       case Some(value) =>
         val entry = context.lookup(name).get
-        if entry.transparent && entry.pure then whnf(store, context, value, diagnostics, fuel - 1)
+        if entry.transparent && entry.pure then
+          whnf(store, context, value, diagnostics, fuel - 1)
         else
           diagnostics += diagnostic(
             EffectfulConversionCode,
@@ -902,7 +1053,13 @@ object MlttTypeChecker:
   ): Int =
     store.termValue(whnf(store, context, function, diagnostics, fuel - 1)) match
       case MlttTerm.Lambda(name, _, body) =>
-        whnf(store, context, substitute(store, body, name, argument), diagnostics, fuel - 1)
+        whnf(
+          store,
+          context,
+          substitute(store, body, name, argument),
+          diagnostics,
+          fuel - 1,
+        )
       case _ => term
 
   private def whnfFst(
@@ -914,7 +1071,8 @@ object MlttTypeChecker:
       fuel: Int,
   ): Int =
     store.termValue(whnf(store, context, pair, diagnostics, fuel - 1)) match
-      case MlttTerm.Pair(first, _) => whnf(store, context, first, diagnostics, fuel - 1)
+      case MlttTerm.Pair(first, _) =>
+        whnf(store, context, first, diagnostics, fuel - 1)
       case _ => term
 
   private def whnfSnd(
@@ -926,10 +1084,16 @@ object MlttTypeChecker:
       fuel: Int,
   ): Int =
     store.termValue(whnf(store, context, pair, diagnostics, fuel - 1)) match
-      case MlttTerm.Pair(_, second) => whnf(store, context, second, diagnostics, fuel - 1)
+      case MlttTerm.Pair(_, second) =>
+        whnf(store, context, second, diagnostics, fuel - 1)
       case _ => term
 
-  private def substitute(store: MlttTermStore, term: Int, name: String, replacement: Int): Int =
+  private def substitute(
+      store: MlttTermStore,
+      term: Int,
+      name: String,
+      replacement: Int,
+  ): Int =
     store.termValue(term) match
       case MlttTerm.Var(varName) =>
         if varName == name then replacement else store.allocVar(varName)
@@ -937,15 +1101,21 @@ object MlttTypeChecker:
         store.allocUniverse(level)
       case MlttTerm.Pi(param, domain, body) =>
         val nextDomain = substitute(store, domain, name, replacement)
-        val nextBody = if param == name then body else substitute(store, body, name, replacement)
+        val nextBody =
+          if param == name then body
+          else substitute(store, body, name, replacement)
         store.allocPi(param, nextDomain, nextBody)
       case MlttTerm.Sigma(param, first, second) =>
         val nextFirst = substitute(store, first, name, replacement)
-        val nextSecond = if param == name then second else substitute(store, second, name, replacement)
+        val nextSecond =
+          if param == name then second
+          else substitute(store, second, name, replacement)
         store.allocSigma(param, nextFirst, nextSecond)
       case MlttTerm.Lambda(param, annotation, body) =>
         val nextAnnotation = substitute(store, annotation, name, replacement)
-        val nextBody = if param == name then body else substitute(store, body, name, replacement)
+        val nextBody =
+          if param == name then body
+          else substitute(store, body, name, replacement)
         store.allocLambda(param, nextAnnotation, nextBody)
       case MlttTerm.Apply(function, argument) =>
         store.allocApply(
@@ -963,7 +1133,9 @@ object MlttTypeChecker:
         store.allocSnd(substitute(store, pair, name, replacement))
       case MlttTerm.Let(localName, value, body) =>
         val nextValue = substitute(store, value, name, replacement)
-        val nextBody = if localName == name then body else substitute(store, body, name, replacement)
+        val nextBody =
+          if localName == name then body
+          else substitute(store, body, name, replacement)
         store.allocLet(localName, nextValue, nextBody)
       case MlttTerm.Inductive(inductiveName, params, indices) =>
         store.allocInductive(
@@ -972,7 +1144,10 @@ object MlttTypeChecker:
           indices.map(substitute(store, _, name, replacement)),
         )
       case MlttTerm.Constructor(ctorName, args) =>
-        store.allocConstructor(ctorName, args.map(substitute(store, _, name, replacement)))
+        store.allocConstructor(
+          ctorName,
+          args.map(substitute(store, _, name, replacement)),
+        )
       case MlttTerm.Eq(valueType, left, right) =>
         store.allocEq(
           substitute(store, valueType, name, replacement),
@@ -982,7 +1157,10 @@ object MlttTypeChecker:
       case MlttTerm.Refl(value) =>
         store.allocRefl(substitute(store, value, name, replacement))
       case MlttTerm.Neutral(head, spine) =>
-        store.allocNeutral(head, spine.map(substitute(store, _, name, replacement)))
+        store.allocNeutral(
+          head,
+          spine.map(substitute(store, _, name, replacement)),
+        )
       case MlttTerm.Meta(index) =>
         store.allocMeta(index)
       case MlttTerm.Error =>
@@ -994,9 +1172,12 @@ object MlttTypeChecker:
   private def universeLevelOfTerm(store: MlttTermStore, id: Int): Option[Int] =
     store.termValue(id) match
       case MlttTerm.Universe(level) => Some(level)
-      case _ => None
+      case _                        => None
 
-  private def typeUniverseLevel(store: MlttTermStore, inferredType: Int): Option[Int] =
+  private def typeUniverseLevel(
+      store: MlttTermStore,
+      inferredType: Int,
+  ): Option[Int] =
     universeLevelOfTerm(store, inferredType).map(level => (level - 1).max(0))
 
   private def universeMismatch(

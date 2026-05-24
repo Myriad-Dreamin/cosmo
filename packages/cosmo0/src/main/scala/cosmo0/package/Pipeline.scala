@@ -10,9 +10,7 @@ private[cosmo0] object PackagePipeline:
   def apply(compiler: Cosmo0): PackagePipeline =
     new PackagePipeline(compiler)
 
-private[cosmo0] final class PackagePipeline(
-    compiler: Cosmo0,
-):
+private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
   private final case class PackageLoadData(
       rootPath: String,
       metadata: Cosmo0PackageMetadata,
@@ -66,8 +64,10 @@ private[cosmo0] final class PackagePipeline(
           metadata.diagnostics,
         )
       case metadata =>
-        val loaded = loadPackageData(normalizedRoot, metadata.value.get, Set.empty)
-        if loaded.isFailure then return Result.failure(Phase.Check, loaded.diagnostics)
+        val loaded =
+          loadPackageData(normalizedRoot, metadata.value.get, Set.empty)
+        if loaded.isFailure then
+          return Result.failure(Phase.Check, loaded.diagnostics)
 
         val data = loaded.value.get
         val meta = data.metadata
@@ -85,7 +85,11 @@ private[cosmo0] final class PackagePipeline(
         else
           Result.success(
             Phase.Check,
-            Cosmo0Package(normalizedRoot, meta, modules.sortBy(module => moduleKey(module.modulePath))),
+            Cosmo0Package(
+              normalizedRoot,
+              meta,
+              modules.sortBy(module => moduleKey(module.modulePath)),
+            ),
           )
 
   private def loadPackageData(
@@ -106,8 +110,10 @@ private[cosmo0] final class PackagePipeline(
 
     val dependencyModules = ListBuffer.empty[Cosmo0PackageModule]
     metadata.dependencies.foreach { dependency =>
-      val dependencyRoot = PackageNodePath.normalize(PackageNodePath.join(rootPath, dependency))
-      val dependencyMetadataPath = PackageNodePath.join(dependencyRoot, "cosmo.json")
+      val dependencyRoot =
+        PackageNodePath.normalize(PackageNodePath.join(rootPath, dependency))
+      val dependencyMetadataPath =
+        PackageNodePath.join(dependencyRoot, "cosmo.json")
       if !PackageNodeFs.existsSync(dependencyMetadataPath) then
         return Result.failure(
           Phase.Check,
@@ -130,7 +136,11 @@ private[cosmo0] final class PackagePipeline(
             dependencyMetadata.diagnostics,
           )
         case dependencyMetadata =>
-          loadPackageData(dependencyRoot, dependencyMetadata.value.get, visiting + rootPath) match
+          loadPackageData(
+            dependencyRoot,
+            dependencyMetadata.value.get,
+            visiting + rootPath,
+          ) match
             case loadedDependency if loadedDependency.isFailure =>
               return Result.failure(Phase.Check, loadedDependency.diagnostics)
             case loadedDependency if loadedDependency.isUnsupported =>
@@ -141,16 +151,24 @@ private[cosmo0] final class PackagePipeline(
                 loadedDependency.diagnostics,
               )
             case loadedDependency =>
-              dependencyModules ++= dependencyVisibleModules(loadedDependency.value.get.modules)
+              dependencyModules ++= dependencyVisibleModules(
+                loadedDependency.value.get.modules,
+              )
     }
 
     val ownModules = discoverSources(rootPath, metadata)
     Result.success(
       Phase.Check,
-      PackageLoadData(rootPath, metadata, dependencyModules.toList ::: ownModules),
+      PackageLoadData(
+        rootPath,
+        metadata,
+        dependencyModules.toList ::: ownModules,
+      ),
     )
 
-  private def distinctModules(modules: List[Cosmo0PackageModule]): List[Cosmo0PackageModule] =
+  private def distinctModules(
+      modules: List[Cosmo0PackageModule],
+  ): List[Cosmo0PackageModule] =
     val seen = mutable.LinkedHashSet.empty[String]
     modules.filter { module =>
       if seen.contains(module.source.name) then false
@@ -159,14 +177,17 @@ private[cosmo0] final class PackagePipeline(
         true
     }
 
-  private def dependencyVisibleModules(modules: List[Cosmo0PackageModule]): List[Cosmo0PackageModule] =
+  private def dependencyVisibleModules(
+      modules: List[Cosmo0PackageModule],
+  ): List[Cosmo0PackageModule] =
     modules.filterNot(isPackageEntrypointModule)
 
   private def isPackageEntrypointModule(module: Cosmo0PackageModule): Boolean =
     module.modulePath == List("main")
 
   def check(pkg: Cosmo0Package): Result[CheckedPackage] =
-    val elaborated = pkg.modules.map(module => module -> compiler.elaborate(module.source))
+    val elaborated =
+      pkg.modules.map(module => module -> compiler.elaborate(module.source))
     val diagnostics = elaborated.flatMap(_._2.diagnostics)
     val failed = elaborated.exists(_._2.isFailure)
     val unsupported = elaborated.exists(_._2.isUnsupported)
@@ -186,7 +207,8 @@ private[cosmo0] final class PackagePipeline(
 
     val moduleDiagnostics = duplicateModuleDiagnostics(analyzed) :::
       duplicateDeclarationDiagnostics(analyzed)
-    if moduleDiagnostics.nonEmpty then return Result.failure(Phase.Check, moduleDiagnostics)
+    if moduleDiagnostics.nonEmpty then
+      return Result.failure(Phase.Check, moduleDiagnostics)
 
     buildDependencyGraph(analyzed) match
       case Left(graphDiagnostics) =>
@@ -203,8 +225,11 @@ private[cosmo0] final class PackagePipeline(
       ordered: List[AnalyzedModule],
   ): Result[CheckedPackage] =
     val stageDiagnostics =
-      pkg.metadata.stageProfile.toList.flatMap(profileName => StageCapabilityRegistry.validate(profileName))
-    if stageDiagnostics.nonEmpty then return Result.failure(Phase.Check, stageDiagnostics)
+      pkg.metadata.stageProfile.toList.flatMap(profileName =>
+        StageCapabilityRegistry.validate(profileName),
+      )
+    if stageDiagnostics.nonEmpty then
+      return Result.failure(Phase.Check, stageDiagnostics)
 
     val checkerProfile =
       pkg.metadata.checkerProfile match
@@ -212,7 +237,10 @@ private[cosmo0] final class PackagePipeline(
           CheckerProfiles.byId(profileId) match
             case Some(profile) => profile
             case None =>
-              return Result.failure(Phase.Check, List(CheckerProfiles.unknownProfileDiagnostic(profileId)))
+              return Result.failure(
+                Phase.Check,
+                List(CheckerProfiles.unknownProfileDiagnostic(profileId)),
+              )
         case None =>
           CheckerProfiles.Cosmo0Subset
 
@@ -221,7 +249,9 @@ private[cosmo0] final class PackagePipeline(
         Phase.Check,
         CheckerProfiles.unsupportedDiagnostic(
           checkerProfile,
-          CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(checkerProfile),
+          CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(
+            checkerProfile,
+          ),
         ),
       )
 
@@ -259,7 +289,9 @@ private[cosmo0] final class PackagePipeline(
               ),
             )
 
-  private def readMetadata(metadataPath: String): Result[Cosmo0PackageMetadata] =
+  private def readMetadata(
+      metadataPath: String,
+  ): Result[Cosmo0PackageMetadata] =
     val text =
       try PackageNodeFs.readFileSync(metadataPath, "utf8").asInstanceOf[String]
       catch
@@ -295,11 +327,13 @@ private[cosmo0] final class PackagePipeline(
     val target = optionalString(parsed, "target")
     val stageProfile = optionalString(parsed, "stageProfile")
     val checkerProfile = optionalString(parsed, "checkerProfile")
-    val sourceFiles = optionalStringList(parsed, "sources", metadataPath, errors)
-    val dependencies = optionalStringList(parsed, "dependencies", metadataPath, errors).getOrElse(Nil)
+    val sourceFiles =
+      optionalStringList(parsed, "sources", metadataPath, errors)
+    val dependencies =
+      optionalStringList(parsed, "dependencies", metadataPath, errors)
+        .getOrElse(Nil)
 
-    if errors.nonEmpty then
-      Result.failure(Phase.Check, errors.toList)
+    if errors.nonEmpty then Result.failure(Phase.Check, errors.toList)
     else if target.exists(_ != "cosmo0") then
       Result.unsupported(
         Phase.Check,
@@ -351,15 +385,17 @@ private[cosmo0] final class PackagePipeline(
       sourceRoot: String,
       relativeSourcePath: String,
   ): Option[Cosmo0PackageModule] =
-    val absolutePath = PackageNodePath.join(packageRoot, sourceRoot, relativeSourcePath)
+    val absolutePath =
+      PackageNodePath.join(packageRoot, sourceRoot, relativeSourcePath)
     val stat =
       try Some(PackageNodeFs.statSync(absolutePath))
-      catch
-        case NonFatal(_) => None
+      catch case NonFatal(_) => None
 
     stat.filter(_.isFile()).map { _ =>
-      val text = PackageNodeFs.readFileSync(absolutePath, "utf8").asInstanceOf[String]
-      val sourceName = PackageNodePath.join(packageRoot, sourceRoot, relativeSourcePath)
+      val text =
+        PackageNodeFs.readFileSync(absolutePath, "utf8").asInstanceOf[String]
+      val sourceName =
+        PackageNodePath.join(packageRoot, sourceRoot, relativeSourcePath)
       Cosmo0PackageModule(
         modulePath(relativeSourcePath),
         SourceFile(sourceName, text),
@@ -376,22 +412,25 @@ private[cosmo0] final class PackagePipeline(
       else PackageNodePath.join(packageRoot, sourceRoot, relativeDir)
     val entries =
       try PackageNodeFs.readdirSync(absoluteDir).toList.map(_.toString).sorted
-      catch
-        case NonFatal(_) => return Nil
+      catch case NonFatal(_) => return Nil
 
     entries.flatMap { entry =>
       val relativePath = joinRelative(relativeDir, entry)
-      val absolutePath = PackageNodePath.join(packageRoot, sourceRoot, relativePath)
+      val absolutePath =
+        PackageNodePath.join(packageRoot, sourceRoot, relativePath)
       val stat =
         try Some(PackageNodeFs.statSync(absolutePath))
-        catch
-          case NonFatal(_) => None
+        catch case NonFatal(_) => None
 
       stat.toList.flatMap { info =>
-        if info.isDirectory() then scanSourceDir(packageRoot, sourceRoot, relativePath)
+        if info.isDirectory() then
+          scanSourceDir(packageRoot, sourceRoot, relativePath)
         else if info.isFile() && entry.endsWith(".cos") then
-          val text = PackageNodeFs.readFileSync(absolutePath, "utf8").asInstanceOf[String]
-          val sourceName = PackageNodePath.join(packageRoot, sourceRoot, relativePath)
+          val text = PackageNodeFs
+            .readFileSync(absolutePath, "utf8")
+            .asInstanceOf[String]
+          val sourceName =
+            PackageNodePath.join(packageRoot, sourceRoot, relativePath)
           List(
             Cosmo0PackageModule(
               modulePath(relativePath),
@@ -432,7 +471,8 @@ private[cosmo0] final class PackagePipeline(
       .sortBy(_._1)
       .collect {
         case (name, declarations) if declarations.length > 1 =>
-          val moduleNames = declarations.map(_._2._1).distinct.sorted.mkString(", ")
+          val moduleNames =
+            declarations.map(_._2._1).distinct.sorted.mkString(", ")
           diagnostic(
             "cosmo0.package.duplicate-declaration",
             s"cosmo0 package declares $name in multiple modules: $moduleNames",
@@ -461,7 +501,8 @@ private[cosmo0] final class PackagePipeline(
             case Some(importedModule) =>
               importDecl.dest.foreach { dest =>
                 val importedName = dest.parts.lastOption.getOrElse(dest.text)
-                val publicNames = importedModule.publicDeclarations.map(_.name).toSet
+                val publicNames =
+                  importedModule.publicDeclarations.map(_.name).toSet
                 if !publicNames.contains(importedName) then
                   diagnostics += diagnostic(
                     "cosmo0.package.missing-import-member",
@@ -469,11 +510,15 @@ private[cosmo0] final class PackagePipeline(
                     Some(dest.span),
                   )
               }
-              moduleEdges += ImportEdge(module.key, importedKey, importDecl.span)
+              moduleEdges += ImportEdge(
+                module.key,
+                importedKey,
+                importDecl.span,
+              )
         case _: UntypedCppNamespaceImport =>
-        case _ =>
+        case _                            =>
       }
-      }
+    }
 
     if diagnostics.nonEmpty then Left(diagnostics.toList)
     else
@@ -537,7 +582,10 @@ private[cosmo0] final class PackagePipeline(
         )
         None
 
-  private def optionalString(parsed: js.Dynamic, field: String): Option[String] =
+  private def optionalString(
+      parsed: js.Dynamic,
+      field: String,
+  ): Option[String] =
     val value = parsed.selectDynamic(field)
     if js.isUndefined(value) || value == null then None
     else if js.typeOf(value) == "string" then Some(value.asInstanceOf[String])
@@ -594,7 +642,9 @@ private[cosmo0] final class PackagePipeline(
       )
     else None
 
-  private def validateSourceFiles(sourceFiles: Option[List[String]]): Option[Diagnostic] =
+  private def validateSourceFiles(
+      sourceFiles: Option[List[String]],
+  ): Option[Diagnostic] =
     sourceFiles match
       case Some(Nil) =>
         Some(
@@ -616,10 +666,10 @@ private[cosmo0] final class PackagePipeline(
   private def invalidSourceFile(source: String): Boolean =
     val parts = source.split("[/\\\\]").toList.filter(_.nonEmpty)
     source.trim.isEmpty ||
-      source.startsWith("/") ||
-      source.startsWith("\\") ||
-      !source.endsWith(".cos") ||
-      parts.exists(part => part == "." || part == "..")
+    source.startsWith("/") ||
+    source.startsWith("\\") ||
+    !source.endsWith(".cos") ||
+    parts.exists(part => part == "." || part == "..")
 
   private def modulePath(relativeSourcePath: String): List[String] =
     relativeSourcePath
@@ -651,7 +701,7 @@ private[cosmo0] final class PackagePipeline(
     Option(error.getMessage).getOrElse(error.getClass.getName)
 
 @js.native
-@JSImport("fs",JSImport.Namespace)
+@JSImport("fs", JSImport.Namespace)
 private object PackageNodeFs extends js.Object:
   def existsSync(path: String): Boolean = js.native
   def readFileSync(path: String, encoding: String): js.Any = js.native
@@ -664,7 +714,7 @@ private trait PackageNodeStats extends js.Object:
   def isFile(): Boolean = js.native
 
 @js.native
-@JSImport("path",JSImport.Namespace)
+@JSImport("path", JSImport.Namespace)
 private object PackageNodePath extends js.Object:
   def join(paths: String*): String = js.native
   def normalize(path: String): String = js.native

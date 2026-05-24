@@ -13,7 +13,8 @@ final case class TypedModule(
     checkerArtifactKind: String = CheckerProfiles.Cosmo0Subset.artifactKind,
 ) extends TypedNode:
   def checkerArtifactSummary: String =
-    val declarationSummary = declarations.map(checkerDeclarationSummary).mkString(",")
+    val declarationSummary =
+      declarations.map(checkerDeclarationSummary).mkString(",")
     s"$checkerProfileId|$checkerArtifactKind|decls=${declarations.length}|$declarationSummary"
 
   private def checkerDeclarationSummary(declaration: TypedDecl): String =

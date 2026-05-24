@@ -89,7 +89,8 @@ object StageCapabilityRegistry:
 
   val defaultAvailability: StageCapabilityAvailability =
     StageCapabilityAvailability(
-      primitiveDescriptors = StandardGenericDescriptors.Boundary.primitiveRuntimeDescriptorNames + "Unit",
+      primitiveDescriptors =
+        StandardGenericDescriptors.Boundary.primitiveRuntimeDescriptorNames + "Unit",
       stdCapabilities = knownStdCapabilities,
       backendRequirements = stage1Profile.requiredBackendRequirements,
     )
@@ -116,20 +117,22 @@ object StageCapabilityRegistry:
       availability: StageCapabilityAvailability,
   ): List[Diagnostic] =
     val missingPrimitiveDescriptors =
-      (profile.requiredPrimitiveDescriptors -- availability.primitiveDescriptors).toList.sorted.map { name =>
-        diagnostic(
-          "cosmo0.stage.missing-capability",
-          s"stage profile ${profile.name} requires primitive descriptor $name",
-        )
-      }
+      (profile.requiredPrimitiveDescriptors -- availability.primitiveDescriptors).toList.sorted
+        .map { name =>
+          diagnostic(
+            "cosmo0.stage.missing-capability",
+            s"stage profile ${profile.name} requires primitive descriptor $name",
+          )
+        }
 
     val missingStdCapabilities =
-      (profile.requiredStdCapabilities -- availability.stdCapabilities).toList.sorted.map { name =>
-        diagnostic(
-          "cosmo0.stage.missing-capability",
-          s"stage profile ${profile.name} requires std capability $name",
-        )
-      }
+      (profile.requiredStdCapabilities -- availability.stdCapabilities).toList.sorted
+        .map { name =>
+          diagnostic(
+            "cosmo0.stage.missing-capability",
+            s"stage profile ${profile.name} requires std capability $name",
+          )
+        }
 
     val missingBackendRequirements =
       (profile.requiredBackendRequirements -- availability.backendRequirements).toList

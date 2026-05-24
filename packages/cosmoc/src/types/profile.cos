@@ -158,7 +158,7 @@ def checker_profile_cosmoc_basic_expr(): CheckerProfile = {
 def checker_profile_cosmo0_subset(): CheckerProfile = {
   CheckerProfile(
     checker_profile_cosmo0_subset_id(),
-    "packages/cosmo0/src/main/scala/cosmo0/SourceTyper.scala",
+    "packages/cosmo0/src/main/scala/cosmo0/tyck/Typer.scala",
     "cosmo0-untyped-module",
     checker_artifact_typed_module(),
     "cosmo0.type",

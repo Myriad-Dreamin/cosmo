@@ -46,7 +46,10 @@ final class Cosmo0:
   def check(sourceText: String): Result[CheckedModule] =
     check(SourceFile("<memory>", sourceText))
 
-  def checkWithProfile(sourceText: String, profileId: String): Result[CheckedModule] =
+  def checkWithProfile(
+      sourceText: String,
+      profileId: String,
+  ): Result[CheckedModule] =
     checkWithProfile(SourceFile("<memory>", sourceText), profileId)
 
   def elaborate(sourceText: String): Result[UntypedModule] =
@@ -55,14 +58,17 @@ final class Cosmo0:
   def elaborate(source: SourceFile): Result[UntypedModule] =
     parse(source) match
       case parsed if parsed.isSuccess =>
-        UntypedElaborator().elaborate(parsed.value.get)
+        Elaborator().elaborate(parsed.value.get)
       case failed =>
         Result.failure(Phase.Check, failed.diagnostics)
 
   def check(source: SourceFile): Result[CheckedModule] =
     checkWithProfile(source, CheckerProfiles.Cosmo0Subset.id)
 
-  def checkWithProfile(source: SourceFile, profileId: String): Result[CheckedModule] =
+  def checkWithProfile(
+      source: SourceFile,
+      profileId: String,
+  ): Result[CheckedModule] =
     CheckerProfiles.byId(profileId) match
       case Some(profile) if profile.id == CheckerProfiles.Cosmo0Subset.id =>
         checkWithProfile(source, profile)
@@ -71,14 +77,22 @@ final class Cosmo0:
           Phase.Check,
           CheckerProfiles.unsupportedDiagnostic(
             profile,
-            CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(profile),
+            CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(
+              profile,
+            ),
             Some(source.span(0, source.text.length)),
           ),
         )
       case None =>
-        Result.failure(Phase.Check, List(CheckerProfiles.unknownProfileDiagnostic(profileId)))
+        Result.failure(
+          Phase.Check,
+          List(CheckerProfiles.unknownProfileDiagnostic(profileId)),
+        )
 
-  private def checkWithProfile(source: SourceFile, profile: CheckerProfile): Result[CheckedModule] =
+  private def checkWithProfile(
+      source: SourceFile,
+      profile: CheckerProfile,
+  ): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
         SourceTyper(profile).check(elaborated.value.get) match
@@ -117,7 +131,10 @@ final class Cosmo0:
         val checkedModule = checked.value.get
         LirLowerer().lower(checkedModule.typed) match
           case lowered if lowered.isSuccess =>
-            Result.success(Phase.Compile, LoweredModule(checkedModule, lowered.value.get))
+            Result.success(
+              Phase.Compile,
+              LoweredModule(checkedModule, lowered.value.get),
+            )
           case failed =>
             Result.failure(Phase.Compile, failed.diagnostics)
 
@@ -237,7 +254,9 @@ final class Cosmo0:
   def compilePackageForHost(rootPath: String): Cosmo0HostCompileResult =
     Cosmo0HostCompileResult.fromResult(compilePackage(rootPath))
 
-  private def validateRunnableEntrypoint(pkg: CheckedPackage): Result[CheckedPackage] =
+  private def validateRunnableEntrypoint(
+      pkg: CheckedPackage,
+  ): Result[CheckedPackage] =
     runnableEntrypoint(pkg) match
       case Some(main) if isRunnableEntrypoint(main) =>
         Result.success(Phase.Check, pkg)
@@ -282,10 +301,13 @@ final class Cosmo0:
     fn.params.isEmpty ||
       (fn.params match
         case param :: Nil => SourceType.same(param.valueType, runnableArgsType)
-        case _            => false)
+        case _            => false
+      )
 
   private def runnableReturnType(valueType: SourceType): Boolean =
-    SourceType.same(valueType, SourceType.Unit) || SourceType.isInteger(valueType)
+    SourceType.same(valueType, SourceType.Unit) || SourceType.isInteger(
+      valueType,
+    )
 
   private def runnableArgsType: SourceType =
     SourceType.Standard("Vec", List(SourceType.String))

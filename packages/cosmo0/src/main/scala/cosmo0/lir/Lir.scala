@@ -301,7 +301,8 @@ final case class LirCondBranch(
     falseTarget: LirLabel,
 ) extends LirTerminator
 
-final case class LirUnreachable(reason: Option[String] = None) extends LirTerminator
+final case class LirUnreachable(reason: Option[String] = None)
+    extends LirTerminator
 
 final case class LirErrorExit(
     code: String,
@@ -317,7 +318,10 @@ object Lir:
 
   def t(source: SourceType): LirTypeRef = LirTypeRef(source)
 
-  def signature(params: List[SourceType], returnType: SourceType): LirCallableSignature =
+  def signature(
+      params: List[SourceType],
+      returnType: SourceType,
+  ): LirCallableSignature =
     LirCallableSignature(
       params.map(t),
       t(returnType),
@@ -338,7 +342,13 @@ object Lir:
       id: String = "",
       mutationAllowed: Boolean = false,
   ): LirLocal =
-    LirLocal(localId(stableId(id, name)), name, t(valueType), mutable, mutationAllowed)
+    LirLocal(
+      localId(stableId(id, name)),
+      name,
+      t(valueType),
+      mutable,
+      mutationAllowed,
+    )
 
   def ref(id: String, valueType: SourceType): LirLocalRef =
     LirLocalRef(localId(id), t(valueType))
@@ -390,44 +400,59 @@ object Lir:
 
 object LirDebugRenderer:
   def renderModule(module: LirModule): String =
-    val declarations = module.declarations.sortBy(_.id.value).map(renderDeclaration(_, 2))
+    val declarations =
+      module.declarations.sortBy(_.id.value).map(renderDeclaration(_, 2))
     if declarations.isEmpty then s"module ${module.name} {\n}"
     else s"module ${module.name} {\n${declarations.mkString("\n\n")}\n}"
 
   def renderFunction(function: LirFunction): String =
     renderFunction(function, 0)
 
-  private def renderDeclaration(declaration: LirDeclaration, indent: Int): String =
+  private def renderDeclaration(
+      declaration: LirDeclaration,
+      indent: Int,
+  ): String =
     declaration match
       case function: LirFunction =>
         renderFunction(function, indent)
       case global: LirGlobal =>
         val mutability = if global.mutable then " var" else ""
-        val init = global.initializer.fold("")(value => s" = ${renderValue(value)}")
-        line(indent, s"global${mutability} ${global.id} ${global.name}: ${renderType(global.valueType)}$init")
+        val init =
+          global.initializer.fold("")(value => s" = ${renderValue(value)}")
+        line(
+          indent,
+          s"global${mutability} ${global.id} ${global.name}: ${renderType(global.valueType)}$init",
+        )
       case alias: LirTypeAliasDecl =>
-        line(indent, s"typealias ${alias.id} ${alias.name} = ${renderType(alias.target)}")
+        line(
+          indent,
+          s"typealias ${alias.id} ${alias.name} = ${renderType(alias.target)}",
+        )
       case ty: LirTypeDecl =>
         renderTypeDecl(ty, indent)
 
   private def renderTypeDecl(ty: LirTypeDecl, indent: Int): String =
     val fields = ty.fields.sortBy(_.name).map { field =>
       val mutability = if field.mutable then " var" else ""
-      line(indent + 2, s"field${mutability} ${field.name}: ${renderType(field.valueType)}")
+      line(
+        indent + 2,
+        s"field${mutability} ${field.name}: ${renderType(field.valueType)}",
+      )
     }
     val variants = ty.variants.sortBy(_.name).map { variant =>
       val payload = variant.payload
         .map(payload =>
           payload.name match
             case Some(name) => s"$name: ${renderType(payload.valueType)}"
-            case None       => renderType(payload.valueType)
+            case None       => renderType(payload.valueType),
         )
         .mkString(", ")
       line(indent + 2, s"variant ${variant.name}($payload)")
     }
     val body = (fields ++ variants).mkString("\n")
     if body.isEmpty then line(indent, s"type ${ty.id} ${ty.name} {}")
-    else s"${line(indent, s"type ${ty.id} ${ty.name} {")}\n$body\n${line(indent, "}")}"
+    else
+      s"${line(indent, s"type ${ty.id} ${ty.name} {")}\n$body\n${line(indent, "}")}"
 
   private def renderFunction(function: LirFunction, indent: Int): String =
     val params = function.params.map(renderParam).mkString(", ")
@@ -441,11 +466,16 @@ object LirDebugRenderer:
         s"fn ${function.id} ${function.name}($params) -> ${renderType(function.returnType)}$owner$extern {",
       )
     val localLines =
-      function.locals.sortBy(_.id.value).map(local => line(indent + 2, renderLocal(local)))
+      function.locals
+        .sortBy(_.id.value)
+        .map(local => line(indent + 2, renderLocal(local)))
     val blockLines =
-      function.blocks.sortBy(_.label.value).map(block => renderBlock(block, indent + 2))
+      function.blocks
+        .sortBy(_.label.value)
+        .map(block => renderBlock(block, indent + 2))
     val body =
-      (if localLines.isEmpty then blockLines else localLines ++ List("") ++ blockLines).mkString("\n")
+      (if localLines.isEmpty then blockLines
+       else localLines ++ List("") ++ blockLines).mkString("\n")
     if body.isEmpty then s"$header\n${line(indent, "}")}"
     else s"$header\n$body\n${line(indent, "}")}"
 
@@ -480,7 +510,9 @@ object LirDebugRenderer:
         val result = resultType.fold("Unit")(renderType)
         s"${renderOutput(output)}descriptor ${renderDescriptor(descriptor)}::$name(${renderArgs(args)}) -> $result"
       case LirConstructType(output, owner, fields) =>
-        val args = fields.map(field => s"${field.name} = ${renderValue(field.value)}").mkString(", ")
+        val args = fields
+          .map(field => s"${field.name} = ${renderValue(field.value)}")
+          .mkString(", ")
         s"$output = construct ${renderType(owner)}($args)"
       case LirConstructVariant(output, owner, variant, payload) =>
         s"$output = variant ${renderType(owner)}::$variant(${renderArgs(payload)})"
@@ -488,7 +520,13 @@ object LirDebugRenderer:
         s"$output = variant_tag ${renderValue(scrutinee)}: ${renderType(owner)}"
       case LirCheckVariantTag(output, scrutinee, owner, variant) =>
         s"$output = variant_is ${renderValue(scrutinee)}: ${renderType(owner)}::$variant"
-      case LirReadVariantPayload(output, scrutinee, variant, index, valueType) =>
+      case LirReadVariantPayload(
+            output,
+            scrutinee,
+            variant,
+            index,
+            valueType,
+          ) =>
         s"$output = variant_payload ${renderValue(scrutinee)}.$variant[$index]: ${renderType(valueType)}"
 
   private def renderTerminator(terminator: LirTerminator): String =
@@ -547,7 +585,8 @@ object LirDebugRenderer:
 
   private def renderDescriptor(descriptor: LirDescriptorRef): String =
     if descriptor.args.isEmpty then descriptor.name
-    else s"${descriptor.name}[${descriptor.args.map(renderType).mkString(", ")}]"
+    else
+      s"${descriptor.name}[${descriptor.args.map(renderType).mkString(", ")}]"
 
   private def renderSignatureResult(signature: LirCallableSignature): String =
     s"-> ${renderType(signature.returnType)}"

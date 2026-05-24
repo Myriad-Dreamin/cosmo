@@ -37,8 +37,13 @@ object Parser {
           case 'f' =>
             out.append('\f')
             index += 2
-          case 'x' if index + 3 < s.length && s.substring(index + 2, index + 4).forall(Character.digit(_, 16) >= 0) =>
-            out.append(Integer.parseInt(s.substring(index + 2, index + 4), 16).toChar)
+          case 'x'
+              if index + 3 < s.length && s
+                .substring(index + 2, index + 4)
+                .forall(Character.digit(_, 16) >= 0) =>
+            out.append(
+              Integer.parseInt(s.substring(index + 2, index + 4), 16).toChar,
+            )
             index += 4
           case other =>
             out.append('\\')
@@ -58,7 +63,8 @@ object Parser {
     (P(word("true") | word("false"))).!.map(v => BoolLit(v == "true"))
   def numberLit[$: P] = P(float.map(FloatLit.apply) | int.map(IntLit.apply))
   def stringLit[$: P] = P(longStr | shortStr).map(StrLit.apply)
-  def asciiLit[$: P] = P("a" ~ &("\"") ~ (longStr | shortStr)).map(AsciiLit.apply)
+  def asciiLit[$: P] =
+    P("a" ~ &("\"") ~ (longStr | shortStr)).map(AsciiLit.apply)
   def runeLit[$: P] = P("c" ~ &("\"") ~ (longStr | shortStr)).map(RuneLit.apply)
   def tmplLit[$: P] = P(tmplPath ~ &("\"") ~ tmplLitStr).map(TmplApply(_, _)).m
   def todoLit[$: P] = P("???").map(_ => TodoLit)
@@ -195,10 +201,12 @@ object Parser {
   })
   def arg[$: P] = P(spread | keyedArg).m
   def spread[$: P]: P[Node] = P(".." ~/ arg).map(UnOp("..", _))
-  def keyedArg[$: P] = P((compound ~ ((":" | P("=" ~ !">")) ~/ compound).?).map {
-    case (lhs, Some(rhs)) => KeyedArg(lhs, rhs)
-    case (lhs, None)      => lhs
-  })
+  def keyedArg[$: P] = P(
+    (compound ~ ((":" | P("=" ~ !">")) ~/ compound).?).map {
+      case (lhs, Some(rhs)) => KeyedArg(lhs, rhs)
+      case (lhs, None)      => lhs
+    },
+  )
   def introTy[$: P] =
     P(ident.rep(1, sep = " ") ~ typeAnnotation.? ~ &("," | "]")).map((e, t) =>
       e.map(Param(_, t.orElse(Some(Ident("Type"))), None, true)),
@@ -223,7 +231,9 @@ object Parser {
   def chk[$: P](s: => P[Unit]) = P(s.?.!).map(_.nonEmpty)
 
   // Expressions
-  def literal[$: P] = P(asciiLit | runeLit | numberLit | booleanLit | stringLit | todoLit).m
+  def literal[$: P] = P(
+    asciiLit | runeLit | numberLit | booleanLit | stringLit | todoLit,
+  ).m
   def ident[$: P] = id.map(Ident.apply).m
   def defItem[$: P] = P(sigItem("def") ~ typeAnnotation.? ~ initExpression.?)
     .map(Def.apply.tupled)
@@ -242,8 +252,9 @@ object Parser {
   def typeItem[$: P] =
     P(word("type") ~/ ident ~ params.? ~ typeAnnotation.? ~ initExpression.?)
       .map {
-        case (name, Some(params), ty, init) => GenericTyp(name, params, ty, init)
-        case (name, None, ty, init)         => Typ(name, ty, init)
+        case (name, Some(params), ty, init) =>
+          GenericTyp(name, params, ty, init)
+        case (name, None, ty, init) => Typ(name, ty, init)
       }
   def varLike[$: P](kw: String) =
     P(word(kw) ~/ ident ~ typeAnnotation.? ~ initExpression.?)
