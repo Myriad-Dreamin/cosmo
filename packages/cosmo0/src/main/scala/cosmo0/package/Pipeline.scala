@@ -268,12 +268,12 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
         cppNamespaceImports,
       )
 
-    SourceTyper(checkerProfile).check(combinedModule) match
+    SourceTyper(combinedModule, checkerProfile).check() match
       case typed if typed.isFailure =>
         Result.failure(Phase.Check, typed.diagnostics)
       case typed =>
         val checkedModule = CheckedModule(typed.value.get)
-        LirLowerer().lower(checkedModule.typed) match
+        LirLowerer(checkedModule.typed).lower() match
           case lowered if lowered.isFailure =>
             Result.failure(Phase.Check, lowered.diagnostics)
           case lowered =>

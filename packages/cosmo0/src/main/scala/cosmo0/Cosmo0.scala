@@ -58,7 +58,7 @@ final class Cosmo0:
   def elaborate(source: SourceFile): Result[UntypedModule] =
     parse(source) match
       case parsed if parsed.isSuccess =>
-        Elaborator().elaborate(parsed.value.get)
+        Elaborator(parsed.value.get).elaborate()
       case failed =>
         Result.failure(Phase.Check, failed.diagnostics)
 
@@ -95,7 +95,7 @@ final class Cosmo0:
   ): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
-        SourceTyper(profile).check(elaborated.value.get) match
+        SourceTyper(elaborated.value.get, profile).check() match
           case checked if checked.isSuccess =>
             Result.success(Phase.Check, CheckedModule(checked.value.get))
           case failed =>
@@ -129,7 +129,7 @@ final class Cosmo0:
         )
       case checked =>
         val checkedModule = checked.value.get
-        LirLowerer().lower(checkedModule.typed) match
+        LirLowerer(checkedModule.typed).lower() match
           case lowered if lowered.isSuccess =>
             Result.success(
               Phase.Compile,
@@ -151,7 +151,7 @@ final class Cosmo0:
         )
       case lowered =>
         val loweredModule = lowered.value.get
-        CppBackend().emit(loweredModule.lir) match
+        CppBackend(loweredModule.lir).emit() match
           case emitted if emitted.isSuccess =>
             Result.success(
               Phase.Compile,
@@ -203,7 +203,7 @@ final class Cosmo0:
         )
       case checked =>
         val checkedPackage = checked.value.get
-        CppBackend().emit(checkedPackage.lowered.lir) match
+        CppBackend(checkedPackage.lowered.lir).emit() match
           case emitted if emitted.isSuccess =>
             Result.success(
               Phase.Compile,
@@ -237,7 +237,7 @@ final class Cosmo0:
         )
       case checked =>
         val checkedPackage = checked.value.get
-        CppBackend().emit(checkedPackage.lowered.lir) match
+        CppBackend(checkedPackage.lowered.lir).emit() match
           case emitted if emitted.isSuccess =>
             Result.success(
               Phase.Compile,

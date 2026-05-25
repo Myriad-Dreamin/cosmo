@@ -34,7 +34,7 @@ class Core0TextOutputTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor TextWriter"))
     assert(!rendered.contains("descriptor TextOutput"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
 
     assert(
       compiled.isSuccess,
@@ -77,7 +77,7 @@ class Core0TextOutputTests extends munit.FunSuite:
     assert(rendered.contains("method_call %writer.write("))
     assert(!rendered.contains("descriptor TextWriter"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
 
     assert(
       compiled.isSuccess,

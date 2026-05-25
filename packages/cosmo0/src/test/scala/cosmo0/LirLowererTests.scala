@@ -545,7 +545,7 @@ class LirLowererTests extends munit.FunSuite:
     )
     val module = TypedModule(source, List(badFunction), span)
 
-    val result = LirLowerer().lower(module)
+    val result = LirLowerer(module).lower()
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
@@ -590,7 +590,7 @@ class LirLowererTests extends munit.FunSuite:
     )
     val module = TypedModule(source, List(idFunction, badFunction), span)
 
-    val result = LirLowerer().lower(module)
+    val result = LirLowerer(module).lower()
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)

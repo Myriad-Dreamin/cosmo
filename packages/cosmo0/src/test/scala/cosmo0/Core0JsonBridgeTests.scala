@@ -42,7 +42,7 @@ class Core0JsonBridgeTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor Json"))
     assert(!rendered.contains("descriptor JsonValue"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
     assert(
       compiled.isSuccess,
       s"core0.json accessor C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
@@ -74,7 +74,7 @@ class Core0JsonBridgeTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor Json"))
     assert(!rendered.contains("descriptor JsonValue"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
     assert(
       compiled.isSuccess,
       s"core0.json parse C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
