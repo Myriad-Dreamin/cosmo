@@ -24,8 +24,20 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Parse)
     assertEquals(result.status, PhaseStatus.Succeeded)
     val stmts = result.value.get.ast.stmts
-    assert(stmts.head.asInstanceOf[cosmo.syntax.Val].init.get.isInstanceOf[cosmo.syntax.AsciiLit])
-    assert(stmts(1).asInstanceOf[cosmo.syntax.Val].init.get.isInstanceOf[cosmo.syntax.RuneLit])
+    assert(
+      stmts.head
+        .asInstanceOf[cosmo.syntax.Val]
+        .init
+        .get
+        .isInstanceOf[cosmo.syntax.AsciiLit],
+    )
+    assert(
+      stmts(1)
+        .asInstanceOf[cosmo.syntax.Val]
+        .init
+        .get
+        .isInstanceOf[cosmo.syntax.RuneLit],
+    )
 
   test("parse failures return structured diagnostics"):
     val result = Cosmo0().parse("val =")
@@ -44,9 +56,9 @@ class FacadeTests extends munit.FunSuite:
     assert(result.value.nonEmpty)
     assert(result.diagnostics.isEmpty)
 
-    val value = result.value.get.typed.declarations.head.asInstanceOf[TypedValueDecl]
+    val value = result.value.get.typed.decls.head.asInstanceOf[TypedValueDecl]
     assertEquals(value.name, "answer")
-    assertEquals(value.valueType, SourceType.I32)
+    assertEquals(value.ty, SourceType.I32)
 
   test("check types ascii and rune literals as fixed-width integers"):
     val result = Cosmo0().check(
@@ -60,10 +72,18 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
 
-    val values = result.value.get.typed.declarations.collect { case value: TypedValueDecl =>
-      value.name -> value.valueType
+    val values = result.value.get.typed.decls.collect {
+      case value: TypedValueDecl =>
+        value.name -> value.ty
     }
-    assertEquals(values, List("newline" -> SourceType.Byte, "nul" -> SourceType.Byte, "rune" -> SourceType.Rune))
+    assertEquals(
+      values,
+      List(
+        "newline" -> SourceType.Byte,
+        "nul" -> SourceType.Byte,
+        "rune" -> SourceType.Rune,
+      ),
+    )
 
   test("check rejects malformed ascii and rune literals"):
     val cases = List(
@@ -82,7 +102,9 @@ class FacadeTests extends munit.FunSuite:
       )
     }
 
-  test("elaborate builds untyped representation for accepted core declarations"):
+  test(
+    "elaborate builds untyped representation for accepted core declarations",
+  ):
     val result = Cosmo0().elaborate(
       """type SourceId = Id[SourceFile]
         |
@@ -113,24 +135,31 @@ class FacadeTests extends munit.FunSuite:
     assert(result.diagnostics.isEmpty)
 
     val module = result.value.get
-    assertEquals(module.declarations.map(_.name), List("SourceId", "Severity", "Diagnostic"))
+    assertEquals(
+      module.decls.map(_.name),
+      List("SourceId", "Severity", "Diagnostic"),
+    )
 
-    val alias = module.declarations.head.asInstanceOf[UntypedTypeAlias]
+    val alias = module.decls.head.asInstanceOf[UntypedTypeAlias]
     assert(alias.target.isInstanceOf[UntypedAppliedType])
 
-    val severity = module.declarations(1).asInstanceOf[UntypedClass]
+    val severity = module.decls(1).asInstanceOf[UntypedClass]
     assertEquals(
       severity.members.collect { case variant: UntypedVariant => variant.name },
       List("Note", "Error"),
     )
 
-    val diagnostic = module.declarations(2).asInstanceOf[UntypedClass]
-    val push = diagnostic.members.collectFirst { case fn: UntypedFunction => fn }.get
-    val selfType = push.params.head.valueType.get.asInstanceOf[UntypedRefType]
-    assert(selfType.mutable)
+    val diagnostic = module.decls(2).asInstanceOf[UntypedClass]
+    val push = diagnostic.members.collectFirst { case fn: UntypedFunction =>
+      fn
+    }.get
+    val selfType = push.params.head.ty.get.asInstanceOf[UntypedRefType]
+    assert(selfType.mut)
     assert(push.body.exists(_.isInstanceOf[UntypedBlock]))
 
-  test("elaborate represents match arms and standard-generic variant constructors"):
+  test(
+    "elaborate represents match arms and standard-generic variant constructors",
+  ):
     val result = Cosmo0().elaborate(
       """def current(&self): Option[Token] = {
         |  val current = self.advance();
@@ -147,13 +176,14 @@ class FacadeTests extends munit.FunSuite:
     )
 
     assertEquals(result.status, PhaseStatus.Succeeded)
-    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
+    val fn = result.value.get.decls.head.asInstanceOf[UntypedFunction]
     val body = fn.body.get.asInstanceOf[UntypedBlock]
     val matchExpr = body.items.collectFirst { case m: UntypedMatch => m }.get
 
     assertEquals(matchExpr.arms.length, 2)
-    val somePattern = matchExpr.arms.head.pattern.asInstanceOf[UntypedVariantPattern]
-    assert(somePattern.constructor.isInstanceOf[UntypedVariantConstructor])
+    val somePattern =
+      matchExpr.arms.head.pat.asInstanceOf[UntypedVariantPattern]
+    assert(somePattern.ctor.isInstanceOf[UntypedVariantConstructor])
     assertEquals(somePattern.args.length, 1)
 
   test("elaborate preserves direct C extern metadata"):
@@ -167,8 +197,8 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
 
-    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
-    val binding = fn.externBinding.getOrElse(fail("missing extern metadata"))
+    val fn = result.value.get.decls.head.asInstanceOf[UntypedFunction]
+    val binding = fn.extern.getOrElse(fail("missing extern metadata"))
     assertEquals(binding.abi, TrustedExternAbi.directCAbiName)
     assertEquals(binding.name, Some("abs"))
     assertEquals(binding.supportLibrary, None)
@@ -184,8 +214,11 @@ class FacadeTests extends munit.FunSuite:
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
-    assertEquals(result.value.get.cIncludes.map(_.header), List("<stdio.h>", "\"runtime/support.h\""))
-    assertEquals(result.value.get.declarations.map(_.name), List("smoke"))
+    assertEquals(
+      result.value.get.cIncludes.map(_.header),
+      List("<stdio.h>", "\"runtime/support.h\""),
+    )
+    assertEquals(result.value.get.decls.map(_.name), List("smoke"))
 
   test("elaborate accepts symbol alias for direct C extern name"):
     val result = Cosmo0().elaborate(
@@ -196,8 +229,8 @@ class FacadeTests extends munit.FunSuite:
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
-    val fn = result.value.get.declarations.head.asInstanceOf[UntypedFunction]
-    assertEquals(fn.externBinding.map(_.name), Some(Some("abs")))
+    val fn = result.value.get.decls.head.asInstanceOf[UntypedFunction]
+    assertEquals(fn.extern.map(_.name), Some(Some("abs")))
 
   test("elaborate rejects invalid direct C extern declarations"):
     val cases = List(
@@ -248,13 +281,19 @@ class FacadeTests extends munit.FunSuite:
       assertEquals(result.phase, Phase.Check)
       assertEquals(result.status, PhaseStatus.Unsupported)
       assert(
-        result.diagnostics.exists(_.code == "cosmo0.elaborate.invalid-include") ||
-          result.diagnostics.exists(_.code == "cosmo0.elaborate.unsupported.include-kind"),
+        result.diagnostics.exists(
+          _.code == "cosmo0.elaborate.invalid-include",
+        ) ||
+          result.diagnostics.exists(
+            _.code == "cosmo0.elaborate.unsupported.include-kind",
+          ),
         s"missing invalid include diagnostic in ${result.diagnostics.map(_.code)}",
       )
     }
 
-  test("elaborate rejects unsupported full-language constructs deterministically"):
+  test(
+    "elaborate rejects unsupported full-language constructs deterministically",
+  ):
     val cases = List(
       "class Arena[T] {}" -> "cosmo0.elaborate.unsupported.generic-class",
       "def id[T](x: T): T = x" -> "cosmo0.elaborate.unsupported.generic-function",
@@ -286,9 +325,14 @@ class FacadeTests extends munit.FunSuite:
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Unsupported)
-    assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.generic-trait")
+    assertEquals(
+      result.diagnostics.head.code,
+      "cosmo0.elaborate.unsupported.generic-trait",
+    )
 
-  test("check resolves aliases, constructors, descriptor methods, and match bindings"):
+  test(
+    "check resolves aliases, constructors, descriptor methods, and match bindings",
+  ):
     val result = Cosmo0().check(
       """class Token {
         |  val text: String
@@ -335,20 +379,27 @@ class FacadeTests extends munit.FunSuite:
     assert(result.diagnostics.isEmpty)
 
     val module = result.value.get.typed
-    val alias = module.declarations.collectFirst { case value: TypedTypeAlias => value }.get
+    val alias = module.decls.collectFirst { case value: TypedTypeAlias =>
+      value
+    }.get
     assertEquals(alias.name, "TokenId")
-    assert(SourceType.same(alias.target, SourceType.Standard("Id", List(SourceType.User("Token")))))
+    assert(
+      SourceType.same(
+        alias.target,
+        SourceType.Standard("Id", List(SourceType.User("Token"))),
+      ),
+    )
 
-    val build = module.declarations.collectFirst {
+    val build = module.decls.collectFirst {
       case fn: TypedFunction if fn.name == "build" => fn
     }.get
-    assertEquals(build.returnType, SourceType.User("Diagnostic"))
-    assert(build.body.exists(_.valueType == SourceType.User("Diagnostic")))
+    assertEquals(build.retTy, SourceType.User("Diagnostic"))
+    assert(build.body.exists(_.ty == SourceType.User("Diagnostic")))
 
-    val collect = module.declarations.collectFirst {
+    val collect = module.decls.collectFirst {
       case fn: TypedFunction if fn.name == "collect" => fn
     }.get
-    assertEquals(collect.body.map(_.valueType), Some(SourceType.Unit))
+    assertEquals(collect.body.map(_.ty), Some(SourceType.Unit))
 
   test("check accepts minimal Option Result and Vec Stage 1 APIs"):
     val result = Cosmo0().check(
@@ -449,7 +500,7 @@ class FacadeTests extends munit.FunSuite:
 
   test("elaboration preserves spans for accepted nodes and diagnostics"):
     val accepted = Cosmo0().elaborate("\nval answer = 42")
-    val declarationSpan = accepted.value.get.declarations.head.span
+    val declarationSpan = accepted.value.get.decls.head.span
 
     assertEquals(declarationSpan.start.line, 2)
     assertEquals(declarationSpan.start.column, 1)
@@ -472,7 +523,10 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.value.nonEmpty)
-    assert(result.value.get.output.contains("inline const int32_t answer = static_cast<int32_t>(42);"))
+    assert(
+      result.value.get.output
+        .contains("inline const int32_t answer = static_cast<int32_t>(42);"),
+    )
     assert(result.diagnostics.isEmpty)
 
   test("compile stops on unsupported subset constructs"):
@@ -481,4 +535,7 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Unsupported)
     assert(result.value.isEmpty)
-    assertEquals(result.diagnostics.head.code, "cosmo0.elaborate.unsupported.generic-trait")
+    assertEquals(
+      result.diagnostics.head.code,
+      "cosmo0.elaborate.unsupported.generic-trait",
+    )

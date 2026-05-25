@@ -20,7 +20,8 @@ class MlttTypeCheckerTests extends munit.FunSuite:
   test("Scala MLTT checker infers universes and variables"):
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
-    val universe = MlttTypeChecker.infer(store, MlttTypeChecker.context(), type0)
+    val universe =
+      MlttTypeChecker.infer(store, MlttTypeChecker.context(), type0)
     val context = MlttTypeChecker.context().extendLocal("A", type0)
     val a = store.allocVar("A")
     val variable = MlttTypeChecker.infer(store, context, a)
@@ -49,27 +50,42 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     assert(checked.isOk)
     assertEquals(checked.profileId, CheckerProfiles.MlttCore.id)
     assertEquals(checked.artifactKind, "mltt-core-term")
-    assertEquals(checked.artifactSummary, "mltt.core|mltt-core-term|accepted|mltt.whnf-conversion")
+    assertEquals(
+      checked.artifactSummary,
+      "mltt.core|mltt-core-term|accepted|mltt.whnf-conversion",
+    )
     assert(inferred.isOk)
     assertEquals(MlttTypeChecker.display(store, inferred.valueType), "A")
 
-  test("Scala MLTT checker reports deterministic unknown variable and non-function diagnostics"):
+  test(
+    "Scala MLTT checker reports deterministic unknown variable and non-function diagnostics",
+  ):
     val store = MlttTypeChecker.termStore()
     val missing = store.allocVar("missing")
-    val missingResult = MlttTypeChecker.infer(store, MlttTypeChecker.context(), missing)
+    val missingResult =
+      MlttTypeChecker.infer(store, MlttTypeChecker.context(), missing)
 
     val type0 = store.allocUniverse(0)
     val apply = store.allocApply(type0, type0)
-    val applyResult = MlttTypeChecker.infer(store, MlttTypeChecker.context(), apply)
+    val applyResult =
+      MlttTypeChecker.infer(store, MlttTypeChecker.context(), apply)
 
     assert(!missingResult.isOk)
     assertEquals(missingResult.firstCode, MlttTypeChecker.UnknownVariableCode)
-    assertEquals(missingResult.diagnostics.head.profileId, CheckerProfiles.MlttCore.id)
+    assertEquals(
+      missingResult.diagnostics.head.profileId,
+      CheckerProfiles.MlttCore.id,
+    )
     assertEquals(missingResult.diagnostics.head.contextSummary, "<empty>")
     assert(!applyResult.isOk)
-    assertEquals(applyResult.firstCode, MlttTypeChecker.NonFunctionApplicationCode)
+    assertEquals(
+      applyResult.firstCode,
+      MlttTypeChecker.NonFunctionApplicationCode,
+    )
 
-  test("Scala MLTT conversion accepts beta, lets, and transparent Nat-style definitions"):
+  test(
+    "Scala MLTT conversion accepts beta, lets, and transparent Nat-style definitions",
+  ):
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
     val a = store.allocVar("A")
@@ -83,7 +99,8 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     val letTerm = store.allocLet("z", y, store.allocVar("z"))
     val nat = store.allocInductive("Nat")
     val n = store.allocVar("n")
-    val natContext = MlttTypeChecker.context()
+    val natContext = MlttTypeChecker
+      .context()
       .extendLocal("n", nat)
       .extendDefinition("add_Z_n", nat, n, transparent = true, pure = true)
     val addZN = store.allocVar("add_Z_n")
@@ -92,25 +109,42 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     assert(MlttTypeChecker.convert(store, context, letTerm, y).isOk)
     assert(MlttTypeChecker.convert(store, natContext, addZN, n).isOk)
 
-  test("Scala MLTT conversion rejects effectful definitions and unknown strategies"):
+  test(
+    "Scala MLTT conversion rejects effectful definitions and unknown strategies",
+  ):
     val store = MlttTypeChecker.termStore()
     val a = store.allocVar("A")
     val y = store.allocVar("y")
-    val context = MlttTypeChecker.context()
+    val context = MlttTypeChecker
+      .context()
       .extendLocal("y", a)
       .extendDefinition("effectful", a, y, transparent = false, pure = false)
     val effectful = store.allocVar("effectful")
     val effectfulResult = MlttTypeChecker.convert(store, context, effectful, y)
     val type0 = store.allocUniverse(0)
     val strategyResult =
-      MlttTypeChecker.convert(store, MlttTypeChecker.context(), type0, type0, "mltt.full-normalization")
+      MlttTypeChecker.convert(
+        store,
+        MlttTypeChecker.context(),
+        type0,
+        type0,
+        "mltt.full-normalization",
+      )
 
     assert(!effectfulResult.isOk)
-    assertEquals(effectfulResult.firstCode, MlttTypeChecker.EffectfulConversionCode)
+    assertEquals(
+      effectfulResult.firstCode,
+      MlttTypeChecker.EffectfulConversionCode,
+    )
     assert(!strategyResult.isOk)
-    assertEquals(strategyResult.firstCode, MlttTypeChecker.UnsupportedNormalizationProfileCode)
+    assertEquals(
+      strategyResult.firstCode,
+      MlttTypeChecker.UnsupportedNormalizationProfileCode,
+    )
 
-  test("Scala MLTT checker handles Sigma pairs, Refl, Nat, and Vec constructor signatures"):
+  test(
+    "Scala MLTT checker handles Sigma pairs, Refl, Nat, and Vec constructor signatures",
+  ):
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
     val a = store.allocVar("A")
@@ -128,7 +162,9 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     val nat = store.allocInductive("Nat")
     val z = store.allocConstructor("Z")
     val sZ = store.allocConstructor("S", List(z))
-    assert(MlttTypeChecker.check(store, MlttTypeChecker.context(), sZ, nat).isOk)
+    assert(
+      MlttTypeChecker.check(store, MlttTypeChecker.context(), sZ, nat).isOk,
+    )
 
     val k = store.allocVar("k")
     val head = store.allocVar("head")
@@ -147,7 +183,9 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     assert(MlttTypeChecker.check(store, vecContext, nil, vecAZ).isOk)
     assert(MlttTypeChecker.check(store, vecContext, cons, vecASK).isOk)
 
-  test("Scala MLTT declaration metadata and metavariables match the cosmoc profile shape"):
+  test(
+    "Scala MLTT declaration metadata and metavariables match the cosmoc profile shape",
+  ):
     val store = MlttTypeChecker.termStore()
     val env = MlttTypeChecker.declarationEnv()
     MlttTypeChecker.addNatFixture(store, env)
@@ -158,8 +196,14 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     assertEquals(nat.constructors.map(_.name), List("Z", "S"))
     assertEquals(vec.parameters.map(_.name), List("A"))
     assertEquals(vec.indices.map(_.name), List("n"))
-    assertEquals(MlttTypeChecker.display(store, vec.constructors.head.result), "Vec(A, Z)")
-    assertEquals(MlttTypeChecker.display(store, vec.constructors(1).result), "Vec(A, S(k))")
+    assertEquals(
+      MlttTypeChecker.display(store, vec.constructors.head.result),
+      "Vec(A, Z)",
+    )
+    assertEquals(
+      MlttTypeChecker.display(store, vec.constructors(1).result),
+      "Vec(A, S(k))",
+    )
 
     val metas = MlttTypeChecker.metaStore()
     val type0 = store.allocUniverse(0)
@@ -171,7 +215,9 @@ class MlttTypeCheckerTests extends munit.FunSuite:
     assert(metas.solveExact(metaId, type0))
     assert(!metas.hasUnsolvedPublicMeta)
 
-    val diagnostic = MlttTypeChecker.higherOrderUnificationDiagnostic(MlttTypeChecker.context())
+    val diagnostic = MlttTypeChecker.higherOrderUnificationDiagnostic(
+      MlttTypeChecker.context(),
+    )
     assertEquals(diagnostic.code, MlttTypeChecker.HigherOrderUnificationCode)
     assertEquals(diagnostic.profileId, CheckerProfiles.MlttCore.id)
 end MlttTypeCheckerTests

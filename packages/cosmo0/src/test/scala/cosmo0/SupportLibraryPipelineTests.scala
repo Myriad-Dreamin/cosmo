@@ -1,7 +1,9 @@
 package cosmo0
 
 class SupportLibraryPipelineTests extends munit.FunSuite:
-  test("support-library ids define Rust target, C symbol, and artifact conventions"):
+  test(
+    "support-library ids define Rust target, C symbol, and artifact conventions",
+  ):
     val id = SupportLibraryId.parse("uri-sys").fold(fail(_), identity)
     val artifact = SupportLibraryArtifact(id)
 
@@ -18,8 +20,13 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     val id = SupportLibraryId.parse("ureq-sys").fold(fail(_), identity)
     val artifact = SupportLibraryArtifact(id)
     val plan = SupportLibraryLinkPlan
-      .fromBackendRequirements(List(BackendRequirement.supportLibrary(id.value)))
-      .fold(diagnostics => fail(diagnostics.map(_.message).mkString("\n")), identity)
+      .fromBackendRequirements(
+        List(BackendRequirement.supportLibrary(id.value)),
+      )
+      .fold(
+        diagnostics => fail(diagnostics.map(_.message).mkString("\n")),
+        identity,
+      )
 
     assertEquals(id.crateDirectory, "crates/ureq-sys")
     assertEquals(id.rustLibraryTarget, "cosmo_ureq_sys")
@@ -31,15 +38,22 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     )
     assertEquals(
       plan.linkArguments,
-      List("target/cosmo/support-libraries/release/ureq-sys/libcosmo_ureq_sys.a"),
+      List(
+        "target/cosmo/support-libraries/release/ureq-sys/libcosmo_ureq_sys.a",
+      ),
     )
 
   test("uri-sys support-library id maps through the shared Rust pipeline"):
     val id = SupportLibraryId.parse("uri-sys").fold(fail(_), identity)
     val artifact = SupportLibraryArtifact(id)
     val plan = SupportLibraryLinkPlan
-      .fromBackendRequirements(List(BackendRequirement.supportLibrary(id.value)))
-      .fold(diagnostics => fail(diagnostics.map(_.message).mkString("\n")), identity)
+      .fromBackendRequirements(
+        List(BackendRequirement.supportLibrary(id.value)),
+      )
+      .fold(
+        diagnostics => fail(diagnostics.map(_.message).mkString("\n")),
+        identity,
+      )
 
     assertEquals(id.crateDirectory, "crates/uri-sys")
     assertEquals(id.rustLibraryTarget, "cosmo_uri_sys")
@@ -54,61 +68,77 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       List("target/cosmo/support-libraries/release/uri-sys/libcosmo_uri_sys.a"),
     )
 
-  test("ureq-sys package declarations check as a cosmo0 support-library surface"):
+  test(
+    "ureq-sys package declarations check as a cosmo0 support-library surface",
+  ):
     val checked = Cosmo0().checkPackage("packages/ureq-sys")
 
     assert(
       checked.isSuccess,
-      s"ureq-sys package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+      s"ureq-sys package check failed with diagnostics: ${checked.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(checked.value.get.metadata.name, "@cosmo/ureq-sys")
     assertEquals(checked.value.get.moduleOrder.lastOption, Some("ureq_sys"))
 
-    val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
-      fn.name -> fn.externBinding.flatMap(_.supportLibrary)
+    val functions = checked.value.get.checked.typed.decls.collect {
+      case fn: TypedFunction =>
+        fn.name -> fn.extern.flatMap(_.supportLibrary)
     }
-    val classes = checked.value.get.checked.typed.declarations.collect { case cls: TypedClass =>
-      cls.name -> cls.methods.map(_.name)
+    val classes = checked.value.get.checked.typed.decls.collect {
+      case cls: TypedClass =>
+        cls.name -> cls.methods.map(_.name)
     }.toMap
     assert(functions.contains("ureq_request" -> None))
     assert(functions.contains("ureq_byte_slice" -> None))
-    assert(functions.contains("unsafe_ureq_sys_request_new" -> Some("ureq-sys")))
-    assert(functions.contains("unsafe_ureq_sys_response_body_bytes" -> Some("ureq-sys")))
-    assert(functions.contains("unsafe_ureq_sys_error_release" -> Some("ureq-sys")))
-    List("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse").foreach { name =>
-      assert(
-        classes.get(name).exists(_.contains("drop")),
-        s"$name is missing Drop.drop in ${classes.get(name)}",
-      )
-      assert(
-        !classes.get(name).exists(_.contains("release")),
-        s"$name still exposes release in ${classes.get(name)}",
-      )
+    assert(
+      functions.contains("unsafe_ureq_sys_request_new" -> Some("ureq-sys")),
+    )
+    assert(
+      functions.contains(
+        "unsafe_ureq_sys_response_body_bytes" -> Some("ureq-sys"),
+      ),
+    )
+    assert(
+      functions.contains("unsafe_ureq_sys_error_release" -> Some("ureq-sys")),
+    )
+    List("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse").foreach {
+      name =>
+        assert(
+          classes.get(name).exists(_.contains("drop")),
+          s"$name is missing Drop.drop in ${classes.get(name)}",
+        )
+        assert(
+          !classes.get(name).exists(_.contains("release")),
+          s"$name still exposes release in ${classes.get(name)}",
+        )
     }
 
-    val source = ParserFixtureManifest.readFile("packages/ureq-sys/src/ureq_sys.cos")
+    val source =
+      ParserFixtureManifest.readFile("packages/ureq-sys/src/ureq_sys.cos")
     val elaborated = Cosmo0().elaborate(SourceFile("ureq_sys.cos", source))
     assert(
       elaborated.isSuccess,
-      s"ureq-sys elaboration failed with diagnostics: ${elaborated.diagnostics.map(d => d.code -> d.message)}",
+      s"ureq-sys elaboration failed with diagnostics: ${elaborated.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
-    val declarations = elaborated.value.get.declarations
+    val declarations = elaborated.value.get.decls
     val publicFunctions = declarations.collect {
-      case fn: UntypedFunction if fn.visibility == UntypedVisibility.Public => fn.name
+      case fn: UntypedFunction if fn.vis == UntypedVisibility.Public => fn.name
     }
     val unsafeExterns = declarations.collect {
       case fn: UntypedFunction if fn.name.startsWith("unsafe_ureq_sys_") =>
-        fn.name -> (fn.visibility, fn.externBinding.flatMap(_.supportLibrary))
+        fn.name -> (fn.vis, fn.extern.flatMap(_.supportLibrary))
     }
     val publicClasses = declarations.collect {
-      case cls: UntypedClass if cls.visibility == UntypedVisibility.Public => cls.name
+      case cls: UntypedClass if cls.vis == UntypedVisibility.Public => cls.name
     }
     val publicTraits = declarations.collect {
-      case trt: UntypedTrait if trt.visibility == UntypedVisibility.Public => trt.name
+      case trt: UntypedTrait if trt.vis == UntypedVisibility.Public => trt.name
     }
     val privateClasses = declarations.collect {
-      case cls: UntypedClass if cls.visibility == UntypedVisibility.Private => cls.name
+      case cls: UntypedClass if cls.vis == UntypedVisibility.Private => cls.name
     }
 
     assert(publicFunctions.contains("ureq_request"))
@@ -117,7 +147,9 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(unsafeExterns.nonEmpty)
     assert(
       unsafeExterns.forall { case (_, (visibility, supportLibrary)) =>
-        visibility == UntypedVisibility.Private && supportLibrary.contains("ureq-sys")
+        visibility == UntypedVisibility.Private && supportLibrary.contains(
+          "ureq-sys",
+        )
       },
       s"unsafe extern visibility/linkage mismatch: $unsafeExterns",
     )
@@ -134,37 +166,47 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(privateClasses.contains("UreqSysRawError"))
     assert(privateClasses.contains("UreqSysBytes"))
 
-    val privateRawWrappers = Set("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse")
-    val rawFieldVisibility = declarations.collect { case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
-      cls.name -> cls.members.collectFirst { case field: UntypedValueDecl if field.name == "raw" =>
-        field.visibility
-      }
+    val privateRawWrappers =
+      Set("UreqOwnedBytes", "UreqError", "UreqRequest", "UreqResponse")
+    val rawFieldVisibility = declarations.collect {
+      case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
+        cls.name -> cls.members.collectFirst {
+          case field: UntypedValueDecl if field.name == "raw" =>
+            field.vis
+        }
     }
     assertEquals(
       rawFieldVisibility.toMap,
       privateRawWrappers.map(_ -> Some(UntypedVisibility.Private)).toMap,
     )
 
-  test("uri-sys package declarations check as a cosmo0 support-library surface"):
+  test(
+    "uri-sys package declarations check as a cosmo0 support-library surface",
+  ):
     val checked = Cosmo0().checkPackage("packages/uri-sys")
 
     assert(
       checked.isSuccess,
-      s"uri-sys package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+      s"uri-sys package check failed with diagnostics: ${checked.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(checked.value.get.metadata.name, "@cosmo/uri-sys")
     assertEquals(checked.value.get.moduleOrder.lastOption, Some("uri_sys"))
 
-    val functions = checked.value.get.checked.typed.declarations.collect { case fn: TypedFunction =>
-      fn.name -> fn.externBinding.flatMap(_.supportLibrary)
+    val functions = checked.value.get.checked.typed.decls.collect {
+      case fn: TypedFunction =>
+        fn.name -> fn.extern.flatMap(_.supportLibrary)
     }
-    val classes = checked.value.get.checked.typed.declarations.collect { case cls: TypedClass =>
-      cls.name -> cls.methods.map(_.name)
+    val classes = checked.value.get.checked.typed.decls.collect {
+      case cls: TypedClass =>
+        cls.name -> cls.methods.map(_.name)
     }.toMap
     assert(functions.contains("unsafe_uri_sys_parse" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_join" -> Some("uri-sys")))
     assert(functions.contains("unsafe_uri_sys_to_file_path" -> Some("uri-sys")))
-    assert(functions.contains("unsafe_uri_sys_bytes_release" -> Some("uri-sys")))
+    assert(
+      functions.contains("unsafe_uri_sys_bytes_release" -> Some("uri-sys")),
+    )
     assert(functions.contains("uri_sys_parse_string" -> None))
     assert(functions.contains("uri_sys_from_file_path_string" -> None))
     assert(classes.get("Uri").exists(_.contains("parse")))
@@ -183,29 +225,31 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       )
     }
 
-    val source = ParserFixtureManifest.readFile("packages/uri-sys/src/uri_sys.cos")
+    val source =
+      ParserFixtureManifest.readFile("packages/uri-sys/src/uri_sys.cos")
     val elaborated = Cosmo0().elaborate(SourceFile("uri_sys.cos", source))
     assert(
       elaborated.isSuccess,
-      s"uri-sys elaboration failed with diagnostics: ${elaborated.diagnostics.map(d => d.code -> d.message)}",
+      s"uri-sys elaboration failed with diagnostics: ${elaborated.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
-    val declarations = elaborated.value.get.declarations
+    val declarations = elaborated.value.get.decls
     val publicFunctions = declarations.collect {
-      case fn: UntypedFunction if fn.visibility == UntypedVisibility.Public => fn.name
+      case fn: UntypedFunction if fn.vis == UntypedVisibility.Public => fn.name
     }
     val unsafeExterns = declarations.collect {
       case fn: UntypedFunction if fn.name.startsWith("unsafe_uri_sys_") =>
-        fn.name -> (fn.visibility, fn.externBinding.flatMap(_.supportLibrary))
+        fn.name -> (fn.vis, fn.extern.flatMap(_.supportLibrary))
     }
     val publicClasses = declarations.collect {
-      case cls: UntypedClass if cls.visibility == UntypedVisibility.Public => cls.name
+      case cls: UntypedClass if cls.vis == UntypedVisibility.Public => cls.name
     }
     val publicTraits = declarations.collect {
-      case trt: UntypedTrait if trt.visibility == UntypedVisibility.Public => trt.name
+      case trt: UntypedTrait if trt.vis == UntypedVisibility.Public => trt.name
     }
     val privateClasses = declarations.collect {
-      case cls: UntypedClass if cls.visibility == UntypedVisibility.Private => cls.name
+      case cls: UntypedClass if cls.vis == UntypedVisibility.Private => cls.name
     }
 
     assert(!publicFunctions.contains("uri_parse"))
@@ -218,7 +262,9 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(unsafeExterns.nonEmpty)
     assert(
       unsafeExterns.forall { case (_, (visibility, supportLibrary)) =>
-        visibility == UntypedVisibility.Private && supportLibrary.contains("uri-sys")
+        visibility == UntypedVisibility.Private && supportLibrary.contains(
+          "uri-sys",
+        )
       },
       s"unsafe extern visibility/linkage mismatch: $unsafeExterns",
     )
@@ -234,10 +280,12 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     assert(privateClasses.contains("UriSysBytes"))
 
     val privateRawWrappers = Set("UriOwnedBytes", "UriError", "Uri")
-    val rawFieldVisibility = declarations.collect { case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
-      cls.name -> cls.members.collectFirst { case field: UntypedValueDecl if field.name == "raw" =>
-        field.visibility
-      }
+    val rawFieldVisibility = declarations.collect {
+      case cls: UntypedClass if privateRawWrappers.contains(cls.name) =>
+        cls.name -> cls.members.collectFirst {
+          case field: UntypedValueDecl if field.name == "raw" =>
+            field.vis
+        }
     }
     assertEquals(
       rawFieldVisibility.toMap,
@@ -252,8 +300,8 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     )
 
     assertEquals(accepted.status, PhaseStatus.Succeeded)
-    val fn = accepted.value.get.declarations.head.asInstanceOf[UntypedFunction]
-    assertEquals(fn.externBinding.flatMap(_.supportLibrary), Some("support-smoke"))
+    val fn = accepted.value.get.decls.head.asInstanceOf[UntypedFunction]
+    assertEquals(fn.extern.flatMap(_.supportLibrary), Some("support-smoke"))
 
     val rejected = Cosmo0().elaborate(
       """@extern("c", name = "bad", supportLibrary = "UriSys")
@@ -290,22 +338,38 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
 
     assert(
       result.isSuccess,
-      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"C++ emission failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = result.value.get
-    assert(output.source.contains("cosmo_support_smoke_add(value, static_cast<int32_t>(1))"))
-    assert(output.backendRequirements.contains(BackendRequirement.supportLibrary("support-smoke")))
+    assert(
+      output.source.contains(
+        "cosmo_support_smoke_add(value, static_cast<int32_t>(1))",
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.supportLibrary("support-smoke"),
+      ),
+    )
     assertEquals(
       output.supportLibraryLinkArguments,
-      List("target/cosmo/support-libraries/release/support-smoke/libcosmo_support_smoke.a"),
+      List(
+        "target/cosmo/support-libraries/release/support-smoke/libcosmo_support_smoke.a",
+      ),
     )
     assert(output.runtimeRequirements.contains("support-library:support-smoke"))
 
   test("support-library link plan reports missing and incompatible artifacts"):
     val id = SupportLibraryPipeline.smokeSupportLibrary
     val plan = SupportLibraryLinkPlan
-      .fromBackendRequirements(List(BackendRequirement.supportLibrary(id.value)))
-      .fold(diagnostics => fail(diagnostics.map(_.message).mkString("\n")), identity)
+      .fromBackendRequirements(
+        List(BackendRequirement.supportLibrary(id.value)),
+      )
+      .fold(
+        diagnostics => fail(diagnostics.map(_.message).mkString("\n")),
+        identity,
+      )
 
     val missing = plan.validateArtifacts(Nil)
     assert(
@@ -314,15 +378,29 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
     )
 
     val incompatible = plan.validateArtifacts(
-      List(SupportLibraryAvailableArtifact(id, plan.items.head.artifact.path, abiVersion = 0)),
+      List(
+        SupportLibraryAvailableArtifact(
+          id,
+          plan.items.head.artifact.path,
+          abiVersion = 0,
+        ),
+      ),
     )
     assert(
-      incompatible.exists(_.code == "cosmo0.support-library.incompatible-artifact"),
+      incompatible.exists(
+        _.code == "cosmo0.support-library.incompatible-artifact",
+      ),
       s"incompatible artifact diagnostic not found in ${incompatible.map(_.code)}",
     )
 
     val valid = plan.validateArtifacts(
-      List(SupportLibraryAvailableArtifact(id, plan.items.head.artifact.path, SupportLibraryPipeline.abiVersion)),
+      List(
+        SupportLibraryAvailableArtifact(
+          id,
+          plan.items.head.artifact.path,
+          SupportLibraryPipeline.abiVersion,
+        ),
+      ),
     )
     assertEquals(valid, Nil)
 
@@ -356,7 +434,8 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
               Some(Lir.localId("value")),
               extern.id,
               List(Lir.int(1), Lir.int(2)),
-              Lir.signature(List(SourceType.I32, SourceType.I32), SourceType.I32),
+              Lir
+                .signature(List(SourceType.I32, SourceType.I32), SourceType.I32),
             ),
           ),
           terminator = LirReturn(Some(Lir.ref("value", SourceType.I32))),
@@ -364,7 +443,9 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       ),
     )
 
-    val result = CppBackend(LirModule("invalid_support_library", List(extern, caller))).emit()
+    val result = CppBackend(
+      LirModule("invalid_support_library", List(extern, caller)),
+    ).emit()
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(

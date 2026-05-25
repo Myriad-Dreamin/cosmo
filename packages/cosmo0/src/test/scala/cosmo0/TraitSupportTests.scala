@@ -24,11 +24,16 @@ class TraitSupportTests extends munit.FunSuite:
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"trait impl lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"trait impl lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
-    assert(rendered.contains("fn @Owned.drop drop(%self self: &Owned) -> Unit owner @Owned"))
+    assert(
+      rendered.contains(
+        "fn @Owned.drop drop(%self self: &Owned) -> Unit owner @Owned",
+      ),
+    )
     assert(rendered.contains("method_call %value.drop() -> Unit"))
 
   test("Drop impls emit C++ destructors that call lowered drop methods"):
@@ -54,11 +59,13 @@ class TraitSupportTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"trait impl C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"trait impl C++ emission failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val source = compiled.value.get.output
-    val forwardDeclIndex = source.indexOf("inline void Owned_drop(const Owned * self);")
+    val forwardDeclIndex =
+      source.indexOf("inline void Owned_drop(const Owned * self);")
     val structIndex = source.indexOf("struct Owned {")
     assert(forwardDeclIndex >= 0, source)
     assert(structIndex >= 0, source)
@@ -90,7 +97,9 @@ class TraitSupportTests extends munit.FunSuite:
     assertEquals(mismatch.phase, Phase.Check)
     assertEquals(mismatch.status, PhaseStatus.Failed)
     assert(
-      mismatch.diagnostics.exists(_.code == "cosmo0.type.impl-signature-mismatch"),
+      mismatch.diagnostics.exists(
+        _.code == "cosmo0.type.impl-signature-mismatch",
+      ),
       s"missing signature mismatch diagnostic in ${mismatch.diagnostics.map(_.code)}",
     )
 

@@ -7,7 +7,9 @@ class Core0JsonBridgeTests extends munit.FunSuite:
   private val astPath = "packages/cosmoc/src/syntax/ast.cos"
   private val loaderPath = "packages/cosmoc/src/syntax/json_loader.cos"
 
-  test("core0.json source accessors cover objects, arrays, strings, booleans, null, and numbers"):
+  test(
+    "core0.json source accessors cover objects, arrays, strings, booleans, null, and numbers",
+  ):
     val source = combineSources(
       List(core0JsonPath),
       """def core0_json_accessor_smoke(value: JsonValue): Bool = {
@@ -24,28 +26,39 @@ class Core0JsonBridgeTests extends munit.FunSuite:
         |""".stripMargin,
     )
 
-    val lowered = Cosmo0().lower(SourceFile("core0_json_accessor_smoke.cos", source))
+    val lowered =
+      Cosmo0().lower(SourceFile("core0_json_accessor_smoke.cos", source))
 
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"core0.json accessor lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.json accessor lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
     assert(rendered.contains("fn @JsonValue.field field"))
     assert(rendered.contains("fn @JsonValue.array_get array_get"))
     assert(rendered.contains("fn @json_field json_field"))
-    assert(rendered.contains("extern cosmo0.extern.v0 \"::cosmo0_runtime::json_field\""))
+    assert(
+      rendered.contains(
+        "extern cosmo0.extern.v0 \"::cosmo0_runtime::json_field\"",
+      ),
+    )
     assert(rendered.contains("fn @json_array_get json_array_get"))
-    assert(rendered.contains("extern cosmo0.extern.v0 \"::cosmo0_runtime::json_array_get\""))
+    assert(
+      rendered.contains(
+        "extern cosmo0.extern.v0 \"::cosmo0_runtime::json_array_get\"",
+      ),
+    )
     assert(!rendered.contains("descriptor Json"))
     assert(!rendered.contains("descriptor JsonValue"))
 
     val compiled = CppBackend(lowered.value.get.lir).emit()
     assert(
       compiled.isSuccess,
-      s"core0.json accessor C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.json accessor C++ emission failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.source
     assert(output.contains("struct JsonValue"))
@@ -60,27 +73,45 @@ class Core0JsonBridgeTests extends munit.FunSuite:
         |""".stripMargin,
     )
 
-    val lowered = Cosmo0().lower(SourceFile("core0_json_parse_smoke.cos", source))
+    val lowered =
+      Cosmo0().lower(SourceFile("core0_json_parse_smoke.cos", source))
 
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"core0.json parse lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.json parse lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
-    assert(rendered.contains("fn @json_parse json_parse(%text text: String) -> Result[JsonValue, JsonParseError] extern cosmo0.extern.v0 \"::cosmo0_runtime::json_parse\""))
-    assert(rendered.contains("call @json_parse(%text) -> Result[JsonValue, JsonParseError]"))
+    assert(
+      rendered.contains(
+        "fn @json_parse json_parse(%text text: String) -> Result[JsonValue, JsonParseError] extern cosmo0.extern.v0 \"::cosmo0_runtime::json_parse\"",
+      ),
+    )
+    assert(
+      rendered.contains(
+        "call @json_parse(%text) -> Result[JsonValue, JsonParseError]",
+      ),
+    )
     assert(!rendered.contains("descriptor Json"))
     assert(!rendered.contains("descriptor JsonValue"))
 
     val compiled = CppBackend(lowered.value.get.lir).emit()
     assert(
       compiled.isSuccess,
-      s"core0.json parse C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.json parse C++ emission failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
-    assert(compiled.value.get.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::json_parse")))
-    assert(compiled.value.get.backendRequirements.contains(BackendRequirement.include("<nlohmann/json.hpp>")))
+    assert(
+      compiled.value.get.backendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::json_parse"),
+      ),
+    )
+    assert(
+      compiled.value.get.backendRequirements
+        .contains(BackendRequirement.include("<nlohmann/json.hpp>")),
+    )
 
   test("core0.json source tests compile through the nlohmann-backed bridge"):
     val source = combineSources(List(core0JsonPath, core0JsonTestPath), "")
@@ -90,7 +121,8 @@ class Core0JsonBridgeTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"core0.json source test compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.json source test compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.output
     assert(output.contains("nlohmann::json"))
@@ -98,7 +130,9 @@ class Core0JsonBridgeTests extends munit.FunSuite:
     assert(output.contains("inline bool json_test_smoke()"))
     assert(output.contains("inline bool json_test_rejects_invalid()"))
 
-  test("cosmo1 syntax JSON loader compiles selected parser JSON mapping into syntax arenas"):
+  test(
+    "cosmo1 syntax JSON loader compiles selected parser JSON mapping into syntax arenas",
+  ):
     val source = combineSources(
       List(core0JsonPath, spanPath, astPath, loaderPath),
       """def syntax_json_loader_smoke(): Bool = {
@@ -108,12 +142,14 @@ class Core0JsonBridgeTests extends munit.FunSuite:
         |""".stripMargin,
     )
 
-    val lowered = Cosmo0().lower(SourceFile("syntax_json_loader_smoke.cos", source))
+    val lowered =
+      Cosmo0().lower(SourceFile("syntax_json_loader_smoke.cos", source))
 
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"syntax JSON loader lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"syntax JSON loader lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
@@ -122,25 +158,46 @@ class Core0JsonBridgeTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor Json"))
     assert(!rendered.contains("descriptor JsonValue"))
 
-  test("core0.json capability is later-stage std metadata, not a descriptor family"):
+  test(
+    "core0.json capability is later-stage std metadata, not a descriptor family",
+  ):
     val profile = StageCapabilityProfile(
       "cosmo1.json-loader",
       requiredPrimitiveDescriptors = Set.empty,
       requiredStdCapabilities = Set(StageCapabilityRegistry.Core0Json),
     )
     val availability = StageCapabilityRegistry.defaultAvailability.copy(
-      stdCapabilities = StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0Json,
+      stdCapabilities =
+        StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0Json,
     )
 
     val diagnostics = StageCapabilityRegistry.validate(profile, availability)
 
-    assert(diagnostics.exists(_.message.contains("requires std capability core0.json")))
-    assert(StageCapabilityRegistry.laterStageStdCapabilities.contains(StageCapabilityRegistry.Core0Json))
-    assert(!StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Json))
+    assert(
+      diagnostics.exists(
+        _.message.contains("requires std capability core0.json"),
+      ),
+    )
+    assert(
+      StageCapabilityRegistry.laterStageStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Json,
+      ),
+    )
+    assert(
+      !StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Json,
+      ),
+    )
     assert(StandardGenericDescriptors.get("Json").isEmpty)
     assert(StandardGenericDescriptors.get("JsonValue").isEmpty)
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("Json"))
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("JsonValue"))
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("Json"),
+    )
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("JsonValue"),
+    )
 
   private def combineSources(paths: List[String], extra: String): String =
     (paths.map(readCosmoSource) :+ extra).mkString("\n")

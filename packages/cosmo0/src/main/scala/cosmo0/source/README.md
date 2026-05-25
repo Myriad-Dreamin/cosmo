@@ -1,10 +1,12 @@
-# package
+# source
 
-This directory owns cosmo0 package loading and package-level compilation.
+This directory owns shared cosmo0 source models plus package loading and
+package-level compilation.
 
-`Pipeline.scala` reads `cosmo.json`, discovers source files, loads dependencies,
-builds the module import graph, enforces package visibility, combines ordered
-modules, and then reuses the normal compiler stages.
+`Model.scala` contains shared result, diagnostic, source, and package models.
+`Pipeline.scala` reads `cosmo.json`, discovers source files, loads
+dependencies, builds the module import graph, enforces package visibility,
+combines ordered modules, and then reuses the normal compiler stages.
 
 Package flow:
 

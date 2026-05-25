@@ -5,7 +5,9 @@ class DependentPatternTests extends munit.FunSuite:
     val fixture = vecHeadFixture(CheckerProfiles.Cosmo0Subset)
     val tree = fixture.tree
 
-    assert(DependentPatterns.profileSupportsElaboration(CheckerProfiles.Cosmo0Subset))
+    assert(
+      DependentPatterns.profileSupportsElaboration(CheckerProfiles.Cosmo0Subset),
+    )
     assert(tree.isOk)
     assertEquals(tree.diagnostics, Nil)
     assertEquals(tree.familyDisplay, "Vec(A, S(n))")
@@ -14,7 +16,10 @@ class DependentPatternTests extends munit.FunSuite:
     assertEquals(tree.branches.head.binders, List("head", "tail"))
     assertEquals(tree.branches.head.impossible, false)
     assertEquals(tree.refinements.length, 1)
-    assertEquals(tree.refinements.head.contextBindings.map(_.name), List("head", "tail"))
+    assertEquals(
+      tree.refinements.head.contextBindings.map(_.name),
+      List("head", "tail"),
+    )
     assertEquals(tree.refinements.head.substitutionSummary, "n=k")
     assertEquals(tree.refinements.head.expectedType, "A under n=k")
     assertEquals(
@@ -22,14 +27,21 @@ class DependentPatternTests extends munit.FunSuite:
       "case xs : Vec(A, S(n)) of\n  Cons(head, tail) -> head [n=k]",
     )
 
-  test("Scala dependent pattern gate rejects profiles without elaboration support"):
+  test(
+    "Scala dependent pattern gate rejects profiles without elaboration support",
+  ):
     val fixture = vecHeadFixture(CheckerProfiles.MlttCore)
     val tree = fixture.tree
 
-    assert(!DependentPatterns.profileSupportsElaboration(CheckerProfiles.MlttCore))
+    assert(
+      !DependentPatterns.profileSupportsElaboration(CheckerProfiles.MlttCore),
+    )
     assert(!tree.isOk)
     assertEquals(tree.branches, Nil)
-    assertEquals(tree.firstCode, CheckerProfiles.UnsupportedDependentPatternCode)
+    assertEquals(
+      tree.firstCode,
+      CheckerProfiles.UnsupportedDependentPatternCode,
+    )
     assertEquals(tree.diagnostics.head.summary, CheckerProfiles.MlttCore.id)
 
   test("Scala dependent pattern unifier marks impossible constructor indices"):
@@ -61,7 +73,10 @@ class DependentPatternTests extends munit.FunSuite:
     assertEquals(tree.branches.length, 1)
     assertEquals(tree.branches.head.constructor, "Nil")
     assertEquals(tree.branches.head.impossible, true)
-    assertEquals(tree.firstCode, "cosmo.type.dependent-pattern.impossible-branch")
+    assertEquals(
+      tree.firstCode,
+      "cosmo.type.dependent-pattern.impossible-branch",
+    )
     assertEquals(tree.diagnostics.head.summary, "S cannot refine Z")
 
   private final case class VecHeadFixture(tree: DependentCaseTree)
@@ -78,7 +93,8 @@ class DependentPatternTests extends munit.FunSuite:
     val scrutineeIndices = DependentPatterns.vecIndices(store, sN)
     val headPat = patterns.allocVariable("head", span(12, 16))
     val tailPat = patterns.allocVariable("tail", span(18, 22))
-    val cons = patterns.allocConstructor("Cons", List(headPat, tailPat), span(8, 23))
+    val cons =
+      patterns.allocConstructor("Cons", List(headPat, tailPat), span(8, 23))
     val clauses = List(DependentPatternClause(cons, "head", span(8, 31)))
     val tree =
       DependentPatterns.elaborateClauses(

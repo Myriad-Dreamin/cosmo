@@ -5,11 +5,15 @@ class Core0TextInterfaceTests extends munit.FunSuite:
   private val core0PathFsPath = "library/std/src/std/path_fs.cos"
   private val sourceTextPath = "packages/cosmoc/src/source/source.cos"
   private val sourceMapPath = "packages/cosmoc/src/source/source_map.cos"
-  private val sourceFixturePath = "fixtures/cosmo0/cosmo1/source-text/source_text_fixture.cos"
+  private val sourceFixturePath =
+    "fixtures/cosmo0/cosmo1/source-text/source_text_fixture.cos"
   private val sourceTestPath = "packages/cosmoc/src/source/source_test.cos"
-  private val sourceMapTestPath = "packages/cosmoc/src/source/source_map_test.cos"
+  private val sourceMapTestPath =
+    "packages/cosmoc/src/source/source_map_test.cos"
 
-  test("direct core0.text source APIs cover length, slicing, char and byte access, and builders"):
+  test(
+    "direct core0.text source APIs cover length, slicing, char and byte access, and builders",
+  ):
     val source = combineSources(
       List(core0TextPath),
       """def core0_text_direct_smoke(): Bool = {
@@ -42,7 +46,8 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"core0.text direct lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.text direct lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
@@ -60,19 +65,28 @@ class Core0TextInterfaceTests extends munit.FunSuite:
 
     assert(
       compiled.isSuccess,
-      s"core0.text direct C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"core0.text direct C++ emission failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.source
     assert(output.contains("struct TextBuilder"))
     assert(output.contains("struct TextView"))
-    assert(output.contains("inline std::size_t core0_text_len(std::string text)"))
+    assert(
+      output.contains("inline std::size_t core0_text_len(std::string text)"),
+    )
     assert(output.contains(".substr("))
     assert(output.contains(".at("))
     assert(!output.contains("StringBuilder"))
 
   test("cosmo1 source text fixture uses SourceText and SourceMap helpers"):
     val source = combineSources(
-      List(core0TextPath, core0PathFsPath, sourceTextPath, sourceMapPath, sourceFixturePath),
+      List(
+        core0TextPath,
+        core0PathFsPath,
+        sourceTextPath,
+        sourceMapPath,
+        sourceFixturePath,
+      ),
       "",
     )
 
@@ -81,7 +95,8 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Compile)
     assert(
       result.isSuccess,
-      s"cosmo1 source text fixture compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmo1 source text fixture compile failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val output = result.value.get.output
@@ -93,7 +108,9 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assert(output.contains("inline SourceLocation SourceMap_location("))
     assert(!output.contains("StringBuilder"))
 
-  test("source.source helpers expose SourceText operations without descriptor families"):
+  test(
+    "source.source helpers expose SourceText operations without descriptor families",
+  ):
     val source = combineSources(
       List(core0TextPath, core0PathFsPath, sourceTextPath, sourceTestPath),
       "",
@@ -104,11 +121,14 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"source.source helper lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"source.source helper lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
-    assert(rendered.contains("fn @source_text_from_string source_text_from_string"))
+    assert(
+      rendered.contains("fn @source_text_from_string source_text_from_string"),
+    )
     assert(rendered.contains("fn @source_text_len source_text_len"))
     assert(rendered.contains("fn @source_text_slice source_text_slice"))
     assert(rendered.contains("fn @source_text_view source_text_view"))
@@ -121,18 +141,37 @@ class Core0TextInterfaceTests extends munit.FunSuite:
 
     assert(
       compiled.isSuccess,
-      s"source.source helper C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"source.source helper C++ emission failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.source
-    assert(output.contains("inline SourceText source_text_from_string(std::string text)"))
-    assert(output.contains("inline std::size_t source_text_len(SourceText source)"))
-    assert(output.contains("inline std::string source_text_slice(SourceText source"))
-    assert(output.contains("inline TextView source_text_view(SourceText source"))
+    assert(
+      output.contains(
+        "inline SourceText source_text_from_string(std::string text)",
+      ),
+    )
+    assert(
+      output.contains("inline std::size_t source_text_len(SourceText source)"),
+    )
+    assert(
+      output.contains("inline std::string source_text_slice(SourceText source"),
+    )
+    assert(
+      output.contains("inline TextView source_text_view(SourceText source"),
+    )
     assert(!output.contains("SourceText_descriptor"))
 
-  test("source.source_map helpers expose line and location APIs without descriptor families"):
+  test(
+    "source.source_map helpers expose line and location APIs without descriptor families",
+  ):
     val source = combineSources(
-      List(core0TextPath, core0PathFsPath, sourceTextPath, sourceMapPath, sourceMapTestPath),
+      List(
+        core0TextPath,
+        core0PathFsPath,
+        sourceTextPath,
+        sourceMapPath,
+        sourceMapTestPath,
+      ),
       "",
     )
 
@@ -141,13 +180,18 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assertEquals(lowered.phase, Phase.Compile)
     assert(
       lowered.isSuccess,
-      s"source.source_map helper lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"source.source_map helper lowering failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val rendered = LirDebugRenderer.renderModule(lowered.value.get.lir)
     assert(rendered.contains("fn @make_source_map make_source_map"))
-    assert(rendered.contains("fn @source_map_clamp_offset source_map_clamp_offset"))
-    assert(rendered.contains("method_call %map.location(3:usize) -> SourceLocation"))
+    assert(
+      rendered.contains("fn @source_map_clamp_offset source_map_clamp_offset"),
+    )
+    assert(
+      rendered.contains("method_call %map.location(3:usize) -> SourceLocation"),
+    )
     assert(rendered.contains("method_call %map.line_start(3:usize) -> usize"))
     assert(rendered.contains("method_call %map.line_end(3:usize) -> usize"))
     assert(rendered.contains("method_call %map.line_text(5:usize) -> String"))
@@ -158,12 +202,15 @@ class Core0TextInterfaceTests extends munit.FunSuite:
 
     assert(
       compiled.isSuccess,
-      s"source.source_map helper C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"source.source_map helper C++ emission failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.source
     assert(output.contains("struct SourceMap"))
     assert(output.contains("struct SourceLocation"))
-    assert(output.contains("inline SourceMap make_source_map(SourceText source)"))
+    assert(
+      output.contains("inline SourceMap make_source_map(SourceText source)"),
+    )
     assert(output.contains("inline SourceLocation SourceMap_location("))
     assert(output.contains("inline std::size_t SourceMap_line_start("))
     assert(output.contains("inline std::string SourceMap_line_text("))

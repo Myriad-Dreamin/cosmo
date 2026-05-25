@@ -6,7 +6,8 @@ the subdirectories are physical ownership boundaries, not Scala namespace
 boundaries.
 
 `Cosmo0.scala` is the facade used by tests, Scala.js exports, and host callers.
-`Model.scala` contains shared result, diagnostic, source, and package models.
+`source/Model.scala` contains shared result, diagnostic, source, and package
+models.
 
 The normal single-module pipeline is:
 
@@ -17,5 +18,5 @@ The normal single-module pipeline is:
 5. `lir/TypeChecker.scala` validates hand-written and lowered LIR.
 6. `backend/cpp/Backend.scala` emits C++ from checked LIR.
 
-The package pipeline in `package/` reuses the same stages after loading package
+The package pipeline in `source/` reuses the same stages after loading package
 metadata, source files, and module import order.

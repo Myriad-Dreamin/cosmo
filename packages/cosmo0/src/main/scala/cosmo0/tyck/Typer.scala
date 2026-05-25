@@ -22,9 +22,9 @@ final class SourceTyper(
 ):
   private final case class ValueSymbol(
       name: String,
-      valueType: SourceType,
-      mutableBinding: Boolean,
-      mutationAllowed: Boolean,
+      ty: SourceType,
+      mutBinding: Boolean,
+      mutAllowed: Boolean,
       span: SourceSpan,
   )
 
@@ -42,14 +42,14 @@ final class SourceTyper(
 
   private final case class ExprInfo(
       expr: TypedExpr,
-      mutableBinding: Boolean,
-      mutationAllowed: Boolean,
+      mutBinding: Boolean,
+      mutAllowed: Boolean,
   )
 
   private final case class FieldInfo(
       name: String,
       kind: UntypedValueKind,
-      valueType: SourceType,
+      ty: SourceType,
       init: Option[UntypedExpr],
       span: SourceSpan,
   )
@@ -59,13 +59,13 @@ final class SourceTyper(
       fields: List[TypedVariantField],
       span: SourceSpan,
   ):
-    def signature(owner: String): CallableSignature =
+    def sig(owner: String): CallableSignature =
       CallableSignature(
         name,
         fields.zipWithIndex.map { case (field, index) =>
           CallableParam(
             field.name.getOrElse(s"field$index"),
-            field.valueType,
+            field.ty,
             field.span,
           )
         },
@@ -74,7 +74,7 @@ final class SourceTyper(
 
   private final case class ParamInfo(
       name: String,
-      valueType: SourceType,
+      ty: SourceType,
       default: Option[UntypedExpr],
       span: SourceSpan,
   )
@@ -82,12 +82,12 @@ final class SourceTyper(
   private final case class FunctionInfo(
       name: String,
       params: List[ParamInfo],
-      returnType: SourceType,
+      retTy: SourceType,
       body: Option[UntypedExpr],
-      signature: CallableSignature,
+      sig: CallableSignature,
       owner: Option[String],
       span: SourceSpan,
-      externBinding: Option[SourceExternBinding],
+      extern: Option[SourceExternBinding],
   )
 
   private final case class TraitInfo(
@@ -104,18 +104,18 @@ final class SourceTyper(
       methods: Map[String, FunctionInfo],
       span: SourceSpan,
   ):
-    def constructorSignature: CallableSignature =
+    def ctorSig: CallableSignature =
+      val params =
+        fields.map(field => CallableParam(field.name, field.ty, field.span))
       CallableSignature(
         name,
-        fields.map(field =>
-          CallableParam(field.name, field.valueType, field.span),
-        ),
+        params,
         SourceType.User(name),
       )
 
   private val diagnostics = ListBuffer.empty[Diagnostic]
   private val classNames =
-    module.declarations.collect { case decl: UntypedClass => decl.name }.toSet
+    module.decls.collect { case decl: UntypedClass => decl.name }.toSet
   private val rawAliases =
     mutable.LinkedHashMap.empty[String, UntypedTypeAlias]
   private val aliasTypes = mutable.LinkedHashMap.empty[String, SourceType]
@@ -139,9 +139,9 @@ final class SourceTyper(
       globalScope.define(
         ValueSymbol(
           info.name,
-          info.signature.functionType,
-          mutableBinding = false,
-          mutationAllowed = false,
+          info.sig.functionType,
+          mutBinding = false,
+          mutAllowed = false,
           info.span,
         ),
       ),
@@ -151,33 +151,31 @@ final class SourceTyper(
         ValueSymbol(
           importValue.alias,
           SourceType.ForeignNamespace(importValue),
-          mutableBinding = false,
-          mutationAllowed = false,
+          mutBinding = false,
+          mutAllowed = false,
           importValue.span,
         ),
       ),
     )
 
-    val declarations =
-      module.declarations.flatMap { decl =>
+    val decls =
+      module.decls.flatMap { decl =>
         typedDecl(decl, globalScope)
       }
 
     val result = TypedModule(
       module.source,
-      declarations,
+      decls,
       module.span,
       module.cIncludes,
       foreignAliases.values.toList,
-      profile.id,
-      profile.artifactKind,
     )
     if diagnostics.isEmpty then Result.success(Phase.Check, result)
     else Result.failure(Phase.Check, diagnostics.toList)
 
   private def collectForeignNamespaceImports(): Unit =
     val ordinaryBindings = mutable.LinkedHashMap.empty[String, SourceSpan]
-    module.declarations.foreach { declaration =>
+    module.decls.foreach { declaration =>
       ordinaryBindingName(declaration).foreach { name =>
         if !ordinaryBindings.contains(name) then
           ordinaryBindings.update(name, declaration.span)
@@ -185,10 +183,10 @@ final class SourceTyper(
     }
 
     val importValues =
-      (module.declarations.collect {
-        case importDecl: UntypedCppNamespaceImport => importDecl.value
+      (module.decls.collect { case importDecl: UntypedCppNamespaceImport =>
+        importDecl.value
       } :::
-        module.cppNamespaceImports).distinct
+        module.cppImports).distinct
 
     importValues.foreach { importValue =>
       ordinaryBindings.get(importValue.alias).foreach { _ =>
@@ -229,7 +227,7 @@ final class SourceTyper(
         Some(other.name)
 
   private def collectAliases(): Unit =
-    module.declarations.foreach {
+    module.decls.foreach {
       case alias: UntypedTypeAlias =>
         rawAliases.update(alias.name, alias)
       case cls: UntypedClass =>
@@ -242,73 +240,71 @@ final class SourceTyper(
     }
 
   private def collectTraits(): Unit =
-    module.declarations.collect { case trt: UntypedTrait => trt }.foreach {
-      trt =>
-        val methods =
-          trt.methods.map(method => functionInfo(method, Some(trt.name)))
-        duplicateMethodNames(methods, trt.name, trt.span)
-        traits.update(
+    module.decls.collect { case trt: UntypedTrait => trt }.foreach { trt =>
+      val methods =
+        trt.methods.map(method => functionInfo(method, Some(trt.name)))
+      duplicateMethodNames(methods, trt.name, trt.span)
+      traits.update(
+        trt.name,
+        TraitInfo(
           trt.name,
-          TraitInfo(
-            trt.name,
-            methods.groupBy(_.name).view.mapValues(_.head).toMap,
-            trt.span,
-          ),
-        )
+          methods.groupBy(_.name).view.mapValues(_.head).toMap,
+          trt.span,
+        ),
+      )
     }
 
   private def collectClasses(): Unit =
-    module.declarations.collect { case cls: UntypedClass => cls }.foreach {
-      cls =>
-        val fields = cls.members.collect { case field: UntypedValueDecl =>
-          FieldInfo(
-            field.name,
-            field.kind,
-            field.valueType.map(resolveType(_, Some(cls.name))).getOrElse {
-              error(
-                "cosmo0.type.missing-annotation",
-                s"field ${field.name} requires an explicit type",
-                field.span,
-              )
-              SourceType.Error
-            },
-            field.init,
-            field.span,
-          )
-        }
-        val aliases = cls.members.collect { case alias: UntypedTypeAlias =>
-          TypedTypeAlias(
-            alias.name,
-            resolveAlias(alias.name),
-            alias.span,
-            alias.typeParams,
-          )
-        }
-        val variants = cls.members.collect { case variant: UntypedVariant =>
-          val fields = variant.fields.map(field =>
-            TypedVariantField(
-              field.name,
-              resolveType(field.valueType, Some(cls.name)),
+    module.decls.collect { case cls: UntypedClass => cls }.foreach { cls =>
+      val fields = cls.members.collect { case field: UntypedValueDecl =>
+        FieldInfo(
+          field.name,
+          field.kind,
+          field.ty.map(resolveType(_, Some(cls.name))).getOrElse {
+            error(
+              "cosmo0.type.missing-annotation",
+              s"field ${field.name} requires an explicit type",
               field.span,
-            ),
-          )
-          variant.name -> VariantInfo(variant.name, fields, variant.span)
-        }.toMap
-        val methods = cls.members
-          .collect { case fn: UntypedFunction =>
-            functionInfo(fn, Some(cls.name))
-          }
-          .map(info => info.name -> info)
-          .toMap
-
-        classes.update(
-          cls.name,
-          ClassInfo(cls.name, fields, aliases, variants, methods, cls.span),
+            )
+            SourceType.Error
+          },
+          field.init,
+          field.span,
         )
+      }
+      val aliases = cls.members.collect { case alias: UntypedTypeAlias =>
+        TypedTypeAlias(
+          alias.name,
+          resolveAlias(alias.name),
+          alias.span,
+          alias.tyParams,
+        )
+      }
+      val variants = cls.members.collect { case variant: UntypedVariant =>
+        val fields = variant.fields.map(field =>
+          TypedVariantField(
+            field.name,
+            resolveType(field.ty, Some(cls.name)),
+            field.span,
+          ),
+        )
+        variant.name -> VariantInfo(variant.name, fields, variant.span)
+      }.toMap
+      val methods = cls.members
+        .collect { case fn: UntypedFunction =>
+          functionInfo(fn, Some(cls.name))
+        }
+        .map(info => info.name -> info)
+        .toMap
+
+      classes.update(
+        cls.name,
+        ClassInfo(cls.name, fields, aliases, variants, methods, cls.span),
+      )
     }
 
   private def collectImpls(): Unit =
-    module.declarations
+    module.decls
       .collect { case impl: UntypedImpl => impl }
       .foreach(collectImpl)
 
@@ -376,12 +372,12 @@ final class SourceTyper(
     traitInfo.methods.values.foreach { expected =>
       methods.find(_.name == expected.name) match
         case Some(actual) =>
-          val specialized = specializeSignature(
-            expected.signature,
+          val specialized = specializeSig(
+            expected.sig,
             traitInfo.name,
             targetInfo.name,
           )
-          if !sameCallableSignature(actual.signature, specialized) then
+          if !sameCallableSig(actual.sig, specialized) then
             error(
               "cosmo0.type.impl-signature-mismatch",
               s"impl ${traitInfo.name} for ${targetInfo.name} method ${actual.name} does not match the trait signature",
@@ -412,35 +408,35 @@ final class SourceTyper(
         )
       }
 
-  private def specializeSignature(
-      signature: CallableSignature,
+  private def specializeSig(
+      sig: CallableSignature,
       traitName: String,
       targetName: String,
   ): CallableSignature =
     CallableSignature(
-      signature.name,
-      signature.params.map(param =>
+      sig.name,
+      sig.params.map(param =>
         CallableParam(
           param.name,
           specializeSelfType(param.valueType, traitName, targetName),
           param.span,
         ),
       ),
-      specializeSelfType(signature.returnType, traitName, targetName),
-      signature.receiver.map(receiver =>
+      specializeSelfType(sig.returnType, traitName, targetName),
+      sig.receiver.map(recv =>
         CallableReceiver(
-          specializeSelfType(receiver.valueType, traitName, targetName),
-          receiver.mutable,
+          specializeSelfType(recv.valueType, traitName, targetName),
+          recv.mutable,
         ),
       ),
     )
 
   private def specializeSelfType(
-      valueType: SourceType,
+      ty: SourceType,
       traitName: String,
       targetName: String,
   ): SourceType =
-    valueType match
+    ty match
       case SourceType.User(name) if name == traitName =>
         SourceType.User(targetName)
       case SourceType.Ref(target, mutable) =>
@@ -453,10 +449,10 @@ final class SourceTyper(
           name,
           args.map(specializeSelfType(_, traitName, targetName)),
         )
-      case SourceType.Function(params, returnType) =>
+      case SourceType.Function(params, retTy) =>
         SourceType.Function(
           params.map(specializeSelfType(_, traitName, targetName)),
-          specializeSelfType(returnType, traitName, targetName),
+          specializeSelfType(retTy, traitName, targetName),
         )
       case SourceType.Alias(name, target) =>
         SourceType.Alias(
@@ -466,19 +462,19 @@ final class SourceTyper(
       case other =>
         other
 
-  private def sameCallableSignature(
+  private def sameCallableSig(
       left: CallableSignature,
       right: CallableSignature,
   ): Boolean =
     left.name == right.name &&
-      sameReceiver(left.receiver, right.receiver) &&
+      sameRecv(left.receiver, right.receiver) &&
       left.params.length == right.params.length &&
       left.params.zip(right.params).forall { case (l, r) =>
         SourceType.same(l.valueType, r.valueType)
       } &&
       SourceType.same(left.returnType, right.returnType)
 
-  private def sameReceiver(
+  private def sameRecv(
       left: Option[CallableReceiver],
       right: Option[CallableReceiver],
   ): Boolean =
@@ -491,10 +487,9 @@ final class SourceTyper(
         false
 
   private def collectFunctions(): Unit =
-    module.declarations.collect { case fn: UntypedFunction => fn }.foreach {
-      fn =>
-        val info = functionInfo(fn, None)
-        functions.update(info.name, info)
+    module.decls.collect { case fn: UntypedFunction => fn }.foreach { fn =>
+      val info = functionInfo(fn, None)
+      functions.update(info.name, info)
     }
 
   private def typedDecl(decl: UntypedDecl, scope: Scope): Option[TypedDecl] =
@@ -509,7 +504,7 @@ final class SourceTyper(
             alias.name,
             resolveAlias(alias.name),
             alias.span,
-            alias.typeParams,
+            alias.tyParams,
           ),
         )
       case value: UntypedValueDecl =>
@@ -518,7 +513,7 @@ final class SourceTyper(
           scope.define(
             valueSymbol(
               valueDecl.name,
-              valueDecl.valueType,
+              valueDecl.ty,
               valueDecl.kind,
               valueDecl.span,
             ),
@@ -540,9 +535,9 @@ final class SourceTyper(
       classScope.define(
         ValueSymbol(
           method.name,
-          method.signature.functionType,
-          mutableBinding = false,
-          mutationAllowed = false,
+          method.sig.functionType,
+          mutBinding = false,
+          mutAllowed = false,
           method.span,
         ),
       ),
@@ -550,12 +545,12 @@ final class SourceTyper(
 
     val fields = info.fields.map { field =>
       val init = field.init.map(
-        expr(_, classScope, Some(field.valueType), FunctionContext.None),
+        expr(_, classScope, Some(field.ty), FunctionContext.None),
       )
       init.foreach(
         checkAssignable(
           _,
-          field.valueType,
+          field.ty,
           field.span,
           "cosmo0.type.assignment-mismatch",
         ),
@@ -563,7 +558,7 @@ final class SourceTyper(
       TypedValueDecl(
         field.kind,
         field.name,
-        field.valueType,
+        field.ty,
         init.map(_.expr),
         field.span,
       )
@@ -591,21 +586,21 @@ final class SourceTyper(
       fnScope.define(
         ValueSymbol(
           param.name,
-          param.valueType,
-          mutableBinding = false,
-          mutationAllowed = mutationCapability(param.valueType),
+          param.ty,
+          mutBinding = false,
+          mutAllowed = mutationCapability(param.ty),
           param.span,
         ),
       ),
     )
-    val context = FunctionContext.Some(info.returnType, info.owner)
+    val context = FunctionContext.Some(info.retTy, info.owner)
     val defaults = info.params.map { param =>
       param.default
-        .map(expr(_, fnScope, Some(param.valueType), context))
+        .map(expr(_, fnScope, Some(param.ty), context))
         .map { typed =>
           checkAssignable(
             typed,
-            param.valueType,
+            param.ty,
             param.span,
             "cosmo0.type.assignment-mismatch",
           )
@@ -613,13 +608,13 @@ final class SourceTyper(
         }
     }
     val typedParams = info.params.zip(defaults).map { case (param, default) =>
-      TypedParam(param.name, param.valueType, default, param.span)
+      TypedParam(param.name, param.ty, default, param.span)
     }
-    val body = info.body.map(expr(_, fnScope, Some(info.returnType), context))
+    val body = info.body.map(expr(_, fnScope, Some(info.retTy), context))
     body.foreach(
       checkAssignable(
         _,
-        info.returnType,
+        info.retTy,
         info.span,
         "cosmo0.type.return-mismatch",
       ),
@@ -627,23 +622,23 @@ final class SourceTyper(
     TypedFunction(
       info.name,
       typedParams,
-      info.returnType,
+      info.retTy,
       body.map(_.expr),
-      info.signature,
+      info.sig,
       info.owner,
       info.span,
-      info.externBinding,
+      info.extern,
     )
 
   private def typedValueDecl(
       value: UntypedValueDecl,
       scope: Scope,
   ): Option[TypedValueDecl] =
-    val explicitType = value.valueType.map(resolveType(_, None))
+    val explicitType = value.ty.map(resolveType(_, None))
     val init =
       value.init.map(expr(_, scope, explicitType, FunctionContext.None))
-    val valueType =
-      explicitType.orElse(init.map(_.expr.valueType)).getOrElse {
+    val ty =
+      explicitType.orElse(init.map(_.expr.ty)).getOrElse {
         error(
           "cosmo0.type.missing-annotation",
           s"value ${value.name} requires a type annotation or initializer",
@@ -654,7 +649,7 @@ final class SourceTyper(
     init.foreach(
       checkAssignable(
         _,
-        valueType,
+        ty,
         value.span,
         "cosmo0.type.assignment-mismatch",
       ),
@@ -663,7 +658,7 @@ final class SourceTyper(
       TypedValueDecl(
         value.kind,
         value.name,
-        valueType,
+        ty,
         init.map(_.expr),
         value.span,
       ),
@@ -674,7 +669,7 @@ final class SourceTyper(
       owner: Option[String],
   ): FunctionInfo =
     val params = fn.params.map(param =>
-      val valueType = param.valueType.map(resolveType(_, owner)).getOrElse {
+      val ty = param.ty.map(resolveType(_, owner)).getOrElse {
         error(
           "cosmo0.type.missing-annotation",
           s"parameter ${param.name} requires an explicit type",
@@ -682,15 +677,15 @@ final class SourceTyper(
         )
         SourceType.Error
       }
-      ParamInfo(param.name, valueType, param.default, param.span),
+      ParamInfo(param.name, ty, param.default, param.span),
     )
-    val returnType =
-      fn.returnType.map(resolveType(_, owner)).getOrElse(SourceType.Unit)
-    val receiver = owner.flatMap: ownerName =>
+    val retTy =
+      fn.retTy.map(resolveType(_, owner)).getOrElse(SourceType.Unit)
+    val recv = owner.flatMap: ownerName =>
       params.headOption
         .filter(_.name == "self")
         .flatMap: self =>
-          SourceType.dealias(self.valueType) match
+          SourceType.dealias(self.ty) match
             case SourceType.Ref(SourceType.User(name), mutable)
                 if name == ownerName =>
               Some(CallableReceiver(SourceType.User(ownerName), mutable))
@@ -706,26 +701,26 @@ final class SourceTyper(
               )
               None
     val callableParams =
-      if receiver.nonEmpty && params.headOption.exists(_.name == "self") then
+      if recv.nonEmpty && params.headOption.exists(_.name == "self") then
         params.tail
       else params
-    val signature = CallableSignature(
+    val sig = CallableSignature(
       fn.name,
       callableParams.map(param =>
-        CallableParam(param.name, param.valueType, param.span),
+        CallableParam(param.name, param.ty, param.span),
       ),
-      returnType,
-      receiver,
+      retTy,
+      recv,
     )
     FunctionInfo(
       fn.name,
       params,
-      returnType,
+      retTy,
       fn.body,
-      signature,
+      sig,
       owner,
       fn.span,
-      fn.externBinding,
+      fn.extern,
     )
 
   private def expr(
@@ -760,8 +755,8 @@ final class SourceTyper(
           expr(value.body, scope.child, Some(SourceType.Unit), context)
         ExprInfo(
           TypedLoop(body.expr, SourceType.Unit, value.span),
-          mutableBinding = false,
-          mutationAllowed = true,
+          mutBinding = false,
+          mutAllowed = true,
         )
       case value: UntypedWhile =>
         val cond = expr(value.cond, scope, Some(SourceType.Bool), context)
@@ -790,10 +785,10 @@ final class SourceTyper(
           false,
         )
       case value: UntypedIntLiteral =>
-        val valueType =
+        val ty =
           expected.filter(SourceType.isInteger).getOrElse(SourceType.I32)
         ExprInfo(
-          TypedIntLiteral(value.value, valueType, value.span),
+          TypedIntLiteral(value.value, ty, value.span),
           false,
           false,
         )
@@ -818,10 +813,10 @@ final class SourceTyper(
           false,
         )
       case value: UntypedFloatLiteral =>
-        val valueType =
+        val ty =
           expected.filter(SourceType.isFloat).getOrElse(SourceType.F64)
         ExprInfo(
-          TypedFloatLiteral(value.value, valueType, value.span),
+          TypedFloatLiteral(value.value, ty, value.span),
           false,
           false,
         )
@@ -846,13 +841,13 @@ final class SourceTyper(
         if index == node.items.length - 1 then expected else None
       blockItem(item, scope, itemExpected, context)
     }
-    val valueType = items.lastOption match
-      case Some(expr: TypedExpr) => expr.valueType
+    val ty = items.lastOption match
+      case Some(expr: TypedExpr) => expr.ty
       case _                     => SourceType.Unit
     ExprInfo(
-      TypedBlock(items, valueType, node.span),
-      mutableBinding = false,
-      mutationAllowed = true,
+      TypedBlock(items, ty, node.span),
+      mutBinding = false,
+      mutAllowed = true,
     )
 
   private def blockItem(
@@ -864,10 +859,10 @@ final class SourceTyper(
     item match
       case local: UntypedLocal =>
         val explicitType =
-          local.valueType.map(resolveType(_, context.ownerName))
+          local.ty.map(resolveType(_, context.ownerName))
         val init = local.init.map(expr(_, scope, explicitType, context))
-        val valueType =
-          explicitType.orElse(init.map(_.expr.valueType)).getOrElse {
+        val ty =
+          explicitType.orElse(init.map(_.expr.ty)).getOrElse {
             error(
               "cosmo0.type.missing-annotation",
               s"local ${local.name} requires a type annotation or initializer",
@@ -878,18 +873,18 @@ final class SourceTyper(
         init.foreach(
           checkAssignable(
             _,
-            valueType,
+            ty,
             local.span,
             "cosmo0.type.assignment-mismatch",
           ),
         )
         scope.define(
-          valueSymbol(local.name, valueType, local.kind, local.span),
+          valueSymbol(local.name, ty, local.kind, local.span),
         )
         TypedLocal(
           local.kind,
           local.name,
-          valueType,
+          ty,
           init.map(_.expr),
           local.span,
         )
@@ -908,40 +903,40 @@ final class SourceTyper(
             ExprInfo(
               TypedName(
                 node.path,
-                symbol.valueType,
-                symbol.mutableBinding,
-                symbol.mutationAllowed,
+                symbol.ty,
+                symbol.mutBinding,
+                symbol.mutAllowed,
                 node.span,
               ),
-              symbol.mutableBinding,
-              symbol.mutationAllowed,
+              symbol.mutBinding,
+              symbol.mutAllowed,
             )
           case None =>
-            classConstructor(name, node.span).orElse(
-              descriptorConstructor(name, node.span),
+            classCtor(name, node.span).orElse(
+              descriptorCtor(name, node.span),
             ) match
-              case Some(signature) =>
+              case Some(sig) =>
                 val callee =
-                  SourceType.dealias(signature.returnType) match
+                  SourceType.dealias(sig.returnType) match
                     case owner: SourceType.User =>
                       TypedTypeConstructorExpr(
                         owner,
-                        signature.functionType,
+                        sig.functionType,
                         node.span,
                       )
                     case _ =>
                       descriptorOwner(name) match
                         case Some(owner)
-                            if SourceType.same(signature.returnType, owner) =>
+                            if SourceType.same(sig.returnType, owner) =>
                           TypedTypeConstructorExpr(
                             owner,
-                            signature.functionType,
+                            sig.functionType,
                             node.span,
                           )
                         case _ =>
                           TypedName(
                             node.path,
-                            signature.functionType,
+                            sig.functionType,
                             false,
                             false,
                             node.span,
@@ -977,8 +972,8 @@ final class SourceTyper(
         )
 
   private def typeConstructorExpr(node: UntypedTypeConstructor): ExprInfo =
-    val constructedType = resolveType(node.valueType, None)
-    val valueType = SourceType.dealias(constructedType) match
+    val constructedTy = resolveType(node.ty, None)
+    val ty = SourceType.dealias(constructedTy) match
       case owner @ SourceType.Standard(name, _) =>
         standardGenerics
           .get(name)
@@ -987,7 +982,7 @@ final class SourceTyper(
           .getOrElse(SourceType.Error)
       case _ => SourceType.Error
     ExprInfo(
-      TypedTypeConstructorExpr(constructedType, valueType, node.span),
+      TypedTypeConstructorExpr(constructedTy, ty, node.span),
       false,
       false,
     )
@@ -997,93 +992,93 @@ final class SourceTyper(
       scope: Scope,
       context: FunctionContext,
   ): ExprInfo =
-    node.receiver match
+    node.recv match
       case UntypedName(path, _) if path.parts.length == 1 =>
         val ownerName = path.parts.head
         classes.get(ownerName).flatMap(_.variants.get(node.field)) match
           case Some(variant) =>
-            val signature = variant.signature(ownerName)
-            val valueType =
-              if signature.params.isEmpty then signature.returnType
-              else signature.functionType
+            val sig = variant.sig(ownerName)
+            val ty =
+              if sig.params.isEmpty then sig.returnType
+              else sig.functionType
             return ExprInfo(
               TypedVariantConstructorExpr(
                 SourceType.User(ownerName),
                 node.field,
-                valueType,
+                ty,
                 node.span,
               ),
-              mutableBinding = false,
-              mutationAllowed = false,
+              mutBinding = false,
+              mutAllowed = false,
             )
           case None =>
       case _ =>
 
-    val receiver = expr(node.receiver, scope, None, context)
-    SourceType.dealias(receiver.expr.valueType) match
+    val recv = expr(node.recv, scope, None, context)
+    SourceType.dealias(recv.expr.ty) match
       case owner if foreignMethod(owner, node.field, node.span).nonEmpty =>
-        val signature = foreignMethod(owner, node.field, node.span).get
+        val sig = foreignMethod(owner, node.field, node.span).get
         ExprInfo(
           TypedSelect(
-            receiver.expr,
+            recv.expr,
             node.field,
-            signature.functionType,
-            mutableBinding = false,
-            mutationAllowed = false,
+            sig.functionType,
+            mutBinding = false,
+            mutAllowed = false,
             node.span,
           ),
-          mutableBinding = false,
-          mutationAllowed = false,
+          mutBinding = false,
+          mutAllowed = false,
         )
       case owner if descriptorMethod(owner, node.field, node.span).nonEmpty =>
         val method = descriptorMethod(owner, node.field, node.span).get
-        val signature =
+        val sig =
           method.instantiate(normalizeDescriptorOwner(owner), node.span)
         ExprInfo(
           TypedSelect(
-            receiver.expr,
+            recv.expr,
             node.field,
-            signature.functionType,
-            mutableBinding = false,
-            mutationAllowed = false,
+            sig.functionType,
+            mutBinding = false,
+            mutAllowed = false,
             node.span,
           ),
-          mutableBinding = false,
-          mutationAllowed = false,
+          mutBinding = false,
+          mutAllowed = false,
         )
       case ty =>
         classInfoFor(ty) match
           case Some(cls) =>
             cls.fields.find(_.name == node.field) match
               case Some(field) =>
-                val fieldMutationAllowed =
-                  receiver.mutationAllowed && mutationCapability(
-                    field.valueType,
+                val fieldMutAllowed =
+                  recv.mutAllowed && mutationCapability(
+                    field.ty,
                   )
-                val mutableBinding =
-                  field.kind == UntypedValueKind.Var && receiver.mutationAllowed
+                val mutBinding =
+                  field.kind == UntypedValueKind.Var && recv.mutAllowed
                 ExprInfo(
                   TypedSelect(
-                    receiver.expr,
+                    recv.expr,
                     node.field,
-                    field.valueType,
-                    mutableBinding,
-                    fieldMutationAllowed,
+                    field.ty,
+                    mutBinding,
+                    fieldMutAllowed,
                     node.span,
                   ),
-                  mutableBinding,
-                  fieldMutationAllowed,
+                  mutBinding,
+                  fieldMutAllowed,
                 )
               case None =>
                 cls.methods.get(node.field) match
                   case Some(method) =>
                     ExprInfo(
                       TypedSelect(
-                        receiver.expr,
+                        recv.expr,
                         node.field,
-                        method.signature.functionType,
-                        mutableBinding = false,
-                        mutationAllowed = false,
+                        method.sig.functionType,
+                        mutBinding = false,
+                        mutAllowed = false,
                         node.span,
                       ),
                       false,
@@ -1092,11 +1087,11 @@ final class SourceTyper(
                   case None =>
                     invalidField(
                       node.field,
-                      receiver.expr.valueType,
+                      recv.expr.ty,
                       node.span,
                     )
           case None =>
-            invalidField(node.field, receiver.expr.valueType, node.span)
+            invalidField(node.field, recv.expr.ty, node.span)
 
   private def invalidField(
       field: String,
@@ -1113,12 +1108,12 @@ final class SourceTyper(
         TypedUnitLiteral(SourceType.Unit, span),
         field,
         SourceType.Error,
-        mutableBinding = false,
-        mutationAllowed = false,
+        mutBinding = false,
+        mutAllowed = false,
         span,
       ),
-      mutableBinding = false,
-      mutationAllowed = false,
+      mutBinding = false,
+      mutAllowed = false,
     )
 
   private def variantConstructorExpr(
@@ -1129,25 +1124,25 @@ final class SourceTyper(
     if foreignName.nonEmpty then
       return ExprInfo(
         foreignName.get,
-        mutableBinding = false,
-        mutationAllowed = false,
+        mutBinding = false,
+        mutAllowed = false,
       )
 
     val ownerType = resolveType(node.owner, None)
-    constructorSignature(ownerType, node.variant, node.span) match
-      case Some(signature) =>
-        val valueType =
-          if signature.params.isEmpty then signature.returnType
-          else signature.functionType
+    ctorSig(ownerType, node.variant, node.span) match
+      case Some(sig) =>
+        val ty =
+          if sig.params.isEmpty then sig.returnType
+          else sig.functionType
         ExprInfo(
           TypedVariantConstructorExpr(
             ownerType,
             node.variant,
-            valueType,
+            ty,
             node.span,
           ),
-          mutableBinding = false,
-          mutationAllowed = false,
+          mutBinding = false,
+          mutAllowed = false,
         )
       case None =>
         error(
@@ -1214,22 +1209,22 @@ final class SourceTyper(
           expected,
           context,
         )
-      case constructor: UntypedVariantConstructor =>
-        val ownerType = resolveType(constructor.owner, context.ownerName)
-        constructorSignature(
+      case ctor: UntypedVariantConstructor =>
+        val ownerType = resolveType(ctor.owner, context.ownerName)
+        ctorSig(
           ownerType,
-          constructor.variant,
-          constructor.span,
+          ctor.variant,
+          ctor.span,
         ) match
-          case Some(signature) =>
-            callWithSignature(
+          case Some(sig) =>
+            callWithSig(
               TypedVariantConstructorExpr(
                 ownerType,
-                constructor.variant,
-                signature.functionType,
-                constructor.span,
+                ctor.variant,
+                sig.functionType,
+                ctor.span,
               ),
-              signature,
+              sig,
               node.args,
               node.span,
               scope,
@@ -1238,26 +1233,26 @@ final class SourceTyper(
           case None =>
             error(
               "cosmo0.type.invalid-call",
-              s"type ${ownerType.display} has no variant constructor ${constructor.variant}",
-              constructor.span,
+              s"type ${ownerType.display} has no variant constructor ${ctor.variant}",
+              ctor.span,
             )
             errorCall(node, scope, context)
-      case constructor: UntypedTypeConstructor =>
-        val constructedType =
-          resolveType(constructor.valueType, context.ownerName)
-        SourceType.dealias(constructedType) match
+      case ctor: UntypedTypeConstructor =>
+        val constructedTy =
+          resolveType(ctor.ty, context.ownerName)
+        SourceType.dealias(constructedTy) match
           case owner @ SourceType.Standard(name, _) =>
             standardGenerics.get(name).flatMap(_.constructor("<init>")) match
               case Some(descriptor) =>
-                val signature =
-                  descriptor.instantiate(owner, constructor.span)
-                callWithSignature(
+                val sig =
+                  descriptor.instantiate(owner, ctor.span)
+                callWithSig(
                   TypedTypeConstructorExpr(
-                    constructedType,
-                    signature.functionType,
-                    constructor.span,
+                    constructedTy,
+                    sig.functionType,
+                    ctor.span,
                   ),
-                  signature,
+                  sig,
                   node.args,
                   node.span,
                   scope,
@@ -1266,19 +1261,19 @@ final class SourceTyper(
               case None =>
                 error(
                   "cosmo0.type.invalid-call",
-                  s"type ${constructedType.display} is not directly constructible",
-                  constructor.span,
+                  s"type ${constructedTy.display} is not directly constructible",
+                  ctor.span,
                 )
                 errorCall(node, scope, context)
           case owner @ SourceType.ForeignApplied(_, _) =>
-            val signature = CallableSignature("<init>", Nil, owner)
-            callWithSignature(
+            val sig = CallableSignature("<init>", Nil, owner)
+            callWithSig(
               TypedTypeConstructorExpr(
-                constructedType,
-                signature.functionType,
-                constructor.span,
+                constructedTy,
+                sig.functionType,
+                ctor.span,
               ),
-              signature,
+              sig,
               node.args,
               node.span,
               scope,
@@ -1287,23 +1282,23 @@ final class SourceTyper(
           case _ =>
             error(
               "cosmo0.type.invalid-call",
-              s"type ${constructedType.display} is not directly constructible",
-              constructor.span,
+              s"type ${constructedTy.display} is not directly constructible",
+              ctor.span,
             )
             errorCall(node, scope, context)
       case name: UntypedName if name.path.parts.length == 1 =>
         val calleeName = name.path.parts.head
         functions.get(calleeName) match
           case Some(info) =>
-            callWithSignature(
+            callWithSig(
               TypedName(
                 name.path,
-                info.signature.functionType,
+                info.sig.functionType,
                 false,
                 false,
                 name.span,
               ),
-              info.signature,
+              info.sig,
               node.args,
               node.span,
               scope,
@@ -1320,41 +1315,41 @@ final class SourceTyper(
                 context,
               )
             else
-              classConstructor(calleeName, name.span).orElse(
-                descriptorConstructor(calleeName, name.span),
+              classCtor(calleeName, name.span).orElse(
+                descriptorCtor(calleeName, name.span),
               ) match
-                case Some(signature) =>
+                case Some(sig) =>
                   val callee =
-                    SourceType.dealias(signature.returnType) match
+                    SourceType.dealias(sig.returnType) match
                       case owner: SourceType.User =>
                         TypedTypeConstructorExpr(
                           owner,
-                          signature.functionType,
+                          sig.functionType,
                           name.span,
                         )
                       case _ =>
                         descriptorOwner(calleeName) match
                           case Some(owner)
                               if SourceType.same(
-                                signature.returnType,
+                                sig.returnType,
                                 owner,
                               ) =>
                             TypedTypeConstructorExpr(
                               owner,
-                              signature.functionType,
+                              sig.functionType,
                               name.span,
                             )
                           case _ =>
                             TypedName(
                               name.path,
-                              signature.functionType,
+                              sig.functionType,
                               false,
                               false,
                               name.span,
                             )
-                  callWithSignature(
+                  callWithSig(
                     callee,
-                    signature,
+                    sig,
                     node.args,
                     node.span,
                     scope,
@@ -1381,20 +1376,20 @@ final class SourceTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
-    select.receiver match
+    select.recv match
       case UntypedName(path, _) if path.parts.length == 1 =>
         val ownerName = path.parts.head
         classes.get(ownerName).flatMap(_.variants.get(select.field)) match
           case Some(variant) =>
-            val signature = variant.signature(ownerName)
-            return callWithSignature(
+            val sig = variant.sig(ownerName)
+            return callWithSig(
               TypedVariantConstructorExpr(
                 SourceType.User(ownerName),
                 select.field,
-                signature.functionType,
+                sig.functionType,
                 select.span,
               ),
-              signature,
+              sig,
               args,
               span,
               scope,
@@ -1403,21 +1398,21 @@ final class SourceTyper(
           case None =>
       case _ =>
 
-    val receiver = expr(select.receiver, scope, None, context)
-    SourceType.dealias(receiver.expr.valueType) match
+    val recv = expr(select.recv, scope, None, context)
+    SourceType.dealias(recv.expr.ty) match
       case owner if foreignMethod(owner, select.field, select.span).nonEmpty =>
-        val signature = foreignMethod(owner, select.field, select.span).get
-        checkReceiverMutation(receiver, signature, select.span)
-        callWithSignature(
+        val sig = foreignMethod(owner, select.field, select.span).get
+        checkRecvMutation(recv, sig, select.span)
+        callWithSig(
           TypedSelect(
-            receiver.expr,
+            recv.expr,
             select.field,
-            signature.functionType,
+            sig.functionType,
             false,
             false,
             select.span,
           ),
-          signature,
+          sig,
           args,
           span,
           scope,
@@ -1426,19 +1421,19 @@ final class SourceTyper(
       case owner
           if descriptorMethod(owner, select.field, select.span).nonEmpty =>
         val method = descriptorMethod(owner, select.field, select.span).get
-        val signature =
+        val sig =
           method.instantiate(normalizeDescriptorOwner(owner), select.span)
-        checkReceiverMutation(receiver, signature, select.span)
-        callWithSignature(
+        checkRecvMutation(recv, sig, select.span)
+        callWithSig(
           TypedSelect(
-            receiver.expr,
+            recv.expr,
             select.field,
-            signature.functionType,
+            sig.functionType,
             false,
             false,
             select.span,
           ),
-          signature,
+          sig,
           args,
           span,
           scope,
@@ -1449,17 +1444,17 @@ final class SourceTyper(
           case Some(cls) =>
             cls.methods.get(select.field) match
               case Some(method) =>
-                checkReceiverMutation(receiver, method.signature, select.span)
-                callWithSignature(
+                checkRecvMutation(recv, method.sig, select.span)
+                callWithSig(
                   TypedSelect(
-                    receiver.expr,
+                    recv.expr,
                     select.field,
-                    method.signature.functionType,
+                    method.sig.functionType,
                     false,
                     false,
                     select.span,
                   ),
-                  method.signature,
+                  method.sig,
                   args,
                   span,
                   scope,
@@ -1479,16 +1474,16 @@ final class SourceTyper(
       scope: Scope,
       context: FunctionContext,
   ): ExprInfo =
-    SourceType.dealias(callee.expr.valueType) match
-      case SourceType.Function(params, returnType) =>
-        val signature = CallableSignature(
+    SourceType.dealias(callee.expr.ty) match
+      case SourceType.Function(params, retTy) =>
+        val sig = CallableSignature(
           "<function>",
           params.zipWithIndex.map { case (paramType, index) =>
             CallableParam(s"arg$index", paramType, span)
           },
-          returnType,
+          retTy,
         )
-        callWithSignature(callee.expr, signature, args, span, scope, context)
+        callWithSig(callee.expr, sig, args, span, scope, context)
       case other =>
         error(
           "cosmo0.type.invalid-call",
@@ -1508,37 +1503,37 @@ final class SourceTyper(
           false,
         )
 
-  private def callWithSignature(
+  private def callWithSig(
       callee: TypedExpr,
-      signature: CallableSignature,
+      sig: CallableSignature,
       args: List[UntypedExpr],
       span: SourceSpan,
       scope: Scope,
       context: FunctionContext,
   ): ExprInfo =
-    if args.length != signature.params.length then
+    if args.length != sig.params.length then
       error(
         "cosmo0.type.wrong-arity",
-        s"${signature.name} expects ${signature.params.length} argument(s), got ${args.length}",
+        s"${sig.name} expects ${sig.params.length} argument(s), got ${args.length}",
         span,
       )
     val typedArgs = args.zipWithIndex.map { case (arg, index) =>
-      val expectedType = signature.params.lift(index).map(_.valueType)
-      val typed = expr(arg, scope, expectedType, context)
-      expectedType.foreach(paramType =>
+      val expectedTy = sig.params.lift(index).map(_.valueType)
+      val typed = expr(arg, scope, expectedTy, context)
+      expectedTy.foreach(paramType =>
         if !canPass(typed, paramType) then
           error(
             "cosmo0.type.invalid-call",
-            s"argument ${index + 1} has type ${typed.expr.valueType.display}, expected ${paramType.display}",
+            s"argument ${index + 1} has type ${typed.expr.ty.display}, expected ${paramType.display}",
             arg.span,
           ),
       )
       typed.expr
     }
     ExprInfo(
-      TypedCall(callee, typedArgs, signature.returnType, signature, span),
-      mutableBinding = false,
-      mutationAllowed = mutationCapability(signature.returnType),
+      TypedCall(callee, typedArgs, sig.returnType, sig, span),
+      mutBinding = false,
+      mutAllowed = mutationCapability(sig.returnType),
     )
 
   private def errorCall(
@@ -1568,45 +1563,45 @@ final class SourceTyper(
       scope: Scope,
       context: FunctionContext,
   ): ExprInfo =
-    val signature = TrustedExternAbi
+    val sig = TrustedExternAbi
       .callable(calleeName, name.span)
       .getOrElse(
         CallableSignature(calleeName, Nil, SourceType.Error),
       )
-    if args.length != signature.params.length then
+    if args.length != sig.params.length then
       error(
         "cosmo0.type.wrong-arity",
-        s"$calleeName expects ${signature.params.length} argument(s), got ${args.length}",
+        s"$calleeName expects ${sig.params.length} argument(s), got ${args.length}",
         span,
       )
     val typedArgs = args.zipWithIndex.map { case (arg, index) =>
       expr(
         arg,
         scope,
-        signature.params.lift(index).map(_.valueType),
+        sig.params.lift(index).map(_.valueType),
         context,
       ).expr
     }
-    typedArgs.zip(signature.params).zipWithIndex.foreach {
+    typedArgs.zip(sig.params).zipWithIndex.foreach {
       case ((actual, param), index) =>
         val paramType = param.valueType
-        if !SourceType.assignable(actual.valueType, paramType) then
+        if !SourceType.assignable(actual.ty, paramType) then
           error(
             "cosmo0.type.invalid-call",
-            s"argument ${index + 1} has type ${actual.valueType.display}, expected ${paramType.display}",
+            s"argument ${index + 1} has type ${actual.ty.display}, expected ${paramType.display}",
             args(index).span,
           )
     }
     ExprInfo(
       TypedCall(
-        TypedName(name.path, signature.functionType, false, false, name.span),
+        TypedName(name.path, sig.functionType, false, false, name.span),
         typedArgs,
-        signature.returnType,
-        signature,
+        sig.returnType,
+        sig,
         span,
       ),
-      mutableBinding = false,
-      mutationAllowed = mutationCapability(signature.returnType),
+      mutBinding = false,
+      mutAllowed = mutationCapability(sig.returnType),
     )
 
   private def isRuntimeFunction(name: String): Boolean =
@@ -1618,24 +1613,24 @@ final class SourceTyper(
       context: FunctionContext,
   ): ExprInfo =
     val target = expr(node.target, scope, None, context)
-    if !target.mutableBinding then
+    if !target.mutBinding then
       error(
         "cosmo0.type.invalid-mutability",
         "assignment target is not mutable",
         node.target.span,
       )
     val valueExpected =
-      if node.op == "=" then Some(target.expr.valueType)
-      else Some(target.expr.valueType)
+      if node.op == "=" then Some(target.expr.ty)
+      else Some(target.expr.ty)
     val value = expr(node.value, scope, valueExpected, context)
-    if !SourceType.assignable(value.expr.valueType, target.expr.valueType)
+    if !SourceType.assignable(value.expr.ty, target.expr.ty)
     then
       error(
         "cosmo0.type.assignment-mismatch",
-        s"cannot assign ${value.expr.valueType.display} to ${target.expr.valueType.display}",
+        s"cannot assign ${value.expr.ty.display} to ${target.expr.ty.display}",
         node.span,
       )
-    if node.op != "=" && !SourceType.isNumeric(target.expr.valueType) then
+    if node.op != "=" && !SourceType.isNumeric(target.expr.ty) then
       error(
         "cosmo0.type.assignment-mismatch",
         s"operator ${node.op} requires a numeric target",
@@ -1675,14 +1670,14 @@ final class SourceTyper(
           expected.filter(SourceType.isNumeric),
           context,
         )
-        if !SourceType.isNumeric(value.expr.valueType) then
+        if !SourceType.isNumeric(value.expr.ty) then
           error(
             "cosmo0.type.invalid-unary",
-            s"operator - requires a numeric operand, got ${value.expr.valueType.display}",
+            s"operator - requires a numeric operand, got ${value.expr.ty.display}",
             node.span,
           )
         ExprInfo(
-          TypedUnary(node.op, value.expr, value.expr.valueType, node.span),
+          TypedUnary(node.op, value.expr, value.expr.ty, node.span),
           false,
           false,
         )
@@ -1692,7 +1687,7 @@ final class SourceTyper(
           TypedUnary(
             node.op,
             value.expr,
-            SourceType.Ref(value.expr.valueType, mutable = false),
+            SourceType.Ref(value.expr.ty, mutable = false),
             node.span,
           ),
           false,
@@ -1700,7 +1695,7 @@ final class SourceTyper(
         )
       case "*" =>
         val value = expr(node.expr, scope, None, context)
-        SourceType.dealias(value.expr.valueType) match
+        SourceType.dealias(value.expr.ty) match
           case SourceType.Ref(target, mutable) =>
             ExprInfo(
               TypedUnary(node.op, value.expr, target, node.span),
@@ -1757,11 +1752,11 @@ final class SourceTyper(
       case "==" | "!=" =>
         val left = expr(node.left, scope, None, context)
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
-        if !SourceType.same(left.expr.valueType, right.expr.valueType) then
+          expr(node.right, scope, Some(left.expr.ty), context)
+        if !SourceType.same(left.expr.ty, right.expr.ty) then
           error(
             "cosmo0.type.invalid-binary",
-            s"operator ${node.op} requires comparable operands, got ${left.expr.valueType.display} and ${right.expr.valueType.display}",
+            s"operator ${node.op} requires comparable operands, got ${left.expr.ty.display} and ${right.expr.ty.display}",
             node.span,
           )
         ExprInfo(
@@ -1783,10 +1778,10 @@ final class SourceTyper(
           context,
         )
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
-        if !SourceType.isNumeric(left.expr.valueType) || !SourceType.same(
-            left.expr.valueType,
-            right.expr.valueType,
+          expr(node.right, scope, Some(left.expr.ty), context)
+        if !SourceType.isNumeric(left.expr.ty) || !SourceType.same(
+            left.expr.ty,
+            right.expr.ty,
           )
         then
           error(
@@ -1813,10 +1808,10 @@ final class SourceTyper(
           context,
         )
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
-        if !SourceType.isNumeric(left.expr.valueType) || !SourceType.same(
-            left.expr.valueType,
-            right.expr.valueType,
+          expr(node.right, scope, Some(left.expr.ty), context)
+        if !SourceType.isNumeric(left.expr.ty) || !SourceType.same(
+            left.expr.ty,
+            right.expr.ty,
           )
         then
           error(
@@ -1829,7 +1824,7 @@ final class SourceTyper(
             node.op,
             left.expr,
             right.expr,
-            left.expr.valueType,
+            left.expr.ty,
             node.span,
           ),
           false,
@@ -1838,7 +1833,7 @@ final class SourceTyper(
       case other =>
         val left = expr(node.left, scope, None, context)
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
+          expr(node.right, scope, Some(left.expr.ty), context)
         error(
           "cosmo0.type.invalid-binary",
           s"unsupported binary operator $other",
@@ -1864,20 +1859,20 @@ final class SourceTyper(
   ): ExprInfo =
     val cond = expr(node.cond, scope, Some(SourceType.Bool), context)
     requireBool(cond, node.cond.span)
-    val thenBranch = expr(node.thenBranch, scope.child, expected, context)
-    val elseBranch =
-      node.elseBranch.map(expr(_, scope.child, expected, context))
-    val valueType = elseBranch match
+    val thenExp = expr(node.thenExp, scope.child, expected, context)
+    val elseExp =
+      node.elseExp.map(expr(_, scope.child, expected, context))
+    val ty = elseExp match
       case Some(other)
           if SourceType.same(
-            thenBranch.expr.valueType,
-            other.expr.valueType,
+            thenExp.expr.ty,
+            other.expr.ty,
           ) =>
-        thenBranch.expr.valueType
+        thenExp.expr.ty
       case Some(other) =>
         error(
           "cosmo0.type.branch-mismatch",
-          s"if branches have types ${thenBranch.expr.valueType.display} and ${other.expr.valueType.display}",
+          s"if branches have types ${thenExp.expr.ty.display} and ${other.expr.ty.display}",
           node.span,
         )
         SourceType.Error
@@ -1885,13 +1880,13 @@ final class SourceTyper(
     ExprInfo(
       TypedIf(
         cond.expr,
-        thenBranch.expr,
-        elseBranch.map(_.expr),
-        valueType,
+        thenExp.expr,
+        elseExp.map(_.expr),
+        ty,
         node.span,
       ),
       false,
-      mutationCapability(valueType),
+      mutationCapability(ty),
     )
 
   private def forExpr(
@@ -1900,7 +1895,7 @@ final class SourceTyper(
       context: FunctionContext,
   ): ExprInfo =
     val iter = expr(node.iter, scope, None, context)
-    val itemType = SourceType.dealias(iter.expr.valueType) match
+    val itemTy = SourceType.dealias(iter.expr.ty) match
       case SourceType.Standard("Vec" | "Set" | "Arena", item :: Nil) => item
       case SourceType.Standard("Map", key :: _ :: Nil)               => key
       case other =>
@@ -1914,9 +1909,9 @@ final class SourceTyper(
     bodyScope.define(
       ValueSymbol(
         node.name,
-        itemType,
+        itemTy,
         false,
-        mutationCapability(itemType),
+        mutationCapability(itemTy),
         node.span,
       ),
     )
@@ -1924,7 +1919,7 @@ final class SourceTyper(
     ExprInfo(
       TypedFor(
         node.name,
-        itemType,
+        itemTy,
         iter.expr,
         body.expr,
         SourceType.Unit,
@@ -1940,20 +1935,20 @@ final class SourceTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
-    val scrutinee = expr(node.scrutinee, scope, None, context)
+    val scrut = expr(node.scrut, scope, None, context)
     val arms = node.arms.map { arm =>
       val armScope = scope.child
       val typedPattern =
-        pattern(arm.pattern, scrutinee.expr.valueType, armScope)
+        pattern(arm.pat, scrut.expr.ty, armScope)
       val body = arm.body.map(expr(_, armScope, expected, context))
       TypedMatchArm(typedPattern, body.map(_.expr), arm.span)
     }
-    val bodyTypes = arms.flatMap(_.body.map(_.valueType))
-    val valueType =
+    val bodyTypes = arms.flatMap(_.body.map(_.ty))
+    val ty =
       if bodyTypes.isEmpty then SourceType.Unit
       else
         val first = bodyTypes.head
-        if bodyTypes.tail.forall(valueType => SourceType.same(first, valueType))
+        if bodyTypes.tail.forall(ty => SourceType.same(first, ty))
         then first
         else
           error(
@@ -1963,9 +1958,9 @@ final class SourceTyper(
           )
           SourceType.Error
     ExprInfo(
-      TypedMatch(scrutinee.expr, arms, valueType, node.span),
+      TypedMatch(scrut.expr, arms, ty, node.span),
       false,
-      mutationCapability(valueType),
+      mutationCapability(ty),
     )
 
   private def returnExpr(
@@ -1974,12 +1969,12 @@ final class SourceTyper(
       context: FunctionContext,
   ): ExprInfo =
     context match
-      case FunctionContext.Some(returnType, _) =>
-        val value = expr(node.value, scope, Some(returnType), context)
-        if !SourceType.assignable(value.expr.valueType, returnType) then
+      case FunctionContext.Some(retTy, _) =>
+        val value = expr(node.value, scope, Some(retTy), context)
+        if !SourceType.assignable(value.expr.ty, retTy) then
           error(
             "cosmo0.type.return-mismatch",
-            s"return has type ${value.expr.valueType.display}, expected ${returnType.display}",
+            s"return has type ${value.expr.ty.display}, expected ${retTy.display}",
             node.span,
           )
         ExprInfo(
@@ -2002,82 +1997,80 @@ final class SourceTyper(
 
   private def pattern(
       node: UntypedPattern,
-      expectedType: SourceType,
+      expectedTy: SourceType,
       scope: Scope,
   ): TypedPattern =
     node match
       case value: UntypedWildcardPattern =>
-        TypedWildcardPattern(expectedType, value.span)
+        TypedWildcardPattern(expectedTy, value.span)
       case value: UntypedBindingPattern =>
         scope.define(
           ValueSymbol(
             value.name,
-            expectedType,
-            mutableBinding = false,
-            mutationAllowed = mutationCapability(expectedType),
+            expectedTy,
+            mutBinding = false,
+            mutAllowed = mutationCapability(expectedTy),
             value.span,
           ),
         )
-        TypedBindingPattern(value.name, expectedType, value.span)
+        TypedBindingPattern(value.name, expectedTy, value.span)
       case value: UntypedBoolLiteral =>
-        if !SourceType.same(expectedType, SourceType.Bool) then
-          invalidPatternType(value.span, expectedType, SourceType.Bool)
+        if !SourceType.same(expectedTy, SourceType.Bool) then
+          invalidPatternType(value.span, expectedTy, SourceType.Bool)
         TypedBoolLiteral(value.value, SourceType.Bool, value.span)
       case value: UntypedIntLiteral =>
-        val valueType =
-          if SourceType.isInteger(expectedType) then expectedType
+        val ty =
+          if SourceType.isInteger(expectedTy) then expectedTy
           else SourceType.I32
-        if !SourceType.isInteger(expectedType) then
-          invalidPatternType(value.span, expectedType, valueType)
-        TypedIntLiteral(value.value, valueType, value.span)
+        if !SourceType.isInteger(expectedTy) then
+          invalidPatternType(value.span, expectedTy, ty)
+        TypedIntLiteral(value.value, ty, value.span)
       case value: UntypedAsciiLiteral =>
-        if !SourceType.same(expectedType, SourceType.Byte) then
-          invalidPatternType(value.span, expectedType, SourceType.Byte)
+        if !SourceType.same(expectedTy, SourceType.Byte) then
+          invalidPatternType(value.span, expectedTy, SourceType.Byte)
         TypedIntLiteral(
           asciiLiteralValue(value.value, value.span),
           SourceType.Byte,
           value.span,
         )
       case value: UntypedRuneLiteral =>
-        if !SourceType.same(expectedType, SourceType.Rune) then
-          invalidPatternType(value.span, expectedType, SourceType.Rune)
+        if !SourceType.same(expectedTy, SourceType.Rune) then
+          invalidPatternType(value.span, expectedTy, SourceType.Rune)
         TypedIntLiteral(
           runeLiteralValue(value.value, value.span),
           SourceType.Rune,
           value.span,
         )
       case value: UntypedFloatLiteral =>
-        val valueType =
-          if SourceType.isFloat(expectedType) then expectedType
+        val ty =
+          if SourceType.isFloat(expectedTy) then expectedTy
           else SourceType.F64
-        if !SourceType.isFloat(expectedType) then
-          invalidPatternType(value.span, expectedType, valueType)
-        TypedFloatLiteral(value.value, valueType, value.span)
+        if !SourceType.isFloat(expectedTy) then
+          invalidPatternType(value.span, expectedTy, ty)
+        TypedFloatLiteral(value.value, ty, value.span)
       case value: UntypedStringLiteral =>
-        if !SourceType.same(expectedType, SourceType.String) then
-          invalidPatternType(value.span, expectedType, SourceType.String)
+        if !SourceType.same(expectedTy, SourceType.String) then
+          invalidPatternType(value.span, expectedTy, SourceType.String)
         TypedStringLiteral(value.value, SourceType.String, value.span)
       case value: UntypedVariantPattern =>
-        variantPattern(value, expectedType, scope)
+        variantPattern(value, expectedTy, scope)
 
   private def variantPattern(
       node: UntypedVariantPattern,
-      expectedType: SourceType,
+      expectedTy: SourceType,
       scope: Scope,
   ): TypedPattern =
-    val constructor =
-      constructorExprForPattern(node.constructor, expectedType)
-    val signature = constructor.flatMap { case (ownerType, variantName, expr) =>
-      constructorSignature(ownerType, variantName, expr.span).map(signature =>
-        (signature, expr),
-      )
+    val ctor =
+      ctorExprForPattern(node.ctor, expectedTy)
+    val sig = ctor.flatMap { case (ownerType, variantName, expr) =>
+      ctorSig(ownerType, variantName, expr.span).map(sig => (sig, expr))
     }
-    signature match
+    sig match
       case Some((callable, constructorExpr)) =>
-        if !SourceType.same(callable.returnType, expectedType) then
+        if !SourceType.same(callable.returnType, expectedTy) then
           error(
             "cosmo0.type.invalid-match-payload",
-            s"pattern constructor returns ${callable.returnType.display}, expected ${expectedType.display}",
+            s"pattern constructor returns ${callable.returnType.display}, expected ${expectedTy.display}",
             node.span,
           )
         if node.args.length != callable.params.length then
@@ -2107,7 +2100,7 @@ final class SourceTyper(
         )
         TypedVariantPattern(
           TypedVariantConstructorExpr(
-            expectedType,
+            expectedTy,
             "<error>",
             SourceType.Error,
             node.span,
@@ -2117,9 +2110,9 @@ final class SourceTyper(
           node.span,
         )
 
-  private def constructorExprForPattern(
+  private def ctorExprForPattern(
       node: UntypedExpr,
-      expectedType: SourceType,
+      expectedTy: SourceType,
   ): Option[(SourceType, String, TypedExpr)] =
     node match
       case UntypedVariantConstructor(owner, variant, span) =>
@@ -2154,7 +2147,7 @@ final class SourceTyper(
       case _ =>
         None
 
-  private def constructorSignature(
+  private def ctorSig(
       ownerType: SourceType,
       variant: String,
       span: SourceSpan,
@@ -2169,10 +2162,10 @@ final class SourceTyper(
         classes
           .get(name)
           .flatMap(_.variants.get(variant))
-          .map(_.signature(name))
+          .map(_.sig(name))
       case _ => None
 
-  private def descriptorConstructor(
+  private def descriptorCtor(
       name: String,
       span: SourceSpan,
   ): Option[CallableSignature] =
@@ -2257,14 +2250,14 @@ final class SourceTyper(
       case SourceType.Builtin(_)        => 0
       case _                            => -1
 
-  private def classConstructor(
+  private def classCtor(
       name: String,
       span: SourceSpan,
   ): Option[CallableSignature] =
-    classes.get(name).map(_.constructorSignature)
+    classes.get(name).map(_.ctorSig)
 
-  private def classInfoFor(valueType: SourceType): Option[ClassInfo] =
-    SourceType.dealias(valueType) match
+  private def classInfoFor(ty: SourceType): Option[ClassInfo] =
+    SourceType.dealias(ty) match
       case SourceType.User(name)                    => classes.get(name)
       case SourceType.Ref(SourceType.User(name), _) => classes.get(name)
       case _                                        => None
@@ -2282,7 +2275,7 @@ final class SourceTyper(
         )
         SourceType.Error
       case Some(alias) =>
-        resolveType(alias.target, None, seen + name, alias.typeParams.toSet)
+        resolveType(alias.target, None, seen + name, alias.tyParams.toSet)
       case None =>
         SourceType.Error
     aliasTypes.getOrElseUpdate(name, resolved)
@@ -2297,12 +2290,12 @@ final class SourceTyper(
       node: UntypedType,
       owner: Option[String],
       seenAliases: Set[String],
-      typeParams: Set[String] = Set.empty,
+      tyParams: Set[String] = Set.empty,
   ): SourceType =
     node match
       case UntypedNamedType(path, span) =>
         path.parts match
-          case name :: Nil if typeParams.contains(name) =>
+          case name :: Nil if tyParams.contains(name) =>
             SourceType.TypeParam(name)
           case name :: Nil
               if owner.contains(
@@ -2350,25 +2343,25 @@ final class SourceTyper(
           case root :: suffix
               if suffix.nonEmpty && foreignAliases.contains(root) =>
             val resolvedArgs =
-              args.map(resolveType(_, owner, seenAliases, typeParams))
+              args.map(resolveType(_, owner, seenAliases, tyParams))
             SourceType.ForeignApplied(
               foreignCanonicalName(foreignAliases(root), suffix),
               resolvedArgs,
             )
           case aliasName :: Nil
-              if rawAliases.get(aliasName).exists(_.typeParams.nonEmpty) =>
+              if rawAliases.get(aliasName).exists(_.tyParams.nonEmpty) =>
             val alias = rawAliases(aliasName)
-            if alias.typeParams.length != args.length then
+            if alias.tyParams.length != args.length then
               error(
                 "cosmo0.type.wrong-arity",
-                s"$aliasName expects ${alias.typeParams.length} type argument(s), got ${args.length}",
+                s"$aliasName expects ${alias.tyParams.length} type argument(s), got ${args.length}",
                 span,
               )
             val resolvedArgs =
-              args.map(resolveType(_, owner, seenAliases, typeParams))
+              args.map(resolveType(_, owner, seenAliases, tyParams))
             substituteTypeParams(
               resolveAlias(aliasName, seenAliases),
-              alias.typeParams.zip(resolvedArgs).toMap,
+              alias.tyParams.zip(resolvedArgs).toMap,
             )
           case _ =>
             standardGenerics.get(name) match
@@ -2380,7 +2373,7 @@ final class SourceTyper(
                     span,
                   )
                 val resolvedArgs =
-                  args.map(resolveType(_, owner, seenAliases, typeParams))
+                  args.map(resolveType(_, owner, seenAliases, tyParams))
                 validateStandardTypeApplication(name, resolvedArgs, span)
                 SourceType.Standard(name, resolvedArgs)
               case None =>
@@ -2390,19 +2383,19 @@ final class SourceTyper(
                   span,
                 )
                 SourceType.Error
-      case UntypedRefType(target, mutable, _) =>
+      case UntypedRefType(target, mut, _) =>
         SourceType.Ref(
-          resolveType(target, owner, seenAliases, typeParams),
-          mutable,
+          resolveType(target, owner, seenAliases, tyParams),
+          mut,
         )
 
   private def substituteTypeParams(
-      valueType: SourceType,
+      ty: SourceType,
       values: Map[String, SourceType],
   ): SourceType =
-    valueType match
+    ty match
       case SourceType.TypeParam(name) =>
-        values.getOrElse(name, valueType)
+        values.getOrElse(name, ty)
       case SourceType.Alias(name, target) =>
         SourceType.Alias(name, substituteTypeParams(target, values))
       case SourceType.ForeignApplied(canonicalName, args) =>
@@ -2414,10 +2407,10 @@ final class SourceTyper(
         SourceType.Ref(substituteTypeParams(target, values), mutable)
       case SourceType.Standard(name, args) =>
         SourceType.Standard(name, args.map(substituteTypeParams(_, values)))
-      case SourceType.Function(params, returnType) =>
+      case SourceType.Function(params, retTy) =>
         SourceType.Function(
           params.map(substituteTypeParams(_, values)),
-          substituteTypeParams(returnType, values),
+          substituteTypeParams(retTy, values),
         )
       case other =>
         other
@@ -2446,8 +2439,8 @@ final class SourceTyper(
         span,
       )
 
-  private def isSupportedMapSetKey(valueType: SourceType): Boolean =
-    SourceType.dealias(valueType) match
+  private def isSupportedMapSetKey(ty: SourceType): Boolean =
+    SourceType.dealias(ty) match
       case SourceType.String => true
       case SourceType.Builtin(
             "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" |
@@ -2460,7 +2453,7 @@ final class SourceTyper(
   private def canPass(actual: ExprInfo, expected: SourceType): Boolean =
     SourceType.dealias(expected) match
       case SourceType.Ref(target, mutable) =>
-        SourceType.dealias(actual.expr.valueType) match
+        SourceType.dealias(actual.expr.ty) match
           case SourceType.Ref(actualTarget, actualMutable) =>
             SourceType.same(
               actualTarget,
@@ -2470,9 +2463,9 @@ final class SourceTyper(
             SourceType.same(
               other,
               target,
-            ) && (!mutable || actual.mutationAllowed)
+            ) && (!mutable || actual.mutAllowed)
       case other =>
-        SourceType.assignable(actual.expr.valueType, other)
+        SourceType.assignable(actual.expr.ty, other)
 
   private def checkAssignable(
       actual: ExprInfo,
@@ -2480,32 +2473,32 @@ final class SourceTyper(
       span: SourceSpan,
       code: String,
   ): Unit =
-    if !SourceType.assignable(actual.expr.valueType, expected) then
+    if !SourceType.assignable(actual.expr.ty, expected) then
       error(
         code,
-        s"expected ${expected.display}, got ${actual.expr.valueType.display}",
+        s"expected ${expected.display}, got ${actual.expr.ty.display}",
         span,
       )
 
-  private def checkReceiverMutation(
-      receiver: ExprInfo,
-      signature: CallableSignature,
+  private def checkRecvMutation(
+      recv: ExprInfo,
+      sig: CallableSignature,
       span: SourceSpan,
   ): Unit =
-    signature.receiver.foreach { receiverInfo =>
-      if receiverInfo.mutable && !receiver.mutationAllowed then
+    sig.receiver.foreach { recvInfo =>
+      if recvInfo.mutable && !recv.mutAllowed then
         error(
           "cosmo0.type.invalid-mutability",
-          s"${signature.name} requires a mutable receiver",
+          s"${sig.name} requires a mutable receiver",
           span,
         )
     }
 
   private def requireBool(value: ExprInfo, span: SourceSpan): Unit =
-    if !SourceType.same(value.expr.valueType, SourceType.Bool) then
+    if !SourceType.same(value.expr.ty, SourceType.Bool) then
       error(
         "cosmo0.type.expected-bool",
-        s"expected Bool, got ${value.expr.valueType.display}",
+        s"expected Bool, got ${value.expr.ty.display}",
         span,
       )
 
@@ -2522,20 +2515,20 @@ final class SourceTyper(
 
   private def valueSymbol(
       name: String,
-      valueType: SourceType,
+      ty: SourceType,
       kind: UntypedValueKind,
       span: SourceSpan,
   ): ValueSymbol =
     ValueSymbol(
       name,
-      valueType,
-      mutableBinding = kind == UntypedValueKind.Var,
-      mutationAllowed = mutationCapability(valueType),
+      ty,
+      mutBinding = kind == UntypedValueKind.Var,
+      mutAllowed = mutationCapability(ty),
       span,
     )
 
-  private def mutationCapability(valueType: SourceType): Boolean =
-    SourceType.dealias(valueType) match
+  private def mutationCapability(ty: SourceType): Boolean =
+    SourceType.dealias(ty) match
       case SourceType.Ref(_, mutable) => mutable
       case SourceType.ForeignNamespace(_) | SourceType.ForeignSymbol(_) =>
         false
@@ -2596,7 +2589,7 @@ final class SourceTyper(
     )
 
   private enum FunctionContext:
-    case Some(returnType: SourceType, containingOwner: Option[String])
+    case Some(retTy: SourceType, containingOwner: Option[String])
     case None
 
     def ownerName: Option[String] =

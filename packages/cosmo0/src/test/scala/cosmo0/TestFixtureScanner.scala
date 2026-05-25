@@ -10,8 +10,7 @@ object TestFixtureScanner:
 
   private def scan(path: String, include: String => Boolean): List[String] =
     val stats = TestFixtureNodeFs.statSync(path)
-    if stats.isFile() then
-      if include(path) then List(path) else Nil
+    if stats.isFile() then if include(path) then List(path) else Nil
     else if stats.isDirectory() then
       TestFixtureNodeFs
         .readdirSync(path)
@@ -23,7 +22,7 @@ object TestFixtureScanner:
     if parent.endsWith("/") then s"$parent$child" else s"$parent/$child"
 
 @js.native
-@JSImport("node:fs",JSImport.Namespace)
+@JSImport("node:fs", JSImport.Namespace)
 private object TestFixtureNodeFs extends js.Object:
   def readdirSync(path: String): js.Array[String] = js.native
   def statSync(path: String): TestFixtureNodeStats = js.native

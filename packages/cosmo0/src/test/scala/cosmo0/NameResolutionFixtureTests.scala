@@ -7,7 +7,8 @@ class NameResolutionFixtureTests extends munit.FunSuite:
   private val negativeRoot = "fixtures/name-resolution/negative"
 
   test("positive name-resolution fixtures check"):
-    val fixtures = TestFixtureScanner.filesUnder(positiveRoot, _.endsWith(".cos"))
+    val fixtures =
+      TestFixtureScanner.filesUnder(positiveRoot, _.endsWith(".cos"))
     assert(fixtures.nonEmpty, s"$positiveRoot must contain .cos fixtures")
 
     fixtures.foreach: path =>
@@ -19,7 +20,8 @@ class NameResolutionFixtureTests extends munit.FunSuite:
       )
 
   test("negative name-resolution fixtures report stable diagnostics"):
-    val fixtures = TestFixtureScanner.filesUnder(negativeRoot, _.endsWith(".cos"))
+    val fixtures =
+      TestFixtureScanner.filesUnder(negativeRoot, _.endsWith(".cos"))
     assert(fixtures.nonEmpty, s"$negativeRoot must contain .cos fixtures")
 
     fixtures.foreach: path =>
@@ -45,7 +47,9 @@ class NameResolutionFixtureTests extends munit.FunSuite:
         |type CppVector[T] = cstd::vector[T]
         |""".stripMargin
 
-    val lowered = Cosmo0().lower(SourceFile("fixtures/name-resolution/cpp-backend.cos", source))
+    val lowered = Cosmo0().lower(
+      SourceFile("fixtures/name-resolution/cpp-backend.cos", source),
+    )
 
     assert(
       lowered.isSuccess,
@@ -59,11 +63,21 @@ class NameResolutionFixtureTests extends munit.FunSuite:
     )
 
     val output = emitted.value.get
-    assert(output.backendRequirements.contains(BackendRequirement.include("<vector>")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<string>")))
     assert(
       output.backendRequirements.contains(
-        BackendRequirement.cppNamespaceImport("cstd=::std from c++/vector,c++/string"),
+        BackendRequirement.include("<vector>"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.include("<string>"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.cppNamespaceImport(
+          "cstd=::std from c++/vector,c++/string",
+        ),
       ),
     )
     assert(output.source.contains("#include <vector>"))
@@ -103,7 +117,9 @@ class NameResolutionFixtureTests extends munit.FunSuite:
     )
     assertEquals(checked.value.get.moduleOrder, List("main"))
 
-  private def parseNegativeFixture(path: String): NameResolutionNegativeFixture =
+  private def parseNegativeFixture(
+      path: String,
+  ): NameResolutionNegativeFixture =
     val expected = ListBuffer.empty[NameResolutionExpectedDiagnostic]
     val source = ParserFixtureManifest
       .readFile(path)
@@ -123,13 +139,24 @@ class NameResolutionFixtureTests extends munit.FunSuite:
         case line => line
       .mkString("\n")
 
-    assert(expected.nonEmpty, s"$path must declare at least one /// diag directive")
-    NameResolutionNegativeFixture(expected.toList, Cosmo0().check(SourceFile(path, source)))
+    assert(
+      expected.nonEmpty,
+      s"$path must declare at least one /// diag directive",
+    )
+    NameResolutionNegativeFixture(
+      expected.toList,
+      Cosmo0().check(SourceFile(path, source)),
+    )
 
-  private def checkNegativeFixture(path: String): NameResolutionNegativeFixture =
+  private def checkNegativeFixture(
+      path: String,
+  ): NameResolutionNegativeFixture =
     val text = ParserFixtureManifest.readFile(path)
     if text.split("\n").exists(_.startsWith("/// path: ")) then
-      val ref = DiagnosticFixtureRef(path.stripPrefix(s"$negativeRoot/").stripSuffix(".cos"), path)
+      val ref = DiagnosticFixtureRef(
+        path.stripPrefix(s"$negativeRoot/").stripSuffix(".cos"),
+        path,
+      )
       val fixture = DiagnosticFixtureParser.parse(ref)
       val modules = fixture.files.map(file =>
         Cosmo0PackageModule(
@@ -166,7 +193,10 @@ class NameResolutionFixtureTests extends munit.FunSuite:
       case "error"   => DiagnosticSeverity.Error
       case "warning" => DiagnosticSeverity.Warning
       case "info"    => DiagnosticSeverity.Info
-      case other     => throw new IllegalArgumentException(s"$path has unknown diagnostic severity '$other'")
+      case other =>
+        throw new IllegalArgumentException(
+          s"$path has unknown diagnostic severity '$other'",
+        )
 
   private def matches(
       expected: NameResolutionExpectedDiagnostic,
@@ -184,8 +214,9 @@ class NameResolutionFixtureTests extends munit.FunSuite:
     diagnostics
       .map: diagnostic =>
         val location = diagnostic.span match
-          case Some(span) => s"${span.fileName}:${span.start.line}:${span.start.column}"
-          case None       => "<no span>"
+          case Some(span) =>
+            s"${span.fileName}:${span.start.line}:${span.start.column}"
+          case None => "<no span>"
         s"$location ${diagnostic.code}: ${diagnostic.message}"
       .mkString("; ")
 

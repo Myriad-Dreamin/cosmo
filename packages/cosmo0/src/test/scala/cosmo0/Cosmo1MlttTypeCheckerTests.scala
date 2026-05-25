@@ -26,7 +26,8 @@ class Cosmo1MlttTypeCheckerTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"cosmo1 MLTT checker compile failed with diagnostics: ${compiled.diagnostics.map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
+      s"cosmo1 MLTT checker compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
     )
     val output = compiled.value.get.output
     assert(output.contains("struct MlttTerm"))
@@ -35,13 +36,33 @@ class Cosmo1MlttTypeCheckerTests extends munit.FunSuite:
     assert(output.contains("struct MlttConversionResult"))
     assert(output.contains("inline MlttCheckResult mltt_check("))
     assert(output.contains("inline MlttInferResult mltt_infer("))
-    assert(output.contains("inline MlttConversionResult mltt_convert_with_strategy("))
+    assert(
+      output.contains("inline MlttConversionResult mltt_convert_with_strategy("),
+    )
     assert(output.contains("inline bool mltt_lambda_checks_against_pi()"))
-    assert(output.contains("inline bool mltt_conversion_accepts_beta_and_let()"))
-    assert(output.contains("inline bool mltt_conversion_reduces_transparent_nat_definition()"))
-    assert(output.contains("inline bool mltt_conversion_rejects_effectful_definition()"))
-    assert(output.contains("inline bool mltt_vec_constructor_signatures_check_without_pattern_matching()"))
-    assert(output.contains("inline bool mltt_nat_and_vec_declaration_metadata_is_deterministic()"))
+    assert(
+      output.contains("inline bool mltt_conversion_accepts_beta_and_let()"),
+    )
+    assert(
+      output.contains(
+        "inline bool mltt_conversion_reduces_transparent_nat_definition()",
+      ),
+    )
+    assert(
+      output.contains(
+        "inline bool mltt_conversion_rejects_effectful_definition()",
+      ),
+    )
+    assert(
+      output.contains(
+        "inline bool mltt_vec_constructor_signatures_check_without_pattern_matching()",
+      ),
+    )
+    assert(
+      output.contains(
+        "inline bool mltt_nat_and_vec_declaration_metadata_is_deterministic()",
+      ),
+    )
     assert(output.contains("cosmo.type.mltt.unsupported-normalization-profile"))
     assert(output.contains("cosmo.type.mltt.effectful-conversion"))
     assert(output.contains("mltt.whnf-conversion"))
@@ -52,18 +73,30 @@ class Cosmo1MlttTypeCheckerTests extends munit.FunSuite:
 
     assert(
       compiled.isSuccess,
-      s"cosmo1 MLTT checker compile failed with diagnostics: ${compiled.diagnostics.map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
+      s"cosmo1 MLTT checker compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
     )
 
-    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for MLTT fixture execution test"))
-    MlttNodeFs.mkdirSync("target/cosmo1-mltt-tests", js.Dynamic.literal("recursive" -> true))
+    val compiler = cxxCompiler().getOrElse(
+      fail("no C++ compiler found for MLTT fixture execution test"),
+    )
+    MlttNodeFs.mkdirSync(
+      "target/cosmo1-mltt-tests",
+      js.Dynamic.literal("recursive" -> true),
+    )
     val sourcePath = "target/cosmo1-mltt-tests/mltt_check_test.cpp"
     val executablePath = "target/cosmo1-mltt-tests/mltt_check_test"
     MlttNodeFs.writeFileSync(sourcePath, compiled.value.get.output)
 
     val compile = MlttNodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array(
+        "-std=c++17",
+        NlohmannJsonDependency.includeArg,
+        sourcePath,
+        "-o",
+        executablePath,
+      ),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -80,7 +113,8 @@ class Cosmo1MlttTypeCheckerTests extends munit.FunSuite:
     assertEquals(
       run.status.toOption,
       Some(0),
-      s"MLTT fixture executable failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+      s"MLTT fixture executable failed\nstdout:\n${run.stdout
+          .getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
     )
 
   private def compileMlttTestProgram(): Result[CompiledModule] =
@@ -119,7 +153,11 @@ end Cosmo1MlttTypeCheckerTests
 @js.native
 @JSImport("node:child_process", "spawnSync")
 private object MlttNodeSpawnSync extends js.Object:
-  def apply(command: String, args: js.Array[String], options: js.Any): MlttNodeSpawnSyncResult = js.native
+  def apply(
+      command: String,
+      args: js.Array[String],
+      options: js.Any,
+  ): MlttNodeSpawnSyncResult = js.native
 
 @js.native
 private trait MlttNodeSpawnSyncResult extends js.Object:
@@ -128,7 +166,7 @@ private trait MlttNodeSpawnSyncResult extends js.Object:
   val stderr: js.UndefOr[String] = js.native
 
 @js.native
-@JSImport("node:fs",JSImport.Namespace)
+@JSImport("node:fs", JSImport.Namespace)
 private object MlttNodeFs extends js.Object:
   def mkdirSync(path: String, options: js.Any): Unit = js.native
   def writeFileSync(path: String, data: String): Unit = js.native
