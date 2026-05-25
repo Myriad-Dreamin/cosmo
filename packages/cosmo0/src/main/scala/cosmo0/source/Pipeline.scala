@@ -256,16 +256,16 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       )
 
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
-    val declarations = ordered.flatMap(_.localDeclarations)
+    val decls = ordered.flatMap(_.localDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
-    val cppNamespaceImports = ordered.flatMap(_.untyped.cppImports)
+    val cppImports = ordered.flatMap(_.untyped.cppImports)
     val combinedModule =
       UntypedModule(
         combinedSource,
-        declarations,
+        decls,
         combinedSource.span(0, 0),
         cIncludes,
-        cppNamespaceImports,
+        cppImports,
       )
 
     SourceTyper(combinedModule, checkerProfile).check() match

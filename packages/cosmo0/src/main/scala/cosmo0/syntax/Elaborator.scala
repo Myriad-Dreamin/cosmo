@@ -81,7 +81,7 @@ final class Elaborator(
     * the diagnostics collected while rejecting unsupported forms.
     */
   def elaborate(): Result[UntypedModule] =
-    val declarations = parsed.ast.stmts.flatMap(moduleDecl)
+    val decls = parsed.ast.stmts.flatMap(moduleDecl)
     val emittedDiagnostics = diagnostics.toList
 
     if emittedDiagnostics.isEmpty then
@@ -89,10 +89,10 @@ final class Elaborator(
         Phase.Check,
         UntypedModule(
           parsed.source,
-          declarations,
+          decls,
           nodeSpan(parsed.ast),
           cIncludes.toList,
-          cppNamespaceImports.toList,
+          cppImports.toList,
         ),
       )
     else
@@ -106,7 +106,7 @@ final class Elaborator(
   private val source = parsed.source
   private val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
   private val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
-  private val cppNamespaceImports: ListBuffer[SourceCppNamespaceImport] =
+  private val cppImports: ListBuffer[SourceCppNamespaceImport] =
     ListBuffer.empty
   private val genericTypeAliasNames = mutable.LinkedHashSet.empty[String]
 
@@ -581,7 +581,7 @@ final class Elaborator(
                     List(header),
                     nodeSpan(node),
                   )
-                  cppNamespaceImports += importValue
+                  cppImports += importValue
                   Some(
                     UntypedCppNamespaceImport(
                       importValue,
@@ -767,7 +767,7 @@ final class Elaborator(
 
   private def functionDecl(
       node: Def,
-      externBinding: Option[SourceExternBinding] = None,
+      extern: Option[SourceExternBinding] = None,
   ): Option[UntypedFunction] =
     if hasExplicitTypeParams(node.params) then
       unsupported(
@@ -775,7 +775,7 @@ final class Elaborator(
         "cosmo0.elaborate.unsupported.generic-function",
         "user-defined generic functions are outside the initial cosmo0 subset",
       )
-    else if externBinding.nonEmpty && node.rhs.nonEmpty then
+    else if extern.nonEmpty && node.rhs.nonEmpty then
       unsupported(
         node,
         "cosmo0.elaborate.invalid-extern",
@@ -784,21 +784,21 @@ final class Elaborator(
     else
       val span = nodeSpan(node)
       val params = sequence(node.params.getOrElse(Nil).map(param))
-      val returnType =
+      val retTy =
         node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
           typeFromNode(ret, Some(span)).map(Some(_))
         }
       val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) { rhs =>
         expr(rhs).map(Some(_))
       }
-      params.zip(returnType).zip(body).map { case ((ps, rt), b) =>
+      params.zip(retTy).zip(body).map { case ((ps, rt), b) =>
         UntypedFunction(
           node.name.name,
           ps,
           rt,
           b,
           span,
-          externBinding,
+          extern,
           declarationVisibility(node),
         )
       }
@@ -808,15 +808,14 @@ final class Elaborator(
       kind: UntypedValueKind,
   ): Option[UntypedValueDecl] =
     val span = nodeSpan(node)
-    val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
-      ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+    val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+      typeFromNode(ty, Some(span)).map(Some(_))
     }
     val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
       value =>
         expr(value).map(Some(_))
     }
-    valueType.zip(init).map { case (t, i) =>
+    ty.zip(init).map { case (t, i) =>
       UntypedValueDecl(
         kind,
         node.name.name,
@@ -832,15 +831,14 @@ final class Elaborator(
       kind: UntypedValueKind,
   ): Option[UntypedValueDecl] =
     val span = nodeSpan(node)
-    val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
-      ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+    val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+      typeFromNode(ty, Some(span)).map(Some(_))
     }
     val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
       value =>
         expr(value).map(Some(_))
     }
-    valueType.zip(init).map { case (t, i) =>
+    ty.zip(init).map { case (t, i) =>
       UntypedValueDecl(
         kind,
         node.name.name,
@@ -876,10 +874,10 @@ final class Elaborator(
     */
   private def genericTypeAlias(node: GenericTyp): Option[UntypedTypeAlias] =
     genericTypeAliasNames += node.name.name
-    val typeParams = typeAliasParamNames(node.params, node)
+    val tyParams = typeAliasParamNames(node.params, node)
     val target = node.init.orElse(node.ty) match
       case Some(targetNode) =>
-        typeParams.flatMap(params =>
+        tyParams.flatMap(params =>
           typeFromNode(targetNode, Some(nodeSpan(node)), params.toSet).map(
             target =>
               UntypedTypeAlias(
@@ -1011,8 +1009,8 @@ final class Elaborator(
 
   private def variantField(node: syntax.Node): Option[UntypedVariantField] =
     node match
-      case KeyedArg(name: Ident, valueType) =>
-        typeFromNode(valueType, Some(nodeSpan(node))).map(t =>
+      case KeyedArg(name: Ident, tyNode) =>
+        typeFromNode(tyNode, Some(nodeSpan(node))).map(t =>
           UntypedVariantField(Some(name.name), t, nodeSpan(node)),
         )
       case KeyedArg(_, _) =>
@@ -1035,15 +1033,14 @@ final class Elaborator(
       )
     else
       val span = nodeSpan(node)
-      val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
-        ty =>
-          typeFromNode(ty, Some(span)).map(Some(_))
+      val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+        typeFromNode(ty, Some(span)).map(Some(_))
       }
       val default = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
         value =>
           expr(value).map(Some(_))
       }
-      valueType.zip(default).map { case (t, d) =>
+      ty.zip(default).map { case (t, d) =>
         UntypedParam(node.name.name, t, d, span)
       }
 
@@ -1075,15 +1072,14 @@ final class Elaborator(
       kind: UntypedValueKind,
   ): Option[UntypedLocal] =
     val span = nodeSpan(node)
-    val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
-      ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+    val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+      typeFromNode(ty, Some(span)).map(Some(_))
     }
     val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
       value =>
         expr(value).map(Some(_))
     }
-    valueType.zip(init).map { case (t, i) =>
+    ty.zip(init).map { case (t, i) =>
       UntypedLocal(kind, node.name.name, t, i, span)
     }
 
@@ -1092,15 +1088,14 @@ final class Elaborator(
       kind: UntypedValueKind,
   ): Option[UntypedLocal] =
     val span = nodeSpan(node)
-    val valueType = node.ty.fold[Option[Option[UntypedType]]](Some(None)) {
-      ty =>
-        typeFromNode(ty, Some(span)).map(Some(_))
+    val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
+      typeFromNode(ty, Some(span)).map(Some(_))
     }
     val init = node.init.fold[Option[Option[UntypedExpr]]](Some(None)) {
       value =>
         expr(value).map(Some(_))
     }
-    valueType.zip(init).map { case (t, i) =>
+    ty.zip(init).map { case (t, i) =>
       UntypedLocal(kind, node.name.name, t, i, span)
     }
 
@@ -1141,9 +1136,7 @@ final class Elaborator(
       case Some(RuneLit(value)) =>
         Some(UntypedRuneLiteral(value, nodeSpan(node)))
       case Some(Select(lhs, rhs, false)) =>
-        expr(lhs).map(receiver =>
-          UntypedSelect(receiver, rhs.name, nodeSpan(node)),
-        )
+        expr(lhs).map(recv => UntypedSelect(recv, rhs.name, nodeSpan(node)))
       case Some(Select(lhs, rhs, true)) =>
         typeFromNode(lhs, Some(nodeSpan(node))).map(owner =>
           UntypedVariantConstructor(owner, rhs.name, nodeSpan(node)),
@@ -1196,13 +1189,13 @@ final class Elaborator(
         )
       case Some(UnOp(op, lhs)) =>
         expr(lhs).map(value => UntypedUnary(op, value, nodeSpan(node)))
-      case Some(If(cond, thenBranch, elseBranch)) =>
+      case Some(If(cond, thenExp, elseExp)) =>
         val span = nodeSpan(node)
-        val elseValue =
-          elseBranch.fold[Option[Option[UntypedExpr]]](Some(None)) { branch =>
+        val elseExpValue =
+          elseExp.fold[Option[Option[UntypedExpr]]](Some(None)) { branch =>
             expr(branch).map(Some(_))
           }
-        expr(cond).zip(expr(thenBranch)).zip(elseValue).map {
+        expr(cond).zip(expr(thenExp)).zip(elseExpValue).map {
           case ((c, t), e) =>
             UntypedIf(c, t, e, span)
         }
@@ -1221,9 +1214,9 @@ final class Elaborator(
       case Some(Match(lhs, rhs: CaseBlock)) =>
         val arms = rhs.stmts.map(matchArm)
         for
-          scrutinee <- expr(lhs)
+          scrut <- expr(lhs)
           as <- sequence(arms)
-        yield UntypedMatch(scrutinee, as, nodeSpan(node))
+        yield UntypedMatch(scrut, as, nodeSpan(node))
       case Some(Match(_, rhs)) =>
         unsupported(
           rhs,
@@ -1348,15 +1341,15 @@ final class Elaborator(
       case RuneLit(value) =>
         Some(UntypedRuneLiteral(value, nodeSpan(node)))
       case Apply(callee, args, false) =>
-        val constructor = expr(callee)
+        val ctor = expr(callee)
         val argPatterns = args.map(pattern)
         for
-          c <- constructor
+          c <- ctor
           as <- sequence(argPatterns)
         yield UntypedVariantPattern(c, as, nodeSpan(node))
       case select: Select =>
-        expr(select).map(constructor =>
-          UntypedVariantPattern(constructor, Nil, nodeSpan(node)),
+        expr(select).map(ctor =>
+          UntypedVariantPattern(ctor, Nil, nodeSpan(node)),
         )
       case other =>
         unsupported(
@@ -1384,7 +1377,7 @@ final class Elaborator(
   private def typeFromNode(
       node: syntax.Node,
       fallbackSpan: Option[SourceSpan] = None,
-      typeParams: Set[String] = Set.empty,
+      tyParams: Set[String] = Set.empty,
   ): Option[UntypedType] =
     node match
       case Ident("Type") =>
@@ -1394,11 +1387,11 @@ final class Elaborator(
           "host Type and type-level programming are outside the initial cosmo0 subset",
         )
       case UnOp("&", UnOp("mut", target)) =>
-        typeFromNode(target, fallbackSpan, typeParams).map(t =>
+        typeFromNode(target, fallbackSpan, tyParams).map(t =>
           UntypedRefType(t, mut = true, nodeSpan(node, fallbackSpan)),
         )
       case UnOp("&", target) =>
-        typeFromNode(target, fallbackSpan, typeParams).map(t =>
+        typeFromNode(target, fallbackSpan, tyParams).map(t =>
           UntypedRefType(t, mut = false, nodeSpan(node, fallbackSpan)),
         )
       case Apply(lhs, args, true) =>
@@ -1408,7 +1401,7 @@ final class Elaborator(
                 base.parts.lastOption.getOrElse(""),
               ) =>
             val typeArgs = args.map(
-              typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams),
+              typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
             sequence(typeArgs).map { values =>
               base.parts.lastOption match
@@ -1432,11 +1425,10 @@ final class Elaborator(
                   )
             }
           case Some(base)
-              if base.parts.headOption.exists(alias =>
-                cppNamespaceImports.exists(_.alias == alias),
-              ) =>
+              if base.parts.headOption
+                .exists(alias => cppImports.exists(_.alias == alias)) =>
             val typeArgs = args.map(
-              typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams),
+              typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
             sequence(typeArgs).map(values =>
               UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)),
@@ -1446,7 +1438,7 @@ final class Elaborator(
                 base.parts.head,
               ) =>
             val typeArgs = args.map(
-              typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), typeParams),
+              typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
             sequence(typeArgs).map(values =>
               UntypedAppliedType(base, values, nodeSpan(node, fallbackSpan)),

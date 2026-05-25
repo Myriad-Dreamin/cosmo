@@ -100,9 +100,9 @@ final class LirLowerer(
   private final case class Binding(
       name: String,
       id: LirLocalId,
-      valueType: SourceType,
+      ty: SourceType,
       mutable: Boolean,
-      mutationAllowed: Boolean,
+      mutAllowed: Boolean,
   )
 
   private final class FunctionBuilder(
@@ -144,17 +144,17 @@ final class LirLowerer(
     val params: List[LirParam] =
       function.params.map { param =>
         val id = nextLocalId(param.name)
-        val mutationAllowed = mutationCapability(param.ty)
+        val mutAllowed = mutationCapability(param.ty)
         bind(
           Binding(
             param.name,
             id,
             param.ty,
             mutable = false,
-            mutationAllowed,
+            mutAllowed,
           ),
         )
-        LirParam(id, param.name, Lir.t(param.ty), mutationAllowed)
+        LirParam(id, param.name, Lir.t(param.ty), mutAllowed)
       }
 
     def lower(): LirFunction =
@@ -233,20 +233,20 @@ final class LirLowerer(
               unsupported(select, s"method value ${select.field}")
               None
             else
-              for receiver <- lowerExpr(select.recv) yield
+              for recv <- lowerExpr(select.recv) yield
                 val output = declareTemp(
                   select.ty,
-                  mutationAllowed = Some(select.mutAllowed),
+                  mutAllowed = Some(select.mutAllowed),
                 )
                 emit(
                   LirFieldGet(
                     output.id,
-                    receiver,
+                    recv,
                     select.field,
                     Lir.t(select.ty),
                   ),
                 )
-                LirLocalRef(output.id, Lir.t(output.valueType))
+                LirLocalRef(output.id, Lir.t(output.ty))
 
           case call: TypedCall =>
             lowerCall(call)
@@ -264,10 +264,10 @@ final class LirLowerer(
             Some(LirUnitValue)
           case TypedBoolLiteral(value, _, _) =>
             Some(LirBoolValue(value))
-          case TypedIntLiteral(value, valueType, _) =>
-            Some(LirIntValue(value, Lir.t(valueType)))
-          case TypedFloatLiteral(value, valueType, _) =>
-            Some(LirFloatValue(value, Lir.t(valueType)))
+          case TypedIntLiteral(value, ty, _) =>
+            Some(LirIntValue(value, Lir.t(ty)))
+          case TypedFloatLiteral(value, ty, _) =>
+            Some(LirFloatValue(value, Lir.t(ty)))
           case TypedStringLiteral(value, _, _) =>
             Some(LirStringValue(value))
 
@@ -308,7 +308,7 @@ final class LirLowerer(
       name.path.parts match
         case valueName :: Nil =>
           resolve(valueName)
-            .map(binding => LirLocalRef(binding.id, Lir.t(binding.valueType)))
+            .map(binding => LirLocalRef(binding.id, Lir.t(binding.ty)))
             .orElse(
               context
                 .globalId(valueName)
@@ -574,21 +574,21 @@ final class LirLowerer(
         constructor: TypedTypeConstructorExpr,
         output: Option[Binding],
         args: List[LirValue],
-        valueType: SourceType,
-        signature: CallableSignature,
+        ty: SourceType,
+        sig: CallableSignature,
     ): Option[LirValue] =
       output match
         case Some(binding) =>
           emit(
             LirConstructType(
               binding.id,
-              Lir.t(valueType),
-              signature.params.zip(args).map { case (param, arg) =>
+              Lir.t(ty),
+              sig.params.zip(args).map { case (param, arg) =>
                 LirFieldInit(param.name, arg)
               },
             ),
           )
-          callResult(output, valueType)
+          callResult(output, ty)
         case None =>
           report(
             "cosmo0.lir.lower.invalid-constructor",
@@ -601,7 +601,7 @@ final class LirLowerer(
         constructor: TypedTypeConstructorExpr,
         output: Option[Binding],
         args: List[LirValue],
-        valueType: SourceType,
+        ty: SourceType,
     ): Option[LirValue] =
       descriptorRefForConstructor(constructor.constructedTy) match
         case Some(descriptor) =>
@@ -611,18 +611,18 @@ final class LirLowerer(
               descriptor,
               "<init>",
               args,
-              Some(Lir.t(valueType)),
+              Some(Lir.t(ty)),
             ),
           )
-          callResult(output, valueType)
+          callResult(output, ty)
         case None
             if isForeignDefaultConstructor(
               constructor.constructedTy,
             ) && args.isEmpty =>
           output match
             case Some(binding) =>
-              emit(LirConstructType(binding.id, Lir.t(valueType), Nil))
-              callResult(output, valueType)
+              emit(LirConstructType(binding.id, Lir.t(ty), Nil))
+              callResult(output, ty)
             case None =>
               report(
                 "cosmo0.lir.lower.invalid-constructor",
@@ -639,8 +639,8 @@ final class LirLowerer(
           )
           None
 
-    private def isForeignDefaultConstructor(valueType: SourceType): Boolean =
-      SourceType.dealias(valueType) match
+    private def isForeignDefaultConstructor(ty: SourceType): Boolean =
+      SourceType.dealias(ty) match
         case SourceType.ForeignApplied(_, _) | SourceType.ForeignSymbol(_) =>
           true
         case _ => false
@@ -679,7 +679,7 @@ final class LirLowerer(
                     Some(Lir.t(value.ty)),
                   ),
                 )
-                Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+                Some(LirLocalRef(output.id, Lir.t(output.ty)))
               case None =>
                 unsupportedDescriptor(
                   value,
@@ -767,7 +767,7 @@ final class LirLowerer(
 
           if rhsFallsThrough || shortFallsThrough then {
             startBlock(joinLabel)
-            Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+            Some(LirLocalRef(output.id, Lir.t(output.ty)))
           } else {
             None
           }
@@ -792,7 +792,7 @@ final class LirLowerer(
               Some(Lir.t(value.ty)),
             ),
           )
-          Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+          Some(LirLocalRef(output.id, Lir.t(output.ty)))
         case None =>
           unsupportedDescriptor(
             value,
@@ -824,7 +824,7 @@ final class LirLowerer(
               Nil,
             ),
           )
-          Some(LirLocalRef(output.id, Lir.t(output.valueType)))
+          Some(LirLocalRef(output.id, Lir.t(output.ty)))
 
     private def lowerIf(value: TypedIf): Option[LirValue] =
       lowerExpr(value.cond) match
@@ -1006,14 +1006,14 @@ final class LirLowerer(
 
     private def lowerMatch(value: TypedMatch): Option[LirValue] =
       lowerExpr(value.scrut) match
-        case Some(scrutinee) =>
-          lowerMatchWithScrutinee(value, scrutinee)
+        case Some(scrut) =>
+          lowerMatchWithScrut(value, scrut)
         case None =>
           None
 
-    private def lowerMatchWithScrutinee(
+    private def lowerMatchWithScrut(
         value: TypedMatch,
-        scrutinee: LirValue,
+        scrut: LirValue,
     ): Option[LirValue] =
       val group = nextLabelGroup("match")
       val armLabels = value.arms.zipWithIndex.map { case (_, index) =>
@@ -1028,7 +1028,7 @@ final class LirLowerer(
       value.arms.zip(armLabels).zipWithIndex.foreach {
         case ((arm, armLabel), index) =>
           if chainOpen then
-            patternCondition(arm.pat, scrutinee) match
+            patternCondition(arm.pat, scrut) match
               case Some(AlwaysPattern) =>
                 terminate(LirBranch(armLabel))
                 needsDefault = false
@@ -1059,7 +1059,7 @@ final class LirLowerer(
       value.arms.zip(armLabels).foreach { case (arm, armLabel) =>
         startBlock(armLabel)
         val armResult = withScope {
-          bindPattern(arm.pat, scrutinee)
+          bindPattern(arm.pat, scrut)
           arm.body.flatMap(lowerExpr).orElse(Some(LirUnitValue))
         }
         val fallsThrough =
@@ -1127,7 +1127,7 @@ final class LirLowerer(
               case Some(binding) =>
                 emit(
                   LirAssign(
-                    LirLocalPlace(binding.id, Lir.t(binding.valueType)),
+                    LirLocalPlace(binding.id, Lir.t(binding.ty)),
                     loweredValue,
                   ),
                 )
@@ -1139,9 +1139,9 @@ final class LirLowerer(
           }
 
         case select: TypedSelect =>
-          lowerExpr(select.recv).foreach { receiver =>
+          lowerExpr(select.recv).foreach { recv =>
             lowerExpr(assign.value).foreach { loweredValue =>
-              emit(LirFieldSet(receiver, select.field, loweredValue))
+              emit(LirFieldSet(recv, select.field, loweredValue))
             }
           }
 
@@ -1150,10 +1150,10 @@ final class LirLowerer(
 
     private def returnTerminator(
         value: Option[LirValue],
-        expectedType: SourceType,
+        expectedTy: SourceType,
         span: SourceSpan,
     ): LirTerminator =
-      SourceType.dealias(expectedType) match
+      SourceType.dealias(expectedTy) match
         case SourceType.Unit =>
           LirReturn(None)
         case _ =>
@@ -1163,7 +1163,7 @@ final class LirLowerer(
             case None =>
               report(
                 "cosmo0.lir.lower.missing-return",
-                s"function ${function.name} did not produce a ${expectedType.display} return value",
+                s"function ${function.name} did not produce a ${expectedTy.display} return value",
                 span,
               )
               LirErrorExit(
@@ -1171,34 +1171,34 @@ final class LirLowerer(
                 Some(function.name),
               )
 
-    private def callOutput(valueType: SourceType): Option[Binding] =
-      SourceType.dealias(valueType) match
+    private def callOutput(ty: SourceType): Option[Binding] =
+      SourceType.dealias(ty) match
         case SourceType.Unit | SourceType.Never =>
           None
         case _ =>
-          Some(declareTemp(valueType))
+          Some(declareTemp(ty))
 
     private def callResult(
         output: Option[Binding],
-        valueType: SourceType,
+        ty: SourceType,
     ): Option[LirValue] =
       output match
         case Some(binding) =>
-          Some(LirLocalRef(binding.id, Lir.t(valueType)))
+          Some(LirLocalRef(binding.id, Lir.t(ty)))
         case None =>
           Some(LirUnitValue)
 
-    private def joinOutput(valueType: SourceType): Option[Binding] =
-      SourceType.dealias(valueType) match
+    private def joinOutput(ty: SourceType): Option[Binding] =
+      SourceType.dealias(ty) match
         case SourceType.Unit | SourceType.Never =>
           None
         case _ =>
-          Some(declareTemp(valueType, mutable = true))
+          Some(declareTemp(ty, mutable = true))
 
     private def structuredResult(output: Option[Binding]): Option[LirValue] =
       output match
         case Some(binding) =>
-          Some(LirLocalRef(binding.id, Lir.t(binding.valueType)))
+          Some(LirLocalRef(binding.id, Lir.t(binding.ty)))
         case None =>
           Some(LirUnitValue)
 
@@ -1217,14 +1217,14 @@ final class LirLowerer(
               case Some(value) =>
                 emit(
                   LirAssign(
-                    LirLocalPlace(binding.id, Lir.t(binding.valueType)),
+                    LirLocalPlace(binding.id, Lir.t(binding.ty)),
                     value,
                   ),
                 )
               case None =>
                 report(
                   "cosmo0.lir.lower.missing-branch-value",
-                  s"structured expression did not produce ${binding.valueType.display}",
+                  s"structured expression did not produce ${binding.ty.display}",
                   span,
                 )
                 terminate(
@@ -1242,19 +1242,19 @@ final class LirLowerer(
 
     private def declareLocal(
         name: String,
-        valueType: SourceType,
+        ty: SourceType,
         mutable: Boolean,
     ): Binding =
       val id = nextLocalId(name)
       val binding =
-        Binding(name, id, valueType, mutable, mutationCapability(valueType))
+        Binding(name, id, ty, mutable, mutationCapability(ty))
       localBuffer += localFor(binding)
       binding
 
     private def declareTemp(
-        valueType: SourceType,
+        ty: SourceType,
         mutable: Boolean = false,
-        mutationAllowed: Option[Boolean] = None,
+        mutAllowed: Option[Boolean] = None,
     ): Binding =
       val name = s"tmp$tempIndex"
       tempIndex += 1
@@ -1262,9 +1262,9 @@ final class LirLowerer(
       val binding = Binding(
         name,
         id,
-        valueType,
+        ty,
         mutable,
-        mutationAllowed.getOrElse(mutationCapability(valueType)),
+        mutAllowed.getOrElse(mutationCapability(ty)),
       )
       localBuffer += localFor(binding)
       binding
@@ -1280,9 +1280,9 @@ final class LirLowerer(
       LirLocal(
         binding.id,
         binding.name,
-        Lir.t(binding.valueType),
+        Lir.t(binding.ty),
         binding.mutable,
-        binding.mutationAllowed,
+        binding.mutAllowed,
       )
 
     private def bind(binding: Binding): Unit =
@@ -1332,34 +1332,34 @@ final class LirLowerer(
       Lir.label(s"${group}_${"%02d".format(index)}_${stablePart(suffix)}")
 
     private def descriptorRefForConstructor(
-        valueType: SourceType,
+        ty: SourceType,
     ): Option[LirDescriptorRef] =
-      descriptorRefFor(valueType).filter { descriptor =>
+      descriptorRefFor(ty).filter { descriptor =>
         descriptors
           .get(descriptor.name)
           .exists(_.constructor("<init>").nonEmpty)
       }
 
     private def descriptorRefForMethod(
-        valueType: SourceType,
+        ty: SourceType,
         method: String,
     ): Option[LirDescriptorRef] =
-      descriptorRefFor(valueType).filter { descriptor =>
+      descriptorRefFor(ty).filter { descriptor =>
         descriptors.get(descriptor.name).exists(_.method(method).nonEmpty)
       }
 
     private def descriptorRefForValue(
-        valueType: SourceType,
+        ty: SourceType,
         operation: String,
     ): Option[LirDescriptorRef] =
-      descriptorRefFor(valueType).filter { descriptor =>
+      descriptorRefFor(ty).filter { descriptor =>
         descriptors.get(descriptor.name).exists(_.method(operation).nonEmpty)
       }
 
     private def descriptorRefFor(
-        valueType: SourceType,
+        ty: SourceType,
     ): Option[LirDescriptorRef] =
-      SourceType.dealias(valueType) match
+      SourceType.dealias(ty) match
         case SourceType.Ref(target, _) =>
           descriptorRefFor(target)
         case SourceType.Standard(name, args)
@@ -1371,38 +1371,38 @@ final class LirLowerer(
         case _ =>
           None
 
-    private def isDescriptorBacked(valueType: SourceType): Boolean =
-      descriptorRefFor(valueType).nonEmpty
+    private def isDescriptorBacked(ty: SourceType): Boolean =
+      descriptorRefFor(ty).nonEmpty
 
-    private def descriptorName(valueType: SourceType): Option[String] =
-      SourceType.dealias(valueType) match
+    private def descriptorName(ty: SourceType): Option[String] =
+      SourceType.dealias(ty) match
         case SourceType.Ref(target, _)    => descriptorName(target)
         case SourceType.Standard(name, _) => Some(name)
         case SourceType.Builtin(name)     => Some(name)
         case _                            => None
 
     private def iterableDescriptor(
-        valueType: SourceType,
-        itemType: SourceType,
+        ty: SourceType,
+        itemTy: SourceType,
         span: SourceSpan,
     ): Option[LirDescriptorRef] =
-      SourceType.dealias(valueType) match
+      SourceType.dealias(ty) match
         case SourceType.Standard(
               name @ ("Vec" | "Set" | "Arena"),
               item :: Nil,
             ) =>
-          if !SourceType.same(item, itemType) then
+          if !SourceType.same(item, itemTy) then
             report(
               "cosmo0.lir.lower.invalid-iterator",
-              s"for loop item type ${itemType.display} does not match ${valueType.display} item ${item.display}",
+              s"for loop item type ${itemTy.display} does not match ${ty.display} item ${item.display}",
               span,
             )
           Some(LirDescriptorRef(name, List(Lir.t(item))))
         case SourceType.Standard("Map", key :: value :: Nil) =>
-          if !SourceType.same(key, itemType) then
+          if !SourceType.same(key, itemTy) then
             report(
               "cosmo0.lir.lower.invalid-iterator",
-              s"for loop item type ${itemType.display} does not match ${valueType.display} key ${key.display}",
+              s"for loop item type ${itemTy.display} does not match ${ty.display} key ${key.display}",
               span,
             )
           Some(LirDescriptorRef("Map", List(Lir.t(key), Lir.t(value))))
@@ -1416,7 +1416,7 @@ final class LirLowerer(
 
     private def patternCondition(
         pattern: TypedPattern,
-        scrutinee: LirValue,
+        scrut: LirValue,
     ): Option[PatternCondition] =
       pattern match
         case _: TypedWildcardPattern =>
@@ -1426,15 +1426,15 @@ final class LirLowerer(
         case TypedVariantPattern(
               constructor: TypedVariantConstructorExpr,
               _,
-              valueType,
+              ty,
               _,
             ) =>
           val output = declareTemp(SourceType.Bool)
           emit(
             LirCheckVariantTag(
               output.id,
-              scrutinee,
-              Lir.t(valueType),
+              scrut,
+              Lir.t(ty),
               constructor.variant,
             ),
           )
@@ -1448,13 +1448,13 @@ final class LirLowerer(
           unsupportedPattern(value, "literal pattern")
           None
 
-    private def bindPattern(pattern: TypedPattern, scrutinee: LirValue): Unit =
+    private def bindPattern(pattern: TypedPattern, scrut: LirValue): Unit =
       pattern match
         case TypedWildcardPattern(_, _) =>
-        case TypedBindingPattern(name, valueType, _) =>
-          val binding = declareLocal(name, valueType, mutable = false)
+        case TypedBindingPattern(name, ty, _) =>
+          val binding = declareLocal(name, ty, mutable = false)
           bind(binding)
-          emit(LirAllocLocal(localFor(binding), Some(scrutinee)))
+          emit(LirAllocLocal(localFor(binding), Some(scrut)))
         case TypedVariantPattern(
               constructor: TypedVariantConstructorExpr,
               args,
@@ -1464,16 +1464,16 @@ final class LirLowerer(
           args.zipWithIndex.foreach { case (arg, index) =>
             arg match
               case TypedWildcardPattern(_, _) =>
-              case TypedBindingPattern(name, valueType, _) =>
-                val binding = declareLocal(name, valueType, mutable = false)
+              case TypedBindingPattern(name, ty, _) =>
+                val binding = declareLocal(name, ty, mutable = false)
                 bind(binding)
                 emit(
                   LirReadVariantPayload(
                     binding.id,
-                    scrutinee,
+                    scrut,
                     constructor.variant,
                     index,
-                    Lir.t(valueType),
+                    Lir.t(ty),
                   ),
                 )
               case other =>
@@ -1514,8 +1514,8 @@ final class LirLowerer(
         node.span,
       )
 
-    private def isFunctionType(valueType: SourceType): Boolean =
-      SourceType.dealias(valueType) match
+    private def isFunctionType(ty: SourceType): Boolean =
+      SourceType.dealias(ty) match
         case SourceType.Function(_, _) => true
         case _                         => false
 
@@ -1656,10 +1656,10 @@ final class LirLowerer(
         Some(LirUnitValue)
       case TypedBoolLiteral(value, _, _) =>
         Some(LirBoolValue(value))
-      case TypedIntLiteral(value, valueType, _) =>
-        Some(LirIntValue(value, Lir.t(valueType)))
-      case TypedFloatLiteral(value, valueType, _) =>
-        Some(LirFloatValue(value, Lir.t(valueType)))
+      case TypedIntLiteral(value, ty, _) =>
+        Some(LirIntValue(value, Lir.t(ty)))
+      case TypedFloatLiteral(value, ty, _) =>
+        Some(LirFloatValue(value, Lir.t(ty)))
       case TypedStringLiteral(value, _, _) =>
         Some(LirStringValue(value))
       case name: TypedName if name.path.parts.length == 1 =>
@@ -1702,8 +1702,8 @@ final class LirLowerer(
       Some(span),
     )
 
-  private def mutationCapability(valueType: SourceType): Boolean =
-    SourceType.dealias(valueType) match
+  private def mutationCapability(ty: SourceType): Boolean =
+    SourceType.dealias(ty) match
       case SourceType.Ref(_, mutable)          => mutable
       case SourceType.Never | SourceType.Error => false
       case _                                   => true

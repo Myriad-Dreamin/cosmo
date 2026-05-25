@@ -304,9 +304,9 @@ final class Cosmo0:
         case _            => false
       )
 
-  private def runnableReturnType(valueType: SourceType): Boolean =
-    SourceType.same(valueType, SourceType.Unit) || SourceType.isInteger(
-      valueType,
+  private def runnableReturnType(ty: SourceType): Boolean =
+    SourceType.same(ty, SourceType.Unit) || SourceType.isInteger(
+      ty,
     )
 
   private def runnableArgsType: SourceType =
