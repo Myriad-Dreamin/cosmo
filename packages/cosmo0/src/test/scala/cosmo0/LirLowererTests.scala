@@ -110,7 +110,9 @@ class LirLowererTests extends munit.FunSuite:
       s"missing source typing diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
-  test("lower reports unsupported non-control typed constructs with source spans"):
+  test(
+    "lower reports unsupported non-control typed constructs with source spans",
+  ):
     val result = Cosmo0().lower(
       """def bump(): Unit = {
         |  var count: i32 = 0;
@@ -123,7 +125,9 @@ class LirLowererTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Failed)
     assert(result.value.isEmpty)
     assert(
-      result.diagnostics.exists(_.code == "cosmo0.lir.lower.unsupported-expression"),
+      result.diagnostics.exists(
+        _.code == "cosmo0.lir.lower.unsupported-expression",
+      ),
       s"missing lowering diagnostic in ${result.diagnostics.map(_.code)}",
     )
     assert(result.diagnostics.exists(_.span.nonEmpty))
@@ -171,7 +175,9 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("cond_branch %left ? ^and0_00_rhs : ^and0_01_short"))
+    assert(
+      rendered.contains("cond_branch %left ? ^and0_00_rhs : ^and0_01_short"),
+    )
     assert(rendered.contains("^and0_00_rhs:\n      assign %tmp0 = %right"))
     assert(rendered.contains("^and0_01_short:\n      assign %tmp0 = false"))
     assert(rendered.contains("^and0_02_join:\n      return %tmp0"))
@@ -211,13 +217,25 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("cond_branch %keep ? ^while0_01_body : ^while0_03_exit"))
-    assert(rendered.contains("^while0_01_body:\n      branch ^while0_02_continue"))
+    assert(
+      rendered.contains("cond_branch %keep ? ^while0_01_body : ^while0_03_exit"),
+    )
+    assert(
+      rendered.contains("^while0_01_body:\n      branch ^while0_02_continue"),
+    )
     assert(rendered.contains("^loop0_01_body:\n      branch ^loop0_03_exit"))
-    assert(rendered.contains("%tmp0 = descriptor Vec[i32]::iter_has_next(%items) -> Bool"))
-    assert(rendered.contains("%item = descriptor Vec[i32]::iter_next(%items) -> i32"))
+    assert(
+      rendered.contains(
+        "%tmp0 = descriptor Vec[i32]::iter_has_next(%items) -> Bool",
+      ),
+    )
+    assert(
+      rendered.contains("%item = descriptor Vec[i32]::iter_next(%items) -> i32"),
+    )
 
-  test("lowers descriptor constructors and standard generic methods to intrinsics"):
+  test(
+    "lowers descriptor constructors and standard generic methods to intrinsics",
+  ):
     val result = Cosmo0().lower(
       """class Node {}
         |
@@ -251,17 +269,45 @@ class LirLowererTests extends munit.FunSuite:
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
     assert(rendered.contains("descriptor Vec[i32]::<init>() -> Vec[i32]"))
-    assert(rendered.contains("descriptor Vec[i32]::push(%local, 1:i32) -> Unit"))
-    assert(rendered.contains("descriptor Vec[i32]::set(%local, 0:usize, 2:i32) -> Unit"))
-    assert(rendered.contains("descriptor Vec[i32]::get(%local, 0:usize) -> i32"))
+    assert(
+      rendered.contains("descriptor Vec[i32]::push(%local, 1:i32) -> Unit"),
+    )
+    assert(
+      rendered.contains(
+        "descriptor Vec[i32]::set(%local, 0:usize, 2:i32) -> Unit",
+      ),
+    )
+    assert(
+      rendered.contains("descriptor Vec[i32]::get(%local, 0:usize) -> i32"),
+    )
     assert(rendered.contains("descriptor Vec[i32]::size(%local) -> usize"))
     assert(rendered.contains("descriptor Vec[i32]::len(%local) -> usize"))
-    assert(rendered.contains("descriptor Map[String, i32]::get(%map, \"key\") -> Option[i32]"))
-    assert(rendered.contains("descriptor Map[String, i32]::insert(%map, \"key\", %item) -> Option[i32]"))
-    assert(rendered.contains("descriptor Set[i32]::insert(%set, %item) -> Unit"))
-    assert(rendered.contains("descriptor Set[i32]::contains(%set, %item) -> Bool"))
-    assert(rendered.contains("descriptor Arena[Node]::alloc(%arena, %fallback) -> Id[Node]"))
-    assert(rendered.contains("descriptor Arena[Node]::get(%arena, %node_id) -> &Node"))
+    assert(
+      rendered.contains(
+        "descriptor Map[String, i32]::get(%map, \"key\") -> Option[i32]",
+      ),
+    )
+    assert(
+      rendered.contains(
+        "descriptor Map[String, i32]::insert(%map, \"key\", %item) -> Option[i32]",
+      ),
+    )
+    assert(
+      rendered.contains("descriptor Set[i32]::insert(%set, %item) -> Unit"),
+    )
+    assert(
+      rendered.contains("descriptor Set[i32]::contains(%set, %item) -> Bool"),
+    )
+    assert(
+      rendered.contains(
+        "descriptor Arena[Node]::alloc(%arena, %fallback) -> Id[Node]",
+      ),
+    )
+    assert(
+      rendered.contains(
+        "descriptor Arena[Node]::get(%arena, %node_id) -> &Node",
+      ),
+    )
 
   test("lowers trusted extern std declarations to direct extern calls"):
     val result = Cosmo0().lower(
@@ -280,7 +326,11 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("fn @println println(%value value: String) -> Unit extern cosmo0.extern.v0 \"::cosmo0_runtime::println\""))
+    assert(
+      rendered.contains(
+        "fn @println println(%value value: String) -> Unit extern cosmo0.extern.v0 \"::cosmo0_runtime::println\"",
+      ),
+    )
     assert(rendered.contains("call @println(\"cosmo1 extern smoke\") -> Unit"))
     assert(!rendered.contains("descriptor Runtime"))
 
@@ -303,18 +353,29 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assertEquals(result.value.get.lir.cIncludes.map(_.header), List("<stdlib.h>"))
-    assert(rendered.contains("fn @c_abs c_abs(%value value: i32) -> i32 extern c \"abs\""))
+    assertEquals(
+      result.value.get.lir.cIncludes.map(_.header),
+      List("<stdlib.h>"),
+    )
+    assert(
+      rendered.contains(
+        "fn @c_abs c_abs(%value value: i32) -> i32 extern c \"abs\"",
+      ),
+    )
     assert(rendered.contains("call @c_abs(%value) -> i32"))
     assert(!rendered.contains("descriptor Runtime"))
 
-  test("lower reports missing extern metadata for untrusted bodyless declarations"):
+  test(
+    "lower reports missing extern metadata for untrusted bodyless declarations",
+  ):
     val result = Cosmo0().lower("def host_call(value: String): Unit")
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
-      result.diagnostics.exists(_.code == "cosmo0.lir.lower.missing-extern-binding"),
+      result.diagnostics.exists(
+        _.code == "cosmo0.lir.lower.missing-extern-binding",
+      ),
       s"missing extern binding diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
@@ -388,7 +449,9 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("40:u8"))
     assert(rendered.contains("40:u32"))
 
-  test("lowers map and set for loops through deterministic descriptor iteration"):
+  test(
+    "lowers map and set for loops through deterministic descriptor iteration",
+  ):
     val result = Cosmo0().lower(
       """def walk(values: Map[String, i32], seen: Set[String]): Unit = {
         |  for (key in values) {
@@ -408,12 +471,26 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("descriptor Map[String, i32]::iter_has_next(%values) -> Bool"))
-    assert(rendered.contains("descriptor Map[String, i32]::iter_next(%values) -> String"))
-    assert(rendered.contains("descriptor Set[String]::iter_has_next(%seen) -> Bool"))
-    assert(rendered.contains("descriptor Set[String]::iter_next(%seen) -> String"))
+    assert(
+      rendered.contains(
+        "descriptor Map[String, i32]::iter_has_next(%values) -> Bool",
+      ),
+    )
+    assert(
+      rendered.contains(
+        "descriptor Map[String, i32]::iter_next(%values) -> String",
+      ),
+    )
+    assert(
+      rendered.contains("descriptor Set[String]::iter_has_next(%seen) -> Bool"),
+    )
+    assert(
+      rendered.contains("descriptor Set[String]::iter_next(%seen) -> String"),
+    )
 
-  test("lowers variant construction and match expressions into tag checks and payload reads"):
+  test(
+    "lowers variant construction and match expressions into tag checks and payload reads",
+  ):
     val result = Cosmo0().lower(
       """def some(value: i32): Option[i32] = {
         |  Option[i32]::Some(value)
@@ -474,7 +551,9 @@ class LirLowererTests extends munit.FunSuite:
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
     assert(rendered.contains("descriptor Vec[i32]::is_empty(%items) -> Bool"))
-    assert(rendered.contains("descriptor Vec[i32]::get(%items, 0:usize) -> i32"))
+    assert(
+      rendered.contains("descriptor Vec[i32]::get(%items, 0:usize) -> i32"),
+    )
     assert(rendered.contains("variant Result[i32, Diagnostic]::Ok"))
     assert(rendered.contains("variant Result[i32, Diagnostic]::Err"))
 
@@ -483,7 +562,9 @@ class LirLowererTests extends munit.FunSuite:
     assertEquals(invalidBreak.phase, Phase.Compile)
     assertEquals(invalidBreak.status, PhaseStatus.Failed)
     assert(
-      invalidBreak.diagnostics.exists(_.code == "cosmo0.lir.lower.invalid-break"),
+      invalidBreak.diagnostics.exists(
+        _.code == "cosmo0.lir.lower.invalid-break",
+      ),
       s"missing invalid break diagnostic in ${invalidBreak.diagnostics.map(_.code)}",
     )
 
@@ -499,7 +580,9 @@ class LirLowererTests extends munit.FunSuite:
     )
     assertEquals(branchMismatch.status, PhaseStatus.Failed)
     assert(
-      branchMismatch.diagnostics.exists(_.code == "cosmo0.type.branch-mismatch"),
+      branchMismatch.diagnostics.exists(
+        _.code == "cosmo0.type.branch-mismatch",
+      ),
       s"missing branch mismatch diagnostic in ${branchMismatch.diagnostics.map(_.code)}",
     )
 
@@ -518,7 +601,9 @@ class LirLowererTests extends munit.FunSuite:
     )
     assertEquals(invalidPayload.status, PhaseStatus.Failed)
     assert(
-      invalidPayload.diagnostics.exists(_.code == "cosmo0.type.invalid-match-payload"),
+      invalidPayload.diagnostics.exists(
+        _.code == "cosmo0.type.invalid-match-payload",
+      ),
       s"missing invalid payload diagnostic in ${invalidPayload.diagnostics.map(_.code)}",
     )
 
@@ -532,7 +617,11 @@ class LirLowererTests extends munit.FunSuite:
       idType,
       Some(
         TypedCall(
-          TypedTypeConstructorExpr(idType, SourceType.Function(Nil, idType), span),
+          TypedTypeConstructorExpr(
+            idType,
+            SourceType.Function(Nil, idType),
+            span,
+          ),
           Nil,
           idType,
           CallableSignature("<init>", Nil, idType),
@@ -550,7 +639,9 @@ class LirLowererTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
-      result.diagnostics.exists(_.code == "cosmo0.lir.lower.unsupported-descriptor"),
+      result.diagnostics.exists(
+        _.code == "cosmo0.lir.lower.unsupported-descriptor",
+      ),
       s"missing unsupported descriptor diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
@@ -566,7 +657,15 @@ class LirLowererTests extends munit.FunSuite:
       "id",
       List(TypedParam("value", SourceType.I32, None, span)),
       SourceType.I32,
-      Some(TypedName(UntypedPath(List("value"), span), SourceType.I32, false, true, span)),
+      Some(
+        TypedName(
+          UntypedPath(List("value"), span),
+          SourceType.I32,
+          false,
+          true,
+          span,
+        ),
+      ),
       idSignature,
       None,
       span,
@@ -577,7 +676,13 @@ class LirLowererTests extends munit.FunSuite:
       SourceType.I32,
       Some(
         TypedCall(
-          TypedName(UntypedPath(List("id"), span), idSignature.functionType, false, false, span),
+          TypedName(
+            UntypedPath(List("id"), span),
+            idSignature.functionType,
+            false,
+            false,
+            span,
+          ),
           List(TypedBoolLiteral(true, SourceType.Bool, span)),
           SourceType.I32,
           idSignature,

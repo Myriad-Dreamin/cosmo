@@ -3,7 +3,8 @@ package cosmo0
 class LirTests extends munit.FunSuite:
   private val tokenType = SourceType.User("Token")
   private val optionTokenType = SourceType.Standard("Option", List(tokenType))
-  private val stringVecType = SourceType.Standard("Vec", List(SourceType.String))
+  private val stringVecType =
+    SourceType.Standard("Vec", List(SourceType.String))
 
   test("debug renderer covers LIR operations and explicit terminators"):
     val rendered = LirDebugRenderer.renderFunction(processFunction())
@@ -44,7 +45,9 @@ class LirTests extends munit.FunSuite:
         |}""".stripMargin,
     )
 
-  test("debug renderer is stable for equivalent declaration, local, and block inputs"):
+  test(
+    "debug renderer is stable for equivalent declaration, local, and block inputs",
+  ):
     val first = LirModule(
       "core",
       List(processFunction(), identityFunction(), tokenDecl()),
@@ -69,7 +72,9 @@ class LirTests extends munit.FunSuite:
       LirDebugRenderer.renderModule(second),
     )
 
-  test("module renderer has a deterministic declaration and type-member layout"):
+  test(
+    "module renderer has a deterministic declaration and type-member layout",
+  ):
     val module = LirModule(
       "core",
       List(
@@ -118,7 +123,12 @@ class LirTests extends munit.FunSuite:
       List(Lir.param("value", SourceType.I32)),
       SourceType.I32,
       locals = Nil,
-      blocks = List(Lir.block("entry", terminator = LirReturn(Some(Lir.ref("value", SourceType.I32))))),
+      blocks = List(
+        Lir.block(
+          "entry",
+          terminator = LirReturn(Some(Lir.ref("value", SourceType.I32))),
+        ),
+      ),
       sourceSignature = Some(sourceSignature),
     )
 
@@ -128,7 +138,9 @@ class LirTests extends munit.FunSuite:
     assertEquals(function.signature.sourceSignature, Some(sourceSignature))
     assertEquals(function.signature.params, List(Lir.t(SourceType.I32)))
 
-  test("reference assignability allows mutable refs as readonly values but not the reverse"):
+  test(
+    "reference assignability allows mutable refs as readonly values but not the reverse",
+  ):
     val boxType = SourceType.User("Box")
     val readonlyRef = SourceType.Ref(boxType, mutable = false)
     val mutableRef = SourceType.Ref(boxType, mutable = true)
@@ -150,7 +162,9 @@ class LirTests extends munit.FunSuite:
     assert(result.diagnostics.isEmpty)
     assertEquals(result.value, Some(checkedLirModule()))
 
-  test("LIR type checker permits mutable refs for readonly arguments and rejects readonly refs for mutable arguments"):
+  test(
+    "LIR type checker permits mutable refs for readonly arguments and rejects readonly refs for mutable arguments",
+  ):
     val boxType = SourceType.User("Box")
     val readonlyRef = SourceType.Ref(boxType, mutable = false)
     val mutableRef = SourceType.Ref(boxType, mutable = true)
@@ -182,7 +196,8 @@ class LirTests extends munit.FunSuite:
         ),
       ),
     )
-    val accepted = LirTypeChecker(LirModule("refs", List(readBox, callRead))).check()
+    val accepted =
+      LirTypeChecker(LirModule("refs", List(readBox, callRead))).check()
     assertEquals(accepted.status, PhaseStatus.Succeeded)
 
     val mutateBox = Lir.function(
@@ -212,11 +227,16 @@ class LirTests extends munit.FunSuite:
         ),
       ),
     )
-    val rejected = LirTypeChecker(LirModule("refs", List(mutateBox, callMutate))).check()
+    val rejected =
+      LirTypeChecker(LirModule("refs", List(mutateBox, callMutate))).check()
     assertEquals(rejected.status, PhaseStatus.Failed)
-    assert(rejected.diagnostics.exists(_.code == "cosmo0.lir.assignment-mismatch"))
+    assert(
+      rejected.diagnostics.exists(_.code == "cosmo0.lir.assignment-mismatch"),
+    )
 
-  test("LIR source signatures reject mutable receiver params for readonly receivers"):
+  test(
+    "LIR source signatures reject mutable receiver params for readonly receivers",
+  ):
     val boxType = SourceType.User("Box")
     val readonlySource = CallableSignature(
       "inspect",
@@ -238,7 +258,9 @@ class LirTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Failed)
     assert(result.diagnostics.exists(_.code == "cosmo0.lir.invalid-signature"))
 
-  test("LIR type checker rejects structural, type, call, variant, and mutability errors"):
+  test(
+    "LIR type checker rejects structural, type, call, variant, and mutability errors",
+  ):
     val cases = List(
       missingBlockModule() -> "cosmo0.lir.missing-block",
       invalidBranchModule() -> "cosmo0.lir.invalid-branch",
@@ -276,22 +298,42 @@ class LirTests extends munit.FunSuite:
     )
 
     cases.foreach { case (descriptor, operation) =>
-      val result = LirTypeChecker(rejectedDescriptorModule(descriptor, operation)).check()
+      val result =
+        LirTypeChecker(rejectedDescriptorModule(descriptor, operation)).check()
 
       assertEquals(result.phase, Phase.Check)
       assertEquals(result.status, PhaseStatus.Failed)
       assert(
         result.diagnostics.exists(_.code == "cosmo0.lir.invalid-descriptor"),
-        s"missing invalid descriptor diagnostic for ${descriptor.name}::$operation in ${result.diagnostics.map(_.code)}",
+        s"missing invalid descriptor diagnostic for ${descriptor.name}::$operation in ${result.diagnostics
+            .map(_.code)}",
       )
     }
 
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("StringBuilder"))
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("Json"))
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("JsonValue"))
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("TextBuilder"))
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("TextView"))
-    assert(StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies.contains("SourceText"))
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("StringBuilder"),
+    )
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("Json"),
+    )
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("JsonValue"),
+    )
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("TextBuilder"),
+    )
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("TextView"),
+    )
+    assert(
+      StandardGenericDescriptors.Boundary.rejectedRuntimeDescriptorFamilies
+        .contains("SourceText"),
+    )
     assert(StandardGenericDescriptors.get("Json").isEmpty)
     assert(StandardGenericDescriptors.get("JsonValue").isEmpty)
     assert(StandardGenericDescriptors.get("StringBuilder").isEmpty)
@@ -306,21 +348,30 @@ class LirTests extends munit.FunSuite:
     assertEquals(symbol.name, "println")
     assertEquals(symbol.canonical, "cosmo0_runtime::println")
     assertEquals(symbol.cppName, "::cosmo0_runtime::println")
-    assertEquals(BackendRequirement.runtimeSymbol(symbol).legacyName, "runtime-symbol:cosmo0_runtime::println")
+    assertEquals(
+      BackendRequirement.runtimeSymbol(symbol).legacyName,
+      "runtime-symbol:cosmo0_runtime::println",
+    )
     intercept[IllegalArgumentException] {
       CppQualifiedSymbol.parse("cosmo0_runtime::println(value)")
     }
 
-  test("LIR type checker diagnostics are deterministic and identify failing constructs"):
+  test(
+    "LIR type checker diagnostics are deterministic and identify failing constructs",
+  ):
     val first = invalidBranchModule()
     val second = first.copy(declarations = first.declarations.reverse)
 
-    val firstDiagnostics = LirTypeChecker(first).check().diagnostics.map(d => d.code -> d.message)
-    val secondDiagnostics = LirTypeChecker(second).check().diagnostics.map(d => d.code -> d.message)
+    val firstDiagnostics =
+      LirTypeChecker(first).check().diagnostics.map(d => d.code -> d.message)
+    val secondDiagnostics =
+      LirTypeChecker(second).check().diagnostics.map(d => d.code -> d.message)
 
     assertEquals(firstDiagnostics, secondDiagnostics)
     assert(
-      firstDiagnostics.exists { case (_, message) => message.contains("^missing") },
+      firstDiagnostics.exists { case (_, message) =>
+        message.contains("^missing")
+      },
       s"expected branch target in diagnostics: $firstDiagnostics",
     )
 
@@ -336,7 +387,9 @@ class LirTests extends munit.FunSuite:
 
     assert(modelClasses.forall(_.getName.startsWith("cosmo0.")))
 
-  private def checkedLirModule(function: LirFunction = checkedProcessFunction()): LirModule =
+  private def checkedLirModule(
+      function: LirFunction = checkedProcessFunction(),
+  ): LirModule =
     LirModule(
       "checked",
       List(tokenDecl(), identityFunction(), function),
@@ -349,7 +402,9 @@ class LirTests extends munit.FunSuite:
         Lir.label("exit"),
         Lir.label("error"),
       ),
-      returnTerminator: LirTerminator = LirReturn(Some(Lir.ref("count", SourceType.I32))),
+      returnTerminator: LirTerminator = LirReturn(
+        Some(Lir.ref("count", SourceType.I32)),
+      ),
   ): LirFunction =
     Lir.function(
       "checked_process",
@@ -389,7 +444,10 @@ class LirTests extends munit.FunSuite:
     List(
       LirAllocLocal(Lir.local("token", tokenType, mutable = true)),
       LirAllocLocal(Lir.local("labels", stringVecType, mutable = true)),
-      LirAllocLocal(Lir.local("count", SourceType.I32, mutable = true), Some(Lir.int(0))),
+      LirAllocLocal(
+        Lir.local("count", SourceType.I32, mutable = true),
+        Some(Lir.int(0)),
+      ),
       LirFieldGet(
         Lir.localId("tmp"),
         Lir.ref("input", tokenType),
@@ -491,16 +549,20 @@ class LirTests extends munit.FunSuite:
   private def typeMismatchModule(): LirModule =
     checkedLirModule(
       checkedProcessFunction(
-        entryOperations =
-          checkedEntryOperations() :+ LirAssign(Lir.localPlace("count", SourceType.I32), Lir.bool(false)),
+        entryOperations = checkedEntryOperations() :+ LirAssign(
+          Lir.localPlace("count", SourceType.I32),
+          Lir.bool(false),
+        ),
       ),
     )
 
   private def useBeforeDefinitionModule(): LirModule =
     checkedLirModule(
       checkedProcessFunction(
-        entryOperations =
-          LirAssign(Lir.localPlace("count", SourceType.I32), Lir.ref("tmp", SourceType.Usize)) :: checkedEntryOperations(),
+        entryOperations = LirAssign(
+          Lir.localPlace("count", SourceType.I32),
+          Lir.ref("tmp", SourceType.Usize),
+        ) :: checkedEntryOperations(),
       ),
     )
 
@@ -509,7 +571,12 @@ class LirTests extends munit.FunSuite:
       checkedProcessFunction(
         entryOperations = checkedEntryOperations().map {
           case LirDirectCall(output, callee, args, _) =>
-            LirDirectCall(output, callee, args, Lir.signature(List(SourceType.Bool), SourceType.I32))
+            LirDirectCall(
+              output,
+              callee,
+              args,
+              Lir.signature(List(SourceType.Bool), SourceType.I32),
+            )
           case other => other
         },
       ),
@@ -520,7 +587,13 @@ class LirTests extends munit.FunSuite:
       checkedProcessFunction(
         entryOperations = checkedEntryOperations().map {
           case LirDescriptorIntrinsic(output, descriptor, name, args, _) =>
-            LirDescriptorIntrinsic(output, descriptor, name, args, Some(Lir.t(SourceType.I32)))
+            LirDescriptorIntrinsic(
+              output,
+              descriptor,
+              name,
+              args,
+              Some(Lir.t(SourceType.I32)),
+            )
           case other => other
         },
       ),
@@ -588,7 +661,10 @@ class LirTests extends munit.FunSuite:
         LirField("offset", Lir.t(SourceType.Usize), mutable = true),
       ),
       variants = List(
-        LirVariant("WithText", List(LirVariantPayload(Some("value"), Lir.t(SourceType.String)))),
+        LirVariant(
+          "WithText",
+          List(LirVariantPayload(Some("value"), Lir.t(SourceType.String))),
+        ),
         LirVariant("Empty"),
       ),
     )
@@ -640,7 +716,10 @@ class LirTests extends munit.FunSuite:
       Lir.block(
         "entry",
         operations = List(
-          LirAllocLocal(Lir.local("count", SourceType.I32, mutable = true), Some(Lir.int(0))),
+          LirAllocLocal(
+            Lir.local("count", SourceType.I32, mutable = true),
+            Some(Lir.int(0)),
+          ),
           LirAssign(Lir.localPlace("count", SourceType.I32), Lir.int(1)),
           LirFieldGet(
             Lir.localId("tmp"),

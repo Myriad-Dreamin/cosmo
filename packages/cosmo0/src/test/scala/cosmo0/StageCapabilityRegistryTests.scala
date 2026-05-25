@@ -8,45 +8,107 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     assert(profile.requiredPrimitiveDescriptors.contains("Bool"))
     assert(profile.requiredPrimitiveDescriptors.contains("String"))
     assert(profile.requiredPrimitiveDescriptors.contains("usize"))
-    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Text))
-    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0TextOutput))
-    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0OptionResultVec))
-    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0PathFs))
-    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0CharClass))
-    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::print")))
-    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
-    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
-    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_dir")))
-    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_file")))
-    assert(profile.requiredBackendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_dir")))
+    assert(
+      profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Text,
+      ),
+    )
+    assert(
+      profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0TextOutput,
+      ),
+    )
+    assert(
+      profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0OptionResultVec,
+      ),
+    )
+    assert(
+      profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0PathFs,
+      ),
+    )
+    assert(
+      profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0CharClass,
+      ),
+    )
+    assert(
+      profile.requiredBackendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::print"),
+      ),
+    )
+    assert(
+      profile.requiredBackendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::println"),
+      ),
+    )
+    assert(
+      profile.requiredBackendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file"),
+      ),
+    )
+    assert(
+      profile.requiredBackendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::read_dir"),
+      ),
+    )
+    assert(
+      profile.requiredBackendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_file"),
+      ),
+    )
+    assert(
+      profile.requiredBackendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::path_is_dir"),
+      ),
+    )
 
   test("Stage 1 profile validates against the default capability availability"):
-    val diagnostics = StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1)
+    val diagnostics =
+      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1)
 
     assert(
       diagnostics.isEmpty,
-      s"Stage 1 profile validation failed with diagnostics: ${diagnostics.map(d => d.code -> d.message)}",
+      s"Stage 1 profile validation failed with diagnostics: ${diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
   test("Stage 1 profile diagnoses missing core0.text"):
     val availability = StageCapabilityRegistry.defaultAvailability.copy(
-      stdCapabilities = StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0Text,
+      stdCapabilities =
+        StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0Text,
     )
 
     val diagnostics =
-      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
+      StageCapabilityRegistry.validate(
+        StageCapabilityRegistry.Cosmo1Stage1,
+        availability,
+      )
 
     assertMissingCapability(diagnostics, StageCapabilityRegistry.Core0Text)
     assert(
-      diagnostics.exists(_.message.contains("requires std capability core0.text")),
+      diagnostics.exists(
+        _.message.contains("requires std capability core0.text"),
+      ),
       s"core0.text should be diagnosed as a std capability: ${diagnostics.map(_.message)}",
     )
 
-  test("core0.text is surfaced through std capability metadata, not descriptors"):
+  test(
+    "core0.text is surfaced through std capability metadata, not descriptors",
+  ):
     val profile = StageCapabilityRegistry.stage1Profile
 
-    assert(profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Text))
-    assert(!profile.requiredPrimitiveDescriptors.contains(StageCapabilityRegistry.Core0Text))
+    assert(
+      profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Text,
+      ),
+    )
+    assert(
+      !profile.requiredPrimitiveDescriptors.contains(
+        StageCapabilityRegistry.Core0Text,
+      ),
+    )
     assert(!profile.requiredPrimitiveDescriptors.contains("TextBuilder"))
     assert(!profile.requiredPrimitiveDescriptors.contains("TextView"))
     assert(!profile.requiredPrimitiveDescriptors.contains("SourceText"))
@@ -56,11 +118,15 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
 
   test("Stage 1 profile diagnoses missing core0.path-fs"):
     val availability = StageCapabilityRegistry.defaultAvailability.copy(
-      stdCapabilities = StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0PathFs,
+      stdCapabilities =
+        StageCapabilityRegistry.defaultAvailability.stdCapabilities - StageCapabilityRegistry.Core0PathFs,
     )
 
     val diagnostics =
-      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
+      StageCapabilityRegistry.validate(
+        StageCapabilityRegistry.Cosmo1Stage1,
+        availability,
+      )
 
     assertMissingCapability(diagnostics, StageCapabilityRegistry.Core0PathFs)
 
@@ -71,17 +137,27 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     )
 
     val diagnostics =
-      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
+      StageCapabilityRegistry.validate(
+        StageCapabilityRegistry.Cosmo1Stage1,
+        availability,
+      )
 
-    assertMissingCapability(diagnostics, StageCapabilityRegistry.Core0OptionResultVec)
+    assertMissingCapability(
+      diagnostics,
+      StageCapabilityRegistry.Core0OptionResultVec,
+    )
 
   test("Stage 1 profile diagnoses missing primitive intrinsics"):
     val availability = StageCapabilityRegistry.defaultAvailability.copy(
-      primitiveDescriptors = StageCapabilityRegistry.defaultAvailability.primitiveDescriptors - "Bool",
+      primitiveDescriptors =
+        StageCapabilityRegistry.defaultAvailability.primitiveDescriptors - "Bool",
     )
 
     val diagnostics =
-      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
+      StageCapabilityRegistry.validate(
+        StageCapabilityRegistry.Cosmo1Stage1,
+        availability,
+      )
 
     assertMissingCapability(diagnostics, "primitive descriptor Bool")
 
@@ -93,9 +169,15 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     )
 
     val diagnostics =
-      StageCapabilityRegistry.validate(StageCapabilityRegistry.Cosmo1Stage1, availability)
+      StageCapabilityRegistry.validate(
+        StageCapabilityRegistry.Cosmo1Stage1,
+        availability,
+      )
 
-    assertMissingCapability(diagnostics, "runtime-symbol:cosmo0_runtime::read_file")
+    assertMissingCapability(
+      diagnostics,
+      "runtime-symbol:cosmo0_runtime::read_file",
+    )
 
   test("later-stage capabilities do not block Stage 1 validation"):
     val profile = StageCapabilityRegistry.stage1Profile
@@ -106,22 +188,56 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
     )
 
     assertEquals(
-      profile.requiredStdCapabilities.intersect(StageCapabilityRegistry.laterStageStdCapabilities),
+      profile.requiredStdCapabilities.intersect(
+        StageCapabilityRegistry.laterStageStdCapabilities,
+      ),
       Set.empty[String],
     )
     assertEquals(StageCapabilityRegistry.validate(profile, availability), Nil)
 
   test("core0.arena-id is registered as a later-stage std capability"):
-    assert(StageCapabilityRegistry.knownStdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
-    assert(StageCapabilityRegistry.defaultAvailability.stdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
-    assert(StageCapabilityRegistry.laterStageStdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
-    assert(!StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0ArenaId))
+    assert(
+      StageCapabilityRegistry.knownStdCapabilities.contains(
+        StageCapabilityRegistry.Core0ArenaId,
+      ),
+    )
+    assert(
+      StageCapabilityRegistry.defaultAvailability.stdCapabilities.contains(
+        StageCapabilityRegistry.Core0ArenaId,
+      ),
+    )
+    assert(
+      StageCapabilityRegistry.laterStageStdCapabilities.contains(
+        StageCapabilityRegistry.Core0ArenaId,
+      ),
+    )
+    assert(
+      !StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0ArenaId,
+      ),
+    )
 
   test("core0.json is registered as a later-stage std capability"):
-    assert(StageCapabilityRegistry.knownStdCapabilities.contains(StageCapabilityRegistry.Core0Json))
-    assert(StageCapabilityRegistry.defaultAvailability.stdCapabilities.contains(StageCapabilityRegistry.Core0Json))
-    assert(StageCapabilityRegistry.laterStageStdCapabilities.contains(StageCapabilityRegistry.Core0Json))
-    assert(!StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(StageCapabilityRegistry.Core0Json))
+    assert(
+      StageCapabilityRegistry.knownStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Json,
+      ),
+    )
+    assert(
+      StageCapabilityRegistry.defaultAvailability.stdCapabilities.contains(
+        StageCapabilityRegistry.Core0Json,
+      ),
+    )
+    assert(
+      StageCapabilityRegistry.laterStageStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Json,
+      ),
+    )
+    assert(
+      !StageCapabilityRegistry.stage1Profile.requiredStdCapabilities.contains(
+        StageCapabilityRegistry.Core0Json,
+      ),
+    )
 
   private def assertMissingCapability(
       diagnostics: List[Diagnostic],
@@ -132,5 +248,6 @@ class StageCapabilityRegistryTests extends munit.FunSuite:
         diagnostic.code == "cosmo0.stage.missing-capability" &&
           diagnostic.message.contains(expected),
       ),
-      s"missing capability diagnostic for $expected in ${diagnostics.map(d => d.code -> d.message)}",
+      s"missing capability diagnostic for $expected in ${diagnostics
+          .map(d => d.code -> d.message)}",
     )
