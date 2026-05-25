@@ -72,11 +72,8 @@ final class Cosmo0:
     CheckerProfiles.byId(profileId) match
       case Some(profile) if profile.id == CheckerProfiles.Cosmo0Subset.id =>
         checkWithProfile(source, profile)
-      case Some(profile) if profile.id == CheckerProfiles.MlttCore.id =>
-        checkedModuleResult(MlttTypeChecker.checkSource(source))
-      case Some(profile)
-          if profile.id == CheckerProfiles.MlttDependentPatterns.id =>
-        checkedModuleResult(DependentPatterns.checkSource(source))
+      case Some(profile) if MlttTypeChecker.supportsProfile(profile) =>
+        checkedModuleResult(MlttTypeChecker.checkSource(source, profile))
       case Some(profile) =>
         Result.unsupported(
           Phase.Check,

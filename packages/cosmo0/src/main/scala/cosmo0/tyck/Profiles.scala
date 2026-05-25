@@ -27,9 +27,9 @@ package cosmo0
   * Routing rule:
   *
   *   - `cosmo0.subset` source executes through `SourceTyper`.
-  *   - `mltt.core` source directives execute through `MlttTypeChecker`.
-  *   - `mltt.dependent-patterns` source directives execute through
-  *     `DependentPatterns`.
+  *   - `mltt.core` and `mltt.dependent-patterns` source directives execute
+  *     through `MlttTypeChecker`; the dependent-pattern profile invokes
+  *     `DependentPatterns` as an MLTT extension.
   *   - Profiles without a concrete implementation remain unsupported checker
   *     results.
   */
@@ -183,7 +183,7 @@ object CheckerProfiles:
   val MlttDependentPatterns: CheckerProfile =
     CheckerProfile(
       MlttDependentPatternsId,
-      "packages/cosmo0/src/main/scala/cosmo0/tyck/dependent/Patterns.scala",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala",
       "mltt-core-term+constructor-metadata+source-pattern-clauses",
       "mltt-case-tree",
       "cosmo.type",

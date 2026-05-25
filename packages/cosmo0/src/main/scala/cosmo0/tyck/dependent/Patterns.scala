@@ -306,10 +306,12 @@ object DependentPatterns:
   def env(): DependentPatternEnv =
     DependentPatternEnv()
 
-  /** Checks a cosmo0 source file selected with `checkerProfile:
-    * "mltt.dependent-patterns"`.
+  private[cosmo0] def hasSourceAssertions(sources: List[SourceFile]): Boolean =
+    ProfileDirectiveParser.extract(sources, SourceDirectivePrefix).nonEmpty
+
+  /** Checks dependent-pattern assertion directives for the MLTT checker.
     *
-    * Source examples:
+    * Directive examples:
     *
     * {{{
     * dependent-pattern: vec-head-elaborates
@@ -318,17 +320,11 @@ object DependentPatterns:
     *
     * The source directives construct dependent-pattern fixtures inside this
     * object and exercise the same case-tree elaboration and index-refinement
-    * rules as direct calls to `elaborateClauses`.
+    * rules as direct calls to `elaborateClauses`. `MlttTypeChecker` owns the
+    * profile-level source/package entry points and calls this helper when the
+    * selected profile is `mltt.dependent-patterns`.
     */
-  def checkSource(source: SourceFile): Result[TypedModule] =
-    checkSources(List(source), source.name)
-
-  /** Checks package-level dependent-pattern source fixtures.
-    *
-    * Each directive maps to a concrete `Vec` case-tree problem, so package
-    * checking routes directly into this checker implementation.
-    */
-  def checkSources(
+  private[cosmo0] def checkSourceAssertions(
       sources: List[SourceFile],
       moduleName: String,
   ): Result[TypedModule] =

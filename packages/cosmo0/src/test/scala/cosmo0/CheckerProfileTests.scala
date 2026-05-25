@@ -218,20 +218,23 @@ class CheckerProfileTests extends munit.FunSuite:
     assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
 
   test(
-    "dependent-pattern checker exposes the cosmo0 source checker entry point",
+    "MLTT checker runs dependent-pattern profile as an extension",
   ):
     val source = SourceFile(
       "dependent-direct.cos",
-      """dependent-pattern: vec-head-elaborates
+      """mltt: lambda-checks-pi
+        |dependent-pattern: vec-head-elaborates
         |dependent-pattern: impossible-nil-diagnostic
         |""".stripMargin,
     )
-    val result = DependentPatterns.checkSource(source)
+    val result =
+      MlttTypeChecker.checkSource(source, CheckerProfiles.MlttDependentPatterns)
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
     val summary = result.value.get.checkerArtifactSummary
+    assert(summary.contains("mltt_core_lambda_checks_pi"))
     assert(summary.contains("dependent_pattern_vec_head_elaborates"))
     assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
 

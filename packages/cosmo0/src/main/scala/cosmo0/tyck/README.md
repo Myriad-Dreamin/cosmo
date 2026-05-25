@@ -8,9 +8,8 @@ patterns, mutability, and expression result types.
 
 `Profiles.scala` describes checker profiles and feature gates. `StageCapabilities.scala`
 validates package-level stage capability profiles before package checking.
-`MlttTypeChecker` owns `mltt.core` source directives such as
-`mltt: lambda-checks-pi`; `DependentPatterns` owns `mltt.dependent-patterns`
-source directives such as `dependent-pattern: vec-head-elaborates`.
+`MlttTypeChecker` owns `mltt.core` and `mltt.dependent-patterns` source
+directives; it calls `DependentPatterns` for dependent-pattern elaboration.
 
 Subdirectories:
 
@@ -20,6 +19,6 @@ Subdirectories:
 Upstream input comes from `syntax/Elaborator.scala`. Downstream output goes to
 `lir/Lowerer.scala`. Profile metadata is also read by `source/Pipeline.scala`
 when package metadata selects a checker profile. `mltt.core` is routed directly
-through `MlttTypeChecker`, while `mltt.dependent-patterns` is routed directly
-through `DependentPatterns`; `cosmo0.subset` remains the ordinary source
+through `MlttTypeChecker`, and `mltt.dependent-patterns` is routed through the
+same checker as an MLTT extension; `cosmo0.subset` remains the ordinary source
 checker.

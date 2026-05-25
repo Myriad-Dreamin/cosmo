@@ -388,7 +388,11 @@ object MlttTypeChecker:
   def metaStore(): MlttMetaStore =
     MlttMetaStore()
 
-  /** Checks a cosmo0 source file selected with `checkerProfile: "mltt.core"`.
+  def supportsProfile(profile: CheckerProfile): Boolean =
+    profile.id == CheckerProfiles.MlttCore.id ||
+      profile.id == CheckerProfiles.MlttDependentPatterns.id
+
+  /** Checks a cosmo0 source file selected by an MLTT-backed checker profile.
     *
     * Source examples:
     *
@@ -399,22 +403,55 @@ object MlttTypeChecker:
     * }}}
     *
     * The current cosmo0 frontend still does not elaborate arbitrary source
-    * declarations into MLTT core terms. Instead, this entry point accepts the
+    * declarations into MLTT core terms. Instead, this entry point accepts
     * profile fixture directives that name concrete MLTT obligations, constructs
-    * those core terms, and checks them through this object. Keeping the facade
-    * here makes `mltt.core` a direct checker implementation instead of routing
-    * through a separate profile wrapper.
+    * those core terms, and checks them through this object. The
+    * `mltt.dependent-patterns` profile is handled here as an MLTT extension and
+    * invokes `DependentPatterns` for case-tree elaboration obligations.
     */
   def checkSource(source: SourceFile): Result[TypedModule] =
-    checkSources(List(source), source.name)
+    checkSource(source, CheckerProfiles.MlttCore)
 
-  /** Checks package-level MLTT source fixtures selected by `mltt.core`.
+  def checkSource(
+      source: SourceFile,
+      profile: CheckerProfile,
+  ): Result[TypedModule] =
+    checkSources(List(source), source.name, profile)
+
+  /** Checks package-level MLTT source fixtures.
     *
     * Each directive maps to a concrete MLTT core term or conversion problem, so
     * package checking exercises the same bidirectional rules as direct calls to
-    * `infer`, `check`, and `convert`.
+    * `infer`, `check`, and `convert`. The dependent-pattern profile extends
+    * this path by also running dependent-pattern assertion directives.
     */
   def checkSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    checkSources(sources, moduleName, CheckerProfiles.MlttCore)
+
+  def checkSources(
+      sources: List[SourceFile],
+      moduleName: String,
+      profile: CheckerProfile,
+  ): Result[TypedModule] =
+    if profile.id == CheckerProfiles.MlttDependentPatterns.id then
+      return checkDependentPatternSources(sources, moduleName)
+
+    if profile.id != CheckerProfiles.MlttCore.id then
+      return Result.unsupported(
+        Phase.Check,
+        CheckerProfiles.unsupportedDiagnostic(
+          profile,
+          CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(profile),
+          Some(wholeSourceSpan(sources, "<mltt-core>")),
+        ),
+      )
+
+    checkCoreSources(sources, moduleName)
+
+  private def checkCoreSources(
       sources: List[SourceFile],
       moduleName: String,
   ): Result[TypedModule] =
@@ -439,6 +476,63 @@ object MlttTypeChecker:
       Phase.Check,
       syntheticModule(moduleName, directives, "mltt_core"),
     )
+
+  private def checkDependentPatternSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    val hasCoreAssertions = hasCoreSourceAssertions(sources)
+    val hasDependentAssertions = DependentPatterns.hasSourceAssertions(sources)
+
+    if !hasCoreAssertions && !hasDependentAssertions then
+      return Result.failure(
+        Phase.Check,
+        List(
+          sourceDiagnostic(
+            NoSourceAssertionsCode,
+            "mltt.dependent-patterns source did not declare any MLTT or dependent-pattern assertions",
+            wholeSourceSpan(sources, "<mltt-dependent-patterns>"),
+          ),
+        ),
+      )
+
+    val modules = ListBuffer.empty[TypedModule]
+
+    if hasCoreAssertions then
+      checkCoreSources(sources, moduleName) match
+        case checked if checked.isSuccess =>
+          modules += checked.value.get
+        case checked if checked.isUnsupported =>
+          return Result(
+            Phase.Check,
+            PhaseStatus.Unsupported,
+            None,
+            checked.diagnostics,
+          )
+        case checked =>
+          return Result.failure(Phase.Check, checked.diagnostics)
+
+    if hasDependentAssertions then
+      DependentPatterns.checkSourceAssertions(sources, moduleName) match
+        case checked if checked.isSuccess =>
+          modules += checked.value.get
+        case checked if checked.isUnsupported =>
+          return Result(
+            Phase.Check,
+            PhaseStatus.Unsupported,
+            None,
+            checked.diagnostics,
+          )
+        case checked =>
+          return Result.failure(Phase.Check, checked.diagnostics)
+
+    Result.success(
+      Phase.Check,
+      combinedSyntheticModule(moduleName, modules.toList),
+    )
+
+  private def hasCoreSourceAssertions(sources: List[SourceFile]): Boolean =
+    ProfileDirectiveParser.extract(sources, SourceDirectivePrefix).nonEmpty
 
   /** Dispatches a source directive to the corresponding MLTT rule.
     *
@@ -731,16 +825,27 @@ object MlttTypeChecker:
     }
     TypedModule(source, declarations, span)
 
+  private def combinedSyntheticModule(
+      moduleName: String,
+      modules: List[TypedModule],
+  ): TypedModule =
+    val source = SourceFile(moduleName, "")
+    val span = source.span(0, 0)
+    TypedModule(source, modules.flatMap(_.decls), span)
+
   private def sanitizeName(value: String): String =
     value.map {
       case char if char.isLetterOrDigit => char
       case _                            => '_'
     }
 
-  private def wholeSourceSpan(sources: List[SourceFile]): SourceSpan =
+  private def wholeSourceSpan(
+      sources: List[SourceFile],
+      emptyName: String = "<mltt-core>",
+  ): SourceSpan =
     sources.headOption match
       case Some(source) => source.span(0, source.text.length)
-      case None         => SourceFile("<mltt-core>", "").span(0, 0)
+      case None         => SourceFile(emptyName, "").span(0, 0)
 
   private def sourceDiagnostic(
       code: String,

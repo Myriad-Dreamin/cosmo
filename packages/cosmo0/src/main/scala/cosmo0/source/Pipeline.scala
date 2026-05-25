@@ -190,7 +190,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       case Left(diagnostics) =>
         return Result.failure(Phase.Check, diagnostics)
       case Right(profile) =>
-        if profile.id == CheckerProfiles.MlttCore.id then
+        if MlttTypeChecker.supportsProfile(profile) then
           val diagnostics = stageProfileDiagnostics(pkg)
           if diagnostics.nonEmpty then
             return Result.failure(Phase.Check, diagnostics)
@@ -201,20 +201,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
             MlttTypeChecker.checkSources(
               pkg.modules.map(_.source),
               pkg.metadata.outputModuleName,
-            ),
-          )
-
-        if profile.id == CheckerProfiles.MlttDependentPatterns.id then
-          val diagnostics = stageProfileDiagnostics(pkg)
-          if diagnostics.nonEmpty then
-            return Result.failure(Phase.Check, diagnostics)
-          return checkProfilePackage(
-            pkg,
-            pkg.modules,
-            pkg.modules.map(module => moduleKey(module.modulePath)),
-            DependentPatterns.checkSources(
-              pkg.modules.map(_.source),
-              pkg.metadata.outputModuleName,
+              profile,
             ),
           )
 
