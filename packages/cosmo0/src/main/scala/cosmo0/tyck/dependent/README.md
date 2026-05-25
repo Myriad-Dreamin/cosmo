@@ -7,7 +7,8 @@ profiles and tests.
 case trees, branch refinements, unification results, and diagnostics.
 
 It is intentionally isolated from the ordinary cosmo0 subset path.
-`DependentPatternProfileChecker` lets `checkerProfile: "mltt.dependent-patterns"`
-source fixtures execute named dependent-pattern assertions by constructing
-source clauses and calling this elaborator. Ordinary `cosmo0.subset` package
-checking still flows through `tyck/Typer.scala`.
+`DependentPatterns.checkSource` and `DependentPatterns.checkSources` let
+`checkerProfile: "mltt.dependent-patterns"` source fixtures execute named
+dependent-pattern assertions by constructing source clauses inside this
+elaborator. Ordinary `cosmo0.subset` package checking still flows through
+`tyck/Typer.scala`.

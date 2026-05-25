@@ -17,7 +17,7 @@ package cosmo0
   * // Experimental package metadata:
   * //   "checkerProfile": "mltt.core"
   * //   selected profile = mltt.core
-  * //   implementation = MlttProfileChecker over profile assertion directives
+  * //   implementation = MlttTypeChecker.checkSources over MLTT directives
   *
   * // Direct test harness:
   * //   MlttTypeChecker.infer(store, context, term)
@@ -27,10 +27,11 @@ package cosmo0
   * Routing rule:
   *
   *   - `cosmo0.subset` source executes through `SourceTyper`.
-  *   - `mltt.core` and `mltt.dependent-patterns` execute through profile
-  *     checkers that read source assertion directives and call the experimental
-  *     MLTT or dependent-pattern implementation.
-  *   - Profiles without a concrete adapter remain unsupported checker results.
+  *   - `mltt.core` source directives execute through `MlttTypeChecker`.
+  *   - `mltt.dependent-patterns` source directives execute through
+  *     `DependentPatterns`.
+  *   - Profiles without a concrete implementation remain unsupported checker
+  *     results.
   */
 final case class CheckerProfile(
     id: String,
@@ -149,8 +150,8 @@ object CheckerProfiles:
   val MlttCore: CheckerProfile =
     CheckerProfile(
       MlttCoreId,
-      "packages/cosmoc/src/types/mltt",
-      "syntax-arenas+name-resolution+declaration-signatures",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala",
+      "mltt-core-term+source-assertion-directives",
       "mltt-core-term",
       "cosmo.type",
       Set(
@@ -182,7 +183,7 @@ object CheckerProfiles:
   val MlttDependentPatterns: CheckerProfile =
     CheckerProfile(
       MlttDependentPatternsId,
-      "packages/cosmoc/src/types/dependent_pattern.cos",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/dependent/Patterns.scala",
       "mltt-core-term+constructor-metadata+source-pattern-clauses",
       "mltt-case-tree",
       "cosmo.type",

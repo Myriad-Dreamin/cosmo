@@ -7,7 +7,7 @@ metavariables, conversion, bidirectional infer/check entry points, and
 diagnostics.
 
 It is profile-gated and separate from the default cosmo0 source checker.
-`MlttProfileChecker` lets `checkerProfile: "mltt.core"` source fixtures execute
-named MLTT assertions by constructing core terms and calling this checker. The
-ordinary `cosmo0.subset` source path still does not elaborate general user
-source into MLTT core.
+`MlttTypeChecker.checkSource` and `MlttTypeChecker.checkSources` let
+`checkerProfile: "mltt.core"` source fixtures execute named MLTT assertions by
+constructing core terms inside this checker. The ordinary `cosmo0.subset` source
+path still does not elaborate general user source into MLTT core.

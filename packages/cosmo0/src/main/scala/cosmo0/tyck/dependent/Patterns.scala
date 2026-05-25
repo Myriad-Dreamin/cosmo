@@ -288,6 +288,14 @@ object DependentPatterns:
     "cosmo.type.dependent-pattern.unsupported-unification"
   private val ImpossibleBranchCode =
     "cosmo.type.dependent-pattern.impossible-branch"
+  val NoSourceAssertionsCode =
+    "cosmo.type.dependent-pattern.no-profile-assertions"
+  val UnknownSourceAssertionCode =
+    "cosmo.type.dependent-pattern.unknown-profile-assertion"
+  val SourceAssertionFailedCode =
+    "cosmo.type.dependent-pattern.profile-assertion-failed"
+
+  private val SourceDirectivePrefix = "dependent-pattern:"
 
   def termStore(): DependentPatternTermStore =
     DependentPatternTermStore()
@@ -297,6 +305,250 @@ object DependentPatterns:
 
   def env(): DependentPatternEnv =
     DependentPatternEnv()
+
+  /** Checks a cosmo0 source file selected with `checkerProfile:
+    * "mltt.dependent-patterns"`.
+    *
+    * Source examples:
+    *
+    * {{{
+    * dependent-pattern: vec-head-elaborates
+    * dependent-pattern: impossible-nil-diagnostic
+    * }}}
+    *
+    * The source directives construct dependent-pattern fixtures inside this
+    * object and exercise the same case-tree elaboration and index-refinement
+    * rules as direct calls to `elaborateClauses`.
+    */
+  def checkSource(source: SourceFile): Result[TypedModule] =
+    checkSources(List(source), source.name)
+
+  /** Checks package-level dependent-pattern source fixtures.
+    *
+    * Each directive maps to a concrete `Vec` case-tree problem, so package
+    * checking routes directly into this checker implementation.
+    */
+  def checkSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    val directives =
+      ProfileDirectiveParser.extract(sources, SourceDirectivePrefix)
+    if directives.isEmpty then
+      return Result.failure(
+        Phase.Check,
+        List(
+          sourceDiagnostic(
+            NoSourceAssertionsCode,
+            "mltt.dependent-patterns source did not declare any dependent-pattern assertions",
+            wholeSourceSpan(sources),
+          ),
+        ),
+      )
+
+    val diagnostics = directives.flatMap(runSourceAssertion)
+    if diagnostics.nonEmpty then return Result.failure(Phase.Check, diagnostics)
+
+    Result.success(
+      Phase.Check,
+      syntheticModule(moduleName, directives, "dependent_pattern"),
+    )
+
+  /** Dispatches a dependent-pattern source directive to the corresponding
+    * elaboration rule.
+    */
+  private def runSourceAssertion(
+      directive: ProfileDirective,
+  ): List[Diagnostic] =
+    directive.name match
+      case "vec-head-elaborates" =>
+        vecHeadElaboratesAssertion(directive.span)
+      case "impossible-nil-diagnostic" =>
+        impossibleNilDiagnosticAssertion(directive.span)
+      case other =>
+        List(
+          sourceDiagnostic(
+            UnknownSourceAssertionCode,
+            s"unknown dependent-pattern assertion $other",
+            directive.span,
+          ),
+        )
+
+  /** Checks constructor-pattern elaboration for a non-empty vector.
+    *
+    * Program examples:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head
+    * }}}
+    *
+    * Expected case tree:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head [n=k]
+    * }}}
+    */
+  private def vecHeadElaboratesAssertion(
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    val tree = vecHeadTree(CheckerProfiles.MlttDependentPatterns, span)
+    val rendered = renderCaseTree(tree)
+    val expected = "case xs : Vec(A, S(n)) of\n  Cons(head, tail) -> head [n=k]"
+
+    sourceDiagnostics(tree.diagnostics) :::
+      assertSourceCondition(
+        tree.isOk &&
+          tree.branches.length == 1 &&
+          tree.branches.head.constructor == "Cons" &&
+          rendered == expected,
+        "Vec head pattern did not elaborate to the expected case tree",
+        expected,
+        rendered,
+        span,
+      )
+
+  /** Checks that impossible constructor indices are diagnosed.
+    *
+    * Program examples:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Nil -> absurd
+    * }}}
+    */
+  private def impossibleNilDiagnosticAssertion(
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    val store = termStore()
+    val envValue = env()
+    val patterns = sourcePatternStore()
+    addNatFixture(store, envValue)
+    addVecFixture(store, envValue)
+
+    val n = store.allocVar("n")
+    val sN = natSuccessor(store, n)
+    val scrutineeIndices = vecIndices(store, sN)
+    val nil = patterns.allocConstructor("Nil", Nil, span)
+    val clauses = List(DependentPatternClause(nil, "absurd", span))
+    val tree =
+      elaborateClauses(
+        CheckerProfiles.MlttDependentPatterns,
+        envValue,
+        store,
+        patterns,
+        "Vec",
+        "xs",
+        scrutineeIndices,
+        "A",
+        clauses,
+      )
+
+    assertSourceCondition(
+      !tree.isOk &&
+        tree.firstCode == ImpossibleBranchCode &&
+        tree.branches.headOption.exists(_.impossible),
+      "Nil branch did not report impossible indices for Vec(A, S(n))",
+      ImpossibleBranchCode,
+      tree.firstCode,
+      span,
+    )
+
+  /** Builds the reusable `Vec(A, S(n))` head-elaboration program. */
+  private def vecHeadTree(
+      profile: CheckerProfile,
+      span: SourceSpan,
+  ): DependentCaseTree =
+    val store = termStore()
+    val envValue = env()
+    val patterns = sourcePatternStore()
+    addNatFixture(store, envValue)
+    addVecFixture(store, envValue)
+
+    val n = store.allocVar("n")
+    val sN = natSuccessor(store, n)
+    val scrutineeIndices = vecIndices(store, sN)
+    val headPat = patterns.allocVariable("head", span)
+    val tailPat = patterns.allocVariable("tail", span)
+    val cons = patterns.allocConstructor("Cons", List(headPat, tailPat), span)
+    val clauses = List(DependentPatternClause(cons, "head", span))
+    elaborateClauses(
+      profile,
+      envValue,
+      store,
+      patterns,
+      "Vec",
+      "xs",
+      scrutineeIndices,
+      "A",
+      clauses,
+    )
+
+  private def sourceDiagnostics(
+      diagnostics: List[DependentPatternDiagnostic],
+  ): List[Diagnostic] =
+    diagnostics.map { diagnosticValue =>
+      sourceDiagnostic(
+        diagnosticValue.code,
+        s"${diagnosticValue.message}; ${diagnosticValue.summary}",
+        diagnosticValue.span,
+      )
+    }
+
+  private def assertSourceCondition(
+      condition: Boolean,
+      message: String,
+      expected: String,
+      actual: String,
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    if condition then Nil
+    else
+      List(
+        sourceDiagnostic(
+          SourceAssertionFailedCode,
+          s"$message; expected $expected, got $actual",
+          span,
+        ),
+      )
+
+  private def syntheticModule(
+      moduleName: String,
+      directives: List[ProfileDirective],
+      prefix: String,
+  ): TypedModule =
+    val source = SourceFile(moduleName, "")
+    val span = source.span(0, 0)
+    val declarations = directives.map { directive =>
+      val name = s"${prefix}_${sanitizeName(directive.name)}"
+      TypedValueDecl(
+        UntypedValueKind.Val,
+        name,
+        SourceType.Bool,
+        Some(TypedBoolLiteral(true, SourceType.Bool, directive.span)),
+        directive.span,
+      )
+    }
+    TypedModule(source, declarations, span)
+
+  private def sanitizeName(value: String): String =
+    value.map {
+      case char if char.isLetterOrDigit => char
+      case _                            => '_'
+    }
+
+  private def wholeSourceSpan(sources: List[SourceFile]): SourceSpan =
+    sources.headOption match
+      case Some(source) => source.span(0, source.text.length)
+      case None         => SourceFile("<dependent-pattern>", "").span(0, 0)
+
+  private def sourceDiagnostic(
+      code: String,
+      message: String,
+      span: SourceSpan,
+  ): Diagnostic =
+    Diagnostic(Phase.Check, DiagnosticSeverity.Error, code, message, Some(span))
 
   /** Reports whether the selected checker profile admits the elaboration rule.
     *

@@ -354,7 +354,7 @@ final case class MlttCheckResult(
   * Opaque or effectful definitions are intentionally not reduced.
   *
   * Pipeline note: direct tests can call this object, and `mltt.core` profile
-  * source fixtures reach it through `MlttProfileChecker` assertion directives.
+  * source fixtures reach it through `checkSource` and `checkSources`.
   */
 object MlttTypeChecker:
   val WhnfConversionStrategy = "mltt.whnf-conversion"
@@ -368,6 +368,13 @@ object MlttTypeChecker:
   val EffectfulConversionCode = "cosmo.type.mltt.effectful-conversion"
   val UnsupportedInferenceCode = "cosmo.type.mltt.unsupported-inference"
   val HigherOrderUnificationCode = "cosmo.type.mltt.higher-order-unification"
+  val NoSourceAssertionsCode = "cosmo.type.mltt.no-profile-assertions"
+  val UnknownSourceAssertionCode =
+    "cosmo.type.mltt.unknown-profile-assertion"
+  val SourceAssertionFailedCode =
+    "cosmo.type.mltt.profile-assertion-failed"
+
+  private val SourceDirectivePrefix = "mltt:"
 
   def termStore(): MlttTermStore =
     MlttTermStore()
@@ -380,6 +387,367 @@ object MlttTypeChecker:
 
   def metaStore(): MlttMetaStore =
     MlttMetaStore()
+
+  /** Checks a cosmo0 source file selected with `checkerProfile: "mltt.core"`.
+    *
+    * Source examples:
+    *
+    * {{{
+    * mltt: lambda-checks-pi
+    * mltt: application-infers-through-pi
+    * mltt: vec-constructors-check
+    * }}}
+    *
+    * The current cosmo0 frontend still does not elaborate arbitrary source
+    * declarations into MLTT core terms. Instead, this entry point accepts the
+    * profile fixture directives that name concrete MLTT obligations, constructs
+    * those core terms, and checks them through this object. Keeping the facade
+    * here makes `mltt.core` a direct checker implementation instead of routing
+    * through a separate profile wrapper.
+    */
+  def checkSource(source: SourceFile): Result[TypedModule] =
+    checkSources(List(source), source.name)
+
+  /** Checks package-level MLTT source fixtures selected by `mltt.core`.
+    *
+    * Each directive maps to a concrete MLTT core term or conversion problem, so
+    * package checking exercises the same bidirectional rules as direct calls to
+    * `infer`, `check`, and `convert`.
+    */
+  def checkSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    val directives =
+      ProfileDirectiveParser.extract(sources, SourceDirectivePrefix)
+    if directives.isEmpty then
+      return Result.failure(
+        Phase.Check,
+        List(
+          sourceDiagnostic(
+            NoSourceAssertionsCode,
+            "mltt.core source did not declare any MLTT assertions",
+            wholeSourceSpan(sources),
+          ),
+        ),
+      )
+
+    val diagnostics = directives.flatMap(runSourceAssertion)
+    if diagnostics.nonEmpty then return Result.failure(Phase.Check, diagnostics)
+
+    Result.success(
+      Phase.Check,
+      syntheticModule(moduleName, directives, "mltt_core"),
+    )
+
+  /** Dispatches a source directive to the corresponding MLTT rule.
+    *
+    * Profile source examples:
+    *
+    * {{{
+    * mltt: conversion-beta-let
+    * }}}
+    *
+    * The directive above checks definitional equality for beta and let
+    * reductions through `convert`.
+    */
+  private def runSourceAssertion(
+      directive: ProfileDirective,
+  ): List[Diagnostic] =
+    directive.name match
+      case "lambda-checks-pi" =>
+        lambdaChecksPiAssertion(directive.span)
+      case "application-infers-through-pi" =>
+        applicationInfersThroughPiAssertion(directive.span)
+      case "sigma-pair-checks" =>
+        sigmaPairChecksAssertion(directive.span)
+      case "equality-refl-checks" =>
+        equalityReflChecksAssertion(directive.span)
+      case "conversion-beta-let" =>
+        conversionBetaLetAssertion(directive.span)
+      case "vec-constructors-check" =>
+        vecConstructorsCheckAssertion(directive.span)
+      case other =>
+        List(
+          sourceDiagnostic(
+            UnknownSourceAssertionCode,
+            s"unknown mltt.core assertion $other",
+            directive.span,
+          ),
+        )
+
+  /** Checks the Pi introduction rule for annotated lambdas.
+    *
+    * Rules:
+    *
+    * {{{
+    * A : Type0
+    * fun x: A => x <= (x: A) -> A
+    * }}}
+    */
+  private def lambdaChecksPiAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val body = store.allocVar("x")
+    val lambda = store.allocLambda("x", a, body)
+    val expected = store.allocPi("x", a, a)
+    val contextValue = context().extendLocal("A", type0)
+    val checked = check(store, contextValue, lambda, expected)
+    val expectedSummary =
+      "mltt.core|mltt-core-term|accepted|mltt.whnf-conversion"
+
+    sourceDiagnostics(checked.diagnostics, span) :::
+      assertSourceCondition(
+        checked.isOk && checked.artifactSummary == expectedSummary,
+        "lambda did not check against the expected Pi type",
+        expectedSummary,
+        checked.artifactSummary,
+        span,
+      )
+
+  /** Checks the Pi elimination rule used by application inference.
+    *
+    * Rules:
+    *
+    * {{{
+    * A : Type0
+    * y : A
+    * (fun x: A => x)(y)  // infers A
+    * }}}
+    */
+  private def applicationInfersThroughPiAssertion(
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    var contextValue = context().extendLocal("A", type0)
+    contextValue = contextValue.extendLocal("y", a)
+
+    val body = store.allocVar("x")
+    val lambda = store.allocLambda("x", a, body)
+    val y = store.allocVar("y")
+    val apply = store.allocApply(lambda, y)
+    val inferred = infer(store, contextValue, apply)
+    val actual = display(store, inferred.valueType)
+
+    sourceDiagnostics(inferred.diagnostics, span) :::
+      assertSourceCondition(
+        inferred.isOk && actual == "A",
+        "application did not infer through Pi elimination",
+        "A",
+        actual,
+        span,
+      )
+
+  /** Checks the Sigma introduction rule for pairs.
+    *
+    * Rules:
+    *
+    * {{{
+    * x : A
+    * y : A
+    * (x, y) <= Sigma(first: A). A
+    * }}}
+    */
+  private def sigmaPairChecksAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val x = store.allocVar("x")
+    val y = store.allocVar("y")
+    var contextValue = context().extendLocal("A", type0)
+    contextValue = contextValue.extendLocal("x", a).extendLocal("y", a)
+
+    val pair = store.allocPair(x, y)
+    val sigma = store.allocSigma("first", a, a)
+    val checked = check(store, contextValue, pair, sigma)
+
+    sourceDiagnostics(checked.diagnostics, span) :::
+      assertSourceCondition(
+        checked.isOk,
+        "pair did not check against the expected Sigma type",
+        "accepted",
+        checked.status,
+        span,
+      )
+
+  /** Checks equality introduction for reflexivity.
+    *
+    * Rules:
+    *
+    * {{{
+    * x : A
+    * Refl(x) <= Eq(A, x, x)
+    * }}}
+    */
+  private def equalityReflChecksAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val x = store.allocVar("x")
+    val contextValue = context()
+      .extendLocal("A", type0)
+      .extendLocal("x", a)
+
+    val eq = store.allocEq(a, x, x)
+    val refl = store.allocRefl(x)
+    val checked = check(store, contextValue, refl, eq)
+
+    sourceDiagnostics(checked.diagnostics, span) :::
+      assertSourceCondition(
+        checked.isOk,
+        "Refl did not check against the expected equality type",
+        "accepted",
+        checked.status,
+        span,
+      )
+
+  /** Checks WHNF conversion for beta and let reduction.
+    *
+    * Rules:
+    *
+    * {{{
+    * (fun x: A => x)(y) == y
+    * let z = y; z == y
+    * }}}
+    */
+  private def conversionBetaLetAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val y = store.allocVar("y")
+    val contextValue = context()
+      .extendLocal("A", type0)
+      .extendLocal("y", a)
+
+    val lambda = store.allocLambda("x", a, store.allocVar("x"))
+    val beta = store.allocApply(lambda, y)
+    val letTerm = store.allocLet("z", y, store.allocVar("z"))
+    val betaResult = convert(store, contextValue, beta, y)
+    val letResult = convert(store, contextValue, letTerm, y)
+
+    sourceDiagnostics(betaResult.diagnostics, span) :::
+      sourceDiagnostics(letResult.diagnostics, span) :::
+      assertSourceCondition(
+        betaResult.isOk && letResult.isOk,
+        "WHNF conversion did not accept beta and let reductions",
+        "both conversions accepted",
+        s"beta=${betaResult.isOk}, let=${letResult.isOk}",
+        span,
+      )
+
+  /** Checks indexed constructor introduction for the `Vec` fixture.
+    *
+    * Rules:
+    *
+    * {{{
+    * Nil <= Vec(A, Z)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    */
+  private def vecConstructorsCheckAssertion(
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val nat = store.allocInductive("Nat")
+    val a = store.allocVar("A")
+    val k = store.allocVar("k")
+    val z = store.allocConstructor("Z")
+    val sK = store.allocConstructor("S", List(k))
+    val vecAK = store.allocInductive("Vec", List(a), List(k))
+    val vecAZ = store.allocInductive("Vec", List(a), List(z))
+    val vecASK = store.allocInductive("Vec", List(a), List(sK))
+    val head = store.allocVar("head")
+    val tail = store.allocVar("tail")
+    val nil = store.allocConstructor("Nil")
+    val cons = store.allocConstructor("Cons", List(k, head, tail))
+    var contextValue = context().extendLocal("A", type0)
+    contextValue = contextValue
+      .extendLocal("k", nat)
+      .extendLocal("head", a)
+      .extendLocal("tail", vecAK)
+
+    val nilChecked = check(store, contextValue, nil, vecAZ)
+    val consChecked = check(store, contextValue, cons, vecASK)
+
+    sourceDiagnostics(nilChecked.diagnostics, span) :::
+      sourceDiagnostics(consChecked.diagnostics, span) :::
+      assertSourceCondition(
+        nilChecked.isOk && consChecked.isOk,
+        "Vec constructors did not check against indexed Vec families",
+        "Nil and Cons accepted",
+        s"Nil=${nilChecked.isOk}, Cons=${consChecked.isOk}",
+        span,
+      )
+
+  private def sourceDiagnostics(
+      diagnostics: List[MlttDiagnostic],
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    diagnostics.map { diagnosticValue =>
+      sourceDiagnostic(
+        diagnosticValue.code,
+        s"${diagnosticValue.message}; expected ${diagnosticValue.expected}, got ${diagnosticValue.actual}",
+        diagnosticValue.span.getOrElse(span),
+      )
+    }
+
+  private def assertSourceCondition(
+      condition: Boolean,
+      message: String,
+      expected: String,
+      actual: String,
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    if condition then Nil
+    else
+      List(
+        sourceDiagnostic(
+          SourceAssertionFailedCode,
+          s"$message; expected $expected, got $actual",
+          span,
+        ),
+      )
+
+  private def syntheticModule(
+      moduleName: String,
+      directives: List[ProfileDirective],
+      prefix: String,
+  ): TypedModule =
+    val source = SourceFile(moduleName, "")
+    val span = source.span(0, 0)
+    val declarations = directives.map { directive =>
+      val name = s"${prefix}_${sanitizeName(directive.name)}"
+      TypedValueDecl(
+        UntypedValueKind.Val,
+        name,
+        SourceType.Bool,
+        Some(TypedBoolLiteral(true, SourceType.Bool, directive.span)),
+        directive.span,
+      )
+    }
+    TypedModule(source, declarations, span)
+
+  private def sanitizeName(value: String): String =
+    value.map {
+      case char if char.isLetterOrDigit => char
+      case _                            => '_'
+    }
+
+  private def wholeSourceSpan(sources: List[SourceFile]): SourceSpan =
+    sources.headOption match
+      case Some(source) => source.span(0, source.text.length)
+      case None         => SourceFile("<mltt-core>", "").span(0, 0)
+
+  private def sourceDiagnostic(
+      code: String,
+      message: String,
+      span: SourceSpan,
+  ): Diagnostic =
+    Diagnostic(Phase.Check, DiagnosticSeverity.Error, code, message, Some(span))
 
   /** Infers the type of an MLTT core term.
     *

@@ -198,7 +198,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
             pkg,
             pkg.modules,
             pkg.modules.map(module => moduleKey(module.modulePath)),
-            MlttProfileChecker.checkSources(
+            MlttTypeChecker.checkSources(
               pkg.modules.map(_.source),
               pkg.metadata.outputModuleName,
             ),
@@ -212,7 +212,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
             pkg,
             pkg.modules,
             pkg.modules.map(module => moduleKey(module.modulePath)),
-            DependentPatternProfileChecker.checkSources(
+            DependentPatterns.checkSources(
               pkg.modules.map(_.source),
               pkg.metadata.outputModuleName,
             ),

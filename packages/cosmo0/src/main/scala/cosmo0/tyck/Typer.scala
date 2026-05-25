@@ -7,8 +7,9 @@ import scala.collection.mutable.ListBuffer
   *
   * The no-profile entry point intentionally selects `cosmo0.subset`. MLTT and
   * dependent-pattern profiles are registered in `CheckerProfiles`, but the
-  * public cosmo0 source pipeline routes them to profile checkers before this
-  * factory is used.
+  * public cosmo0 source pipeline routes them before this factory is used:
+  * `mltt.core` goes to `MlttTypeChecker`, and `mltt.dependent-patterns` goes to
+  * `DependentPatterns`.
   */
 object SourceTyper:
   def apply(module: UntypedModule): SourceTyper =

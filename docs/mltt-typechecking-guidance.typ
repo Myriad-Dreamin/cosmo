@@ -13,8 +13,9 @@ The first implementation slice lives under
 explicit MLTT core data, profile-aware diagnostics, bidirectional check/infer
 entry points, conservative metavariable records, Nat/Vec metadata fixtures, and
 the first declared conversion strategy `mltt.whnf-conversion`. Selecting
-`mltt.core` for ordinary Cosmo source or package checking remains isolated until
-a surface elaborator can produce MLTT core artifacts.
+`mltt.core` in cosmo0 routes directly to the Scala MLTT checker for assertion
+fixtures; ordinary Cosmo source still needs a surface elaborator before it can
+produce MLTT core artifacts.
 
 The key design rule is:
 
