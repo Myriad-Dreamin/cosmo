@@ -72,6 +72,11 @@ final class Cosmo0:
     CheckerProfiles.byId(profileId) match
       case Some(profile) if profile.id == CheckerProfiles.Cosmo0Subset.id =>
         checkWithProfile(source, profile)
+      case Some(profile) if profile.id == CheckerProfiles.MlttCore.id =>
+        checkedModuleResult(MlttProfileChecker.checkSource(source))
+      case Some(profile)
+          if profile.id == CheckerProfiles.MlttDependentPatterns.id =>
+        checkedModuleResult(DependentPatternProfileChecker.checkSource(source))
       case Some(profile) =>
         Result.unsupported(
           Phase.Check,
@@ -88,6 +93,22 @@ final class Cosmo0:
           Phase.Check,
           List(CheckerProfiles.unknownProfileDiagnostic(profileId)),
         )
+
+  private def checkedModuleResult(
+      result: Result[TypedModule],
+  ): Result[CheckedModule] =
+    result match
+      case checked if checked.isSuccess =>
+        Result.success(Phase.Check, CheckedModule(checked.value.get))
+      case checked if checked.isUnsupported =>
+        Result(
+          Phase.Check,
+          PhaseStatus.Unsupported,
+          None,
+          checked.diagnostics,
+        )
+      case failed =>
+        Result.failure(Phase.Check, failed.diagnostics)
 
   private def checkWithProfile(
       source: SourceFile,

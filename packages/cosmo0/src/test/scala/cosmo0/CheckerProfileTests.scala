@@ -65,9 +65,22 @@ class CheckerProfileTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
 
-  test(
-    "experimental MLTT profile rejects object source as an unsupported checker result",
-  ):
+  test("MLTT profile executes source assertion directives"):
+    val result = Cosmo0().checkWithProfile(
+      """mltt: lambda-checks-pi
+        |mltt: application-infers-through-pi
+        |""".stripMargin,
+      CheckerProfiles.MlttCore.id,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    val summary = result.value.get.typed.checkerArtifactSummary
+    assert(summary.contains("mltt_core_lambda_checks_pi"))
+    assert(summary.contains("mltt_core_application_infers_through_pi"))
+
+  test("MLTT profile rejects source that does not declare MLTT assertions"):
     val result = Cosmo0().checkWithProfile(
       """class Box {
         |  val value: i32
@@ -77,13 +90,12 @@ class CheckerProfileTests extends munit.FunSuite:
     )
 
     assertEquals(result.phase, Phase.Check)
-    assertEquals(result.status, PhaseStatus.Unsupported)
+    assertEquals(result.status, PhaseStatus.Failed)
     assertEquals(result.value, None)
     assertEquals(
       result.diagnostics.head.code,
-      CheckerProfiles.UnsupportedObjectDispatchCode,
+      "cosmo.type.mltt.no-profile-assertions",
     )
-    assert(result.diagnostics.head.message.contains("mltt.core"))
 
   test("unknown checker profile is a normal check failure"):
     val result = Cosmo0().checkWithProfile("val answer = 42", "unknown.profile")
@@ -115,8 +127,13 @@ class CheckerProfileTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
 
-  test("package checker profile metadata keeps experimental profiles isolated"):
-    val source = SourceFile("main.cos", "val answer = 42")
+  test("package checker profile metadata runs MLTT profile assertions"):
+    val source = SourceFile(
+      "main.cos",
+      """mltt: lambda-checks-pi
+        |mltt: vec-constructors-check
+        |""".stripMargin,
+    )
     val pkg = Cosmo0Package(
       "memory",
       Cosmo0PackageMetadata(
@@ -130,13 +147,13 @@ class CheckerProfileTests extends munit.FunSuite:
     val result = Cosmo0().checkPackage(pkg)
 
     assertEquals(result.phase, Phase.Check)
-    assertEquals(result.status, PhaseStatus.Unsupported)
-    assertEquals(
-      result.diagnostics.head.code,
-      CheckerProfiles.UnsupportedObjectDispatchCode,
-    )
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    val summary = result.value.get.checked.typed.checkerArtifactSummary
+    assert(summary.contains("mltt_core_lambda_checks_pi"))
+    assert(summary.contains("mltt_core_vec_constructors_check"))
 
-  test("fixture metadata can select the experimental MLTT profile"):
+  test("fixture metadata selects the MLTT profile and verifies MLTT features"):
     val loaded =
       Cosmo0().loadPackage("fixtures/cosmo0/package/mltt-core-profile")
 
@@ -153,11 +170,36 @@ class CheckerProfileTests extends munit.FunSuite:
     val checked = Cosmo0().checkPackage(loaded.value.get)
 
     assertEquals(checked.phase, Phase.Check)
-    assertEquals(checked.status, PhaseStatus.Unsupported)
-    assertEquals(
-      checked.diagnostics.head.code,
-      CheckerProfiles.UnsupportedObjectDispatchCode,
+    assertEquals(checked.status, PhaseStatus.Succeeded)
+    val summary = checked.value.get.checked.typed.checkerArtifactSummary
+    assert(summary.contains("mltt_core_lambda_checks_pi"))
+    assert(summary.contains("mltt_core_vec_constructors_check"))
+
+  test(
+    "fixture metadata selects dependent-pattern profile and verifies case trees",
+  ):
+    val loaded =
+      Cosmo0().loadPackage(
+        "fixtures/cosmo0/package/mltt-dependent-pattern-profile",
+      )
+
+    assertEquals(loaded.phase, Phase.Check)
+    assert(
+      loaded.isSuccess,
+      s"dependent-pattern profile fixture failed to load: ${loaded.diagnostics}",
     )
+    assertEquals(
+      loaded.value.get.metadata.checkerProfile,
+      Some(CheckerProfiles.MlttDependentPatterns.id),
+    )
+
+    val checked = Cosmo0().checkPackage(loaded.value.get)
+
+    assertEquals(checked.phase, Phase.Check)
+    assertEquals(checked.status, PhaseStatus.Succeeded)
+    val summary = checked.value.get.checked.typed.checkerArtifactSummary
+    assert(summary.contains("dependent_pattern_vec_head_elaborates"))
+    assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
 
   test("typed artifact profile summary is deterministic"):
     val first =
