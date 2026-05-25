@@ -63,7 +63,7 @@ final class Cosmo0:
         Result.failure(Phase.Check, failed.diagnostics)
 
   def check(source: SourceFile): Result[CheckedModule] =
-    checkWithProfile(source, CheckerProfiles.Cosmo0Subset.id)
+    checkWithProfile(source, CheckerProfiles.MlttDependentPatterns.id)
 
   def checkWithProfile(
       source: SourceFile,
