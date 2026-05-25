@@ -261,6 +261,21 @@ object DependentPatterns:
   def env(): DependentPatternEnv =
     DependentPatternEnv()
 
+  /** Reports whether the selected checker profile admits the elaboration rule.
+    *
+    * Program example:
+    *
+    * {{{
+    * checkerProfile: "mltt.dependent-patterns"
+    *
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head
+    * }}}
+    *
+    * This gate is the profile-side premise for every dependent-pattern rule
+    * below. Profiles without `dependent-pattern-elaboration` cannot elaborate
+    * constructor refinements or coverage obligations.
+    */
   def profileSupportsElaboration(profile: CheckerProfile): Boolean =
     profile.supports(CheckerProfiles.DependentPatternElaborationFeature)
 
@@ -275,6 +290,24 @@ object DependentPatterns:
       profile.id,
     )
 
+  /** Unifies expected scrutinee indices with constructor result indices.
+    *
+    * Program example:
+    *
+    * {{{
+    * xs : Vec(A, S(n))
+    *
+    * Cons(head, tail) -> head
+    * // Cons result index is Vec(A, S(k)); unification records n = k.
+    * }}}
+    *
+    * Rule shape:
+    *
+    * {{{
+    * unifyIndices([A, S(n)], [A, S(k)]) = { n := k }
+    * unifyIndices([A, S(n)], [A, Z])    = impossible
+    * }}}
+    */
   def unifyIndices(
       store: DependentPatternTermStore,
       expected: List[Int],
@@ -295,6 +328,20 @@ object DependentPatterns:
     }
     unifier.finish()
 
+  /** Elaborates source clauses into a dependent case tree.
+    *
+    * Program example:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head
+    * }}}
+    *
+    * The constructor rule checks that `Cons` can refine the scrutinee family,
+    * imports the constructor telescope as branch binders, specializes the
+    * expected branch type using the unifier result, and then records coverage
+    * obligations for any remaining possible constructors.
+    */
   def elaborateClauses(
       profile: CheckerProfile,
       env: DependentPatternEnv,
@@ -513,6 +560,26 @@ object DependentPatterns:
       tree.branches.map(branch => s"  ${renderCaseBranch(branch)}")
     (head :: branchText).mkString("\n")
 
+  /** Elaborates one constructor branch and its index refinement.
+    *
+    * Program example:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head
+    * }}}
+    *
+    * `Cons` contributes binders from its telescope:
+    *
+    * {{{
+    * head : A
+    * tail : Vec(A, k)
+    * }}}
+    *
+    * and unifies `Vec(A, S(n))` with `Vec(A, S(k))`, so the branch summary is
+    * `n=k`. If the same rule is tried with `Nil`, the heads `S` and `Z` differ
+    * and the branch is marked impossible.
+    */
   private def elaborateConstructorClause(
       env: DependentPatternEnv,
       store: DependentPatternTermStore,
@@ -557,6 +624,19 @@ object DependentPatterns:
           name,
         )
 
+  /** Checks that all possible constructors are covered after refinement.
+    *
+    * Program example:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head
+    * }}}
+    *
+    * Coverage does not require `Nil` here, because `Vec(A, S(n))` cannot unify
+    * with `Nil`'s result index `Vec(A, Z)`. For `xs : Vec(A, n)`, both `Nil`
+    * and `Cons` remain possible unless a wildcard branch appears.
+    */
   private def checkCoverage(
       env: DependentPatternEnv,
       store: DependentPatternTermStore,
@@ -601,6 +681,16 @@ object DependentPatterns:
     if args.isEmpty then name
     else s"$name(${indicesDisplay(store, args)})"
 
+  /** Renders the branch refinement inferred by constructor-index unification.
+    *
+    * Program example:
+    *
+    * {{{
+    * Cons(head, tail) -> head  // summary: n=k
+    * Nil -> absurd             // summary: impossible for Vec(A, S(n))
+    * _ -> fallback             // summary: identity
+    * }}}
+    */
   private def refinementSummary(
       store: DependentPatternTermStore,
       result: DependentPatternUnifyResult,
@@ -612,6 +702,15 @@ object DependentPatterns:
       .orElse(solutionSummary(store, result, "A"))
       .getOrElse("identity")
 
+  /** Extracts a named substitution for human-readable branch summaries.
+    *
+    * Program example:
+    *
+    * {{{
+    * unify S(n) with S(k)
+    * solutionSummary(result, "n") == Some("n=k")
+    * }}}
+    */
   private def solutionSummary(
       store: DependentPatternTermStore,
       result: DependentPatternUnifyResult,
@@ -621,6 +720,18 @@ object DependentPatterns:
       .get(name)
       .map(value => s"$name=${termDisplay(store, value)}")
 
+  /** Specializes the displayed expected branch type with the refinement.
+    *
+    * Program example:
+    *
+    * {{{
+    * xs : Vec(A, S(n))
+    * Cons(head, tail) -> head
+    *
+    * expected branch type: A
+    * specialized display: A under n=k
+    * }}}
+    */
   private def specializedExpectedType(
       expectedType: String,
       refinementSummary: String,
@@ -655,6 +766,16 @@ private final class DependentPatternUnifier(
   private var impossible = false
   private var failed = false
 
+  /** Dispatches the first-order index unification rule by the left term head.
+    *
+    * Program examples:
+    *
+    * {{{
+    * unify(n, k)       // records n := k
+    * unify(S(n), S(k)) // recurses and records n := k
+    * unify(S(n), Z)    // marks the branch impossible
+    * }}}
+    */
   def unify(left: Int, right: Int): Unit =
     if failed || impossible then return
 
@@ -690,6 +811,16 @@ private final class DependentPatternUnifier(
       diagnostics = diagnostics.toList,
     )
 
+  /** Solves an index variable or reuses the existing solution.
+    *
+    * Program examples:
+    *
+    * {{{
+    * n = k     // stores n := k
+    * n = S(n)  // rejected by occurs check
+    * n = n     // accepted without adding a substitution
+    * }}}
+    */
   private def unifyVariable(name: String, value: Int): Unit =
     substitutions.get(name) match
       case Some(solution) =>
@@ -704,6 +835,16 @@ private final class DependentPatternUnifier(
           )
         else substitutions.update(name, value)
 
+  /** Unifies a constructor or family head against the right-hand term.
+    *
+    * Program examples:
+    *
+    * {{{
+    * S(n) ~ S(k)             // same constructor head, recurse on args
+    * Vec(A, S(n)) ~ Vec(A,k) // same family head, recurse on indices
+    * S(n) ~ Z                // different constructor head, impossible
+    * }}}
+    */
   private def unifyConstructorLike(
       left: Int,
       name: String,
@@ -741,6 +882,15 @@ private final class DependentPatternUnifier(
           "<error>",
         )
 
+  /** Applies the same-head unification rule for constructors and families.
+    *
+    * Program example:
+    *
+    * {{{
+    * Vec(A, S(n)) ~ Vec(A, S(k))
+    * // heads and arities match, then A ~ A and S(n) ~ S(k)
+    * }}}
+    */
   private def unifySameHead(
       leftName: String,
       leftArgs: List[Int],
@@ -765,6 +915,15 @@ private final class DependentPatternUnifier(
       unify(left, right)
     }
 
+  /** Recognizes the reflexive variable unification case.
+    *
+    * Program example:
+    *
+    * {{{
+    * unify(n, n)    // no substitution is needed
+    * unify(?m0, ?m0) // no substitution is needed
+    * }}}
+    */
   private def termIsSameVariable(name: String, value: Int): Boolean =
     store.termValue(value) match
       case DependentPatternTerm.Var(valueName) =>
@@ -778,6 +937,14 @@ private final class DependentPatternUnifier(
       case DependentPatternTerm.Error =>
         false
 
+  /** Detects whether a candidate variable solution would be recursive.
+    *
+    * Program example:
+    *
+    * {{{
+    * ?m = Vec(A, ?m)  // rejected: ?m occurs in its own solution
+    * }}}
+    */
   private def occurs(name: String, value: Int): Boolean =
     store.termValue(value) match
       case DependentPatternTerm.Var(valueName) =>
@@ -791,6 +958,17 @@ private final class DependentPatternUnifier(
       case DependentPatternTerm.Error =>
         false
 
+  /** Records that the current constructor branch cannot refine the scrutinee.
+    *
+    * Program example:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Nil -> absurd
+    *
+    * // Nil has index Vec(A, Z), and S(n) cannot refine Z.
+    * }}}
+    */
   private def markImpossible(summary: String): Unit =
     impossible = true
     addDiagnostic(

@@ -67,6 +67,20 @@ private[cosmo0] object MlttProfileChecker:
   def checkSource(source: SourceFile): Result[TypedModule] =
     checkSources(List(source), source.name)
 
+  /** Runs all MLTT assertion directives in a profile source module.
+    *
+    * Program example:
+    *
+    * {{{
+    * mltt: lambda-checks-pi
+    * mltt: application-infers-through-pi
+    * mltt: sigma-pair-checks
+    * }}}
+    *
+    * Each directive maps to a concrete MLTT core term, not a placeholder
+    * marker, so this entry point validates the package-level profile path
+    * against the same infer/check rules used by direct MLTT tests.
+    */
   def checkSources(
       sources: List[SourceFile],
       moduleName: String,
@@ -92,6 +106,17 @@ private[cosmo0] object MlttProfileChecker:
       syntheticModule(moduleName, directives, "mltt_core"),
     )
 
+  /** Dispatches a source directive to the corresponding MLTT rule example.
+    *
+    * Program example:
+    *
+    * {{{
+    * mltt: conversion-beta-let
+    * }}}
+    *
+    * The directive above checks definitional equality for beta and let
+    * reductions through `MlttTypeChecker.convert`.
+    */
   private def runAssertion(
       directive: ProfileDirective,
   ): List[Diagnostic] =
@@ -117,6 +142,18 @@ private[cosmo0] object MlttProfileChecker:
           ),
         )
 
+  /** Checks the Pi introduction rule for annotated lambdas.
+    *
+    * Program example:
+    *
+    * {{{
+    * A : Type0
+    * fun x: A => x <= (x: A) -> A
+    * }}}
+    *
+    * This assertion fails if `MlttTypeChecker.check` no longer accepts lambda
+    * introduction against a Pi type.
+    */
   private def lambdaChecksPi(span: SourceSpan): List[Diagnostic] =
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
@@ -138,6 +175,16 @@ private[cosmo0] object MlttProfileChecker:
         span,
       )
 
+  /** Checks the Pi elimination rule used by application inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * A : Type0
+    * y : A
+    * (fun x: A => x)(y)  // infers A
+    * }}}
+    */
   private def applicationInfersThroughPi(span: SourceSpan): List[Diagnostic] =
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
@@ -161,6 +208,16 @@ private[cosmo0] object MlttProfileChecker:
         span,
       )
 
+  /** Checks the Sigma introduction rule for pairs.
+    *
+    * Program example:
+    *
+    * {{{
+    * x : A
+    * y : A
+    * (x, y) <= Sigma(first: A). A
+    * }}}
+    */
   private def sigmaPairChecks(span: SourceSpan): List[Diagnostic] =
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
@@ -183,6 +240,15 @@ private[cosmo0] object MlttProfileChecker:
         span,
       )
 
+  /** Checks equality introduction for reflexivity.
+    *
+    * Program example:
+    *
+    * {{{
+    * x : A
+    * Refl(x) <= Eq(A, x, x)
+    * }}}
+    */
   private def equalityReflChecks(span: SourceSpan): List[Diagnostic] =
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
@@ -206,6 +272,15 @@ private[cosmo0] object MlttProfileChecker:
         span,
       )
 
+  /** Checks WHNF conversion for beta and let reduction.
+    *
+    * Program example:
+    *
+    * {{{
+    * (fun x: A => x)(y) == y
+    * let z = y; z == y
+    * }}}
+    */
   private def conversionBetaLet(span: SourceSpan): List[Diagnostic] =
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
@@ -232,6 +307,18 @@ private[cosmo0] object MlttProfileChecker:
         span,
       )
 
+  /** Checks indexed constructor introduction for the `Vec` fixture.
+    *
+    * Program example:
+    *
+    * {{{
+    * Nil <= Vec(A, Z)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    *
+    * This exercises constructor checking with family indices rather than just
+    * unindexed algebraic constructors.
+    */
   private def vecConstructorsCheck(span: SourceSpan): List[Diagnostic] =
     val store = MlttTypeChecker.termStore()
     val type0 = store.allocUniverse(0)
@@ -350,6 +437,19 @@ private[cosmo0] object DependentPatternProfileChecker:
   def checkSource(source: SourceFile): Result[TypedModule] =
     checkSources(List(source), source.name)
 
+  /** Runs all dependent-pattern assertion directives in profile source.
+    *
+    * Program example:
+    *
+    * {{{
+    * dependent-pattern: vec-head-elaborates
+    * dependent-pattern: impossible-nil-diagnostic
+    * }}}
+    *
+    * The assertions build concrete `Vec` clauses and call
+    * `DependentPatterns.elaborateClauses`, so package fixtures validate the
+    * same refinement and coverage rules as the direct dependent-pattern tests.
+    */
   def checkSources(
       sources: List[SourceFile],
       moduleName: String,
@@ -375,6 +475,17 @@ private[cosmo0] object DependentPatternProfileChecker:
       syntheticModule(moduleName, directives, "dependent_pattern"),
     )
 
+  /** Dispatches a dependent-pattern directive to its rule example.
+    *
+    * Program example:
+    *
+    * {{{
+    * dependent-pattern: vec-head-elaborates
+    * }}}
+    *
+    * The directive above proves that a `Cons` branch for `Vec(A, S(n))`
+    * elaborates to a refined case tree with the substitution `n=k`.
+    */
   private def runAssertion(
       directive: ProfileDirective,
   ): List[Diagnostic] =
@@ -392,6 +503,22 @@ private[cosmo0] object DependentPatternProfileChecker:
           ),
         )
 
+  /** Checks constructor-pattern elaboration for a non-empty vector.
+    *
+    * Program example:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head
+    * }}}
+    *
+    * Expected case tree:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Cons(head, tail) -> head [n=k]
+    * }}}
+    */
   private def vecHeadElaborates(span: SourceSpan): List[Diagnostic] =
     val tree = vecHeadTree(CheckerProfiles.MlttDependentPatterns, span)
     val rendered = DependentPatterns.renderCaseTree(tree)
@@ -409,6 +536,18 @@ private[cosmo0] object DependentPatternProfileChecker:
         span,
       )
 
+  /** Checks that impossible constructor indices are diagnosed.
+    *
+    * Program example:
+    *
+    * {{{
+    * case xs : Vec(A, S(n)) of
+    *   Nil -> absurd
+    * }}}
+    *
+    * `Nil` has result index `Vec(A, Z)`, so this branch cannot refine a
+    * scrutinee whose length index is `S(n)`.
+    */
   private def impossibleNilDiagnostic(span: SourceSpan): List[Diagnostic] =
     val store = DependentPatterns.termStore()
     val env = DependentPatterns.env()
@@ -444,6 +583,19 @@ private[cosmo0] object DependentPatternProfileChecker:
       span,
     )
 
+  /** Builds the reusable `Vec(A, S(n))` head-elaboration program.
+    *
+    * Program example:
+    *
+    * {{{
+    * xs : Vec(A, S(n))
+    * Cons(head, tail) -> head
+    * }}}
+    *
+    * The helper sets up the Nat/Vec fixtures, allocates the source pattern, and
+    * invokes `DependentPatterns.elaborateClauses` under the selected checker
+    * profile.
+    */
   private def vecHeadTree(
       profile: CheckerProfile,
       span: SourceSpan,

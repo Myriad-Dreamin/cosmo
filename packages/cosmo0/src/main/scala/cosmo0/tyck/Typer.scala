@@ -192,6 +192,20 @@ final class SourceTyper(
   private val classes = mutable.LinkedHashMap.empty[String, ClassInfo]
   private val functions = mutable.LinkedHashMap.empty[String, FunctionInfo]
 
+  /** Runs declaration collection before expression inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * class Counter { var value: i32 }
+    * def bump(value: i32): i32 = { value + 1 }
+    * val next = bump(41)
+    * }}}
+    *
+    * The checker first collects class/function signatures so later expression
+    * inference can resolve `Counter` constructors and `bump` calls without
+    * depending on declaration order.
+    */
   def check(): Result[TypedModule] =
     collectForeignNamespaceImports()
     collectAliases()
@@ -559,6 +573,20 @@ final class SourceTyper(
       functions.update(info.name, info)
     }
 
+  /** Converts one top-level declaration into its typed form.
+    *
+    * Program example:
+    *
+    * {{{
+    * val answer = 42
+    * def id(value: i32): i32 = { value }
+    * class Box { val value: i32 }
+    * }}}
+    *
+    * Value declarations define globals in the shared scope after their
+    * initializer has been inferred or checked. Functions and classes use the
+    * pre-collected signatures from the collection pass.
+    */
   private def typedDecl(decl: UntypedDecl, scope: Scope): Option[TypedDecl] =
     decl match
       case importDecl: UntypedImport =>
@@ -596,6 +624,22 @@ final class SourceTyper(
       case _: UntypedImpl =>
         None
 
+  /** Checks class fields, variants, aliases, and methods.
+    *
+    * Program example:
+    *
+    * {{{
+    * class Point {
+    *   val x: i32 = 0
+    *   val y: i32
+    *   def sum(&self): i32 = { self.x + self.y }
+    * }
+    * }}}
+    *
+    * Field initializers are checked against explicit field types. Method bodies
+    * are checked with the global scope so method lookup remains owner-based
+    * rather than accidentally capturing sibling methods as locals.
+    */
   private def typedClass(info: ClassInfo, globalScope: Scope): TypedClass =
     val classScope = globalScope.child
     info.methods.values.foreach(method =>
@@ -644,6 +688,20 @@ final class SourceTyper(
       info.span,
     )
 
+  /** Checks a function or method body against its declared signature.
+    *
+    * Program example:
+    *
+    * {{{
+    * def clamp(value: i32, min: i32 = 0): i32 = {
+    *   if value < min { min } else { value }
+    * }
+    * }}}
+    *
+    * Parameter annotations seed the local scope. Defaults and the body receive
+    * expected types from the resolved signature, so literals and branches can
+    * infer in context.
+    */
   private def typedFunction(
       info: FunctionInfo,
       outerScope: Scope,
@@ -697,6 +755,18 @@ final class SourceTyper(
       info.extern,
     )
 
+  /** Infers or checks a top-level value declaration.
+    *
+    * Program example:
+    *
+    * {{{
+    * val inferred = 42      // inferred: i32
+    * val checked: u8 = 42   // literal checked as u8
+    * }}}
+    *
+    * An explicit annotation supplies the expected initializer type. Without an
+    * annotation, the initializer type becomes the declaration type.
+    */
   private def typedValueDecl(
       value: UntypedValueDecl,
       scope: Scope,
@@ -731,6 +801,20 @@ final class SourceTyper(
       ),
     )
 
+  /** Resolves a function signature before body checking.
+    *
+    * Program example:
+    *
+    * {{{
+    * class Counter {
+    *   def add(&mut self, amount: i32): Unit = { self.value += amount }
+    * }
+    * }}}
+    *
+    * Parameters require explicit types. A leading `self` parameter is
+    * normalized into receiver metadata, which later method-call inference uses
+    * for receiver mutability checks.
+    */
   private def functionInfo(
       fn: UntypedFunction,
       owner: Option[String],
@@ -790,6 +874,19 @@ final class SourceTyper(
       fn.extern,
     )
 
+  /** Infers an expression type, optionally under an expected type.
+    *
+    * Program example:
+    *
+    * {{{
+    * val byte: u8 = 65
+    * val total = byte.to_i32() + 1
+    * }}}
+    *
+    * The `expected` type flows into literals, calls, branches, returns, and the
+    * final expression of a block. When no expected type is available, the
+    * expression chooses its default inference rule.
+    */
   private def expr(
       node: UntypedExpr,
       scope: Scope,
@@ -896,6 +993,20 @@ final class SourceTyper(
       case value: UntypedUnitLiteral =>
         ExprInfo(TypedUnitLiteral(SourceType.Unit, value.span), false, false)
 
+  /** Checks a block left-to-right and infers its result from the final item.
+    *
+    * Program example:
+    *
+    * {{{
+    * val result = {
+    *   val base = 40
+    *   base + 2
+    * }
+    * }}}
+    *
+    * Only the final item receives the caller's expected type; earlier items are
+    * checked without it so local inference remains statement-local.
+    */
   private def blockExpr(
       node: UntypedBlock,
       outerScope: Scope,
@@ -917,6 +1028,21 @@ final class SourceTyper(
       mutAllowed = true,
     )
 
+  /** Checks one item inside a block and updates block scope.
+    *
+    * Program example:
+    *
+    * {{{
+    * {
+    *   val x = 1
+    *   var y: i32 = x + 1
+    *   y
+    * }
+    * }}}
+    *
+    * Local declarations follow the same annotation-or-initializer rule as
+    * top-level values, then define a local symbol for later items.
+    */
   private def blockItem(
       item: UntypedBlockItem,
       scope: Scope,
@@ -962,6 +1088,19 @@ final class SourceTyper(
         val typed = expr(expression, scope, expected, context)
         typed.expr
 
+  /** Infers the type of a name.
+    *
+    * Program example:
+    *
+    * {{{
+    * val value = 1
+    * val copied = value
+    * val empty = Vec[i32]()
+    * }}}
+    *
+    * Lexical bindings win first. If no value binding exists, a single-segment
+    * name may infer as a class constructor or standard generic constructor.
+    */
   private def nameExpr(node: UntypedName, scope: Scope): ExprInfo =
     node.path.parts match
       case name :: Nil =>
@@ -1038,6 +1177,18 @@ final class SourceTyper(
           false,
         )
 
+  /** Infers a direct type-constructor expression.
+    *
+    * Program example:
+    *
+    * {{{
+    * val make_vec = Vec[i32]
+    * val values = Vec[i32]()
+    * }}}
+    *
+    * Only constructible standard or foreign applied types produce callable
+    * constructor types here.
+    */
   private def typeConstructorExpr(node: UntypedTypeConstructor): ExprInfo =
     val constructedTy = resolveType(node.ty, None)
     val ty = SourceType.dealias(constructedTy) match
@@ -1054,6 +1205,21 @@ final class SourceTyper(
       false,
     )
 
+  /** Infers a field, method, foreign method, or variant constructor selection.
+    *
+    * Program example:
+    *
+    * {{{
+    * class Nat { case Zero; case Succ(Nat) }
+    * val zero = Nat.Zero
+    * val size = values.len()
+    * val field = point.x
+    * }}}
+    *
+    * The receiver type determines whether selection resolves to variant
+    * metadata, field type, callable method signature, descriptor method, or
+    * foreign method surface.
+    */
   private def selectExpr(
       node: UntypedSelect,
       scope: Scope,
@@ -1160,6 +1326,17 @@ final class SourceTyper(
           case None =>
             invalidField(node.field, recv.expr.ty, node.span)
 
+  /** Builds the typed error expression for failed field or method inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * value.missing
+    * }}}
+    *
+    * The surrounding inference rule can keep producing a typed tree after the
+    * diagnostic, which avoids cascading failures in later expressions.
+    */
   private def invalidField(
       field: String,
       receiverType: SourceType,
@@ -1183,6 +1360,18 @@ final class SourceTyper(
       mutAllowed = false,
     )
 
+  /** Infers a fully qualified variant constructor expression.
+    *
+    * Program example:
+    *
+    * {{{
+    * val ok = Result[i32, String]::Ok
+    * val one = Result[i32, String]::Ok(1)
+    * }}}
+    *
+    * Nullary constructors infer directly as their result type. Constructors
+    * with payloads infer as function types until a call supplies arguments.
+    */
   private def variantConstructorExpr(
       node: UntypedVariantConstructor,
   ): ExprInfo =
@@ -1228,6 +1417,18 @@ final class SourceTyper(
           false,
         )
 
+  /** Resolves an imported foreign qualified name during expression inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * import cpp namespace std as std
+    * val symbol = std::vector
+    * }}}
+    *
+    * If the root segment is a foreign namespace alias, the source path infers
+    * as a foreign symbol rather than a user-defined variant constructor.
+    */
   private def foreignQualifiedName(
       owner: UntypedType,
       finalSegment: String,
@@ -1252,6 +1453,14 @@ final class SourceTyper(
       case _ =>
         None
 
+  /** Builds the canonical C++ spelling for a foreign symbol.
+    *
+    * Program example:
+    *
+    * {{{
+    * std + vector + push_back => ::std::vector::push_back
+    * }}}
+    */
   private def foreignCanonicalName(
       importValue: SourceCppNamespaceImport,
       suffix: List[String],
@@ -1260,6 +1469,21 @@ final class SourceTyper(
     if suffixName.isEmpty then importValue.namespace.cppName
     else s"${importValue.namespace.cppName}::$suffixName"
 
+  /** Infers a call expression from callee shape and expected argument types.
+    *
+    * Program example:
+    *
+    * {{{
+    * def add(left: i32, right: i32): i32 = { left + right }
+    * val total = add(1, 2)
+    * val next = counter.bump(1)
+    * val some = Option[i32]::Some(1)
+    * }}}
+    *
+    * Named functions, constructors, variant constructors, selected methods, and
+    * function-valued expressions all converge on `callWithSig` once a callable
+    * signature is known.
+    */
   private def callExpr(
       node: UntypedCall,
       scope: Scope,
@@ -1435,6 +1659,20 @@ final class SourceTyper(
         val callee = expr(node.callee, scope, None, context)
         callFunctionValue(callee, node.args, node.span, scope, context)
 
+  /** Resolves selected calls before generic function-value call inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * val n = Nat.Succ(Nat.Zero)
+    * values.push(1)
+    * builder.finish()
+    * }}}
+    *
+    * This rule handles `Owner.Variant(...)` specially, then checks descriptor,
+    * foreign, and class methods with receiver mutability before validating
+    * arguments.
+    */
   private def methodOrVariantCall(
       select: UntypedSelect,
       args: List[UntypedExpr],
@@ -1534,6 +1772,18 @@ final class SourceTyper(
             val selected = selectExpr(select, scope, context)
             callFunctionValue(selected, args, span, scope, context)
 
+  /** Checks a call whose callee already inferred as an expression.
+    *
+    * Program example:
+    *
+    * {{{
+    * val apply: (i32) -> i32 = inc
+    * val next = apply(41)
+    * }}}
+    *
+    * Only `SourceType.Function` is callable here; all named and method calls
+    * should already have been resolved to a `CallableSignature`.
+    */
   private def callFunctionValue(
       callee: ExprInfo,
       args: List[UntypedExpr],
@@ -1570,6 +1820,19 @@ final class SourceTyper(
           false,
         )
 
+  /** Checks arguments against a resolved callable signature and returns result
+    * type.
+    *
+    * Program example:
+    *
+    * {{{
+    * def take(value: u8): Unit = {}
+    * take(65) // integer literal is checked with expected u8
+    * }}}
+    *
+    * Each argument is inferred with its parameter type as `expected`, then
+    * `canPass` applies assignment and reference-passing rules.
+    */
   private def callWithSig(
       callee: TypedExpr,
       sig: CallableSignature,
@@ -1603,6 +1866,17 @@ final class SourceTyper(
       mutAllowed = mutationCapability(sig.returnType),
     )
 
+  /** Builds a typed placeholder for a call whose callee rule already failed.
+    *
+    * Program example:
+    *
+    * {{{
+    * missing(1)
+    * }}}
+    *
+    * Arguments are still inferred so their diagnostics are preserved, but the
+    * call itself receives an error signature.
+    */
   private def errorCall(
       node: UntypedCall,
       scope: Scope,
@@ -1622,6 +1896,19 @@ final class SourceTyper(
       false,
     )
 
+  /** Checks calls to trusted runtime functions.
+    *
+    * Program example:
+    *
+    * {{{
+    * println("hello")
+    * print("prefix")
+    * }}}
+    *
+    * Runtime calls use `TrustedExternAbi` signatures instead of ordinary source
+    * declarations, but argument inference still uses the parameter types as
+    * expected types.
+    */
   private def runtimeFunctionCall(
       calleeName: String,
       name: UntypedName,
@@ -1671,9 +1958,31 @@ final class SourceTyper(
       mutAllowed = mutationCapability(sig.returnType),
     )
 
+  /** Detects source names handled by the trusted runtime call rule.
+    *
+    * Program example:
+    *
+    * {{{
+    * println("hello")
+    * }}}
+    */
   private def isRuntimeFunction(name: String): Boolean =
     TrustedExternAbi.isTrustedSourceName(name)
 
+  /** Checks assignment and compound numeric assignment.
+    *
+    * Program example:
+    *
+    * {{{
+    * var count: i32 = 0
+    * count += 1
+    * count = 10
+    * }}}
+    *
+    * The target must be a mutable binding. The right side is checked against
+    * the target type, and compound assignments additionally require a numeric
+    * target.
+    */
   private def assignExpr(
       node: UntypedAssign,
       scope: Scope,
@@ -1715,6 +2024,21 @@ final class SourceTyper(
       true,
     )
 
+  /** Infers unary operator expressions.
+    *
+    * Program example:
+    *
+    * {{{
+    * val no = !flag
+    * val neg = -amount
+    * val ref = &value
+    * val value = *ref
+    * }}}
+    *
+    * Boolean negation checks `Bool`; numeric negation preserves the operand
+    * numeric type; reference and dereference rules construct or inspect
+    * `SourceType.Ref` while carrying mutability.
+    */
   private def unaryExpr(
       node: UntypedUnary,
       scope: Scope,
@@ -1793,6 +2117,20 @@ final class SourceTyper(
           false,
         )
 
+  /** Infers binary operator expressions.
+    *
+    * Program example:
+    *
+    * {{{
+    * val ok = left < right and enabled
+    * val sum: i64 = 1 + 2
+    * val same = name == other
+    * }}}
+    *
+    * Boolean operators check both operands as `Bool`; comparisons return
+    * `Bool`; arithmetic preserves the common numeric operand type and passes an
+    * expected numeric type to the left operand when available.
+    */
   private def binaryExpr(
       node: UntypedBinary,
       scope: Scope,
@@ -1918,6 +2256,19 @@ final class SourceTyper(
           false,
         )
 
+  /** Checks conditionals and infers their common branch type.
+    *
+    * Program example:
+    *
+    * {{{
+    * val result: i32 = if flag { 1 } else { 2 }
+    * if ready { println("ready") }
+    * }}}
+    *
+    * The condition checks as `Bool`. Both branches receive the outer expected
+    * type, then their inferred types must match; an `if` without `else` is
+    * `Unit`.
+    */
   private def ifExpr(
       node: UntypedIf,
       scope: Scope,
@@ -1956,6 +2307,18 @@ final class SourceTyper(
       mutationCapability(ty),
     )
 
+  /** Checks supported collection iteration and binds the loop item type.
+    *
+    * Program example:
+    *
+    * {{{
+    * for item in values { println(item.to_string()) }
+    * for key in table { println(key) }
+    * }}}
+    *
+    * Vec/Set/Arena iterate their element type. Map iteration currently binds
+    * the key type. The loop body is expected to type as `Unit`.
+    */
   private def forExpr(
       node: UntypedFor,
       scope: Scope,
@@ -1996,6 +2359,20 @@ final class SourceTyper(
       true,
     )
 
+  /** Checks ordinary cosmo0 match expressions.
+    *
+    * Program example:
+    *
+    * {{{
+    * value match {
+    *   case Option[i32]::Some(item) => item
+    *   case Option[i32]::None => 0
+    * }
+    * }}}
+    *
+    * The scrutinee type drives pattern checking. Arm bodies receive the outer
+    * expected type and must infer a common result type when present.
+    */
   private def matchExpr(
       node: UntypedMatch,
       scope: Scope,
@@ -2033,6 +2410,19 @@ final class SourceTyper(
       mutationCapability(ty),
     )
 
+  /** Checks a return expression against the enclosing function result type.
+    *
+    * Program example:
+    *
+    * {{{
+    * def answer(): i32 = {
+    *   return 42
+    * }
+    * }}}
+    *
+    * The returned value receives the function return type as its expected type.
+    * The return expression itself has type `Never` after checking.
+    */
   private def returnExpr(
       node: UntypedReturn,
       scope: Scope,
@@ -2065,6 +2455,22 @@ final class SourceTyper(
           false,
         )
 
+  /** Checks a source match pattern against the expected scrutinee/payload type.
+    *
+    * Program example:
+    *
+    * {{{
+    * value match {
+    *   case 0 => "zero"
+    *   case Option[i32]::Some(item) => item.to_string()
+    *   case _ => "other"
+    * }
+    * }}}
+    *
+    * Patterns do not infer independently. Literals check against the expected
+    * type, bindings define locals of that type, and variant patterns delegate
+    * payload checking to the constructor signature.
+    */
   private def pattern(
       node: UntypedPattern,
       expectedTy: SourceType,
@@ -2125,6 +2531,20 @@ final class SourceTyper(
       case value: UntypedVariantPattern =>
         variantPattern(value, expectedTy, scope)
 
+  /** Checks a variant pattern and its payload patterns.
+    *
+    * Program example:
+    *
+    * {{{
+    * result match {
+    *   case Result[i32, String]::Ok(value) => value
+    *   case Result[i32, String]::Err(message) => 0
+    * }
+    * }}}
+    *
+    * The selected constructor must return the expected scrutinee type. Each
+    * nested pattern is checked against the matching constructor payload type.
+    */
   private def variantPattern(
       node: UntypedVariantPattern,
       expectedTy: SourceType,
@@ -2180,6 +2600,19 @@ final class SourceTyper(
           node.span,
         )
 
+  /** Resolves constructor syntax used in a pattern.
+    *
+    * Program example:
+    *
+    * {{{
+    * case Nat.Succ(rest) => rest
+    * case Result[i32, String]::Ok(value) => value
+    * }}}
+    *
+    * Pattern constructors accept the same owner-qualified forms that expression
+    * constructors use, but they are resolved under the scrutinee's expected
+    * type.
+    */
   private def ctorExprForPattern(
       node: UntypedExpr,
       expectedTy: SourceType,
@@ -2217,6 +2650,18 @@ final class SourceTyper(
       case _ =>
         None
 
+  /** Looks up the callable signature of a variant constructor.
+    *
+    * Program example:
+    *
+    * {{{
+    * Nat.Succ(Nat.Zero)
+    * Option[i32]::Some(1)
+    * }}}
+    *
+    * Standard generic constructors come from descriptor metadata. User variants
+    * come from collected class metadata.
+    */
   private def ctorSig(
       ownerType: SourceType,
       variant: String,
@@ -2235,6 +2680,18 @@ final class SourceTyper(
           .map(_.sig(name))
       case _ => None
 
+  /** Resolves a nullary standard descriptor constructor by source name.
+    *
+    * Program example:
+    *
+    * {{{
+    * val text = String()
+    * val values = Vec[i32]()
+    * }}}
+    *
+    * Descriptor constructors let builtin and standard generic families behave
+    * like source constructors during call inference.
+    */
   private def descriptorCtor(
       name: String,
       span: SourceSpan,
@@ -2246,6 +2703,18 @@ final class SourceTyper(
         .map(_.instantiate(owner, span)),
     )
 
+  /** Resolves a method from standard descriptor metadata.
+    *
+    * Program example:
+    *
+    * {{{
+    * val length = values.len()
+    * val text = number.to_string()
+    * }}}
+    *
+    * The receiver type is normalized before descriptor lookup so references use
+    * the same method surface as their targets.
+    */
   private def descriptorMethod(
       ownerType: SourceType,
       methodName: String,
@@ -2259,6 +2728,18 @@ final class SourceTyper(
         .flatMap(_.method(methodName)),
     )
 
+  /** Resolves a supported foreign method surface.
+    *
+    * Program example:
+    *
+    * {{{
+    * cxx_vector.push_back(1)
+    * val size = cxx_vector.size()
+    * }}}
+    *
+    * Foreign methods are intentionally explicit descriptor shims; only known
+    * imported runtime surfaces infer callable signatures here.
+    */
   private def foreignMethod(
       ownerType: SourceType,
       methodName: String,
@@ -2270,6 +2751,18 @@ final class SourceTyper(
       case _ =>
         None
 
+  /** Resolves the supported `std::vector` method signatures.
+    *
+    * Program example:
+    *
+    * {{{
+    * cxx_vector.push_back(value)
+    * val n = cxx_vector.size()
+    * }}}
+    *
+    * These signatures enter the same method-call inference rule as source
+    * methods, including receiver mutability checks.
+    */
   private def foreignVectorMethod(
       owner: SourceType,
       item: SourceType,
@@ -2298,40 +2791,103 @@ final class SourceTyper(
       case _ =>
         None
 
+  /** Finds the nullary descriptor owner used by constructor-call inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * String()
+    * }}}
+    */
   private def descriptorOwner(name: String): Option[SourceType] =
     standardGenerics.get(name).filter(_.arity == 0).flatMap { _ =>
       SourceType.scalar(name)
     }
 
+  /** Removes references and aliases before descriptor method lookup.
+    *
+    * Program example:
+    *
+    * {{{
+    * (&String).len()  // lookup is performed on String
+    * }}}
+    */
   private def normalizeDescriptorOwner(ownerType: SourceType): SourceType =
     SourceType.dealias(ownerType) match
       case SourceType.Ref(target, _) => SourceType.dealias(target)
       case other                     => other
 
+  /** Extracts the descriptor family name from a normalized owner type.
+    *
+    * Program example:
+    *
+    * {{{
+    * Vec[i32].len()  // descriptor name Vec
+    * }}}
+    */
   private def descriptorName(ownerType: SourceType): Option[String] =
     normalizeDescriptorOwner(ownerType) match
       case SourceType.Standard(name, _) => Some(name)
       case SourceType.Builtin(name)     => Some(name)
       case _                            => None
 
+  /** Extracts descriptor arity for generic-method inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * Vec[i32] => 1
+    * String   => 0
+    * }}}
+    */
   private def descriptorArity(ownerType: SourceType): Int =
     normalizeDescriptorOwner(ownerType) match
       case SourceType.Standard(_, args) => args.length
       case SourceType.Builtin(_)        => 0
       case _                            => -1
 
+  /** Resolves a source class constructor signature by class name.
+    *
+    * Program example:
+    *
+    * {{{
+    * Point(1, 2)
+    * }}}
+    */
   private def classCtor(
       name: String,
       span: SourceSpan,
   ): Option[CallableSignature] =
     classes.get(name).map(_.ctorSig)
 
+  /** Finds class metadata for field, method, and constructor inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * point.x
+    * point.translate(1, 2)
+    * }}}
+    */
   private def classInfoFor(ty: SourceType): Option[ClassInfo] =
     SourceType.dealias(ty) match
       case SourceType.User(name)                    => classes.get(name)
       case SourceType.Ref(SourceType.User(name), _) => classes.get(name)
       case _                                        => None
 
+  /** Resolves a type alias target and detects recursive aliases.
+    *
+    * Program example:
+    *
+    * {{{
+    * type Count = i32
+    * val total: Count = 0
+    * }}}
+    *
+    * Alias resolution preserves the alias wrapper for diagnostics elsewhere,
+    * while this helper computes the target used by equality and assignment
+    * checks.
+    */
   private def resolveAlias(name: String): SourceType =
     resolveAlias(name, Set.empty)
 
@@ -2350,12 +2906,40 @@ final class SourceTyper(
         SourceType.Error
     aliasTypes.getOrElseUpdate(name, resolved)
 
+  /** Resolves source type syntax into `SourceType`.
+    *
+    * Program example:
+    *
+    * {{{
+    * val bytes: Vec[u8] = Vec[u8]()
+    * def update(value: &mut String): Unit = {}
+    * type Names = Map[String, i32]
+    * }}}
+    *
+    * This is the type-level counterpart of expression inference: it resolves
+    * builtins, `Self`, user classes, aliases, standard generics, references,
+    * and imported foreign symbols, then validates arity and descriptor
+    * constraints.
+    */
   private def resolveType(
       node: UntypedType,
       owner: Option[String],
   ): SourceType =
     resolveType(node, owner, Set.empty)
 
+  /** Worker for `resolveType` that tracks alias recursion and in-scope generic
+    * type parameters.
+    *
+    * Program example:
+    *
+    * {{{
+    * type Pair[T] = Vec[T]
+    * class Box { type Item = i32 }
+    * }}}
+    *
+    * `seenAliases` prevents infinite expansion, while `tyParams` lets alias
+    * bodies resolve generic parameters before falling back to named types.
+    */
   private def resolveType(
       node: UntypedType,
       owner: Option[String],
@@ -2459,6 +3043,18 @@ final class SourceTyper(
           mut,
         )
 
+  /** Substitutes generic alias parameters after type-argument checking.
+    *
+    * Program example:
+    *
+    * {{{
+    * type Boxed[T] = Option[T]
+    * val value: Boxed[i32] = Option[i32]::Some(1)
+    * }}}
+    *
+    * The alias body may contain references, functions, standard generics, and
+    * foreign applied types; substitution preserves that structure.
+    */
   private def substituteTypeParams(
       ty: SourceType,
       values: Map[String, SourceType],
@@ -2485,6 +3081,18 @@ final class SourceTyper(
       case other =>
         other
 
+  /** Applies descriptor-specific constraints after standard type inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * Map[String, i32]
+    * Set[Id[User]]
+    * }}}
+    *
+    * The core checker accepts the type constructor shape first, then verifies
+    * the extra key-type premise required by Map and Set.
+    */
   private def validateStandardTypeApplication(
       name: String,
       args: List[SourceType],
@@ -2497,6 +3105,15 @@ final class SourceTyper(
         validateMapSetKey(args.head, "Set", span)
       case _ =>
 
+  /** Checks the Map/Set key-type rule.
+    *
+    * Program example:
+    *
+    * {{{
+    * Map[String, i32]  // accepted
+    * Map[Vec[i32], i32] // rejected
+    * }}}
+    */
   private def validateMapSetKey(
       keyType: SourceType,
       owner: String,
@@ -2509,6 +3126,16 @@ final class SourceTyper(
         span,
       )
 
+  /** Decides whether a type is a supported Map or Set key.
+    *
+    * Program example:
+    *
+    * {{{
+    * String
+    * u64
+    * Id[User]
+    * }}}
+    */
   private def isSupportedMapSetKey(ty: SourceType): Boolean =
     SourceType.dealias(ty) match
       case SourceType.String => true
@@ -2520,6 +3147,22 @@ final class SourceTyper(
       case SourceType.Standard("Id", _ :: Nil) => true
       case _                                   => false
 
+  /** Applies argument-passing compatibility after argument inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * def read(value: &String): Unit = {}
+    * def write(value: &mut String): Unit = {}
+    * var text = "hello"
+    * read(text)   // allowed
+    * write(text)  // allowed because `text` is mutation-capable
+    * }}}
+    *
+    * Non-reference parameters use assignment compatibility. Reference
+    * parameters additionally check that mutable references are supplied only by
+    * mutable references or mutation-capable l-values.
+    */
   private def canPass(actual: ExprInfo, expected: SourceType): Boolean =
     SourceType.dealias(expected) match
       case SourceType.Ref(target, mutable) =>
@@ -2537,6 +3180,18 @@ final class SourceTyper(
       case other =>
         SourceType.assignable(actual.expr.ty, other)
 
+  /** Emits an assignment-style mismatch when an inferred type cannot flow to an
+    * expected type.
+    *
+    * Program example:
+    *
+    * {{{
+    * val value: i32 = true
+    * }}}
+    *
+    * This helper centralizes declaration initialization, assignment, and return
+    * checks so all use `SourceType.assignable`.
+    */
   private def checkAssignable(
       actual: ExprInfo,
       expected: SourceType,
@@ -2550,6 +3205,20 @@ final class SourceTyper(
         span,
       )
 
+  /** Checks receiver mutability for method calls.
+    *
+    * Program example:
+    *
+    * {{{
+    * class Buffer { def push(&mut self, value: u8): Unit = {} }
+    * val frozen = Buffer()
+    * frozen.push(1) // rejected
+    * }}}
+    *
+    * Method lookup infers the receiver expression first; this check verifies
+    * that a mutable receiver signature only accepts a mutation-capable
+    * receiver.
+    */
   private def checkRecvMutation(
       recv: ExprInfo,
       sig: CallableSignature,
@@ -2564,6 +3233,18 @@ final class SourceTyper(
         )
     }
 
+  /** Checks a condition-like expression as `Bool`.
+    *
+    * Program example:
+    *
+    * {{{
+    * while index < limit { index += 1 }
+    * if ready { println("ready") }
+    * }}}
+    *
+    * The expression is already inferred; this helper reports the standard
+    * expected-bool diagnostic when the inferred type is not `Bool`.
+    */
   private def requireBool(value: ExprInfo, span: SourceSpan): Unit =
     if !SourceType.same(value.expr.ty, SourceType.Bool) then
       error(
@@ -2572,6 +3253,19 @@ final class SourceTyper(
         span,
       )
 
+  /** Reports a literal-pattern type mismatch.
+    *
+    * Program example:
+    *
+    * {{{
+    * value: String match {
+    *   case 1 => "bad"
+    * }
+    * }}}
+    *
+    * Literal patterns have fixed or expected numeric types, so this diagnostic
+    * keeps pattern checking tied to the scrutinee type.
+    */
   private def invalidPatternType(
       span: SourceSpan,
       expected: SourceType,
@@ -2583,6 +3277,18 @@ final class SourceTyper(
       span,
     )
 
+  /** Creates the scope symbol used by later name-expression inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * var count: i32 = 0
+    * count
+    * }}}
+    *
+    * The `var`/`val` kind determines whether assignment inference can later use
+    * the name as a mutable binding.
+    */
   private def valueSymbol(
       name: String,
       ty: SourceType,
@@ -2597,6 +3303,19 @@ final class SourceTyper(
       span,
     )
 
+  /** Computes whether a value of a type can be used as a mutable l-value or
+    * mutable receiver.
+    *
+    * Program example:
+    *
+    * {{{
+    * var value: i32 = 1
+    * val ref: &mut i32 = &value
+    * }}}
+    *
+    * Mutable references carry their own capability; foreign namespaces/symbols,
+    * `Never`, and `Error` are never mutable values.
+    */
   private def mutationCapability(ty: SourceType): Boolean =
     SourceType.dealias(ty) match
       case SourceType.Ref(_, mutable) => mutable
@@ -2605,6 +3324,16 @@ final class SourceTyper(
       case SourceType.Never | SourceType.Error => false
       case _                                   => true
 
+  /** Checks an ASCII literal and returns its integer code point.
+    *
+    * Program example:
+    *
+    * {{{
+    * val open: u8 = a"("
+    * }}}
+    *
+    * ASCII literals type as `u8` and must contain exactly one ASCII code point.
+    */
   private def asciiLiteralValue(value: String, span: SourceSpan): BigInt =
     singleCodePoint(value, "ascii", span) match
       case Some(codePoint) if codePoint <= 0x7f =>
@@ -2619,9 +3348,29 @@ final class SourceTyper(
       case None =>
         BigInt(0)
 
+  /** Checks a rune literal and returns its Unicode scalar value.
+    *
+    * Program example:
+    *
+    * {{{
+    * val letter: u32 = c"A"
+    * }}}
+    *
+    * Rune literals type as `u32` and must contain exactly one valid Unicode
+    * scalar value.
+    */
   private def runeLiteralValue(value: String, span: SourceSpan): BigInt =
     singleCodePoint(value, "rune", span).fold(BigInt(0))(BigInt(_))
 
+  /** Extracts the single code point required by rune and ASCII literals.
+    *
+    * Program example:
+    *
+    * {{{
+    * c"A"  // one code point
+    * a"A"  // one ASCII code point
+    * }}}
+    */
   private def singleCodePoint(
       value: String,
       name: String,

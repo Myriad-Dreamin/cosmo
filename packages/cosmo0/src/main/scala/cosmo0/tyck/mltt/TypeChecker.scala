@@ -337,6 +337,19 @@ object MlttTypeChecker:
   def metaStore(): MlttMetaStore =
     MlttMetaStore()
 
+  /** Infers the type of an MLTT core term.
+    *
+    * Program example:
+    *
+    * {{{
+    * A : Type0
+    * y : A
+    * (fun x: A => x)(y)  // infers A
+    * }}}
+    *
+    * This entry point is synthesis-only: terms such as pairs and `Refl` that
+    * need an expected type report unsupported inference diagnostics.
+    */
   def infer(
       store: MlttTermStore,
       context: MlttContext,
@@ -353,6 +366,20 @@ object MlttTypeChecker:
       WhnfConversionStrategy,
     )
 
+  /** Checks an MLTT core term against an expected type.
+    *
+    * Program example:
+    *
+    * {{{
+    * fun x: A => x <= (x: A) -> A
+    * (x, y) <= Sigma(first: A). A
+    * Refl(x) <= Eq(A, x, x)
+    * }}}
+    *
+    * Checking handles introduction forms directly, then falls back to inference
+    * plus conversion when the term is not an introduction form for the expected
+    * type.
+    */
   def check(
       store: MlttTermStore,
       context: MlttContext,
@@ -374,6 +401,20 @@ object MlttTypeChecker:
       WhnfConversionStrategy,
     )
 
+  /** Checks definitional equality under the selected normalization strategy.
+    *
+    * Program example:
+    *
+    * {{{
+    * (fun x: A => x)(y) == y
+    * let z = y; z == y
+    * fst((x, y)) == x
+    * }}}
+    *
+    * The current strategy is WHNF conversion. It reduces beta, let, transparent
+    * pure definitions, and Sigma projections, then compares normalized heads
+    * structurally.
+    */
   def convert(
       store: MlttTermStore,
       context: MlttContext,
@@ -403,6 +444,18 @@ object MlttTypeChecker:
       )
     MlttConversionResult(ok, strategy, diagnostics.toList)
 
+  /** Produces the diagnostic for constraints outside the MLTT profile.
+    *
+    * Program example:
+    *
+    * {{{
+    * ?f(x) = y
+    * }}}
+    *
+    * The profile only accepts the first-order pattern constraints represented
+    * by explicit metas in this file. Arbitrary higher-order unification is
+    * reported as a rejected rule rather than approximated silently.
+    */
   def higherOrderUnificationDiagnostic(context: MlttContext): MlttDiagnostic =
     diagnostic(
       HigherOrderUnificationCode,
@@ -412,6 +465,16 @@ object MlttTypeChecker:
       "higher-order constraint",
     )
 
+  /** Installs the Nat fixture used by MLTT inference and conversion examples.
+    *
+    * Program example:
+    *
+    * {{{
+    * Nat : Type0
+    * Z : Nat
+    * S(pred: Nat) : Nat
+    * }}}
+    */
   def addNatFixture(store: MlttTermStore, env: MlttDeclarationEnv): Unit =
     val type0 = store.allocUniverse(0)
     val nat = store.allocInductive("Nat")
@@ -422,6 +485,16 @@ object MlttTypeChecker:
       MlttDefinitionDecl("Nat", type0, nat, transparent = true, pure = true),
     )
 
+  /** Installs the indexed Vec fixture used by constructor checking examples.
+    *
+    * Program example:
+    *
+    * {{{
+    * Vec(A: Type0, n: Nat) : Type0
+    * Nil : Vec(A, Z)
+    * Cons(k: Nat, head: A, tail: Vec(A, k)) : Vec(A, S(k))
+    * }}}
+    */
   def addVecFixture(store: MlttTermStore, env: MlttDeclarationEnv): Unit =
     val type0 = store.allocUniverse(0)
     val nat = store.allocInductive("Nat")
@@ -462,6 +535,19 @@ object MlttTypeChecker:
       ),
     )
 
+  /** Renders core MLTT terms in the same notation used by diagnostics.
+    *
+    * Program example:
+    *
+    * {{{
+    * (x: A) -> A
+    * Vec(A, S(k))
+    * Eq(A, x, x)
+    * }}}
+    *
+    * Infer/check rules store terms by id; display converts those ids back into
+    * stable program text for expected/actual diagnostics and profile summaries.
+    */
   def display(store: MlttTermStore, id: Int): String =
     store.termValue(id) match
       case MlttTerm.Var(name)       => name
@@ -523,6 +609,19 @@ object MlttTypeChecker:
       actual,
     )
 
+  /** Implements MLTT synthesis rules for every core term constructor.
+    *
+    * Program example:
+    *
+    * {{{
+    * Type0          => Type1
+    * (x: A) -> B    => Type(max(level(A), level(B)))
+    * f(a)           => B[a/x] when f : (x: A) -> B
+    * }}}
+    *
+    * The function returns a term id for the inferred type and appends
+    * diagnostics instead of throwing when a rule cannot synthesize.
+    */
   private def inferTerm(
       store: MlttTermStore,
       context: MlttContext,
@@ -605,6 +704,14 @@ object MlttTypeChecker:
       case MlttTerm.Error =>
         store.allocError()
 
+  /** Infers a variable from the local context.
+    *
+    * Program example:
+    *
+    * {{{
+    * A : Type0, x : A |- x => A
+    * }}}
+    */
   private def inferVar(
       store: MlttTermStore,
       context: MlttContext,
@@ -623,6 +730,20 @@ object MlttTypeChecker:
         )
         store.allocError()
 
+  /** Infers the universe level of Pi and Sigma type formers.
+    *
+    * Program example:
+    *
+    * {{{
+    * A : Type0
+    * B : Type0
+    * (x: A) -> B : Type0
+    * Sigma(x: A). B : Type0
+    * }}}
+    *
+    * Both the domain and body must themselves be classified by universes. The
+    * resulting universe is the maximum body/domain level.
+    */
   private def inferPiLike(
       store: MlttTermStore,
       context: MlttContext,
@@ -646,6 +767,17 @@ object MlttTypeChecker:
         universeMismatch(store, context, bodyType, diagnostics)
         store.allocError()
 
+  /** Infers a Pi type for an annotated lambda.
+    *
+    * Program example:
+    *
+    * {{{
+    * fun x: A => x  =>  (x: A) -> A
+    * }}}
+    *
+    * The annotation must be universe-classified, then the body is inferred in a
+    * context extended with the lambda parameter.
+    */
   private def inferLambda(
       store: MlttTermStore,
       context: MlttContext,
@@ -661,6 +793,19 @@ object MlttTypeChecker:
       inferTerm(store, context.extendLocal(name, annotation), body, diagnostics)
     store.allocPi(name, annotation, bodyType)
 
+  /** Infers application by eliminating a Pi type.
+    *
+    * Program example:
+    *
+    * {{{
+    * f : (x: A) -> B
+    * a : A
+    * f(a) => B[a/x]
+    * }}}
+    *
+    * The callee type is reduced to WHNF before requiring a Pi. The argument is
+    * checked against the domain, then substituted into the codomain.
+    */
   private def inferApply(
       store: MlttTermStore,
       context: MlttContext,
@@ -687,6 +832,18 @@ object MlttTypeChecker:
         )
         store.allocError()
 
+  /** Infers Sigma projections.
+    *
+    * Program example:
+    *
+    * {{{
+    * p : Sigma(first: A). B(first)
+    * fst(p) => A
+    * snd(p) => B(fst(p))
+    * }}}
+    *
+    * The pair type is reduced to WHNF before requiring a Sigma type.
+    */
   private def inferProjection(
       store: MlttTermStore,
       context: MlttContext,
@@ -717,6 +874,19 @@ object MlttTypeChecker:
         )
         store.allocError()
 
+  /** Synthesizes constructor types where the profile supports unambiguous
+    * inference.
+    *
+    * Program example:
+    *
+    * {{{
+    * Z => Nat
+    * S(Z) => Nat
+    * }}}
+    *
+    * Indexed constructors such as Vec generally require an expected family and
+    * are handled by checking instead of synthesis.
+    */
   private def inferConstructor(
       store: MlttTermStore,
       context: MlttContext,
@@ -739,6 +909,19 @@ object MlttTypeChecker:
     )
     store.allocError()
 
+  /** Infers the universe of an equality type.
+    *
+    * Program example:
+    *
+    * {{{
+    * A : Type0
+    * x : A
+    * Eq(A, x, x) => Type0
+    * }}}
+    *
+    * The value type must be universe-classified, and both sides are checked
+    * against that value type.
+    */
   private def inferEq(
       store: MlttTermStore,
       context: MlttContext,
@@ -754,6 +937,20 @@ object MlttTypeChecker:
     checkTerm(store, context, right, valueType, diagnostics)
     store.allocUniverse(0)
 
+  /** Implements MLTT checking rules for introduction forms.
+    *
+    * Program example:
+    *
+    * {{{
+    * fun x: A => body <= (x: A) -> B
+    * (x, y) <= Sigma(first: A). B
+    * Refl(x) <= Eq(A, x, x)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    *
+    * If the term is not a recognized introduction for the expected WHNF type,
+    * the checker infers the term and converts inferred and expected types.
+    */
   private def checkTerm(
       store: MlttTermStore,
       context: MlttContext,
@@ -813,6 +1010,17 @@ object MlttTypeChecker:
       )
     expected
 
+  /** Checks lambda introduction against an expected Pi type.
+    *
+    * Program example:
+    *
+    * {{{
+    * fun y: A => y <= (x: A) -> A
+    * }}}
+    *
+    * The expected codomain is substituted with the source lambda binder before
+    * checking the body.
+    */
   private def checkLambda(
       store: MlttTermStore,
       context: MlttContext,
@@ -836,6 +1044,17 @@ object MlttTypeChecker:
       case MlttTerm.Error => true
       case _              => false
 
+  /** Checks pair introduction against an expected Sigma type.
+    *
+    * Program example:
+    *
+    * {{{
+    * (x, y) <= Sigma(first: A). B(first)
+    * }}}
+    *
+    * The first component checks against the Sigma first type. The second checks
+    * against the second type after substituting the first component.
+    */
   private def checkPair(
       store: MlttTermStore,
       context: MlttContext,
@@ -858,6 +1077,17 @@ object MlttTypeChecker:
       case MlttTerm.Error => true
       case _              => false
 
+  /** Checks reflexivity introduction against an equality type.
+    *
+    * Program example:
+    *
+    * {{{
+    * Refl(x) <= Eq(A, x, x)
+    * }}}
+    *
+    * The witness checks against the equality value type, then must convert to
+    * both sides of the equality.
+    */
   private def checkRefl(
       store: MlttTermStore,
       context: MlttContext,
@@ -876,6 +1106,19 @@ object MlttTypeChecker:
       case MlttTerm.Error => true
       case _              => false
 
+  /** Checks constructors against an expected inductive family.
+    *
+    * Program example:
+    *
+    * {{{
+    * Z <= Nat
+    * Nil <= Vec(A, Z)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    *
+    * This dispatcher keeps family-specific indexed constructor rules localized
+    * to Nat and Vec helpers.
+    */
   private def checkConstructor(
       store: MlttTermStore,
       context: MlttContext,
@@ -900,6 +1143,17 @@ object MlttTypeChecker:
       case MlttTerm.Error => true
       case _              => false
 
+  /** Checks Nat constructors.
+    *
+    * Program example:
+    *
+    * {{{
+    * Z <= Nat
+    * S(Z) <= Nat
+    * }}}
+    *
+    * `S` recursively checks its predecessor against the expected Nat type.
+    */
   private def checkNatConstructor(
       store: MlttTermStore,
       context: MlttContext,
@@ -914,6 +1168,18 @@ object MlttTypeChecker:
       true
     else false
 
+  /** Checks Vec constructors against the expected element and length indices.
+    *
+    * Program example:
+    *
+    * {{{
+    * Nil <= Vec(A, Z)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    *
+    * `Nil` is valid only at zero length. `Cons` is valid only when the expected
+    * length normalizes to a successor.
+    */
   private def checkVecConstructor(
       store: MlttTermStore,
       context: MlttContext,
@@ -937,6 +1203,20 @@ object MlttTypeChecker:
       )
     false
 
+  /** Checks the indexed payload of `Cons`.
+    *
+    * Program example:
+    *
+    * {{{
+    * k : Nat
+    * head : A
+    * tail : Vec(A, k)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    *
+    * The explicit length argument must convert to the predecessor exposed by
+    * the expected `S(k)` index.
+    */
   private def checkVecConsConstructor(
       store: MlttTermStore,
       context: MlttContext,
@@ -958,6 +1238,18 @@ object MlttTypeChecker:
         lengthOk.isOk
       case _ => false
 
+  /** Recognizes a constructor literal with the expected arity.
+    *
+    * Program example:
+    *
+    * {{{
+    * S(k) // constructor "S" with arity 1
+    * Nil  // constructor "Nil" with arity 0
+    * }}}
+    *
+    * Vec checking uses this as a small premise before applying the
+    * constructor-specific indexed introduction rule.
+    */
   private def isConstructor(
       store: MlttTermStore,
       term: Int,
@@ -969,6 +1261,19 @@ object MlttTypeChecker:
         ctorName == name && args.length == arity
       case _ => false
 
+  /** Recursively checks definitional equality after WHNF reduction.
+    *
+    * Program example:
+    *
+    * {{{
+    * (fun x: A => x)(y) == y
+    * Vec(A, S(k)) == Vec(A, S(k))
+    * Eq(A, x, x) == Eq(A, x, x)
+    * }}}
+    *
+    * The rule first tries display-stable exact equality, then WHNF equality,
+    * then recursively compares compatible term constructors.
+    */
   private def convertTerms(
       store: MlttTermStore,
       context: MlttContext,
@@ -1040,6 +1345,16 @@ object MlttTypeChecker:
       case (MlttTerm.Error, _) | (_, MlttTerm.Error) => true
       case _                                         => false
 
+  /** Converts corresponding elements in parameter, index, or spine lists.
+    *
+    * Program example:
+    *
+    * {{{
+    * Vec(A, S(k)) == Vec(A, S(k))
+    * }}}
+    *
+    * Lists must have equal length and every pair of terms must convert.
+    */
   private def convertTermLists(
       store: MlttTermStore,
       context: MlttContext,
@@ -1052,6 +1367,19 @@ object MlttTypeChecker:
         convertTerms(store, context, leftTerm, rightTerm, diagnostics)
       }
 
+  /** Reduces a term to weak-head normal form for conversion.
+    *
+    * Program example:
+    *
+    * {{{
+    * (fun x: A => x)(y) --> y
+    * let z = y; z       --> y
+    * fst((x, y))        --> x
+    * }}}
+    *
+    * WHNF only reduces enough to expose the head constructor needed by
+    * conversion and elimination rules.
+    */
   private def whnf(
       store: MlttTermStore,
       context: MlttContext,
@@ -1079,6 +1407,18 @@ object MlttTypeChecker:
         whnfSnd(store, context, term, pair, diagnostics, fuel)
       case _ => term
 
+  /** Reduces transparent pure definitions during conversion.
+    *
+    * Program example:
+    *
+    * {{{
+    * add_z_n = n
+    * add_z_n == n
+    * }}}
+    *
+    * Opaque or effectful definitions are not reduced and produce a conversion
+    * diagnostic.
+    */
   private def whnfVar(
       store: MlttTermStore,
       context: MlttContext,
@@ -1103,6 +1443,14 @@ object MlttTypeChecker:
           term
       case None => term
 
+  /** Performs beta reduction when a WHNF callee is a lambda.
+    *
+    * Program example:
+    *
+    * {{{
+    * (fun x: A => x)(y) --> y
+    * }}}
+    */
   private def whnfApply(
       store: MlttTermStore,
       context: MlttContext,
@@ -1123,6 +1471,14 @@ object MlttTypeChecker:
         )
       case _ => term
 
+  /** Reduces first projection from a concrete pair.
+    *
+    * Program example:
+    *
+    * {{{
+    * fst((x, y)) --> x
+    * }}}
+    */
   private def whnfFst(
       store: MlttTermStore,
       context: MlttContext,
@@ -1136,6 +1492,14 @@ object MlttTypeChecker:
         whnf(store, context, first, diagnostics, fuel - 1)
       case _ => term
 
+  /** Reduces second projection from a concrete pair.
+    *
+    * Program example:
+    *
+    * {{{
+    * snd((x, y)) --> y
+    * }}}
+    */
   private def whnfSnd(
       store: MlttTermStore,
       context: MlttContext,
@@ -1149,6 +1513,18 @@ object MlttTypeChecker:
         whnf(store, context, second, diagnostics, fuel - 1)
       case _ => term
 
+  /** Performs capture-oblivious substitution over the stored core term tree.
+    *
+    * Program example:
+    *
+    * {{{
+    * substitute(x, x := y) = y
+    * substitute((z: A) -> x, x := y) = (z: A) -> y
+    * }}}
+    *
+    * Current fixtures avoid binder capture cases. The helper preserves binders
+    * that shadow the substituted name and rebuilds all other term forms.
+    */
   private def substitute(
       store: MlttTermStore,
       term: Int,
@@ -1227,20 +1603,58 @@ object MlttTypeChecker:
       case MlttTerm.Error =>
         store.allocError()
 
+  /** Compares stored terms by stable syntax before recursive conversion.
+    *
+    * Program example:
+    *
+    * {{{
+    * Vec(A, S(k)) == Vec(A, S(k))
+    * }}}
+    *
+    * This is the cheap equality premise used before WHNF reduction and
+    * structural conversion recurse into compatible constructors.
+    */
   private def sameTerm(store: MlttTermStore, left: Int, right: Int): Boolean =
     display(store, left) == display(store, right)
 
+  /** Reads a universe level from a term.
+    *
+    * Program example:
+    *
+    * {{{
+    * Type0 => Some(0)
+    * A     => None
+    * }}}
+    */
   private def universeLevelOfTerm(store: MlttTermStore, id: Int): Option[Int] =
     store.termValue(id) match
       case MlttTerm.Universe(level) => Some(level)
       case _                        => None
 
+  /** Converts an inferred classifier `Type(n + 1)` into the classified type's
+    * universe level `n`.
+    *
+    * Program example:
+    *
+    * {{{
+    * infer(Type0) = Type1
+    * typeUniverseLevel(Type1) = 0
+    * }}}
+    */
   private def typeUniverseLevel(
       store: MlttTermStore,
       inferredType: Int,
   ): Option[Int] =
     universeLevelOfTerm(store, inferredType).map(level => (level - 1).max(0))
 
+  /** Reports that a type former operand did not infer to a universe.
+    *
+    * Program example:
+    *
+    * {{{
+    * (x: not_a_type) -> x
+    * }}}
+    */
   private def universeMismatch(
       store: MlttTermStore,
       context: MlttContext,
@@ -1255,6 +1669,17 @@ object MlttTypeChecker:
       display(store, actual),
     )
 
+  /** Reports public metavariables that remain unsolved after checking.
+    *
+    * Program example:
+    *
+    * {{{
+    * ?m0 <= A
+    * }}}
+    *
+    * The current checker does not perform general unification, so public metas
+    * must be solved exactly by the harness before check completion.
+    */
   private def reportUnsolvedMetas(
       context: MlttContext,
       metas: MlttMetaStore,
