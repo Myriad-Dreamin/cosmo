@@ -13,7 +13,7 @@ bindings shared by elaboration, type checking, lowering, and the C++ backend.
 
 Downstream flow:
 
-- `UntypedModule` is consumed by `tyck/Typer.scala`.
+- `UntypedModule` is consumed by `tyck/mltt/Typer.scala`.
 - `TypedModule` is consumed by `lir/Lowerer.scala`.
 - `SourceType` and extern ABI data are shared by `tyck/`, `lir/`, and
   `backend/`.

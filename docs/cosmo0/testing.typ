@@ -72,7 +72,7 @@ The shared unsupported-feature diagnostic codes are:
 - `cosmo.type.unsupported-cpp-import`
 - `cosmo.type.implementation-limit`
 
-Profile selection is currently a development and test-harness feature. `Cosmo0.checkWithProfile` and package `checkerProfile` metadata can select `cosmo0.subset`; experimental profiles such as `mltt.core` stay isolated for ordinary source/package checking and return unsupported-feature diagnostics until a surface elaborator can produce their core artifacts. The MLTT core checker itself is tested through `packages/cosmoc/src/types/mltt/` fixture programs and the Scala mirror at `packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala`.
+Profile selection is currently a development and test-harness feature. `Cosmo0.checkWithProfile` and package `checkerProfile` metadata can select `cosmo0.subset`, while `mltt.core` and `mltt.dependent-patterns` route to `MlttTypeChecker` for source assertion fixtures. Ordinary Cosmo source still requires the default source checker until a surface elaborator can produce MLTT core artifacts. The MLTT core checker itself is tested through `packages/cosmoc/src/types/mltt/` fixture programs and the Scala mirror at `packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala`.
 
 == Determinism Tests
 

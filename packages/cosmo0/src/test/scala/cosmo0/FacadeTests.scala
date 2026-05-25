@@ -495,8 +495,8 @@ class FacadeTests extends munit.FunSuite:
       )
     }
 
-  test("cosmo0 typed-expression typer does not call the full Cosmo typer"):
-    assert(classOf[SourceTyper].getName.contains("cosmo0.SourceTyper"))
+  test("cosmo0 typed-expression typer is the MLTT source typer"):
+    assert(classOf[MlttTyper].getName.contains("cosmo0.MlttTyper"))
 
   test("elaboration preserves spans for accepted nodes and diagnostics"):
     val accepted = Cosmo0().elaborate("\nval answer = 42")

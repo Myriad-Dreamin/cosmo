@@ -11,13 +11,13 @@ package cosmo0
   * {{{
   * // No package metadata:
   * //   checkerProfile = None
-  * //   selected profile = cosmo0.subset
-  * //   implementation = SourceTyper over UntypedModule
+  * //   selected profile = mltt.dependent-patterns
+  * //   implementation = MlttTyper over UntypedModule
   *
   * // Experimental package metadata:
   * //   "checkerProfile": "mltt.core"
   * //   selected profile = mltt.core
-  * //   implementation = MlttProfileChecker over profile assertion directives
+  * //   implementation = MlttTypeChecker.checkSources over MLTT directives
   *
   * // Direct test harness:
   * //   MlttTypeChecker.infer(store, context, term)
@@ -26,11 +26,12 @@ package cosmo0
   *
   * Routing rule:
   *
-  *   - `cosmo0.subset` source executes through `SourceTyper`.
-  *   - `mltt.core` and `mltt.dependent-patterns` execute through profile
-  *     checkers that read source assertion directives and call the experimental
-  *     MLTT or dependent-pattern implementation.
-  *   - Profiles without a concrete adapter remain unsupported checker results.
+  *   - Ordinary source executes through `MlttTyper`.
+  *   - `mltt.core` and `mltt.dependent-patterns` source directives execute
+  *     through `MlttTypeChecker`; the dependent-pattern profile invokes
+  *     `DependentPatterns` as an MLTT extension.
+  *   - Profiles without a concrete implementation remain unsupported checker
+  *     results.
   */
 final case class CheckerProfile(
     id: String,
@@ -73,7 +74,7 @@ final case class CheckerProfile(
   *
   * Feature inference is intentionally simple: callers ask whether a profile
   * supports or rejects a named feature. The profile does not infer source
-  * syntax by itself; concrete inference rules live in `SourceTyper`,
+  * syntax by itself; concrete inference rules live in `MlttTyper`,
   * `MlttTypeChecker`, and `DependentPatterns`.
   */
 object CheckerProfiles:
@@ -128,7 +129,7 @@ object CheckerProfiles:
   val Cosmo0Subset: CheckerProfile =
     CheckerProfile(
       Cosmo0SubsetId,
-      "packages/cosmo0/src/main/scala/cosmo0/tyck/Typer.scala",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/Typer.scala",
       "cosmo0-untyped-module",
       "typed-module",
       "cosmo0.type",
@@ -149,8 +150,8 @@ object CheckerProfiles:
   val MlttCore: CheckerProfile =
     CheckerProfile(
       MlttCoreId,
-      "packages/cosmoc/src/types/mltt",
-      "syntax-arenas+name-resolution+declaration-signatures",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala",
+      "mltt-core-term+source-assertion-directives",
       "mltt-core-term",
       "cosmo.type",
       Set(
@@ -182,7 +183,7 @@ object CheckerProfiles:
   val MlttDependentPatterns: CheckerProfile =
     CheckerProfile(
       MlttDependentPatternsId,
-      "packages/cosmoc/src/types/dependent_pattern.cos",
+      "packages/cosmo0/src/main/scala/cosmo0/tyck/mltt/TypeChecker.scala",
       "mltt-core-term+constructor-metadata+source-pattern-clauses",
       "mltt-case-tree",
       "cosmo.type",

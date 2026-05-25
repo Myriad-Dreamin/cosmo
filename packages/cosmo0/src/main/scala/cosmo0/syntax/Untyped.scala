@@ -35,7 +35,7 @@ package cosmo0
   * )
   * }}}
   *
-  * Inference contract with `SourceTyper`:
+  * Inference contract with `MlttTyper`:
   *
   *   - Value and local declaration types are explicit annotations when present,
   *     otherwise initializer types are inferred.
@@ -171,7 +171,7 @@ final case class UntypedValueDecl(
     with UntypedClassMember
 
 /** Type alias. Generic aliases store parameter names and an untyped target
-  * until `SourceTyper` substitutes actual type arguments.
+  * until `MlttTyper` substitutes actual type arguments.
   */
 final case class UntypedTypeAlias(
     name: String,

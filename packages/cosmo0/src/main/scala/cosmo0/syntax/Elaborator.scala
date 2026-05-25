@@ -39,7 +39,7 @@ import cosmo.syntax.*
   *   - Class bodies may contain fields, methods, aliases, and enum-style case
   *     variants. Case blocks are accepted as variant lists.
   *   - Expressions are lowered structurally into `UntypedExpr`; expression type
-  *     inference is intentionally deferred to `SourceTyper`.
+  *     inference is intentionally deferred to `MlttTyper`.
   *   - Type applications must use compile-time square-bracket syntax.
   *     Registered standard generic names and known C++ namespace aliases are
   *     accepted.
@@ -870,7 +870,7 @@ final class Elaborator(
   /** Lowers a generic type alias such as `type Boxed[T: Type] = Box[T]`.
     *
     * Type parameters are recorded as names only. Their use is resolved in
-    * `SourceTyper.resolveType`, where alias arity and substitution are checked.
+    * `MlttTyper.resolveType`, where alias arity and substitution are checked.
     */
   private def genericTypeAlias(node: GenericTyp): Option[UntypedTypeAlias] =
     genericTypeAliasNames += node.name.name

@@ -11,5 +11,5 @@ and trusted extern calls.
 uses it at the compile boundary, so hand-written LIR tests and lowered modules
 share the same safety checks.
 
-Upstream input comes from `syntax/Typed.scala` and `tyck/Typer.scala`.
+Upstream input comes from `syntax/Typed.scala` and `tyck/mltt/Typer.scala`.
 Downstream output goes to `backend/cpp/Backend.scala`.

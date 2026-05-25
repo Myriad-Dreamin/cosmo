@@ -2,7 +2,7 @@ package cosmo0
 
 /** Base node for the cosmo0 AST after source type checking.
   *
-  * Typed nodes are the handoff from `tyck/SourceTyper` to lowering. Every
+  * Typed nodes are the handoff from `tyck/mltt/Typer.scala` to lowering. Every
   * expression has a `SourceType`, declarations have resolved signatures, and
   * mutability information is attached to l-values that may be assigned through.
   *

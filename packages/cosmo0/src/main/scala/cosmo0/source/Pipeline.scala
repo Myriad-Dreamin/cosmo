@@ -190,21 +190,11 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       case Left(diagnostics) =>
         return Result.failure(Phase.Check, diagnostics)
       case Right(profile) =>
-        if profile.id == CheckerProfiles.MlttCore.id then
-          val diagnostics = stageProfileDiagnostics(pkg)
-          if diagnostics.nonEmpty then
-            return Result.failure(Phase.Check, diagnostics)
-          return checkProfilePackage(
-            pkg,
-            pkg.modules,
-            pkg.modules.map(module => moduleKey(module.modulePath)),
-            MlttProfileChecker.checkSources(
-              pkg.modules.map(_.source),
-              pkg.metadata.outputModuleName,
-            ),
+        if MlttTypeChecker.hasSourceAssertions(
+            pkg.modules.map(_.source),
+            profile,
           )
-
-        if profile.id == CheckerProfiles.MlttDependentPatterns.id then
+        then
           val diagnostics = stageProfileDiagnostics(pkg)
           if diagnostics.nonEmpty then
             return Result.failure(Phase.Check, diagnostics)
@@ -212,9 +202,10 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
             pkg,
             pkg.modules,
             pkg.modules.map(module => moduleKey(module.modulePath)),
-            DependentPatternProfileChecker.checkSources(
+            MlttTypeChecker.checkSources(
               pkg.modules.map(_.source),
               pkg.metadata.outputModuleName,
+              profile,
             ),
           )
 
@@ -267,7 +258,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
         case Right(profile) =>
           profile
 
-    if checkerProfile.id != CheckerProfiles.Cosmo0Subset.id then
+    if !MlttTypeChecker.supportsMlttTyperProfile(checkerProfile) then
       return Result.unsupported(
         Phase.Check,
         CheckerProfiles.unsupportedDiagnostic(
@@ -291,7 +282,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
         cppImports,
       )
 
-    SourceTyper(combinedModule, checkerProfile).check() match
+    MlttTyper(combinedModule, checkerProfile).check() match
       case typed if typed.isFailure =>
         Result.failure(Phase.Check, typed.diagnostics)
       case typed =>
@@ -355,7 +346,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
           case None =>
             Left(List(CheckerProfiles.unknownProfileDiagnostic(profileId)))
       case None =>
-        Right(CheckerProfiles.Cosmo0Subset)
+        Right(CheckerProfiles.MlttDependentPatterns)
 
   private def stageProfileDiagnostics(
       pkg: Cosmo0Package,

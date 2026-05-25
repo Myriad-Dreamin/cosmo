@@ -354,7 +354,7 @@ final case class MlttCheckResult(
   * Opaque or effectful definitions are intentionally not reduced.
   *
   * Pipeline note: direct tests can call this object, and `mltt.core` profile
-  * source fixtures reach it through `MlttProfileChecker` assertion directives.
+  * source fixtures reach it through `checkSource` and `checkSources`.
   */
 object MlttTypeChecker:
   val WhnfConversionStrategy = "mltt.whnf-conversion"
@@ -368,6 +368,21 @@ object MlttTypeChecker:
   val EffectfulConversionCode = "cosmo.type.mltt.effectful-conversion"
   val UnsupportedInferenceCode = "cosmo.type.mltt.unsupported-inference"
   val HigherOrderUnificationCode = "cosmo.type.mltt.higher-order-unification"
+  val NoSourceAssertionsCode = "cosmo.type.mltt.no-profile-assertions"
+  val UnknownSourceAssertionCode =
+    "cosmo.type.mltt.unknown-profile-assertion"
+  val SourceAssertionFailedCode =
+    "cosmo.type.mltt.profile-assertion-failed"
+  val UnsupportedSourcePatternCode =
+    "cosmo.type.dependent-pattern.unsupported-source-pattern"
+
+  private val SourceDirectivePrefix = "mltt:"
+
+  private final case class SourceDependentFamily(
+      name: String,
+      indices: List[Int],
+      expectedType: String,
+  )
 
   def termStore(): MlttTermStore =
     MlttTermStore()
@@ -380,6 +395,761 @@ object MlttTypeChecker:
 
   def metaStore(): MlttMetaStore =
     MlttMetaStore()
+
+  def supportsProfile(profile: CheckerProfile): Boolean =
+    profile.id == CheckerProfiles.MlttCore.id ||
+      profile.id == CheckerProfiles.MlttDependentPatterns.id
+
+  def supportsMlttTyperProfile(profile: CheckerProfile): Boolean =
+    profile.id == CheckerProfiles.Cosmo0Subset.id ||
+      profile.id == CheckerProfiles.MlttDependentPatterns.id
+
+  def hasSourceAssertions(
+      source: SourceFile,
+      profile: CheckerProfile,
+  ): Boolean =
+    hasSourceAssertions(List(source), profile)
+
+  def hasSourceAssertions(
+      sources: List[SourceFile],
+      profile: CheckerProfile,
+  ): Boolean =
+    val hasCoreAssertions = hasCoreSourceAssertions(sources)
+    val hasDependentAssertions = DependentPatterns.hasSourceAssertions(sources)
+    profile.id == CheckerProfiles.MlttCore.id && hasCoreAssertions ||
+    profile.id == CheckerProfiles.MlttDependentPatterns.id &&
+    (hasCoreAssertions || hasDependentAssertions)
+
+  def sourceTypesSame(left: SourceType, right: SourceType): Boolean =
+    if sourceTypeRecoveryCompatible(left, right) then return true
+
+    val store = termStore()
+    val leftTerm = sourceTypeTerm(store, left)
+    val rightTerm = sourceTypeTerm(store, right)
+    convert(store, context(), leftTerm, rightTerm).isOk
+
+  def sourceTypeAssignable(from: SourceType, to: SourceType): Boolean =
+    sourceTypesSame(from, to) ||
+      ((SourceType.dealias(from), SourceType.dealias(to)) match
+        case (
+              SourceType.Ref(fromTarget, true),
+              SourceType.Ref(toTarget, false),
+            ) =>
+          sourceTypesSame(fromTarget, toTarget)
+        case _ =>
+          false
+      )
+
+  private def sourceTypeRecoveryCompatible(
+      left: SourceType,
+      right: SourceType,
+  ): Boolean =
+    (SourceType.dealias(left), SourceType.dealias(right)) match
+      case (SourceType.Error, _) | (_, SourceType.Error) => true
+      case (SourceType.Never, _) | (_, SourceType.Never) => true
+      case _                                             => false
+
+  private def sourceTypeTerm(
+      store: MlttTermStore,
+      value: SourceType,
+  ): Int =
+    SourceType.dealias(value) match
+      case SourceType.Builtin(name) =>
+        store.allocInductive(s"builtin:$name")
+      case SourceType.User(name) =>
+        store.allocInductive(s"user:$name")
+      case SourceType.Alias(_, target) =>
+        sourceTypeTerm(store, target)
+      case SourceType.TypeParam(name) =>
+        store.allocInductive(s"type-param:$name")
+      case SourceType.ForeignNamespace(value) =>
+        store.allocInductive(
+          s"foreign-namespace:${value.alias}:${value.canonicalNamespace}:${value.headers.mkString("|")}",
+        )
+      case SourceType.ForeignSymbol(canonicalName) =>
+        store.allocInductive(s"foreign-symbol:$canonicalName")
+      case SourceType.ForeignApplied(canonicalName, args) =>
+        store.allocInductive(
+          s"foreign-applied:$canonicalName",
+          args.map(sourceTypeTerm(store, _)),
+        )
+      case SourceType.Ref(target, mutable) =>
+        val name = if mutable then "source-ref-mut" else "source-ref"
+        store.allocInductive(name, List(sourceTypeTerm(store, target)))
+      case SourceType.Standard(name, args) =>
+        store.allocInductive(
+          s"standard:$name",
+          args.map(sourceTypeTerm(store, _)),
+        )
+      case SourceType.Function(params, returnType) =>
+        store.allocInductive(
+          "source-function",
+          params.map(sourceTypeTerm(store, _)),
+          List(sourceTypeTerm(store, returnType)),
+        )
+      case SourceType.Never =>
+        store.allocInductive("source-never")
+      case SourceType.Error =>
+        store.allocError()
+
+  def validateDependentPatternMatch(
+      profile: CheckerProfile,
+      scrutineeType: SourceType,
+      arms: List[UntypedMatchArm],
+  ): List[Diagnostic] =
+    val store = DependentPatterns.termStore()
+    val envValue = DependentPatterns.env()
+    DependentPatterns.addNatFixture(store, envValue)
+    DependentPatterns.addVecFixture(store, envValue)
+
+    dependentSourceFamily(store, scrutineeType) match
+      case None =>
+        Nil
+      case Some(family) =>
+        if !DependentPatterns.profileSupportsElaboration(profile) then
+          val span = arms.headOption.map(_.span).getOrElse(emptySourceSpan)
+          val diagnosticValue =
+            DependentPatterns.unsupportedProfileDiagnostic(profile, span)
+          return dependentPatternDiagnostics(List(diagnosticValue))
+
+        val patterns = DependentPatterns.sourcePatternStore()
+        dependentSourceClauses(patterns, arms) match
+          case Left(diagnosticValue) =>
+            List(diagnosticValue)
+          case Right(clauses) =>
+            val tree =
+              DependentPatterns.elaborateClauses(
+                profile,
+                envValue,
+                store,
+                patterns,
+                family.name,
+                "scrutinee",
+                family.indices,
+                family.expectedType,
+                clauses,
+              )
+            dependentPatternDiagnostics(tree.diagnostics)
+
+  private def dependentSourceFamily(
+      store: DependentPatternTermStore,
+      scrutineeType: SourceType,
+  ): Option[SourceDependentFamily] =
+    SourceType.dealias(scrutineeType) match
+      case SourceType.Standard("Vec", element :: length :: Nil) =>
+        Some(
+          SourceDependentFamily(
+            "Vec",
+            List(
+              dependentTermFromSourceType(store, element),
+              dependentTermFromSourceType(store, length),
+            ),
+            element.display,
+          ),
+        )
+      case _ =>
+        None
+
+  private def dependentTermFromSourceType(
+      store: DependentPatternTermStore,
+      value: SourceType,
+  ): Int =
+    SourceType.dealias(value) match
+      case SourceType.Alias(_, target) =>
+        dependentTermFromSourceType(store, target)
+      case SourceType.Standard("S", value :: Nil) =>
+        store.allocConstructor(
+          "S",
+          List(dependentTermFromSourceType(store, value)),
+        )
+      case SourceType.Standard("Z", Nil) =>
+        store.allocConstructor("Z")
+      case SourceType.Standard(name, args) =>
+        store.allocFamily(name, args.map(dependentTermFromSourceType(store, _)))
+      case SourceType.TypeParam("Z") =>
+        store.allocConstructor("Z")
+      case SourceType.User("Z") =>
+        store.allocConstructor("Z")
+      case SourceType.Builtin("Z") =>
+        store.allocConstructor("Z")
+      case SourceType.TypeParam(name) =>
+        store.allocVar(name)
+      case SourceType.User(name) =>
+        store.allocVar(name)
+      case SourceType.Builtin(name) =>
+        store.allocVar(name)
+      case other =>
+        store.allocVar(other.display)
+
+  private def dependentSourceClause(
+      patterns: DependentSourcePatternStore,
+      arm: UntypedMatchArm,
+  ): Either[Diagnostic, DependentPatternClause] =
+    dependentSourcePattern(patterns, arm.pat) match
+      case Left(diagnosticValue) =>
+        Left(diagnosticValue)
+      case Right(patternId) =>
+        Right(
+          DependentPatternClause(
+            patternId,
+            dependentArmBodySummary(arm),
+            arm.span,
+          ),
+        )
+
+  private def dependentSourcePattern(
+      patterns: DependentSourcePatternStore,
+      pattern: UntypedPattern,
+  ): Either[Diagnostic, Int] =
+    pattern match
+      case UntypedWildcardPattern(span) =>
+        Right(patterns.allocWildcard(span))
+      case UntypedBindingPattern("impossible", span) =>
+        Right(patterns.allocImpossible(span))
+      case UntypedBindingPattern(name, span) =>
+        Right(patterns.allocVariable(name, span))
+      case UntypedVariantPattern(ctor, args, span) =>
+        dependentConstructorName(ctor) match
+          case None =>
+            Left(unsupportedSourcePatternDiagnostic(span))
+          case Some(name) =>
+            dependentSourcePatternArgs(patterns, args) match
+              case Left(diagnosticValue) =>
+                Left(diagnosticValue)
+              case Right(argIds) =>
+                Right(patterns.allocConstructor(name, argIds, span))
+      case other =>
+        Left(unsupportedSourcePatternDiagnostic(other.span))
+
+  private def dependentSourceClauses(
+      patterns: DependentSourcePatternStore,
+      arms: List[UntypedMatchArm],
+  ): Either[Diagnostic, List[DependentPatternClause]] =
+    val clauses = ListBuffer.empty[DependentPatternClause]
+    var remaining = arms
+    while remaining.nonEmpty do
+      dependentSourceClause(patterns, remaining.head) match
+        case Left(diagnosticValue) =>
+          return Left(diagnosticValue)
+        case Right(clause) =>
+          clauses += clause
+      remaining = remaining.tail
+    Right(clauses.toList)
+
+  private def dependentSourcePatternArgs(
+      patterns: DependentSourcePatternStore,
+      args: List[UntypedPattern],
+  ): Either[Diagnostic, List[Int]] =
+    val ids = ListBuffer.empty[Int]
+    var remaining = args
+    while remaining.nonEmpty do
+      dependentSourcePattern(patterns, remaining.head) match
+        case Left(diagnosticValue) =>
+          return Left(diagnosticValue)
+        case Right(id) =>
+          ids += id
+      remaining = remaining.tail
+    Right(ids.toList)
+
+  private def dependentConstructorName(ctor: UntypedExpr): Option[String] =
+    ctor match
+      case UntypedVariantConstructor(_, variant, _) =>
+        Some(variant)
+      case UntypedName(path, _) =>
+        path.parts.lastOption
+      case UntypedSelect(_, field, _) =>
+        Some(field)
+      case _ =>
+        None
+
+  private def dependentArmBodySummary(arm: UntypedMatchArm): String =
+    arm.body match
+      case Some(UntypedName(path, _)) => path.text
+      case Some(_)                    => "body"
+      case None                       => "Unit"
+
+  private def dependentPatternDiagnostics(
+      diagnostics: List[DependentPatternDiagnostic],
+  ): List[Diagnostic] =
+    diagnostics.map { diagnosticValue =>
+      sourceDiagnostic(
+        diagnosticValue.code,
+        s"${diagnosticValue.message}; ${diagnosticValue.summary}",
+        diagnosticValue.span,
+      )
+    }
+
+  private def unsupportedSourcePatternDiagnostic(span: SourceSpan): Diagnostic =
+    sourceDiagnostic(
+      UnsupportedSourcePatternCode,
+      "indexed dependent pattern matching only accepts constructor, binding, wildcard, and impossible patterns",
+      span,
+    )
+
+  private def emptySourceSpan: SourceSpan =
+    SourceFile("<mltt-source>", "").span(0, 0)
+
+  /** Checks a cosmo0 source file selected by an MLTT-backed checker profile.
+    *
+    * Source examples:
+    *
+    * {{{
+    * mltt: lambda-checks-pi
+    * mltt: application-infers-through-pi
+    * mltt: vec-constructors-check
+    * }}}
+    *
+    * Ordinary cosmo0 source reaches MLTT through `MlttTyper`, which delegates
+    * source type relations and dependent-pattern hooks to this object. This
+    * entry point is for profile fixture directives: each directive names a
+    * concrete MLTT obligation, constructs core terms, and checks them here. The
+    * `mltt.dependent-patterns` profile is handled as an MLTT extension and
+    * invokes `DependentPatterns` for case-tree elaboration obligations.
+    */
+  def checkSource(source: SourceFile): Result[TypedModule] =
+    checkSource(source, CheckerProfiles.MlttCore)
+
+  def checkSource(
+      source: SourceFile,
+      profile: CheckerProfile,
+  ): Result[TypedModule] =
+    checkSources(List(source), source.name, profile)
+
+  /** Checks package-level MLTT source fixtures.
+    *
+    * Each directive maps to a concrete MLTT core term or conversion problem, so
+    * package checking exercises the same bidirectional rules as direct calls to
+    * `infer`, `check`, and `convert`. The dependent-pattern profile extends
+    * this path by also running dependent-pattern assertion directives.
+    */
+  def checkSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    checkSources(sources, moduleName, CheckerProfiles.MlttCore)
+
+  def checkSources(
+      sources: List[SourceFile],
+      moduleName: String,
+      profile: CheckerProfile,
+  ): Result[TypedModule] =
+    if profile.id == CheckerProfiles.MlttDependentPatterns.id then
+      return checkDependentPatternSources(sources, moduleName)
+
+    if profile.id != CheckerProfiles.MlttCore.id then
+      return Result.unsupported(
+        Phase.Check,
+        CheckerProfiles.unsupportedDiagnostic(
+          profile,
+          CheckerProfiles.firstUnsupportedFeatureForUnavailableProfile(profile),
+          Some(wholeSourceSpan(sources, "<mltt-core>")),
+        ),
+      )
+
+    checkCoreSources(sources, moduleName)
+
+  private def checkCoreSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    val directives =
+      ProfileDirectiveParser.extract(sources, SourceDirectivePrefix)
+    if directives.isEmpty then
+      return Result.failure(
+        Phase.Check,
+        List(
+          sourceDiagnostic(
+            NoSourceAssertionsCode,
+            "mltt.core source did not declare any MLTT assertions",
+            wholeSourceSpan(sources),
+          ),
+        ),
+      )
+
+    val diagnostics = directives.flatMap(runSourceAssertion)
+    if diagnostics.nonEmpty then return Result.failure(Phase.Check, diagnostics)
+
+    Result.success(
+      Phase.Check,
+      syntheticModule(moduleName, directives, "mltt_core"),
+    )
+
+  private def checkDependentPatternSources(
+      sources: List[SourceFile],
+      moduleName: String,
+  ): Result[TypedModule] =
+    val hasCoreAssertions = hasCoreSourceAssertions(sources)
+    val hasDependentAssertions = DependentPatterns.hasSourceAssertions(sources)
+
+    if !hasCoreAssertions && !hasDependentAssertions then
+      return Result.failure(
+        Phase.Check,
+        List(
+          sourceDiagnostic(
+            NoSourceAssertionsCode,
+            "mltt.dependent-patterns source did not declare any MLTT or dependent-pattern assertions",
+            wholeSourceSpan(sources, "<mltt-dependent-patterns>"),
+          ),
+        ),
+      )
+
+    val modules = ListBuffer.empty[TypedModule]
+
+    if hasCoreAssertions then
+      checkCoreSources(sources, moduleName) match
+        case checked if checked.isSuccess =>
+          modules += checked.value.get
+        case checked if checked.isUnsupported =>
+          return Result(
+            Phase.Check,
+            PhaseStatus.Unsupported,
+            None,
+            checked.diagnostics,
+          )
+        case checked =>
+          return Result.failure(Phase.Check, checked.diagnostics)
+
+    if hasDependentAssertions then
+      DependentPatterns.checkSourceAssertions(sources, moduleName) match
+        case checked if checked.isSuccess =>
+          modules += checked.value.get
+        case checked if checked.isUnsupported =>
+          return Result(
+            Phase.Check,
+            PhaseStatus.Unsupported,
+            None,
+            checked.diagnostics,
+          )
+        case checked =>
+          return Result.failure(Phase.Check, checked.diagnostics)
+
+    Result.success(
+      Phase.Check,
+      combinedSyntheticModule(moduleName, modules.toList),
+    )
+
+  private def hasCoreSourceAssertions(sources: List[SourceFile]): Boolean =
+    ProfileDirectiveParser.extract(sources, SourceDirectivePrefix).nonEmpty
+
+  /** Dispatches a source directive to the corresponding MLTT rule.
+    *
+    * Profile source examples:
+    *
+    * {{{
+    * mltt: conversion-beta-let
+    * }}}
+    *
+    * The directive above checks definitional equality for beta and let
+    * reductions through `convert`.
+    */
+  private def runSourceAssertion(
+      directive: ProfileDirective,
+  ): List[Diagnostic] =
+    directive.name match
+      case "lambda-checks-pi" =>
+        lambdaChecksPiAssertion(directive.span)
+      case "application-infers-through-pi" =>
+        applicationInfersThroughPiAssertion(directive.span)
+      case "sigma-pair-checks" =>
+        sigmaPairChecksAssertion(directive.span)
+      case "equality-refl-checks" =>
+        equalityReflChecksAssertion(directive.span)
+      case "conversion-beta-let" =>
+        conversionBetaLetAssertion(directive.span)
+      case "vec-constructors-check" =>
+        vecConstructorsCheckAssertion(directive.span)
+      case other =>
+        List(
+          sourceDiagnostic(
+            UnknownSourceAssertionCode,
+            s"unknown mltt.core assertion $other",
+            directive.span,
+          ),
+        )
+
+  /** Checks the Pi introduction rule for annotated lambdas.
+    *
+    * Rules:
+    *
+    * {{{
+    * A : Type0
+    * fun x: A => x <= (x: A) -> A
+    * }}}
+    */
+  private def lambdaChecksPiAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val body = store.allocVar("x")
+    val lambda = store.allocLambda("x", a, body)
+    val expected = store.allocPi("x", a, a)
+    val contextValue = context().extendLocal("A", type0)
+    val checked = check(store, contextValue, lambda, expected)
+    val expectedSummary =
+      "mltt.core|mltt-core-term|accepted|mltt.whnf-conversion"
+
+    sourceDiagnostics(checked.diagnostics, span) :::
+      assertSourceCondition(
+        checked.isOk && checked.artifactSummary == expectedSummary,
+        "lambda did not check against the expected Pi type",
+        expectedSummary,
+        checked.artifactSummary,
+        span,
+      )
+
+  /** Checks the Pi elimination rule used by application inference.
+    *
+    * Rules:
+    *
+    * {{{
+    * A : Type0
+    * y : A
+    * (fun x: A => x)(y)  // infers A
+    * }}}
+    */
+  private def applicationInfersThroughPiAssertion(
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    var contextValue = context().extendLocal("A", type0)
+    contextValue = contextValue.extendLocal("y", a)
+
+    val body = store.allocVar("x")
+    val lambda = store.allocLambda("x", a, body)
+    val y = store.allocVar("y")
+    val apply = store.allocApply(lambda, y)
+    val inferred = infer(store, contextValue, apply)
+    val actual = display(store, inferred.valueType)
+
+    sourceDiagnostics(inferred.diagnostics, span) :::
+      assertSourceCondition(
+        inferred.isOk && actual == "A",
+        "application did not infer through Pi elimination",
+        "A",
+        actual,
+        span,
+      )
+
+  /** Checks the Sigma introduction rule for pairs.
+    *
+    * Rules:
+    *
+    * {{{
+    * x : A
+    * y : A
+    * (x, y) <= Sigma(first: A). A
+    * }}}
+    */
+  private def sigmaPairChecksAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val x = store.allocVar("x")
+    val y = store.allocVar("y")
+    var contextValue = context().extendLocal("A", type0)
+    contextValue = contextValue.extendLocal("x", a).extendLocal("y", a)
+
+    val pair = store.allocPair(x, y)
+    val sigma = store.allocSigma("first", a, a)
+    val checked = check(store, contextValue, pair, sigma)
+
+    sourceDiagnostics(checked.diagnostics, span) :::
+      assertSourceCondition(
+        checked.isOk,
+        "pair did not check against the expected Sigma type",
+        "accepted",
+        checked.status,
+        span,
+      )
+
+  /** Checks equality introduction for reflexivity.
+    *
+    * Rules:
+    *
+    * {{{
+    * x : A
+    * Refl(x) <= Eq(A, x, x)
+    * }}}
+    */
+  private def equalityReflChecksAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val x = store.allocVar("x")
+    val contextValue = context()
+      .extendLocal("A", type0)
+      .extendLocal("x", a)
+
+    val eq = store.allocEq(a, x, x)
+    val refl = store.allocRefl(x)
+    val checked = check(store, contextValue, refl, eq)
+
+    sourceDiagnostics(checked.diagnostics, span) :::
+      assertSourceCondition(
+        checked.isOk,
+        "Refl did not check against the expected equality type",
+        "accepted",
+        checked.status,
+        span,
+      )
+
+  /** Checks WHNF conversion for beta and let reduction.
+    *
+    * Rules:
+    *
+    * {{{
+    * (fun x: A => x)(y) == y
+    * let z = y; z == y
+    * }}}
+    */
+  private def conversionBetaLetAssertion(span: SourceSpan): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val a = store.allocVar("A")
+    val y = store.allocVar("y")
+    val contextValue = context()
+      .extendLocal("A", type0)
+      .extendLocal("y", a)
+
+    val lambda = store.allocLambda("x", a, store.allocVar("x"))
+    val beta = store.allocApply(lambda, y)
+    val letTerm = store.allocLet("z", y, store.allocVar("z"))
+    val betaResult = convert(store, contextValue, beta, y)
+    val letResult = convert(store, contextValue, letTerm, y)
+
+    sourceDiagnostics(betaResult.diagnostics, span) :::
+      sourceDiagnostics(letResult.diagnostics, span) :::
+      assertSourceCondition(
+        betaResult.isOk && letResult.isOk,
+        "WHNF conversion did not accept beta and let reductions",
+        "both conversions accepted",
+        s"beta=${betaResult.isOk}, let=${letResult.isOk}",
+        span,
+      )
+
+  /** Checks indexed constructor introduction for the `Vec` fixture.
+    *
+    * Rules:
+    *
+    * {{{
+    * Nil <= Vec(A, Z)
+    * Cons(k, head, tail) <= Vec(A, S(k))
+    * }}}
+    */
+  private def vecConstructorsCheckAssertion(
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    val store = termStore()
+    val type0 = store.allocUniverse(0)
+    val nat = store.allocInductive("Nat")
+    val a = store.allocVar("A")
+    val k = store.allocVar("k")
+    val z = store.allocConstructor("Z")
+    val sK = store.allocConstructor("S", List(k))
+    val vecAK = store.allocInductive("Vec", List(a), List(k))
+    val vecAZ = store.allocInductive("Vec", List(a), List(z))
+    val vecASK = store.allocInductive("Vec", List(a), List(sK))
+    val head = store.allocVar("head")
+    val tail = store.allocVar("tail")
+    val nil = store.allocConstructor("Nil")
+    val cons = store.allocConstructor("Cons", List(k, head, tail))
+    var contextValue = context().extendLocal("A", type0)
+    contextValue = contextValue
+      .extendLocal("k", nat)
+      .extendLocal("head", a)
+      .extendLocal("tail", vecAK)
+
+    val nilChecked = check(store, contextValue, nil, vecAZ)
+    val consChecked = check(store, contextValue, cons, vecASK)
+
+    sourceDiagnostics(nilChecked.diagnostics, span) :::
+      sourceDiagnostics(consChecked.diagnostics, span) :::
+      assertSourceCondition(
+        nilChecked.isOk && consChecked.isOk,
+        "Vec constructors did not check against indexed Vec families",
+        "Nil and Cons accepted",
+        s"Nil=${nilChecked.isOk}, Cons=${consChecked.isOk}",
+        span,
+      )
+
+  private def sourceDiagnostics(
+      diagnostics: List[MlttDiagnostic],
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    diagnostics.map { diagnosticValue =>
+      sourceDiagnostic(
+        diagnosticValue.code,
+        s"${diagnosticValue.message}; expected ${diagnosticValue.expected}, got ${diagnosticValue.actual}",
+        diagnosticValue.span.getOrElse(span),
+      )
+    }
+
+  private def assertSourceCondition(
+      condition: Boolean,
+      message: String,
+      expected: String,
+      actual: String,
+      span: SourceSpan,
+  ): List[Diagnostic] =
+    if condition then Nil
+    else
+      List(
+        sourceDiagnostic(
+          SourceAssertionFailedCode,
+          s"$message; expected $expected, got $actual",
+          span,
+        ),
+      )
+
+  private def syntheticModule(
+      moduleName: String,
+      directives: List[ProfileDirective],
+      prefix: String,
+  ): TypedModule =
+    val source = SourceFile(moduleName, "")
+    val span = source.span(0, 0)
+    val declarations = directives.map { directive =>
+      val name = s"${prefix}_${sanitizeName(directive.name)}"
+      TypedValueDecl(
+        UntypedValueKind.Val,
+        name,
+        SourceType.Bool,
+        Some(TypedBoolLiteral(true, SourceType.Bool, directive.span)),
+        directive.span,
+      )
+    }
+    TypedModule(source, declarations, span)
+
+  private def combinedSyntheticModule(
+      moduleName: String,
+      modules: List[TypedModule],
+  ): TypedModule =
+    val source = SourceFile(moduleName, "")
+    val span = source.span(0, 0)
+    TypedModule(source, modules.flatMap(_.decls), span)
+
+  private def sanitizeName(value: String): String =
+    value.map {
+      case char if char.isLetterOrDigit => char
+      case _                            => '_'
+    }
+
+  private def wholeSourceSpan(
+      sources: List[SourceFile],
+      emptyName: String = "<mltt-core>",
+  ): SourceSpan =
+    sources.headOption match
+      case Some(source) => source.span(0, source.text.length)
+      case None         => SourceFile(emptyName, "").span(0, 0)
+
+  private def sourceDiagnostic(
+      code: String,
+      message: String,
+      span: SourceSpan,
+  ): Diagnostic =
+    Diagnostic(Phase.Check, DiagnosticSeverity.Error, code, message, Some(span))
 
   /** Infers the type of an MLTT core term.
     *
