@@ -1405,8 +1405,7 @@ final class SourceTyper(
 
     val receiver = expr(select.receiver, scope, None, context)
     SourceType.dealias(receiver.expr.valueType) match
-      case owner
-          if foreignMethod(owner, select.field, select.span).nonEmpty =>
+      case owner if foreignMethod(owner, select.field, select.span).nonEmpty =>
         val signature = foreignMethod(owner, select.field, select.span).get
         checkReceiverMutation(receiver, signature, select.span)
         callWithSignature(
@@ -1954,9 +1953,7 @@ final class SourceTyper(
       if bodyTypes.isEmpty then SourceType.Unit
       else
         val first = bodyTypes.head
-        if bodyTypes.tail.forall(valueType =>
-            SourceType.same(first, valueType),
-          )
+        if bodyTypes.tail.forall(valueType => SourceType.same(first, valueType))
         then first
         else
           error(
@@ -2070,11 +2067,10 @@ final class SourceTyper(
   ): TypedPattern =
     val constructor =
       constructorExprForPattern(node.constructor, expectedType)
-    val signature = constructor.flatMap {
-      case (ownerType, variantName, expr) =>
-        constructorSignature(ownerType, variantName, expr.span).map(
-          signature => (signature, expr),
-        )
+    val signature = constructor.flatMap { case (ownerType, variantName, expr) =>
+      constructorSignature(ownerType, variantName, expr.span).map(signature =>
+        (signature, expr),
+      )
     }
     signature match
       case Some((callable, constructorExpr)) =>

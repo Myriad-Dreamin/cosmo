@@ -27,8 +27,7 @@ object Elaborator:
 
 final class Elaborator(
     parsed: ParsedModule,
-    standardGenericNames: Set[String] =
-      Elaborator.defaultStandardGenericNames,
+    standardGenericNames: Set[String] = Elaborator.defaultStandardGenericNames,
 ):
   def elaborate(): Result[UntypedModule] =
     val declarations = parsed.ast.stmts.flatMap(moduleDecl)
@@ -699,9 +698,8 @@ final class Elaborator(
         node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
           typeFromNode(ret, Some(span)).map(Some(_))
         }
-      val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) {
-        rhs =>
-          expr(rhs).map(Some(_))
+      val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) { rhs =>
+        expr(rhs).map(Some(_))
       }
       params.zip(returnType).zip(body).map { case ((ps, rt), b) =>
         UntypedFunction(
@@ -1175,8 +1173,8 @@ final class Elaborator(
           "decorators and staging annotations are outside the initial cosmo0 subset",
         )
       case Some(
-            _: Val | _: Var | _: Typ | _: Def | _: Class | _: Impl |
-            _: Import | _: Case,
+            _: Val | _: Var | _: Typ | _: Def | _: Class | _: Impl | _: Import |
+            _: Case,
           ) =>
         unsupported(
           node,

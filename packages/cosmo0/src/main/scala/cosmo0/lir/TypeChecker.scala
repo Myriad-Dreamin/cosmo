@@ -562,13 +562,12 @@ final class LirTypeChecker(
               s"${env.function.id} method $method uses signature ${signatureDisplay(signature)}, expected ${signatureDisplay(expected.signature)}",
             )
         }
-        signature.sourceSignature.flatMap(_.receiver).foreach {
-          receiverInfo =>
-            if receiverInfo.mutable && !mutableValue(receiver, env) then
-              error(
-                "cosmo0.lir.invalid-mutability",
-                s"${env.function.id} method $method requires a mutable receiver",
-              )
+        signature.sourceSignature.flatMap(_.receiver).foreach { receiverInfo =>
+          if receiverInfo.mutable && !mutableValue(receiver, env) then
+            error(
+              "cosmo0.lir.invalid-mutability",
+              s"${env.function.id} method $method requires a mutable receiver",
+            )
         }
         checkInvocationArgs(
           env.function.id,

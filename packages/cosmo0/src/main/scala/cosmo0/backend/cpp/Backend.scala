@@ -30,8 +30,7 @@ final class CppBackend(
     LirTypeChecker(module, descriptors).check() match
       case checked if checked.isSuccess =>
         val source = emitSource()
-        if diagnostics.nonEmpty then
-          Result.failure(Phase.Compile, diagnostics)
+        if diagnostics.nonEmpty then Result.failure(Phase.Compile, diagnostics)
         else
           SupportLibraryLinkPlan.fromBackendRequirements(
             backendRequirements,
@@ -690,9 +689,8 @@ final class CppBackend(
     val result = ListBuffer.empty[LirTypeDecl]
 
     while pending.nonEmpty do
-      val ready = pending.values.find(ty =>
-        typeDependencies(ty).forall(emitted.contains),
-      )
+      val ready =
+        pending.values.find(ty => typeDependencies(ty).forall(emitted.contains))
       ready match
         case Some(ty) =>
           result += ty
@@ -1021,9 +1019,7 @@ final class CppBackend(
 
   private def params(function: LirFunction, locals: FunctionNames): String =
     function.params
-      .map(param =>
-        s"${valueType(param.valueType)} ${locals.local(param.id)}",
-      )
+      .map(param => s"${valueType(param.valueType)} ${locals.local(param.id)}")
       .mkString(", ")
 
   private def renderOp(
@@ -2072,8 +2068,7 @@ final class CppBackend(
 
   private def descriptorText(descriptor: LirDescriptorRef): String =
     if descriptor.args.isEmpty then descriptor.name
-    else
-      s"${descriptor.name}[${descriptor.args.map(_.display).mkString(", ")}]"
+    else s"${descriptor.name}[${descriptor.args.map(_.display).mkString(", ")}]"
 
   private def unsupportedDescriptor(
       descriptor: String,

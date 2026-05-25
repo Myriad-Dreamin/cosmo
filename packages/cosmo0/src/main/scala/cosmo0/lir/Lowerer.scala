@@ -14,8 +14,7 @@ final class LirLowerer(
 ):
   def lower(): Result[LirModule] =
     val lowered = lowerModule()
-    if diagnostics.nonEmpty then
-      Result.failure(Phase.Compile, diagnostics)
+    if diagnostics.nonEmpty then Result.failure(Phase.Compile, diagnostics)
     else
       LirTypeChecker(lowered, descriptors).check() match
         case checked if checked.isSuccess =>
