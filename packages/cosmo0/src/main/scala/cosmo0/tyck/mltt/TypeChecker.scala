@@ -274,6 +274,18 @@ final case class MlttCheckResult(
 
 /** Bidirectional checker for the experimental `mltt.core` profile.
   *
+  * Program examples:
+  *
+  * {{{
+  * A : Type0
+  * y : A
+  * (fun x: A => x)(y)
+  * (x, y)
+  * fst((x, y))
+  * Refl(x)
+  * Cons(k, head, tail)
+  * }}}
+  *
   * Direct harness example:
   *
   * {{{
@@ -287,27 +299,59 @@ final case class MlttCheckResult(
   * MlttTypeChecker.check(store, context, id, idType)
   * }}}
   *
-  * Core infer/check rules:
+  * Rules:
   *
-  *   - Universe: `Type n` infers `Type (n + 1)`.
-  *   - Variable: `x` infers the type stored for `x` in the context.
-  *   - Pi/Sigma: domains and bodies must infer universe-classified types; the
-  *     resulting universe is the maximum level of both sides.
-  *   - Lambda: a lambda can infer a Pi type only when its annotation is a type;
-  *     when checking, it is accepted only against an expected Pi type.
-  *   - Application: infer the callee, reduce it to WHNF, require a Pi type,
-  *     check the argument against the domain, then substitute in the codomain.
-  *   - Pair: pair inference is intentionally unsupported; pairs check only
-  *     against an expected Sigma type.
-  *   - Projection: infer the pair, require a Sigma type, then return the first
-  *     component type or the second component type after substituting `fst(p)`.
-  *   - Equality/Refl: `Eq(A, l, r)` checks `A` as a type and both sides as `A`;
-  *     `Refl(v)` checks against `Eq(A, l, r)` when `v`, `l`, and `r` convert.
-  *   - Constructors: Nat and Vec constructors check against expected inductive
-  *     families. Constructor inference is only accepted for simple Nat terms.
-  *   - Conversion: definitional equality uses WHNF normalization with beta,
-  *     let, transparent pure definitions, and Sigma projections. Opaque or
-  *     effectful definitions are not reduced during conversion.
+  * {{{
+  * Gamma |- Type n => Type (n + 1)
+  * Gamma, x : A |- x => A
+  * Gamma |- A => Type i; Gamma, x : A |- B => Type j
+  *   --------------------------------------------------- Pi
+  *   Gamma |- (x: A) -> B => Type(max(i, j))
+  * Gamma |- A => Type i; Gamma, x : A |- B => Type j
+  *   --------------------------------------------------- Sigma
+  *   Gamma |- Sigma(x: A). B => Type(max(i, j))
+  * Gamma |- A => Type i; Gamma, x : A |- body => B
+  *   --------------------------------------------------- LambdaInfer
+  *   Gamma |- fun x: A => body => (x: A) -> B
+  * Gamma, x : A |- body <= B
+  *   --------------------------------------------------- LambdaCheck
+  *   Gamma |- fun x: A => body <= (x: A) -> B
+  * Gamma |- f => (x: A) -> B; Gamma |- arg <= A
+  *   --------------------------------------------------- Apply
+  *   Gamma |- f(arg) => B[arg / x]
+  * Gamma |- fst(p) => A
+  *   when Gamma |- p => Sigma(x: A). B
+  * Gamma |- snd(p) => B[fst(p) / x]
+  *   when Gamma |- p => Sigma(x: A). B
+  * Gamma |- first <= A; Gamma |- second <= B[first / x]
+  *   --------------------------------------------------- PairCheck
+  *   Gamma |- (first, second) <= Sigma(x: A). B
+  * Gamma |- A => Type i; Gamma |- left <= A; Gamma |- right <= A
+  *   --------------------------------------------------- Eq
+  *   Gamma |- Eq(A, left, right) => Type i
+  * Gamma |- value == left; Gamma |- value == right
+  *   --------------------------------------------------- ReflCheck
+  *   Gamma |- Refl(value) <= Eq(A, left, right)
+  * Gamma |- Z <= Nat
+  * Gamma |- n <= Nat
+  *   --------------------------------------------------- Succ
+  *   Gamma |- S(n) <= Nat
+  * Gamma |- Nil <= Vec(A, Z)
+  * Gamma |- k <= Nat; Gamma |- head <= A; Gamma |- tail <= Vec(A, k)
+  *   --------------------------------------------------- Cons
+  *   Gamma |- Cons(k, head, tail) <= Vec(A, S(k))
+  * Gamma |- left --> lwhnf; Gamma |- right --> rwhnf; lwhnf ~= rwhnf
+  *   --------------------------------------------------- Conversion
+  *   Gamma |- left == right
+  * }}}
+  *
+  * Explanation:
+  *
+  * The checker implements these rules over an already elaborated MLTT core term
+  * store. `infer` covers synthesis rules, `check` covers introduction forms
+  * that need an expected type, and `convert` supplies definitional equality
+  * through WHNF beta, let, transparent pure definitions, and Sigma projections.
+  * Opaque or effectful definitions are intentionally not reduced.
   *
   * Pipeline note: direct tests can call this object, and `mltt.core` profile
   * source fixtures reach it through `MlttProfileChecker` assertion directives.
@@ -339,13 +383,19 @@ object MlttTypeChecker:
 
   /** Infers the type of an MLTT core term.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
-    * A : Type0
-    * y : A
-    * (fun x: A => x)(y)  // infers A
+    * Gamma |- term => T
     * }}}
+    *
+    * Program examples:
+    *
+    * {{{
+    * (fun x: A => x)(y)
+    * }}}
+    *
+    * Explanation:
     *
     * This entry point is synthesis-only: terms such as pairs and `Refl` that
     * need an expected type report unsupported inference diagnostics.
@@ -368,13 +418,21 @@ object MlttTypeChecker:
 
   /** Checks an MLTT core term against an expected type.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
-    * fun x: A => x <= (x: A) -> A
-    * (x, y) <= Sigma(first: A). A
-    * Refl(x) <= Eq(A, x, x)
+    * Gamma |- term <= Expected
     * }}}
+    *
+    * Program examples:
+    *
+    * {{{
+    * fun x: A => x
+    * (x, y)
+    * Refl(x)
+    * }}}
+    *
+    * Explanation:
     *
     * Checking handles introduction forms directly, then falls back to inference
     * plus conversion when the term is not an introduction form for the expected
@@ -403,13 +461,25 @@ object MlttTypeChecker:
 
   /** Checks definitional equality under the selected normalization strategy.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
-    * (fun x: A => x)(y) == y
-    * let z = y; z == y
-    * fst((x, y)) == x
+    * Gamma |- left --> lwhnf
+    * Gamma |- right --> rwhnf
+    * lwhnf ~= rwhnf
+    *   --------------------------------------------------- Convert
+    * Gamma |- left == right
     * }}}
+    *
+    * Program examples:
+    *
+    * {{{
+    * (fun x: A => x)(y)
+    * let z = y; z
+    * fst((x, y))
+    * }}}
+    *
+    * Explanation:
     *
     * The current strategy is WHNF conversion. It reduces beta, let, transparent
     * pure definitions, and Sigma projections, then compares normalized heads
@@ -446,7 +516,7 @@ object MlttTypeChecker:
 
   /** Produces the diagnostic for constraints outside the MLTT profile.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * ?f(x) = y
@@ -467,7 +537,7 @@ object MlttTypeChecker:
 
   /** Installs the Nat fixture used by MLTT inference and conversion examples.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Nat : Type0
@@ -487,7 +557,7 @@ object MlttTypeChecker:
 
   /** Installs the indexed Vec fixture used by constructor checking examples.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Vec(A: Type0, n: Nat) : Type0
@@ -537,7 +607,7 @@ object MlttTypeChecker:
 
   /** Renders core MLTT terms in the same notation used by diagnostics.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (x: A) -> A
@@ -611,7 +681,7 @@ object MlttTypeChecker:
 
   /** Implements MLTT synthesis rules for every core term constructor.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Type0          => Type1
@@ -706,7 +776,7 @@ object MlttTypeChecker:
 
   /** Infers a variable from the local context.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * A : Type0, x : A |- x => A
@@ -732,7 +802,7 @@ object MlttTypeChecker:
 
   /** Infers the universe level of Pi and Sigma type formers.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * A : Type0
@@ -769,7 +839,7 @@ object MlttTypeChecker:
 
   /** Infers a Pi type for an annotated lambda.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * fun x: A => x  =>  (x: A) -> A
@@ -795,7 +865,7 @@ object MlttTypeChecker:
 
   /** Infers application by eliminating a Pi type.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * f : (x: A) -> B
@@ -834,7 +904,7 @@ object MlttTypeChecker:
 
   /** Infers Sigma projections.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * p : Sigma(first: A). B(first)
@@ -877,7 +947,7 @@ object MlttTypeChecker:
   /** Synthesizes constructor types where the profile supports unambiguous
     * inference.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Z => Nat
@@ -911,7 +981,7 @@ object MlttTypeChecker:
 
   /** Infers the universe of an equality type.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * A : Type0
@@ -939,7 +1009,7 @@ object MlttTypeChecker:
 
   /** Implements MLTT checking rules for introduction forms.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * fun x: A => body <= (x: A) -> B
@@ -1012,7 +1082,7 @@ object MlttTypeChecker:
 
   /** Checks lambda introduction against an expected Pi type.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * fun y: A => y <= (x: A) -> A
@@ -1046,7 +1116,7 @@ object MlttTypeChecker:
 
   /** Checks pair introduction against an expected Sigma type.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (x, y) <= Sigma(first: A). B(first)
@@ -1079,7 +1149,7 @@ object MlttTypeChecker:
 
   /** Checks reflexivity introduction against an equality type.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Refl(x) <= Eq(A, x, x)
@@ -1108,7 +1178,7 @@ object MlttTypeChecker:
 
   /** Checks constructors against an expected inductive family.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Z <= Nat
@@ -1145,7 +1215,7 @@ object MlttTypeChecker:
 
   /** Checks Nat constructors.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Z <= Nat
@@ -1170,7 +1240,7 @@ object MlttTypeChecker:
 
   /** Checks Vec constructors against the expected element and length indices.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Nil <= Vec(A, Z)
@@ -1205,7 +1275,7 @@ object MlttTypeChecker:
 
   /** Checks the indexed payload of `Cons`.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * k : Nat
@@ -1240,7 +1310,7 @@ object MlttTypeChecker:
 
   /** Recognizes a constructor literal with the expected arity.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * S(k) // constructor "S" with arity 1
@@ -1263,7 +1333,7 @@ object MlttTypeChecker:
 
   /** Recursively checks definitional equality after WHNF reduction.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (fun x: A => x)(y) == y
@@ -1347,7 +1417,7 @@ object MlttTypeChecker:
 
   /** Converts corresponding elements in parameter, index, or spine lists.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Vec(A, S(k)) == Vec(A, S(k))
@@ -1369,7 +1439,7 @@ object MlttTypeChecker:
 
   /** Reduces a term to weak-head normal form for conversion.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (fun x: A => x)(y) --> y
@@ -1409,7 +1479,7 @@ object MlttTypeChecker:
 
   /** Reduces transparent pure definitions during conversion.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * add_z_n = n
@@ -1445,7 +1515,7 @@ object MlttTypeChecker:
 
   /** Performs beta reduction when a WHNF callee is a lambda.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (fun x: A => x)(y) --> y
@@ -1473,7 +1543,7 @@ object MlttTypeChecker:
 
   /** Reduces first projection from a concrete pair.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * fst((x, y)) --> x
@@ -1494,7 +1564,7 @@ object MlttTypeChecker:
 
   /** Reduces second projection from a concrete pair.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * snd((x, y)) --> y
@@ -1515,7 +1585,7 @@ object MlttTypeChecker:
 
   /** Performs capture-oblivious substitution over the stored core term tree.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * substitute(x, x := y) = y
@@ -1605,7 +1675,7 @@ object MlttTypeChecker:
 
   /** Compares stored terms by stable syntax before recursive conversion.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Vec(A, S(k)) == Vec(A, S(k))
@@ -1619,7 +1689,7 @@ object MlttTypeChecker:
 
   /** Reads a universe level from a term.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Type0 => Some(0)
@@ -1634,7 +1704,7 @@ object MlttTypeChecker:
   /** Converts an inferred classifier `Type(n + 1)` into the classified type's
     * universe level `n`.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * infer(Type0) = Type1
@@ -1649,7 +1719,7 @@ object MlttTypeChecker:
 
   /** Reports that a type former operand did not infer to a universe.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (x: not_a_type) -> x
@@ -1671,7 +1741,7 @@ object MlttTypeChecker:
 
   /** Reports public metavariables that remain unsolved after checking.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * ?m0 <= A

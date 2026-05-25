@@ -54,6 +54,31 @@ private[cosmo0] object ProfileDirectiveParser:
 
 /** Source adapter for `checkerProfile: "mltt.core"`.
   *
+  * Profile source examples:
+  *
+  * {{{
+  * mltt: lambda-checks-pi
+  * mltt: application-infers-through-pi
+  * mltt: sigma-pair-checks
+  * mltt: equality-refl-checks
+  * mltt: conversion-beta-let
+  * mltt: vec-constructors-check
+  * }}}
+  *
+  * Rules:
+  *
+  * {{{
+  * lambda-checks-pi              runs Gamma |- fun x: A => x <= (x: A) -> A
+  * application-infers-through-pi runs Gamma |- (fun x: A => x)(y) => A
+  * sigma-pair-checks             runs Gamma |- (x, y) <= Sigma(first: A). A
+  * equality-refl-checks          runs Gamma |- Refl(x) <= Eq(A, x, x)
+  * conversion-beta-let           runs Gamma |- beta == y and let == y
+  * vec-constructors-check        runs Gamma |- Nil <= Vec(A, Z)
+  *                               and Gamma |- Cons(k,h,t) <= Vec(A, S(k))
+  * }}}
+  *
+  * Explanation:
+  *
   * The profile source names MLTT capabilities to assert. Each assertion builds
   * a concrete core term and calls `MlttTypeChecker`, so package-level fixtures
   * fail when the checker stops accepting the advertised MLTT fragment.
@@ -69,7 +94,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Runs all MLTT assertion directives in a profile source module.
     *
-    * Program example:
+    * Profile source examples:
     *
     * {{{
     * mltt: lambda-checks-pi
@@ -106,9 +131,9 @@ private[cosmo0] object MlttProfileChecker:
       syntheticModule(moduleName, directives, "mltt_core"),
     )
 
-  /** Dispatches a source directive to the corresponding MLTT rule example.
+  /** Dispatches a source directive to the corresponding MLTT rule.
     *
-    * Program example:
+    * Profile source examples:
     *
     * {{{
     * mltt: conversion-beta-let
@@ -144,7 +169,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Checks the Pi introduction rule for annotated lambdas.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * A : Type0
@@ -177,7 +202,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Checks the Pi elimination rule used by application inference.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * A : Type0
@@ -210,7 +235,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Checks the Sigma introduction rule for pairs.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * x : A
@@ -242,7 +267,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Checks equality introduction for reflexivity.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * x : A
@@ -274,7 +299,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Checks WHNF conversion for beta and let reduction.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * (fun x: A => x)(y) == y
@@ -309,7 +334,7 @@ private[cosmo0] object MlttProfileChecker:
 
   /** Checks indexed constructor introduction for the `Vec` fixture.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Nil <= Vec(A, Z)
@@ -421,6 +446,27 @@ private[cosmo0] object MlttProfileChecker:
 
 /** Source adapter for `checkerProfile: "mltt.dependent-patterns"`.
   *
+  * Profile source examples:
+  *
+  * {{{
+  * dependent-pattern: vec-head-elaborates
+  * dependent-pattern: impossible-nil-diagnostic
+  * }}}
+  *
+  * Rules:
+  *
+  * {{{
+  * vec-head-elaborates:
+  *   case xs : Vec(A, S(n)) of Cons(head, tail) -> head
+  *   elaborates with refinement n=k
+  *
+  * impossible-nil-diagnostic:
+  *   case xs : Vec(A, S(n)) of Nil -> absurd
+  *   reports impossible because Vec(A, Z) cannot refine Vec(A, S(n))
+  * }}}
+  *
+  * Explanation:
+  *
   * Assertions construct dependent-pattern fixtures and call `DependentPatterns`
   * so the profile verifies case-tree elaboration and impossible-index
   * diagnostics through the package checker path.
@@ -439,7 +485,7 @@ private[cosmo0] object DependentPatternProfileChecker:
 
   /** Runs all dependent-pattern assertion directives in profile source.
     *
-    * Program example:
+    * Profile source examples:
     *
     * {{{
     * dependent-pattern: vec-head-elaborates
@@ -475,9 +521,9 @@ private[cosmo0] object DependentPatternProfileChecker:
       syntheticModule(moduleName, directives, "dependent_pattern"),
     )
 
-  /** Dispatches a dependent-pattern directive to its rule example.
+  /** Dispatches a dependent-pattern directive to its rule.
     *
-    * Program example:
+    * Profile source examples:
     *
     * {{{
     * dependent-pattern: vec-head-elaborates
@@ -505,7 +551,7 @@ private[cosmo0] object DependentPatternProfileChecker:
 
   /** Checks constructor-pattern elaboration for a non-empty vector.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * case xs : Vec(A, S(n)) of
@@ -538,7 +584,7 @@ private[cosmo0] object DependentPatternProfileChecker:
 
   /** Checks that impossible constructor indices are diagnosed.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * case xs : Vec(A, S(n)) of
@@ -585,7 +631,7 @@ private[cosmo0] object DependentPatternProfileChecker:
 
   /** Builds the reusable `Vec(A, S(n))` head-elaboration program.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * xs : Vec(A, S(n))

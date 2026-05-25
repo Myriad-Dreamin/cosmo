@@ -24,7 +24,7 @@ object SourceTyper:
 /** Checks an `UntypedModule` into a `TypedModule` for the default cosmo0 source
   * language subset.
   *
-  * Source language examples handled here:
+  * Program examples:
   *
   * {{{
   * val answer = 42
@@ -55,7 +55,69 @@ object SourceTyper:
   * `expected` to guide literals, calls, branch bodies, assignments, returns,
   * and block final expressions.
   *
-  * Inference and checking rules:
+  * Rules:
+  *
+  * {{{
+  * Gamma |- e => T
+  * Gamma |- e <= T
+  *
+  * Gamma |- init <= T
+  *   --------------------------------------------------- ValueCheck
+  *   Gamma |- val x : T = init checks
+  *
+  * Gamma |- init => T
+  *   --------------------------------------------------- ValueInfer
+  *   Gamma |- val x = init defines x : T
+  *
+  * Gamma, params : ParamTypes |- body <= Return
+  *   --------------------------------------------------- FunctionCheck
+  *   Gamma |- def f(params): Return = body checks
+  *
+  * Gamma(x) = T
+  *   --------------------------------------------------- Name
+  *   Gamma |- x => T
+  *
+  * Gamma |- callee => (P1, ..., Pn) -> R
+  * Gamma |- arg1 <= P1 ... Gamma |- argn <= Pn
+  *   --------------------------------------------------- Call
+  *   Gamma |- callee(arg1, ..., argn) => R
+  *
+  * Gamma |- recv => Owner; method(Owner, name) = (P*) -> R
+  * Gamma |- args <= P*
+  *   --------------------------------------------------- MethodCall
+  *   Gamma |- recv.name(args) => R
+  *
+  * Gamma |- target => T mutable; Gamma |- value <= T
+  *   --------------------------------------------------- Assign
+  *   Gamma |- target = value => Unit
+  *
+  * Gamma |- cond <= Bool; Gamma |- then <= T; Gamma |- else <= T
+  *   --------------------------------------------------- If
+  *   Gamma |- if cond then else => T
+  *
+  * Gamma |- scrutinee => T
+  * Gamma |- pattern_i <= T; Gamma + binds(pattern_i) |- body_i <= R
+  *   --------------------------------------------------- Match
+  *   Gamma |- match scrutinee { pattern_i => body_i } => R
+  *
+  * Gamma |- pattern <= Expected
+  *   --------------------------------------------------- Pattern
+  *   pattern binds locals and checks constructor payloads
+  *
+  * Gamma |- final <= Expected
+  *   --------------------------------------------------- BlockCheck
+  *   Gamma |- { items; final } <= Expected
+  *
+  * Gamma |- left => Numeric; Gamma |- right <= Numeric
+  *   --------------------------------------------------- BinaryNumeric
+  *   Gamma |- left op right => Numeric
+  *
+  * Gamma |- operand <= Bool
+  *   --------------------------------------------------- UnaryNot
+  *   Gamma |- !operand => Bool
+  * }}}
+  *
+  * Explanation:
   *
   *   - Declarations: `val x: T = e` checks `e <= T`; `val x = e` infers `T`
   *     from `e`. Fields and parameters require explicit source types.
@@ -194,7 +256,7 @@ final class SourceTyper(
 
   /** Runs declaration collection before expression inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * class Counter { var value: i32 }
@@ -575,7 +637,7 @@ final class SourceTyper(
 
   /** Converts one top-level declaration into its typed form.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val answer = 42
@@ -626,7 +688,7 @@ final class SourceTyper(
 
   /** Checks class fields, variants, aliases, and methods.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * class Point {
@@ -690,7 +752,7 @@ final class SourceTyper(
 
   /** Checks a function or method body against its declared signature.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * def clamp(value: i32, min: i32 = 0): i32 = {
@@ -757,7 +819,7 @@ final class SourceTyper(
 
   /** Infers or checks a top-level value declaration.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val inferred = 42      // inferred: i32
@@ -803,7 +865,7 @@ final class SourceTyper(
 
   /** Resolves a function signature before body checking.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * class Counter {
@@ -876,7 +938,7 @@ final class SourceTyper(
 
   /** Infers an expression type, optionally under an expected type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val byte: u8 = 65
@@ -995,7 +1057,7 @@ final class SourceTyper(
 
   /** Checks a block left-to-right and infers its result from the final item.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val result = {
@@ -1030,7 +1092,7 @@ final class SourceTyper(
 
   /** Checks one item inside a block and updates block scope.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * {
@@ -1090,7 +1152,7 @@ final class SourceTyper(
 
   /** Infers the type of a name.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val value = 1
@@ -1179,7 +1241,7 @@ final class SourceTyper(
 
   /** Infers a direct type-constructor expression.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val make_vec = Vec[i32]
@@ -1207,7 +1269,7 @@ final class SourceTyper(
 
   /** Infers a field, method, foreign method, or variant constructor selection.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * class Nat { case Zero; case Succ(Nat) }
@@ -1328,7 +1390,7 @@ final class SourceTyper(
 
   /** Builds the typed error expression for failed field or method inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * value.missing
@@ -1362,7 +1424,7 @@ final class SourceTyper(
 
   /** Infers a fully qualified variant constructor expression.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val ok = Result[i32, String]::Ok
@@ -1419,7 +1481,7 @@ final class SourceTyper(
 
   /** Resolves an imported foreign qualified name during expression inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * import cpp namespace std as std
@@ -1455,7 +1517,7 @@ final class SourceTyper(
 
   /** Builds the canonical C++ spelling for a foreign symbol.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * std + vector + push_back => ::std::vector::push_back
@@ -1471,7 +1533,7 @@ final class SourceTyper(
 
   /** Infers a call expression from callee shape and expected argument types.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * def add(left: i32, right: i32): i32 = { left + right }
@@ -1661,7 +1723,7 @@ final class SourceTyper(
 
   /** Resolves selected calls before generic function-value call inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val n = Nat.Succ(Nat.Zero)
@@ -1774,7 +1836,7 @@ final class SourceTyper(
 
   /** Checks a call whose callee already inferred as an expression.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val apply: (i32) -> i32 = inc
@@ -1823,7 +1885,7 @@ final class SourceTyper(
   /** Checks arguments against a resolved callable signature and returns result
     * type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * def take(value: u8): Unit = {}
@@ -1868,7 +1930,7 @@ final class SourceTyper(
 
   /** Builds a typed placeholder for a call whose callee rule already failed.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * missing(1)
@@ -1898,7 +1960,7 @@ final class SourceTyper(
 
   /** Checks calls to trusted runtime functions.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * println("hello")
@@ -1960,7 +2022,7 @@ final class SourceTyper(
 
   /** Detects source names handled by the trusted runtime call rule.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * println("hello")
@@ -1971,7 +2033,7 @@ final class SourceTyper(
 
   /** Checks assignment and compound numeric assignment.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * var count: i32 = 0
@@ -2026,7 +2088,7 @@ final class SourceTyper(
 
   /** Infers unary operator expressions.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val no = !flag
@@ -2119,7 +2181,7 @@ final class SourceTyper(
 
   /** Infers binary operator expressions.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val ok = left < right and enabled
@@ -2258,7 +2320,7 @@ final class SourceTyper(
 
   /** Checks conditionals and infers their common branch type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val result: i32 = if flag { 1 } else { 2 }
@@ -2309,7 +2371,7 @@ final class SourceTyper(
 
   /** Checks supported collection iteration and binds the loop item type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * for item in values { println(item.to_string()) }
@@ -2361,7 +2423,7 @@ final class SourceTyper(
 
   /** Checks ordinary cosmo0 match expressions.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * value match {
@@ -2412,7 +2474,7 @@ final class SourceTyper(
 
   /** Checks a return expression against the enclosing function result type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * def answer(): i32 = {
@@ -2457,7 +2519,7 @@ final class SourceTyper(
 
   /** Checks a source match pattern against the expected scrutinee/payload type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * value match {
@@ -2533,7 +2595,7 @@ final class SourceTyper(
 
   /** Checks a variant pattern and its payload patterns.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * result match {
@@ -2602,7 +2664,7 @@ final class SourceTyper(
 
   /** Resolves constructor syntax used in a pattern.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * case Nat.Succ(rest) => rest
@@ -2652,7 +2714,7 @@ final class SourceTyper(
 
   /** Looks up the callable signature of a variant constructor.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * Nat.Succ(Nat.Zero)
@@ -2682,7 +2744,7 @@ final class SourceTyper(
 
   /** Resolves a nullary standard descriptor constructor by source name.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val text = String()
@@ -2705,7 +2767,7 @@ final class SourceTyper(
 
   /** Resolves a method from standard descriptor metadata.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val length = values.len()
@@ -2730,7 +2792,7 @@ final class SourceTyper(
 
   /** Resolves a supported foreign method surface.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * cxx_vector.push_back(1)
@@ -2753,7 +2815,7 @@ final class SourceTyper(
 
   /** Resolves the supported `std::vector` method signatures.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * cxx_vector.push_back(value)
@@ -2793,7 +2855,7 @@ final class SourceTyper(
 
   /** Finds the nullary descriptor owner used by constructor-call inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * String()
@@ -2806,7 +2868,7 @@ final class SourceTyper(
 
   /** Removes references and aliases before descriptor method lookup.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * (&String).len()  // lookup is performed on String
@@ -2819,7 +2881,7 @@ final class SourceTyper(
 
   /** Extracts the descriptor family name from a normalized owner type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * Vec[i32].len()  // descriptor name Vec
@@ -2833,7 +2895,7 @@ final class SourceTyper(
 
   /** Extracts descriptor arity for generic-method inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * Vec[i32] => 1
@@ -2848,7 +2910,7 @@ final class SourceTyper(
 
   /** Resolves a source class constructor signature by class name.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * Point(1, 2)
@@ -2862,7 +2924,7 @@ final class SourceTyper(
 
   /** Finds class metadata for field, method, and constructor inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * point.x
@@ -2877,7 +2939,7 @@ final class SourceTyper(
 
   /** Resolves a type alias target and detects recursive aliases.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * type Count = i32
@@ -2908,7 +2970,7 @@ final class SourceTyper(
 
   /** Resolves source type syntax into `SourceType`.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val bytes: Vec[u8] = Vec[u8]()
@@ -2930,7 +2992,7 @@ final class SourceTyper(
   /** Worker for `resolveType` that tracks alias recursion and in-scope generic
     * type parameters.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * type Pair[T] = Vec[T]
@@ -3045,7 +3107,7 @@ final class SourceTyper(
 
   /** Substitutes generic alias parameters after type-argument checking.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * type Boxed[T] = Option[T]
@@ -3083,7 +3145,7 @@ final class SourceTyper(
 
   /** Applies descriptor-specific constraints after standard type inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * Map[String, i32]
@@ -3107,7 +3169,7 @@ final class SourceTyper(
 
   /** Checks the Map/Set key-type rule.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * Map[String, i32]  // accepted
@@ -3128,7 +3190,7 @@ final class SourceTyper(
 
   /** Decides whether a type is a supported Map or Set key.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * String
@@ -3149,7 +3211,7 @@ final class SourceTyper(
 
   /** Applies argument-passing compatibility after argument inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * def read(value: &String): Unit = {}
@@ -3183,7 +3245,7 @@ final class SourceTyper(
   /** Emits an assignment-style mismatch when an inferred type cannot flow to an
     * expected type.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val value: i32 = true
@@ -3207,7 +3269,7 @@ final class SourceTyper(
 
   /** Checks receiver mutability for method calls.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * class Buffer { def push(&mut self, value: u8): Unit = {} }
@@ -3235,7 +3297,7 @@ final class SourceTyper(
 
   /** Checks a condition-like expression as `Bool`.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * while index < limit { index += 1 }
@@ -3255,7 +3317,7 @@ final class SourceTyper(
 
   /** Reports a literal-pattern type mismatch.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * value: String match {
@@ -3279,7 +3341,7 @@ final class SourceTyper(
 
   /** Creates the scope symbol used by later name-expression inference.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * var count: i32 = 0
@@ -3306,7 +3368,7 @@ final class SourceTyper(
   /** Computes whether a value of a type can be used as a mutable l-value or
     * mutable receiver.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * var value: i32 = 1
@@ -3326,7 +3388,7 @@ final class SourceTyper(
 
   /** Checks an ASCII literal and returns its integer code point.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val open: u8 = a"("
@@ -3350,7 +3412,7 @@ final class SourceTyper(
 
   /** Checks a rune literal and returns its Unicode scalar value.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * val letter: u32 = c"A"
@@ -3364,7 +3426,7 @@ final class SourceTyper(
 
   /** Extracts the single code point required by rune and ASCII literals.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * c"A"  // one code point

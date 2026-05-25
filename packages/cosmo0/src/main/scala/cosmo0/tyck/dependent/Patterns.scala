@@ -191,6 +191,16 @@ final case class DependentCaseTree(
 
 /** Elaborates dependent source pattern clauses into a small case tree.
   *
+  * Program examples:
+  *
+  * {{{
+  * case xs : Vec(A, S(n)) of
+  *   Cons(head, tail) -> head
+  *
+  * case xs : Vec(A, S(n)) of
+  *   Nil -> absurd
+  * }}}
+  *
   * Direct harness example:
   *
   * {{{
@@ -223,25 +233,52 @@ final case class DependentCaseTree(
   * )
   * }}}
   *
-  * Elaboration and refinement rules:
+  * Rules:
   *
-  *   - Profile gate: the selected `CheckerProfile` must support
-  *     `dependent-pattern-elaboration`; otherwise elaboration returns an
-  *     unsupported diagnostic and no branches.
-  *   - Constructor branch: find constructor metadata, unify the scrutinee
-  *     family indices with the constructor result indices, add constructor
-  *     telescope binders to the branch, and record the resulting substitution
-  *     summary as the branch refinement.
-  *   - Variable or wildcard branch: accept as a catch-all and mark all later
-  *     constructor branches redundant.
-  *   - Impossible branch: preserve a branch marked impossible by source.
-  *   - Equality branch: keep the representation, but reject it because equality
-  *     pattern matching is outside the current accepted fragment.
-  *   - Coverage: every constructor whose result indices are not impossible for
-  *     the scrutinee must be covered by a constructor branch or catch-all.
-  *   - Unification: variables and metas receive first-order substitutions,
-  *     same-headed constructors/families unify recursively, different heads
-  *     mark a branch impossible, and recursive solutions fail the occurs check.
+  * {{{
+  * profile supports dependent-pattern-elaboration
+  *   --------------------------------------------------- ProfileGate
+  *   elaborate clauses under profile
+  *
+  * ctor : (tel) -> F(actualIndices)
+  * unify(expectedIndices, actualIndices) = subst
+  *   --------------------------------------------------- ConstructorBranch
+  *   case x : F(expectedIndices) of ctor(patterns) -> body
+  *     elaborates with tel binders and branch refinement subst
+  *
+  * unify(expectedIndices, actualIndices) = impossible
+  *   --------------------------------------------------- ImpossibleBranch
+  *   ctor branch is preserved but marked impossible
+  *
+  * case x : F(indices) of y -> body
+  * case x : F(indices) of _ -> body
+  *   --------------------------------------------------- CatchAll
+  *   branch covers every remaining possible constructor
+  *
+  * case x : F(indices) of left = right -> body
+  *   --------------------------------------------------- EqualityPattern
+  *   rejected as outside the accepted dependent-pattern fragment
+  *
+  * forall ctor in F.constructors.
+  *   unify(scrutineeIndices, ctor.resultIndices) is impossible
+  *   or ctor is covered
+  *   or a catch-all branch exists
+  *   --------------------------------------------------- Coverage
+  *   case tree is exhaustive
+  *
+  * unify(v, term) = { v := term } when v notin FV(term)
+  * unify(H(xs), H(ys)) = zipWith unify xs ys
+  * unify(H(xs), K(ys)) = impossible when H != K
+  * unify(v, term) = occurs-check failure when v in FV(term)
+  * }}}
+  *
+  * Explanation:
+  *
+  * Elaboration is driven by constructor result indices. A `Cons` branch for
+  * `Vec(A, S(n))` compares the scrutinee indices `[A, S(n)]` with the
+  * constructor result indices `[A, S(k)]`, yielding the refinement `n=k`. A
+  * `Nil` branch compares `[A, S(n)]` with `[A, Z]`, so the branch is diagnosed
+  * as impossible instead of being treated as a valid head case.
   *
   * Pipeline note: this object is an experiment and test harness. The ordinary
   * cosmo0 package pipeline still type-checks source through `SourceTyper`.
@@ -263,7 +300,7 @@ object DependentPatterns:
 
   /** Reports whether the selected checker profile admits the elaboration rule.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * checkerProfile: "mltt.dependent-patterns"
@@ -292,7 +329,7 @@ object DependentPatterns:
 
   /** Unifies expected scrutinee indices with constructor result indices.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * xs : Vec(A, S(n))
@@ -301,12 +338,18 @@ object DependentPatterns:
     * // Cons result index is Vec(A, S(k)); unification records n = k.
     * }}}
     *
-    * Rule shape:
+    * Rules:
     *
     * {{{
     * unifyIndices([A, S(n)], [A, S(k)]) = { n := k }
     * unifyIndices([A, S(n)], [A, Z])    = impossible
     * }}}
+    *
+    * Explanation:
+    *
+    * The expected index list comes from the scrutinee type, and the actual
+    * index list comes from the constructor result family. Each pair is sent to
+    * the first-order index unifier; arity mismatch is a hard diagnostic.
     */
   def unifyIndices(
       store: DependentPatternTermStore,
@@ -330,7 +373,7 @@ object DependentPatterns:
 
   /** Elaborates source clauses into a dependent case tree.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * case xs : Vec(A, S(n)) of
@@ -341,6 +384,12 @@ object DependentPatterns:
     * imports the constructor telescope as branch binders, specializes the
     * expected branch type using the unifier result, and then records coverage
     * obligations for any remaining possible constructors.
+    *
+    * Explanation:
+    *
+    * This is the orchestration point for profile gating, constructor
+    * elaboration, wildcard handling, impossible branches, unsupported equality
+    * patterns, and final coverage checking.
     */
   def elaborateClauses(
       profile: CheckerProfile,
@@ -562,7 +611,7 @@ object DependentPatterns:
 
   /** Elaborates one constructor branch and its index refinement.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * case xs : Vec(A, S(n)) of
@@ -576,9 +625,21 @@ object DependentPatterns:
     * tail : Vec(A, k)
     * }}}
     *
-    * and unifies `Vec(A, S(n))` with `Vec(A, S(k))`, so the branch summary is
-    * `n=k`. If the same rule is tried with `Nil`, the heads `S` and `Z` differ
-    * and the branch is marked impossible.
+    * Rules:
+    *
+    * {{{
+    * ctor : telescope -> Vec(A, S(k))
+    * unify([A, S(n)], [A, S(k)]) = { n := k }
+    *   --------------------------------------------------- ConstructorBranch
+    *   Cons(head, tail) elaborates with binders and refinement n=k
+    * }}}
+    *
+    * Explanation:
+    *
+    * The constructor telescope becomes branch binders. The constructor result
+    * indices are unified with the scrutinee indices; if the same rule is tried
+    * with `Nil`, the heads `S` and `Z` differ and the branch is marked
+    * impossible.
     */
   private def elaborateConstructorClause(
       env: DependentPatternEnv,
@@ -626,12 +687,23 @@ object DependentPatterns:
 
   /** Checks that all possible constructors are covered after refinement.
     *
-    * Program example:
+    * Program examples:
     *
     * {{{
     * case xs : Vec(A, S(n)) of
     *   Cons(head, tail) -> head
     * }}}
+    *
+    * Rules:
+    *
+    * {{{
+    * forall ctor in Vec.constructors.
+    *   unify(scrutineeIndices, ctor.resultIndices) is impossible
+    *   or ctor has a branch
+    *   or a wildcard branch exists
+    * }}}
+    *
+    * Explanation:
     *
     * Coverage does not require `Nil` here, because `Vec(A, S(n))` cannot unify
     * with `Nil`'s result index `Vec(A, Z)`. For `xs : Vec(A, n)`, both `Nil`
@@ -683,7 +755,7 @@ object DependentPatterns:
 
   /** Renders the branch refinement inferred by constructor-index unification.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Cons(head, tail) -> head  // summary: n=k
@@ -704,7 +776,7 @@ object DependentPatterns:
 
   /** Extracts a named substitution for human-readable branch summaries.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * unify S(n) with S(k)
@@ -722,7 +794,7 @@ object DependentPatterns:
 
   /** Specializes the displayed expected branch type with the refinement.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * xs : Vec(A, S(n))
@@ -768,7 +840,7 @@ private final class DependentPatternUnifier(
 
   /** Dispatches the first-order index unification rule by the left term head.
     *
-    * Program examples:
+    * Rules:
     *
     * {{{
     * unify(n, k)       // records n := k
@@ -813,7 +885,7 @@ private final class DependentPatternUnifier(
 
   /** Solves an index variable or reuses the existing solution.
     *
-    * Program examples:
+    * Rules:
     *
     * {{{
     * n = k     // stores n := k
@@ -837,7 +909,7 @@ private final class DependentPatternUnifier(
 
   /** Unifies a constructor or family head against the right-hand term.
     *
-    * Program examples:
+    * Rules:
     *
     * {{{
     * S(n) ~ S(k)             // same constructor head, recurse on args
@@ -884,7 +956,7 @@ private final class DependentPatternUnifier(
 
   /** Applies the same-head unification rule for constructors and families.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * Vec(A, S(n)) ~ Vec(A, S(k))
@@ -917,7 +989,7 @@ private final class DependentPatternUnifier(
 
   /** Recognizes the reflexive variable unification case.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * unify(n, n)    // no substitution is needed
@@ -939,7 +1011,7 @@ private final class DependentPatternUnifier(
 
   /** Detects whether a candidate variable solution would be recursive.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * ?m = Vec(A, ?m)  // rejected: ?m occurs in its own solution
@@ -960,7 +1032,7 @@ private final class DependentPatternUnifier(
 
   /** Records that the current constructor branch cannot refine the scrutinee.
     *
-    * Program example:
+    * Rules:
     *
     * {{{
     * case xs : Vec(A, S(n)) of
