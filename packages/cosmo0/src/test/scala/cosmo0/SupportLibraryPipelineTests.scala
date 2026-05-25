@@ -286,7 +286,7 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       s"lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
     )
 
-    val result = CppBackend().emit(lowered.value.get.lir)
+    val result = CppBackend(lowered.value.get.lir).emit()
 
     assert(
       result.isSuccess,
@@ -364,7 +364,7 @@ class SupportLibraryPipelineTests extends munit.FunSuite:
       ),
     )
 
-    val result = CppBackend().emit(LirModule("invalid_support_library", List(extern, caller)))
+    val result = CppBackend(LirModule("invalid_support_library", List(extern, caller))).emit()
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(

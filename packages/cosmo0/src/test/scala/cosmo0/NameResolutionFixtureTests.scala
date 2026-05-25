@@ -52,7 +52,7 @@ class NameResolutionFixtureTests extends munit.FunSuite:
       s"C++ namespace fixture failed with diagnostics: ${renderDiagnostics(lowered.diagnostics)}",
     )
 
-    val emitted = CppBackend().emit(lowered.value.get.lir)
+    val emitted = CppBackend(lowered.value.get.lir).emit()
     assert(
       emitted.isSuccess,
       s"C++ namespace backend failed with diagnostics: ${renderDiagnostics(emitted.diagnostics)}",

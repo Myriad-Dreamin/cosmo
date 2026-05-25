@@ -18,7 +18,7 @@ class CppBackendTests extends munit.FunSuite:
   private val typeCheckSourcePath = "packages/cosmoc/src/types/check.cos"
 
   test("backend rejects structurally invalid LIR at the compile boundary"):
-    val result = CppBackend().emit(
+    val result = CppBackend(
       LirModule(
         "bad",
         List(
@@ -31,7 +31,7 @@ class CppBackendTests extends munit.FunSuite:
           ),
         ),
       ),
-    )
+    ).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
@@ -41,7 +41,7 @@ class CppBackendTests extends munit.FunSuite:
     )
 
   test("backend emits declarations, bodies, descriptors, variants, and runtime support"):
-    val result = CppBackend().emit(checkedLirModule())
+    val result = CppBackend(checkedLirModule()).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assert(
@@ -80,15 +80,15 @@ class CppBackendTests extends munit.FunSuite:
       ),
     )
 
-    val firstOutput = CppBackend().emit(first)
-    val secondOutput = CppBackend().emit(second)
+    val firstOutput = CppBackend(first).emit()
+    val secondOutput = CppBackend(second).emit()
 
     assert(firstOutput.isSuccess, firstOutput.diagnostics.map(_.message).mkString("\n"))
     assert(secondOutput.isSuccess, secondOutput.diagnostics.map(_.message).mkString("\n"))
     assertEquals(firstOutput.value.get.source, secondOutput.value.get.source)
 
   test("backend avoids stdio macro names in generated C++ identifiers"):
-    val result = CppBackend().emit(
+    val result = CppBackend(
       LirModule(
         "stdio_macro_names",
         List(
@@ -103,7 +103,7 @@ class CppBackendTests extends munit.FunSuite:
           ),
         ),
       ),
-    )
+    ).emit()
 
     assert(result.isSuccess, result.diagnostics.map(_.message).mkString("\n"))
     val source = result.value.get.source
@@ -145,7 +145,7 @@ class CppBackendTests extends munit.FunSuite:
       ),
     )
 
-    val result = CppBackend().emit(module)
+    val result = CppBackend(module).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
@@ -258,7 +258,7 @@ class CppBackendTests extends munit.FunSuite:
       s"lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
     )
 
-    val result = CppBackend().emit(lowered.value.get.lir)
+    val result = CppBackend(lowered.value.get.lir).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assert(
@@ -294,7 +294,7 @@ class CppBackendTests extends munit.FunSuite:
       s"lowering failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
     )
 
-    val result = CppBackend().emit(lowered.value.get.lir)
+    val result = CppBackend(lowered.value.get.lir).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assert(
@@ -347,7 +347,7 @@ class CppBackendTests extends munit.FunSuite:
       ),
     )
 
-    val result = CppBackend().emit(LirModule("missing_extern", List(extern, caller)))
+    val result = CppBackend(LirModule("missing_extern", List(extern, caller))).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
@@ -463,7 +463,7 @@ class CppBackendTests extends munit.FunSuite:
       lowered.isSuccess,
       s"json_test lower failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
     )
-    val result = CppBackend().emit(lowered.value.get.lir)
+    val result = CppBackend(lowered.value.get.lir).emit()
     assert(
       result.isSuccess,
       s"json_test C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",

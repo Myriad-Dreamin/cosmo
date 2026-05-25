@@ -33,7 +33,7 @@ class Core0CommandTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor Process"))
     assert(!rendered.contains("descriptor Shell"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
     assert(
       compiled.isSuccess,
       s"core0.command C++ emission failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
