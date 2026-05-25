@@ -17,7 +17,7 @@ package cosmo0
   * // Experimental package metadata:
   * //   "checkerProfile": "mltt.core"
   * //   selected profile = mltt.core
-  * //   implementation = no source-pipeline route yet; report unsupported
+  * //   implementation = MlttProfileChecker over profile assertion directives
   *
   * // Direct test harness:
   * //   MlttTypeChecker.infer(store, context, term)
@@ -26,11 +26,11 @@ package cosmo0
   *
   * Routing rule:
   *
-  *   - `Cosmo0.check` and `source/Pipeline.check` execute only `cosmo0.subset`.
-  *   - Other profiles are still useful as stable contracts for diagnostics,
-  *     fixtures, and future checker artifacts, but selecting them from ordinary
-  *     source currently yields an unsupported result instead of invoking the
-  *     experimental MLTT or dependent-pattern code.
+  *   - `cosmo0.subset` source executes through `SourceTyper`.
+  *   - `mltt.core` and `mltt.dependent-patterns` execute through profile
+  *     checkers that read source assertion directives and call the experimental
+  *     MLTT or dependent-pattern implementation.
+  *   - Profiles without a concrete adapter remain unsupported checker results.
   */
 final case class CheckerProfile(
     id: String,

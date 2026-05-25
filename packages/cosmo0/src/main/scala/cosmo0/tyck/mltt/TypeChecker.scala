@@ -309,9 +309,8 @@ final case class MlttCheckResult(
   *     let, transparent pure definitions, and Sigma projections. Opaque or
   *     effectful definitions are not reduced during conversion.
   *
-  * Pipeline note: this object is exercised by tests and fixtures directly.
-  * `Cosmo0.check` and package checking currently return unsupported for
-  * non-`cosmo0.subset` profiles instead of routing source here.
+  * Pipeline note: direct tests can call this object, and `mltt.core` profile
+  * source fixtures reach it through `MlttProfileChecker` assertion directives.
   */
 object MlttTypeChecker:
   val WhnfConversionStrategy = "mltt.whnf-conversion"

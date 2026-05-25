@@ -1,1 +1,6 @@
-val answer = 42
+mltt: lambda-checks-pi
+mltt: application-infers-through-pi
+mltt: sigma-pair-checks
+mltt: equality-refl-checks
+mltt: conversion-beta-let
+mltt: vec-constructors-check

@@ -1,0 +1,2 @@
+dependent-pattern: vec-head-elaborates
+dependent-pattern: impossible-nil-diagnostic

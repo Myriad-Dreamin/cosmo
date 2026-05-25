@@ -6,6 +6,8 @@ profiles and tests.
 `Patterns.scala` models dependent pattern terms, constructors, source patterns,
 case trees, branch refinements, unification results, and diagnostics.
 
-It is intentionally isolated from the ordinary cosmo0 subset path. The default
-source pipeline reaches this code only through explicit checker profile support
-and tests; ordinary package checking still flows through `tyck/Typer.scala`.
+It is intentionally isolated from the ordinary cosmo0 subset path.
+`DependentPatternProfileChecker` lets `checkerProfile: "mltt.dependent-patterns"`
+source fixtures execute named dependent-pattern assertions by constructing
+source clauses and calling this elaborator. Ordinary `cosmo0.subset` package
+checking still flows through `tyck/Typer.scala`.
