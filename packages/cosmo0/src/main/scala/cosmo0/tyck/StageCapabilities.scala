@@ -1,5 +1,27 @@
 package cosmo0
 
+/** Runtime and standard-library capabilities required by a package stage.
+  *
+  * `stageProfile` is separate from `checkerProfile`: stage validation answers
+  * "does the current package target have enough runtime/std support?", while
+  * checker profiles answer "which type-checker artifact contract is selected?".
+  *
+  * Package metadata example:
+  *
+  * {{{
+  * {
+  *   "name": "@cosmo/compiler",
+  *   "target": "cosmo0",
+  *   "stageProfile": "cosmo1.stage1"
+  * }
+  * }}}
+  *
+  * Validation rule:
+  *
+  *   - every required primitive descriptor must be available,
+  *   - every required std capability must be available, and
+  *   - every required backend symbol/include must be available.
+  */
 final case class StageCapabilityProfile(
     name: String,
     requiredPrimitiveDescriptors: Set[String],
@@ -7,12 +29,19 @@ final case class StageCapabilityProfile(
     requiredBackendRequirements: Set[BackendRequirement] = Set.empty,
 )
 
+/** Concrete capabilities supplied by the active compiler/runtime boundary. */
 final case class StageCapabilityAvailability(
     primitiveDescriptors: Set[String],
     stdCapabilities: Set[String],
     backendRequirements: Set[BackendRequirement],
 )
 
+/** Registry for package stage profiles.
+  *
+  * The registry does no expression or type inference. It produces check-phase
+  * diagnostics before source type checking when a package asks for capabilities
+  * that the current cosmo0 target cannot provide.
+  */
 object StageCapabilityRegistry:
   val Cosmo1Stage1 = "cosmo1.stage1"
 

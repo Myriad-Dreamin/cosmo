@@ -186,6 +186,38 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
     module.modulePath == List("main")
 
   def check(pkg: Cosmo0Package): Result[CheckedPackage] =
+    selectedCheckerProfile(pkg.metadata) match
+      case Left(diagnostics) =>
+        return Result.failure(Phase.Check, diagnostics)
+      case Right(profile) =>
+        if profile.id == CheckerProfiles.MlttCore.id then
+          val diagnostics = stageProfileDiagnostics(pkg)
+          if diagnostics.nonEmpty then
+            return Result.failure(Phase.Check, diagnostics)
+          return checkProfilePackage(
+            pkg,
+            pkg.modules,
+            pkg.modules.map(module => moduleKey(module.modulePath)),
+            MlttProfileChecker.checkSources(
+              pkg.modules.map(_.source),
+              pkg.metadata.outputModuleName,
+            ),
+          )
+
+        if profile.id == CheckerProfiles.MlttDependentPatterns.id then
+          val diagnostics = stageProfileDiagnostics(pkg)
+          if diagnostics.nonEmpty then
+            return Result.failure(Phase.Check, diagnostics)
+          return checkProfilePackage(
+            pkg,
+            pkg.modules,
+            pkg.modules.map(module => moduleKey(module.modulePath)),
+            DependentPatternProfileChecker.checkSources(
+              pkg.modules.map(_.source),
+              pkg.metadata.outputModuleName,
+            ),
+          )
+
     val elaborated =
       pkg.modules.map(module => module -> compiler.elaborate(module.source))
     val diagnostics = elaborated.flatMap(_._2.diagnostics)
@@ -224,25 +256,16 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       pkg: Cosmo0Package,
       ordered: List[AnalyzedModule],
   ): Result[CheckedPackage] =
-    val stageDiagnostics =
-      pkg.metadata.stageProfile.toList.flatMap(profileName =>
-        StageCapabilityRegistry.validate(profileName),
-      )
+    val stageDiagnostics = stageProfileDiagnostics(pkg)
     if stageDiagnostics.nonEmpty then
       return Result.failure(Phase.Check, stageDiagnostics)
 
     val checkerProfile =
-      pkg.metadata.checkerProfile match
-        case Some(profileId) =>
-          CheckerProfiles.byId(profileId) match
-            case Some(profile) => profile
-            case None =>
-              return Result.failure(
-                Phase.Check,
-                List(CheckerProfiles.unknownProfileDiagnostic(profileId)),
-              )
-        case None =>
-          CheckerProfiles.Cosmo0Subset
+      selectedCheckerProfile(pkg.metadata) match
+        case Left(diagnostics) =>
+          return Result.failure(Phase.Check, diagnostics)
+        case Right(profile) =>
+          profile
 
     if checkerProfile.id != CheckerProfiles.Cosmo0Subset.id then
       return Result.unsupported(
@@ -272,22 +295,74 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       case typed if typed.isFailure =>
         Result.failure(Phase.Check, typed.diagnostics)
       case typed =>
-        val checkedModule = CheckedModule(typed.value.get)
-        LirLowerer(checkedModule.typed).lower() match
-          case lowered if lowered.isFailure =>
-            Result.failure(Phase.Check, lowered.diagnostics)
-          case lowered =>
-            val loweredModule = LoweredModule(checkedModule, lowered.value.get)
-            Result.success(
-              Phase.Check,
-              CheckedPackage(
-                pkg.metadata,
-                ordered.map(_.pkgModule),
-                ordered.map(_.key),
-                checkedModule,
-                loweredModule,
-              ),
-            )
+        checkedPackageFromTyped(
+          pkg,
+          ordered.map(_.pkgModule),
+          ordered.map(_.key),
+          typed.value.get,
+        )
+
+  private def checkProfilePackage(
+      pkg: Cosmo0Package,
+      modules: List[Cosmo0PackageModule],
+      moduleOrder: List[String],
+      typed: Result[TypedModule],
+  ): Result[CheckedPackage] =
+    typed match
+      case checked if checked.isFailure =>
+        Result.failure(Phase.Check, checked.diagnostics)
+      case checked if checked.isUnsupported =>
+        Result(
+          Phase.Check,
+          PhaseStatus.Unsupported,
+          None,
+          checked.diagnostics,
+        )
+      case checked =>
+        checkedPackageFromTyped(pkg, modules, moduleOrder, checked.value.get)
+
+  private def checkedPackageFromTyped(
+      pkg: Cosmo0Package,
+      modules: List[Cosmo0PackageModule],
+      moduleOrder: List[String],
+      typed: TypedModule,
+  ): Result[CheckedPackage] =
+    val checkedModule = CheckedModule(typed)
+    LirLowerer(checkedModule.typed).lower() match
+      case lowered if lowered.isFailure =>
+        Result.failure(Phase.Check, lowered.diagnostics)
+      case lowered =>
+        val loweredModule = LoweredModule(checkedModule, lowered.value.get)
+        Result.success(
+          Phase.Check,
+          CheckedPackage(
+            pkg.metadata,
+            modules,
+            moduleOrder,
+            checkedModule,
+            loweredModule,
+          ),
+        )
+
+  private def selectedCheckerProfile(
+      metadata: Cosmo0PackageMetadata,
+  ): Either[List[Diagnostic], CheckerProfile] =
+    metadata.checkerProfile match
+      case Some(profileId) =>
+        CheckerProfiles.byId(profileId) match
+          case Some(profile) =>
+            Right(profile)
+          case None =>
+            Left(List(CheckerProfiles.unknownProfileDiagnostic(profileId)))
+      case None =>
+        Right(CheckerProfiles.Cosmo0Subset)
+
+  private def stageProfileDiagnostics(
+      pkg: Cosmo0Package,
+  ): List[Diagnostic] =
+    pkg.metadata.stageProfile.toList.flatMap(profileName =>
+      StageCapabilityRegistry.validate(profileName),
+    )
 
   private def readMetadata(
       metadataPath: String,
