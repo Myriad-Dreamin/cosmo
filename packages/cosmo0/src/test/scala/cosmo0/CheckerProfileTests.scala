@@ -43,20 +43,19 @@ class CheckerProfileTests extends munit.FunSuite:
     assert(dependent.supports(CheckerProfiles.DependentPatternElaborationFeature))
     assert(!dependent.rejects(CheckerProfiles.DependentPatternsFeature))
 
-  test("default cosmo0 check result identifies the cosmo0 subset profile"):
+  test("default cosmo0 check result uses the cosmo0 subset profile"):
     val result = Cosmo0().check("val answer = 42")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
-    assertEquals(result.value.get.typed.checkerProfileId, CheckerProfiles.Cosmo0Subset.id)
-    assertEquals(result.value.get.typed.checkerArtifactKind, "typed-module")
+    assert(result.diagnostics.isEmpty)
+    assertEquals(result.value.get.typed.declarations.length, 1)
 
   test("explicit cosmo0 subset profile keeps the default checker behavior"):
     val result = Cosmo0().checkWithProfile("val answer = 42", CheckerProfiles.Cosmo0Subset.id)
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
-    assertEquals(result.value.get.typed.checkerProfileId, CheckerProfiles.Cosmo0Subset.id)
     assert(result.diagnostics.isEmpty)
 
   test("experimental MLTT profile rejects object source as an unsupported checker result"):
@@ -97,7 +96,7 @@ class CheckerProfileTests extends munit.FunSuite:
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
-    assertEquals(result.value.get.checked.typed.checkerProfileId, CheckerProfiles.Cosmo0Subset.id)
+    assert(result.diagnostics.isEmpty)
 
   test("package checker profile metadata keeps experimental profiles isolated"):
     val source = SourceFile("main.cos", "val answer = 42")
@@ -135,5 +134,5 @@ class CheckerProfileTests extends munit.FunSuite:
     val second = Cosmo0().check("val answer = 42").value.get.typed.checkerArtifactSummary
 
     assertEquals(first, second)
-    assertEquals(first, "cosmo0.subset|typed-module|decls=1|val:answer:i32")
+    assertEquals(first, "decls=1|val:answer:i32")
 end CheckerProfileTests

@@ -39,19 +39,13 @@ package cosmo0
 sealed trait TypedNode:
   def span: SourceSpan
 
-/** Checked source module.
-  *
-  * `checkerProfileId` and `checkerArtifactKind` are embedded so package-level
-  * validation can tell which checker profile produced the artifact.
-  */
+/** Checked source module. */
 final case class TypedModule(
     source: SourceFile,
     declarations: List[TypedDecl],
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
     cppNamespaceImports: List[SourceCppNamespaceImport] = Nil,
-    checkerProfileId: String = CheckerProfiles.Cosmo0Subset.id,
-    checkerArtifactKind: String = CheckerProfiles.Cosmo0Subset.artifactKind,
 ) extends TypedNode:
   /** Stable summary used to compare checker artifacts without serializing the
     * whole typed tree.
@@ -59,7 +53,7 @@ final case class TypedModule(
   def checkerArtifactSummary: String =
     val declarationSummary =
       declarations.map(checkerDeclarationSummary).mkString(",")
-    s"$checkerProfileId|$checkerArtifactKind|decls=${declarations.length}|$declarationSummary"
+    s"decls=${declarations.length}|$declarationSummary"
 
   private def checkerDeclarationSummary(declaration: TypedDecl): String =
     declaration match

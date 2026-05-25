@@ -169,8 +169,6 @@ final class SourceTyper(
       module.span,
       module.cIncludes,
       foreignAliases.values.toList,
-      profile.id,
-      profile.artifactKind,
     )
     if diagnostics.isEmpty then Result.success(Phase.Check, result)
     else Result.failure(Phase.Check, diagnostics.toList)

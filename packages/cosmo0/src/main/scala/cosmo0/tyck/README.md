@@ -15,5 +15,5 @@ Subdirectories:
 - `mltt/` contains the Scala mirror for the MLTT core checker experiments.
 
 Upstream input comes from `syntax/Elaborator.scala`. Downstream output goes to
-`lir/Lowerer.scala`. Profile metadata is also read by `package/Pipeline.scala`
+`lir/Lowerer.scala`. Profile metadata is also read by `source/Pipeline.scala`
 when package metadata selects a checker profile.
