@@ -56,7 +56,7 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor TextView"))
     assert(!rendered.contains("descriptor StringBuilder"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
 
     assert(
       compiled.isSuccess,
@@ -117,7 +117,7 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor SourceText"))
     assert(!rendered.contains("descriptor TextView"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
 
     assert(
       compiled.isSuccess,
@@ -154,7 +154,7 @@ class Core0TextInterfaceTests extends munit.FunSuite:
     assert(!rendered.contains("descriptor SourceMap"))
     assert(!rendered.contains("descriptor SourceLocation"))
 
-    val compiled = CppBackend().emit(lowered.value.get.lir)
+    val compiled = CppBackend(lowered.value.get.lir).emit()
 
     assert(
       compiled.isSuccess,

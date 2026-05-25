@@ -4,21 +4,20 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 object LirLowerer:
-  def apply(): LirLowerer =
-    new LirLowerer(LirTypeChecker(), StandardGenericDescriptors.all)
+  def apply(module: TypedModule): LirLowerer =
+    new LirLowerer(module, StandardGenericDescriptors.all)
 
 final class LirLowerer(
-    checker: LirTypeChecker,
+    module: TypedModule,
     descriptors: Map[String, StandardGenericDescriptor] =
       StandardGenericDescriptors.all,
 ):
-  def lower(module: TypedModule): Result[LirModule] =
-    val state = State(module)
-    val lowered = state.lower()
-    if state.diagnostics.nonEmpty then
-      Result.failure(Phase.Compile, state.diagnostics)
+  def lower(): Result[LirModule] =
+    val lowered = lowerModule()
+    if diagnostics.nonEmpty then
+      Result.failure(Phase.Compile, diagnostics)
     else
-      checker.check(lowered) match
+      LirTypeChecker(lowered, descriptors).check() match
         case checked if checked.isSuccess =>
           Result.success(Phase.Compile, checked.value.get)
         case failed =>
@@ -1523,189 +1522,188 @@ final class LirLowerer(
         case SourceType.Function(_, _) => true
         case _                         => false
 
-  private final class State(module: TypedModule):
-    private val errors = ListBuffer.empty[Diagnostic]
-    private val context = DeclContext.from(module)
-    private val syntheticExternNames = mutable.LinkedHashSet.empty[String]
+  private val errors = ListBuffer.empty[Diagnostic]
+  private val context = DeclContext.from(module)
+  private val syntheticExternNames = mutable.LinkedHashSet.empty[String]
 
-    def diagnostics: List[Diagnostic] =
-      errors.toList
+  private def diagnostics: List[Diagnostic] =
+    errors.toList
 
-    def lower(): LirModule =
-      LirModule(
-        moduleName(module.source),
-        (module.declarations.flatMap(lowerDecl) ++ syntheticExternDeclarations)
-          .sortBy(_.id.value),
-        module.cIncludes,
-        module.cppNamespaceImports,
-      )
+  private def lowerModule(): LirModule =
+    LirModule(
+      moduleName(module.source),
+      (module.declarations.flatMap(lowerDecl) ++ syntheticExternDeclarations)
+        .sortBy(_.id.value),
+      module.cIncludes,
+      module.cppNamespaceImports,
+    )
 
-    private def lowerDecl(declaration: TypedDecl): List[LirDeclaration] =
-      declaration match
-        case _: TypedImport =>
-          Nil
+  private def lowerDecl(declaration: TypedDecl): List[LirDeclaration] =
+    declaration match
+      case _: TypedImport =>
+        Nil
 
-        case _: TypedCppNamespaceImport =>
-          Nil
+      case _: TypedCppNamespaceImport =>
+        Nil
 
-        case alias: TypedTypeAlias =>
-          List(
-            LirTypeAliasDecl(
-              context.aliasId(None, alias.name),
-              alias.name,
-              Lir.t(alias.target),
-              alias.typeParams,
-            ),
-          )
+      case alias: TypedTypeAlias =>
+        List(
+          LirTypeAliasDecl(
+            context.aliasId(None, alias.name),
+            alias.name,
+            Lir.t(alias.target),
+            alias.typeParams,
+          ),
+        )
 
-        case value: TypedValueDecl =>
-          List(
-            LirGlobal(
-              context
-                .globalId(value.name)
-                .getOrElse(Lir.declId(qualifiedId(None, value.name))),
-              value.name,
-              Lir.t(value.valueType),
-              mutable = value.kind == UntypedValueKind.Var,
-              initializer = value.init.flatMap(staticValue),
-              mutationAllowed = mutationCapability(value.valueType),
-            ),
-          )
+      case value: TypedValueDecl =>
+        List(
+          LirGlobal(
+            context
+              .globalId(value.name)
+              .getOrElse(Lir.declId(qualifiedId(None, value.name))),
+            value.name,
+            Lir.t(value.valueType),
+            mutable = value.kind == UntypedValueKind.Var,
+            initializer = value.init.flatMap(staticValue),
+            mutationAllowed = mutationCapability(value.valueType),
+          ),
+        )
 
-        case fn: TypedFunction =>
-          List(lowerFunction(fn))
+      case fn: TypedFunction =>
+        List(lowerFunction(fn))
 
-        case cls: TypedClass =>
-          val typeDecl =
-            LirTypeDecl(
-              context
-                .typeId(cls.name)
-                .getOrElse(Lir.declId(stablePart(cls.name))),
-              cls.name,
-              fields = cls.fields.map(field =>
-                LirField(
-                  field.name,
-                  Lir.t(field.valueType),
-                  mutable = field.kind == UntypedValueKind.Var,
-                ),
+      case cls: TypedClass =>
+        val typeDecl =
+          LirTypeDecl(
+            context
+              .typeId(cls.name)
+              .getOrElse(Lir.declId(stablePart(cls.name))),
+            cls.name,
+            fields = cls.fields.map(field =>
+              LirField(
+                field.name,
+                Lir.t(field.valueType),
+                mutable = field.kind == UntypedValueKind.Var,
               ),
-              variants = cls.variants.map(variant =>
-                LirVariant(
-                  variant.name,
-                  variant.fields.map(field =>
-                    LirVariantPayload(
-                      field.name,
-                      Lir.t(field.valueType),
-                    ),
+            ),
+            variants = cls.variants.map(variant =>
+              LirVariant(
+                variant.name,
+                variant.fields.map(field =>
+                  LirVariantPayload(
+                    field.name,
+                    Lir.t(field.valueType),
                   ),
                 ),
               ),
-            )
-          val aliases = cls.aliases.map(alias =>
-            LirTypeAliasDecl(
-              context.aliasId(Some(cls.name), alias.name),
-              alias.name,
-              Lir.t(alias.target),
-              alias.typeParams,
             ),
           )
-          typeDecl :: aliases ::: cls.methods.map(lowerFunction)
+        val aliases = cls.aliases.map(alias =>
+          LirTypeAliasDecl(
+            context.aliasId(Some(cls.name), alias.name),
+            alias.name,
+            Lir.t(alias.target),
+            alias.typeParams,
+          ),
+        )
+        typeDecl :: aliases ::: cls.methods.map(lowerFunction)
 
-    private def lowerFunction(function: TypedFunction): LirFunction =
-      TrustedExternAbi.bindingForDeclaration(function) match
-        case Some(binding) =>
-          LirFunction(
-            context
-              .functionId(function.owner, function.name)
-              .getOrElse(
-                Lir.declId(qualifiedId(function.owner, function.name)),
-              ),
-            function.name,
-            function.params.map { param =>
-              LirParam(
-                Lir.localId(stablePart(param.name)),
-                param.name,
-                Lir.t(param.valueType),
-                mutationCapability(param.valueType),
-              )
-            },
-            Lir.t(function.returnType),
-            locals = Nil,
-            blocks = Nil,
-            owner = function.owner.flatMap(context.typeId),
-            sourceSignature = Some(function.signature),
-            externBinding = Some(binding),
-          )
-        case None if function.body.isEmpty =>
-          error(
-            "cosmo0.lir.lower.missing-extern-binding",
-            s"function ${function.name} has no body and no trusted extern ABI binding",
-            function.span,
-          )
-          FunctionBuilder(function, context, error, useSyntheticExtern).lower()
-        case None =>
-          FunctionBuilder(function, context, error, useSyntheticExtern).lower()
-
-    private def useSyntheticExtern(name: String): LirDeclId =
-      syntheticExternNames += name
-      TrustedExternAbi.syntheticId(name)
-
-    private def syntheticExternDeclarations: List[LirFunction] =
-      syntheticExternNames.toList.sorted.flatMap(
-        TrustedExternAbi.syntheticFunction,
-      )
-
-    private def staticValue(expr: TypedExpr): Option[LirValue] =
-      expr match
-        case TypedUnitLiteral(_, _) =>
-          Some(LirUnitValue)
-        case TypedBoolLiteral(value, _, _) =>
-          Some(LirBoolValue(value))
-        case TypedIntLiteral(value, valueType, _) =>
-          Some(LirIntValue(value, Lir.t(valueType)))
-        case TypedFloatLiteral(value, valueType, _) =>
-          Some(LirFloatValue(value, Lir.t(valueType)))
-        case TypedStringLiteral(value, _, _) =>
-          Some(LirStringValue(value))
-        case name: TypedName if name.path.parts.length == 1 =>
-          val valueName = name.path.parts.head
+  private def lowerFunction(function: TypedFunction): LirFunction =
+    TrustedExternAbi.bindingForDeclaration(function) match
+      case Some(binding) =>
+        LirFunction(
           context
-            .globalId(valueName)
-            .map(id => LirGlobalRef(id, Lir.t(name.valueType)))
-            .orElse(
-              context
-                .topLevelFunction(valueName)
-                .flatMap(fn =>
-                  context
-                    .functionId(None, valueName)
-                    .map(id =>
-                      LirFunctionRef(
-                        id,
-                        LirCallableSignature.fromSource(fn.signature),
-                      ),
-                    ),
-                ),
+            .functionId(function.owner, function.name)
+            .getOrElse(
+              Lir.declId(qualifiedId(function.owner, function.name)),
+            ),
+          function.name,
+          function.params.map { param =>
+            LirParam(
+              Lir.localId(stablePart(param.name)),
+              param.name,
+              Lir.t(param.valueType),
+              mutationCapability(param.valueType),
             )
-        case other =>
-          error(
-            "cosmo0.lir.lower.unsupported-initializer",
-            s"global ${other.valueType.display} initializer is not a static LIR value",
-            other.span,
-          )
-          None
+          },
+          Lir.t(function.returnType),
+          locals = Nil,
+          blocks = Nil,
+          owner = function.owner.flatMap(context.typeId),
+          sourceSignature = Some(function.signature),
+          externBinding = Some(binding),
+        )
+      case None if function.body.isEmpty =>
+        error(
+          "cosmo0.lir.lower.missing-extern-binding",
+          s"function ${function.name} has no body and no trusted extern ABI binding",
+          function.span,
+        )
+        FunctionBuilder(function, context, error, useSyntheticExtern).lower()
+      case None =>
+        FunctionBuilder(function, context, error, useSyntheticExtern).lower()
 
-    private def error(
-        code: String,
-        message: String,
-        span: SourceSpan,
-    ): Unit =
-      errors += Diagnostic(
-        Phase.Compile,
-        DiagnosticSeverity.Error,
-        code,
-        message,
-        Some(span),
-      )
+  private def useSyntheticExtern(name: String): LirDeclId =
+    syntheticExternNames += name
+    TrustedExternAbi.syntheticId(name)
+
+  private def syntheticExternDeclarations: List[LirFunction] =
+    syntheticExternNames.toList.sorted.flatMap(
+      TrustedExternAbi.syntheticFunction,
+    )
+
+  private def staticValue(expr: TypedExpr): Option[LirValue] =
+    expr match
+      case TypedUnitLiteral(_, _) =>
+        Some(LirUnitValue)
+      case TypedBoolLiteral(value, _, _) =>
+        Some(LirBoolValue(value))
+      case TypedIntLiteral(value, valueType, _) =>
+        Some(LirIntValue(value, Lir.t(valueType)))
+      case TypedFloatLiteral(value, valueType, _) =>
+        Some(LirFloatValue(value, Lir.t(valueType)))
+      case TypedStringLiteral(value, _, _) =>
+        Some(LirStringValue(value))
+      case name: TypedName if name.path.parts.length == 1 =>
+        val valueName = name.path.parts.head
+        context
+          .globalId(valueName)
+          .map(id => LirGlobalRef(id, Lir.t(name.valueType)))
+          .orElse(
+            context
+              .topLevelFunction(valueName)
+              .flatMap(fn =>
+                context
+                  .functionId(None, valueName)
+                  .map(id =>
+                    LirFunctionRef(
+                      id,
+                      LirCallableSignature.fromSource(fn.signature),
+                    ),
+                  ),
+              ),
+          )
+      case other =>
+        error(
+          "cosmo0.lir.lower.unsupported-initializer",
+          s"global ${other.valueType.display} initializer is not a static LIR value",
+          other.span,
+        )
+        None
+
+  private def error(
+      code: String,
+      message: String,
+      span: SourceSpan,
+  ): Unit =
+    errors += Diagnostic(
+      Phase.Compile,
+      DiagnosticSeverity.Error,
+      code,
+      message,
+      Some(span),
+    )
 
   private def mutationCapability(valueType: SourceType): Boolean =
     SourceType.dealias(valueType) match

@@ -143,7 +143,7 @@ class LirTests extends munit.FunSuite:
     )
 
   test("LIR type checker accepts a valid hand-written module"):
-    val result = LirTypeChecker().check(checkedLirModule())
+    val result = LirTypeChecker(checkedLirModule()).check()
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -182,7 +182,7 @@ class LirTests extends munit.FunSuite:
         ),
       ),
     )
-    val accepted = LirTypeChecker().check(LirModule("refs", List(readBox, callRead)))
+    val accepted = LirTypeChecker(LirModule("refs", List(readBox, callRead))).check()
     assertEquals(accepted.status, PhaseStatus.Succeeded)
 
     val mutateBox = Lir.function(
@@ -212,7 +212,7 @@ class LirTests extends munit.FunSuite:
         ),
       ),
     )
-    val rejected = LirTypeChecker().check(LirModule("refs", List(mutateBox, callMutate)))
+    val rejected = LirTypeChecker(LirModule("refs", List(mutateBox, callMutate))).check()
     assertEquals(rejected.status, PhaseStatus.Failed)
     assert(rejected.diagnostics.exists(_.code == "cosmo0.lir.assignment-mismatch"))
 
@@ -233,7 +233,7 @@ class LirTests extends munit.FunSuite:
       sourceSignature = Some(readonlySource),
     )
 
-    val result = LirTypeChecker().check(LirModule("readonly", List(function)))
+    val result = LirTypeChecker(LirModule("readonly", List(function))).check()
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(result.diagnostics.exists(_.code == "cosmo0.lir.invalid-signature"))
@@ -253,7 +253,7 @@ class LirTests extends munit.FunSuite:
     )
 
     cases.foreach { case (module, code) =>
-      val result = LirTypeChecker().check(module)
+      val result = LirTypeChecker(module).check()
 
       assertEquals(result.phase, Phase.Check)
       assertEquals(result.status, PhaseStatus.Failed)
@@ -276,7 +276,7 @@ class LirTests extends munit.FunSuite:
     )
 
     cases.foreach { case (descriptor, operation) =>
-      val result = LirTypeChecker().check(rejectedDescriptorModule(descriptor, operation))
+      val result = LirTypeChecker(rejectedDescriptorModule(descriptor, operation)).check()
 
       assertEquals(result.phase, Phase.Check)
       assertEquals(result.status, PhaseStatus.Failed)
@@ -315,8 +315,8 @@ class LirTests extends munit.FunSuite:
     val first = invalidBranchModule()
     val second = first.copy(declarations = first.declarations.reverse)
 
-    val firstDiagnostics = LirTypeChecker().check(first).diagnostics.map(d => d.code -> d.message)
-    val secondDiagnostics = LirTypeChecker().check(second).diagnostics.map(d => d.code -> d.message)
+    val firstDiagnostics = LirTypeChecker(first).check().diagnostics.map(d => d.code -> d.message)
+    val secondDiagnostics = LirTypeChecker(second).check().diagnostics.map(d => d.code -> d.message)
 
     assertEquals(firstDiagnostics, secondDiagnostics)
     assert(
