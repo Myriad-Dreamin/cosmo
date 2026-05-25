@@ -12,7 +12,8 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
   private val resolutionPath = "packages/cosmoc/src/names/resolution.cos"
   private val modelPath = "packages/cosmoc/src/types/model.cos"
   private val profilePath = "packages/cosmoc/src/types/profile.cos"
-  private val declarationResolutionPath = "packages/cosmoc/src/types/declaration_resolution.cos"
+  private val declarationResolutionPath =
+    "packages/cosmoc/src/types/declaration_resolution.cos"
   private val typeCheckPath = "packages/cosmoc/src/types/check.cos"
   private val irModelPath = "packages/cosmoc/src/ir/model.cos"
   private val irLoweringPath = "packages/cosmoc/src/ir/lowering.cos"
@@ -24,7 +25,8 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"cosmo1 IR verifier compile failed with diagnostics: ${compiled.diagnostics.map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
+      s"cosmo1 IR verifier compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
     )
     val output = compiled.value.get.output
     assert(output.contains("struct IrModule"))
@@ -43,14 +45,36 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assert(output.contains("inline std::string render_ir_module("))
     assert(output.contains("inline bool ir_verifier_accepts_valid_function()"))
     assert(output.contains("inline bool ir_verifier_rejects_missing_block()"))
-    assert(output.contains("inline bool ir_verifier_rejects_use_before_definition()"))
-    assert(output.contains("inline bool ir_verifier_rejects_invalid_call_shape()"))
-    assert(output.contains("inline bool ir_verifier_rejects_return_type_mismatch()"))
+    assert(
+      output.contains("inline bool ir_verifier_rejects_use_before_definition()"),
+    )
+    assert(
+      output.contains("inline bool ir_verifier_rejects_invalid_call_shape()"),
+    )
+    assert(
+      output.contains("inline bool ir_verifier_rejects_return_type_mismatch()"),
+    )
     assert(output.contains("inline bool ir_debug_renderer_is_deterministic()"))
-    assert(output.contains("inline bool ir_declaration_lowerer_records_parser_state_and_helpers()"))
-    assert(output.contains("inline bool ir_basic_expression_lowerer_accepts_simple_parser_source()"))
-    assert(output.contains("inline bool ir_member_intrinsic_lowerer_accepts_parser_state_methods()"))
-    assert(output.contains("inline bool ir_control_flow_lowerer_accepts_parser_style_flow()"))
+    assert(
+      output.contains(
+        "inline bool ir_declaration_lowerer_records_parser_state_and_helpers()",
+      ),
+    )
+    assert(
+      output.contains(
+        "inline bool ir_basic_expression_lowerer_accepts_simple_parser_source()",
+      ),
+    )
+    assert(
+      output.contains(
+        "inline bool ir_member_intrinsic_lowerer_accepts_parser_state_methods()",
+      ),
+    )
+    assert(
+      output.contains(
+        "inline bool ir_control_flow_lowerer_accepts_parser_style_flow()",
+      ),
+    )
     assert(output.contains("inline bool ir_self_compile_parser_source_runs()"))
     assert(output.contains("int main()"))
     assertCxxAccepts(output)
@@ -60,24 +84,40 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
 
     assert(
       compiled.isSuccess,
-      s"cosmo1 parser self-compile program failed with diagnostics: ${compiled.diagnostics.map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
+      s"cosmo1 parser self-compile program failed with diagnostics: ${compiled.diagnostics
+          .map(d => (d.code, d.message, d.span.map(span => span.start -> span.end)))}",
     )
     val output = compiled.value.get.output
-    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo1 parser self-compile execution test"))
-    IrTestNodeFs.mkdirSync("target/cosmo1-ir-tests", js.Dynamic.literal("recursive" -> true))
+    val compiler = cxxCompiler().getOrElse(
+      fail(
+        "no C++ compiler found for cosmo1 parser self-compile execution test",
+      ),
+    )
+    IrTestNodeFs.mkdirSync(
+      "target/cosmo1-ir-tests",
+      js.Dynamic.literal("recursive" -> true),
+    )
     val sourcePath = "target/cosmo1-ir-tests/ir_verifier_test.cpp"
     val executablePath = "target/cosmo1-ir-tests/ir_verifier_test"
     IrTestNodeFs.writeFileSync(sourcePath, output)
 
     val compile = IrNodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array(
+        "-std=c++17",
+        "-O2",
+        NlohmannJsonDependency.includeArg,
+        sourcePath,
+        "-o",
+        executablePath,
+      ),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
       compile.status.toOption,
       Some(0),
-      s"C++ compiler rejected cosmo1 IR verifier executable output with ${compiler}\n${compile.stderr.getOrElse("")}",
+      s"C++ compiler rejected cosmo1 IR verifier executable output with ${compiler}\n${compile.stderr
+          .getOrElse("")}",
     )
 
     val run = IrNodeSpawnSync(
@@ -88,7 +128,8 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
     assertEquals(
       run.status.toOption,
       Some(0),
-      s"cosmo1 parser self-compile executable failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+      s"cosmo1 parser self-compile executable failed\nstdout:\n${run.stdout
+          .getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
     )
 
   private def compileIrVerifierTestProgram(): Result[CompiledModule] =
@@ -128,7 +169,9 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
         irLoweringPath,
       ),
     ) + "\n" + parserSelfCompileMainSource
-    Cosmo0().compile(SourceFile("packages/cosmoc/src/ir/parser_self_compile_test.cos", source))
+    Cosmo0().compile(
+      SourceFile("packages/cosmoc/src/ir/parser_self_compile_test.cos", source),
+    )
 
   private def parserSelfCompileMainSource: String =
     """def ir_self_compile_parser_source_runs(): Bool = {
@@ -194,10 +237,19 @@ class Cosmo1IrModelVerifierTests extends munit.FunSuite:
       .mkString("\n")
 
   private def assertCxxAccepts(source: String): Unit =
-    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo1 IR C++ acceptance test"))
+    val compiler = cxxCompiler().getOrElse(
+      fail("no C++ compiler found for cosmo1 IR C++ acceptance test"),
+    )
     val result = IrNodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, "-fsyntax-only", "-x", "c++", "-"),
+      js.Array(
+        "-std=c++17",
+        NlohmannJsonDependency.includeArg,
+        "-fsyntax-only",
+        "-x",
+        "c++",
+        "-",
+      ),
       js.Dynamic.literal(input = source, encoding = "utf8"),
     )
     assertEquals(
@@ -221,7 +273,11 @@ end Cosmo1IrModelVerifierTests
 @js.native
 @JSImport("node:child_process", "spawnSync")
 private object IrNodeSpawnSync extends js.Object:
-  def apply(command: String, args: js.Array[String], options: js.Any): IrNodeSpawnSyncResult = js.native
+  def apply(
+      command: String,
+      args: js.Array[String],
+      options: js.Any,
+  ): IrNodeSpawnSyncResult = js.native
 
 @js.native
 private trait IrNodeSpawnSyncResult extends js.Object:
@@ -230,7 +286,7 @@ private trait IrNodeSpawnSyncResult extends js.Object:
   val stderr: js.UndefOr[String] = js.native
 
 @js.native
-@JSImport("node:fs",JSImport.Namespace)
+@JSImport("node:fs", JSImport.Namespace)
 private object IrTestNodeFs extends js.Object:
   def mkdirSync(path: String, options: js.Any): Unit = js.native
   def writeFileSync(path: String, data: String): Unit = js.native

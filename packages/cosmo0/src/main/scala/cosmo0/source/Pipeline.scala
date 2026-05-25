@@ -24,14 +24,14 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
     def key: String = moduleKey(pkgModule.modulePath)
 
     def localDeclarations: List[UntypedDecl] =
-      untyped.declarations.filter {
+      untyped.decls.filter {
         case _: UntypedImport             => false
         case _: UntypedCppNamespaceImport => false
         case _                            => true
       }
 
     def publicDeclarations: List[UntypedDecl] =
-      localDeclarations.filter(_.visibility == UntypedVisibility.Public)
+      localDeclarations.filter(_.vis == UntypedVisibility.Public)
 
   private final case class ImportEdge(
       from: String,
@@ -258,7 +258,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
     val declarations = ordered.flatMap(_.localDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
-    val cppNamespaceImports = ordered.flatMap(_.untyped.cppNamespaceImports)
+    val cppNamespaceImports = ordered.flatMap(_.untyped.cppImports)
     val combinedModule =
       UntypedModule(
         combinedSource,
@@ -488,7 +488,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
     val edges = mutable.LinkedHashMap.empty[String, ListBuffer[ImportEdge]]
     modules.sortBy(_.key).foreach { module =>
       val moduleEdges = edges.getOrElseUpdate(module.key, ListBuffer.empty)
-      module.untyped.declarations.foreach {
+      module.untyped.decls.foreach {
         case importDecl: UntypedImport =>
           val importedKey = moduleKey(importDecl.path.parts)
           byKey.get(importedKey) match

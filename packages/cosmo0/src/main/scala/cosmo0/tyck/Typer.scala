@@ -65,7 +65,7 @@ final class SourceTyper(
         fields.zipWithIndex.map { case (field, index) =>
           CallableParam(
             field.name.getOrElse(s"field$index"),
-            field.valueType,
+            field.ty,
             field.span,
           )
         },
@@ -115,7 +115,7 @@ final class SourceTyper(
 
   private val diagnostics = ListBuffer.empty[Diagnostic]
   private val classNames =
-    module.declarations.collect { case decl: UntypedClass => decl.name }.toSet
+    module.decls.collect { case decl: UntypedClass => decl.name }.toSet
   private val rawAliases =
     mutable.LinkedHashMap.empty[String, UntypedTypeAlias]
   private val aliasTypes = mutable.LinkedHashMap.empty[String, SourceType]
@@ -159,7 +159,7 @@ final class SourceTyper(
     )
 
     val declarations =
-      module.declarations.flatMap { decl =>
+      module.decls.flatMap { decl =>
         typedDecl(decl, globalScope)
       }
 
@@ -175,7 +175,7 @@ final class SourceTyper(
 
   private def collectForeignNamespaceImports(): Unit =
     val ordinaryBindings = mutable.LinkedHashMap.empty[String, SourceSpan]
-    module.declarations.foreach { declaration =>
+    module.decls.foreach { declaration =>
       ordinaryBindingName(declaration).foreach { name =>
         if !ordinaryBindings.contains(name) then
           ordinaryBindings.update(name, declaration.span)
@@ -183,10 +183,10 @@ final class SourceTyper(
     }
 
     val importValues =
-      (module.declarations.collect {
-        case importDecl: UntypedCppNamespaceImport => importDecl.value
+      (module.decls.collect { case importDecl: UntypedCppNamespaceImport =>
+        importDecl.value
       } :::
-        module.cppNamespaceImports).distinct
+        module.cppImports).distinct
 
     importValues.foreach { importValue =>
       ordinaryBindings.get(importValue.alias).foreach { _ =>
@@ -227,7 +227,7 @@ final class SourceTyper(
         Some(other.name)
 
   private def collectAliases(): Unit =
-    module.declarations.foreach {
+    module.decls.foreach {
       case alias: UntypedTypeAlias =>
         rawAliases.update(alias.name, alias)
       case cls: UntypedClass =>
@@ -240,73 +240,71 @@ final class SourceTyper(
     }
 
   private def collectTraits(): Unit =
-    module.declarations.collect { case trt: UntypedTrait => trt }.foreach {
-      trt =>
-        val methods =
-          trt.methods.map(method => functionInfo(method, Some(trt.name)))
-        duplicateMethodNames(methods, trt.name, trt.span)
-        traits.update(
+    module.decls.collect { case trt: UntypedTrait => trt }.foreach { trt =>
+      val methods =
+        trt.methods.map(method => functionInfo(method, Some(trt.name)))
+      duplicateMethodNames(methods, trt.name, trt.span)
+      traits.update(
+        trt.name,
+        TraitInfo(
           trt.name,
-          TraitInfo(
-            trt.name,
-            methods.groupBy(_.name).view.mapValues(_.head).toMap,
-            trt.span,
-          ),
-        )
+          methods.groupBy(_.name).view.mapValues(_.head).toMap,
+          trt.span,
+        ),
+      )
     }
 
   private def collectClasses(): Unit =
-    module.declarations.collect { case cls: UntypedClass => cls }.foreach {
-      cls =>
-        val fields = cls.members.collect { case field: UntypedValueDecl =>
-          FieldInfo(
-            field.name,
-            field.kind,
-            field.valueType.map(resolveType(_, Some(cls.name))).getOrElse {
-              error(
-                "cosmo0.type.missing-annotation",
-                s"field ${field.name} requires an explicit type",
-                field.span,
-              )
-              SourceType.Error
-            },
-            field.init,
-            field.span,
-          )
-        }
-        val aliases = cls.members.collect { case alias: UntypedTypeAlias =>
-          TypedTypeAlias(
-            alias.name,
-            resolveAlias(alias.name),
-            alias.span,
-            alias.typeParams,
-          )
-        }
-        val variants = cls.members.collect { case variant: UntypedVariant =>
-          val fields = variant.fields.map(field =>
-            TypedVariantField(
-              field.name,
-              resolveType(field.valueType, Some(cls.name)),
+    module.decls.collect { case cls: UntypedClass => cls }.foreach { cls =>
+      val fields = cls.members.collect { case field: UntypedValueDecl =>
+        FieldInfo(
+          field.name,
+          field.kind,
+          field.ty.map(resolveType(_, Some(cls.name))).getOrElse {
+            error(
+              "cosmo0.type.missing-annotation",
+              s"field ${field.name} requires an explicit type",
               field.span,
-            ),
-          )
-          variant.name -> VariantInfo(variant.name, fields, variant.span)
-        }.toMap
-        val methods = cls.members
-          .collect { case fn: UntypedFunction =>
-            functionInfo(fn, Some(cls.name))
-          }
-          .map(info => info.name -> info)
-          .toMap
-
-        classes.update(
-          cls.name,
-          ClassInfo(cls.name, fields, aliases, variants, methods, cls.span),
+            )
+            SourceType.Error
+          },
+          field.init,
+          field.span,
         )
+      }
+      val aliases = cls.members.collect { case alias: UntypedTypeAlias =>
+        TypedTypeAlias(
+          alias.name,
+          resolveAlias(alias.name),
+          alias.span,
+          alias.tyParams,
+        )
+      }
+      val variants = cls.members.collect { case variant: UntypedVariant =>
+        val fields = variant.fields.map(field =>
+          TypedVariantField(
+            field.name,
+            resolveType(field.ty, Some(cls.name)),
+            field.span,
+          ),
+        )
+        variant.name -> VariantInfo(variant.name, fields, variant.span)
+      }.toMap
+      val methods = cls.members
+        .collect { case fn: UntypedFunction =>
+          functionInfo(fn, Some(cls.name))
+        }
+        .map(info => info.name -> info)
+        .toMap
+
+      classes.update(
+        cls.name,
+        ClassInfo(cls.name, fields, aliases, variants, methods, cls.span),
+      )
     }
 
   private def collectImpls(): Unit =
-    module.declarations
+    module.decls
       .collect { case impl: UntypedImpl => impl }
       .foreach(collectImpl)
 
@@ -489,10 +487,9 @@ final class SourceTyper(
         false
 
   private def collectFunctions(): Unit =
-    module.declarations.collect { case fn: UntypedFunction => fn }.foreach {
-      fn =>
-        val info = functionInfo(fn, None)
-        functions.update(info.name, info)
+    module.decls.collect { case fn: UntypedFunction => fn }.foreach { fn =>
+      val info = functionInfo(fn, None)
+      functions.update(info.name, info)
     }
 
   private def typedDecl(decl: UntypedDecl, scope: Scope): Option[TypedDecl] =
@@ -507,7 +504,7 @@ final class SourceTyper(
             alias.name,
             resolveAlias(alias.name),
             alias.span,
-            alias.typeParams,
+            alias.tyParams,
           ),
         )
       case value: UntypedValueDecl =>
@@ -516,7 +513,7 @@ final class SourceTyper(
           scope.define(
             valueSymbol(
               valueDecl.name,
-              valueDecl.valueType,
+              valueDecl.ty,
               valueDecl.kind,
               valueDecl.span,
             ),
@@ -637,11 +634,11 @@ final class SourceTyper(
       value: UntypedValueDecl,
       scope: Scope,
   ): Option[TypedValueDecl] =
-    val explicitType = value.valueType.map(resolveType(_, None))
+    val explicitType = value.ty.map(resolveType(_, None))
     val init =
       value.init.map(expr(_, scope, explicitType, FunctionContext.None))
     val valueType =
-      explicitType.orElse(init.map(_.expr.valueType)).getOrElse {
+      explicitType.orElse(init.map(_.expr.ty)).getOrElse {
         error(
           "cosmo0.type.missing-annotation",
           s"value ${value.name} requires a type annotation or initializer",
@@ -672,7 +669,7 @@ final class SourceTyper(
       owner: Option[String],
   ): FunctionInfo =
     val params = fn.params.map(param =>
-      val valueType = param.valueType.map(resolveType(_, owner)).getOrElse {
+      val valueType = param.ty.map(resolveType(_, owner)).getOrElse {
         error(
           "cosmo0.type.missing-annotation",
           s"parameter ${param.name} requires an explicit type",
@@ -683,7 +680,7 @@ final class SourceTyper(
       ParamInfo(param.name, valueType, param.default, param.span),
     )
     val returnType =
-      fn.returnType.map(resolveType(_, owner)).getOrElse(SourceType.Unit)
+      fn.retTy.map(resolveType(_, owner)).getOrElse(SourceType.Unit)
     val receiver = owner.flatMap: ownerName =>
       params.headOption
         .filter(_.name == "self")
@@ -723,7 +720,7 @@ final class SourceTyper(
       signature,
       owner,
       fn.span,
-      fn.externBinding,
+      fn.extern,
     )
 
   private def expr(
@@ -845,7 +842,7 @@ final class SourceTyper(
       blockItem(item, scope, itemExpected, context)
     }
     val valueType = items.lastOption match
-      case Some(expr: TypedExpr) => expr.valueType
+      case Some(expr: TypedExpr) => expr.ty
       case _                     => SourceType.Unit
     ExprInfo(
       TypedBlock(items, valueType, node.span),
@@ -862,10 +859,10 @@ final class SourceTyper(
     item match
       case local: UntypedLocal =>
         val explicitType =
-          local.valueType.map(resolveType(_, context.ownerName))
+          local.ty.map(resolveType(_, context.ownerName))
         val init = local.init.map(expr(_, scope, explicitType, context))
         val valueType =
-          explicitType.orElse(init.map(_.expr.valueType)).getOrElse {
+          explicitType.orElse(init.map(_.expr.ty)).getOrElse {
             error(
               "cosmo0.type.missing-annotation",
               s"local ${local.name} requires a type annotation or initializer",
@@ -975,7 +972,7 @@ final class SourceTyper(
         )
 
   private def typeConstructorExpr(node: UntypedTypeConstructor): ExprInfo =
-    val constructedType = resolveType(node.valueType, None)
+    val constructedType = resolveType(node.ty, None)
     val valueType = SourceType.dealias(constructedType) match
       case owner @ SourceType.Standard(name, _) =>
         standardGenerics
@@ -995,7 +992,7 @@ final class SourceTyper(
       scope: Scope,
       context: FunctionContext,
   ): ExprInfo =
-    node.receiver match
+    node.recv match
       case UntypedName(path, _) if path.parts.length == 1 =>
         val ownerName = path.parts.head
         classes.get(ownerName).flatMap(_.variants.get(node.field)) match
@@ -1017,8 +1014,8 @@ final class SourceTyper(
           case None =>
       case _ =>
 
-    val receiver = expr(node.receiver, scope, None, context)
-    SourceType.dealias(receiver.expr.valueType) match
+    val receiver = expr(node.recv, scope, None, context)
+    SourceType.dealias(receiver.expr.ty) match
       case owner if foreignMethod(owner, node.field, node.span).nonEmpty =>
         val signature = foreignMethod(owner, node.field, node.span).get
         ExprInfo(
@@ -1026,8 +1023,8 @@ final class SourceTyper(
             receiver.expr,
             node.field,
             signature.functionType,
-            mutableBinding = false,
-            mutationAllowed = false,
+            mutBinding = false,
+            mutAllowed = false,
             node.span,
           ),
           mutableBinding = false,
@@ -1042,8 +1039,8 @@ final class SourceTyper(
             receiver.expr,
             node.field,
             signature.functionType,
-            mutableBinding = false,
-            mutationAllowed = false,
+            mutBinding = false,
+            mutAllowed = false,
             node.span,
           ),
           mutableBinding = false,
@@ -1080,8 +1077,8 @@ final class SourceTyper(
                         receiver.expr,
                         node.field,
                         method.signature.functionType,
-                        mutableBinding = false,
-                        mutationAllowed = false,
+                        mutBinding = false,
+                        mutAllowed = false,
                         node.span,
                       ),
                       false,
@@ -1090,11 +1087,11 @@ final class SourceTyper(
                   case None =>
                     invalidField(
                       node.field,
-                      receiver.expr.valueType,
+                      receiver.expr.ty,
                       node.span,
                     )
           case None =>
-            invalidField(node.field, receiver.expr.valueType, node.span)
+            invalidField(node.field, receiver.expr.ty, node.span)
 
   private def invalidField(
       field: String,
@@ -1111,8 +1108,8 @@ final class SourceTyper(
         TypedUnitLiteral(SourceType.Unit, span),
         field,
         SourceType.Error,
-        mutableBinding = false,
-        mutationAllowed = false,
+        mutBinding = false,
+        mutAllowed = false,
         span,
       ),
       mutableBinding = false,
@@ -1242,7 +1239,7 @@ final class SourceTyper(
             errorCall(node, scope, context)
       case constructor: UntypedTypeConstructor =>
         val constructedType =
-          resolveType(constructor.valueType, context.ownerName)
+          resolveType(constructor.ty, context.ownerName)
         SourceType.dealias(constructedType) match
           case owner @ SourceType.Standard(name, _) =>
             standardGenerics.get(name).flatMap(_.constructor("<init>")) match
@@ -1379,7 +1376,7 @@ final class SourceTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
-    select.receiver match
+    select.recv match
       case UntypedName(path, _) if path.parts.length == 1 =>
         val ownerName = path.parts.head
         classes.get(ownerName).flatMap(_.variants.get(select.field)) match
@@ -1401,8 +1398,8 @@ final class SourceTyper(
           case None =>
       case _ =>
 
-    val receiver = expr(select.receiver, scope, None, context)
-    SourceType.dealias(receiver.expr.valueType) match
+    val receiver = expr(select.recv, scope, None, context)
+    SourceType.dealias(receiver.expr.ty) match
       case owner if foreignMethod(owner, select.field, select.span).nonEmpty =>
         val signature = foreignMethod(owner, select.field, select.span).get
         checkReceiverMutation(receiver, signature, select.span)
@@ -1477,7 +1474,7 @@ final class SourceTyper(
       scope: Scope,
       context: FunctionContext,
   ): ExprInfo =
-    SourceType.dealias(callee.expr.valueType) match
+    SourceType.dealias(callee.expr.ty) match
       case SourceType.Function(params, returnType) =>
         val signature = CallableSignature(
           "<function>",
@@ -1527,7 +1524,7 @@ final class SourceTyper(
         if !canPass(typed, paramType) then
           error(
             "cosmo0.type.invalid-call",
-            s"argument ${index + 1} has type ${typed.expr.valueType.display}, expected ${paramType.display}",
+            s"argument ${index + 1} has type ${typed.expr.ty.display}, expected ${paramType.display}",
             arg.span,
           ),
       )
@@ -1588,10 +1585,10 @@ final class SourceTyper(
     typedArgs.zip(signature.params).zipWithIndex.foreach {
       case ((actual, param), index) =>
         val paramType = param.valueType
-        if !SourceType.assignable(actual.valueType, paramType) then
+        if !SourceType.assignable(actual.ty, paramType) then
           error(
             "cosmo0.type.invalid-call",
-            s"argument ${index + 1} has type ${actual.valueType.display}, expected ${paramType.display}",
+            s"argument ${index + 1} has type ${actual.ty.display}, expected ${paramType.display}",
             args(index).span,
           )
     }
@@ -1623,17 +1620,17 @@ final class SourceTyper(
         node.target.span,
       )
     val valueExpected =
-      if node.op == "=" then Some(target.expr.valueType)
-      else Some(target.expr.valueType)
+      if node.op == "=" then Some(target.expr.ty)
+      else Some(target.expr.ty)
     val value = expr(node.value, scope, valueExpected, context)
-    if !SourceType.assignable(value.expr.valueType, target.expr.valueType)
+    if !SourceType.assignable(value.expr.ty, target.expr.ty)
     then
       error(
         "cosmo0.type.assignment-mismatch",
-        s"cannot assign ${value.expr.valueType.display} to ${target.expr.valueType.display}",
+        s"cannot assign ${value.expr.ty.display} to ${target.expr.ty.display}",
         node.span,
       )
-    if node.op != "=" && !SourceType.isNumeric(target.expr.valueType) then
+    if node.op != "=" && !SourceType.isNumeric(target.expr.ty) then
       error(
         "cosmo0.type.assignment-mismatch",
         s"operator ${node.op} requires a numeric target",
@@ -1673,14 +1670,14 @@ final class SourceTyper(
           expected.filter(SourceType.isNumeric),
           context,
         )
-        if !SourceType.isNumeric(value.expr.valueType) then
+        if !SourceType.isNumeric(value.expr.ty) then
           error(
             "cosmo0.type.invalid-unary",
-            s"operator - requires a numeric operand, got ${value.expr.valueType.display}",
+            s"operator - requires a numeric operand, got ${value.expr.ty.display}",
             node.span,
           )
         ExprInfo(
-          TypedUnary(node.op, value.expr, value.expr.valueType, node.span),
+          TypedUnary(node.op, value.expr, value.expr.ty, node.span),
           false,
           false,
         )
@@ -1690,7 +1687,7 @@ final class SourceTyper(
           TypedUnary(
             node.op,
             value.expr,
-            SourceType.Ref(value.expr.valueType, mutable = false),
+            SourceType.Ref(value.expr.ty, mutable = false),
             node.span,
           ),
           false,
@@ -1698,7 +1695,7 @@ final class SourceTyper(
         )
       case "*" =>
         val value = expr(node.expr, scope, None, context)
-        SourceType.dealias(value.expr.valueType) match
+        SourceType.dealias(value.expr.ty) match
           case SourceType.Ref(target, mutable) =>
             ExprInfo(
               TypedUnary(node.op, value.expr, target, node.span),
@@ -1755,11 +1752,11 @@ final class SourceTyper(
       case "==" | "!=" =>
         val left = expr(node.left, scope, None, context)
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
-        if !SourceType.same(left.expr.valueType, right.expr.valueType) then
+          expr(node.right, scope, Some(left.expr.ty), context)
+        if !SourceType.same(left.expr.ty, right.expr.ty) then
           error(
             "cosmo0.type.invalid-binary",
-            s"operator ${node.op} requires comparable operands, got ${left.expr.valueType.display} and ${right.expr.valueType.display}",
+            s"operator ${node.op} requires comparable operands, got ${left.expr.ty.display} and ${right.expr.ty.display}",
             node.span,
           )
         ExprInfo(
@@ -1781,10 +1778,10 @@ final class SourceTyper(
           context,
         )
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
-        if !SourceType.isNumeric(left.expr.valueType) || !SourceType.same(
-            left.expr.valueType,
-            right.expr.valueType,
+          expr(node.right, scope, Some(left.expr.ty), context)
+        if !SourceType.isNumeric(left.expr.ty) || !SourceType.same(
+            left.expr.ty,
+            right.expr.ty,
           )
         then
           error(
@@ -1811,10 +1808,10 @@ final class SourceTyper(
           context,
         )
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
-        if !SourceType.isNumeric(left.expr.valueType) || !SourceType.same(
-            left.expr.valueType,
-            right.expr.valueType,
+          expr(node.right, scope, Some(left.expr.ty), context)
+        if !SourceType.isNumeric(left.expr.ty) || !SourceType.same(
+            left.expr.ty,
+            right.expr.ty,
           )
         then
           error(
@@ -1827,7 +1824,7 @@ final class SourceTyper(
             node.op,
             left.expr,
             right.expr,
-            left.expr.valueType,
+            left.expr.ty,
             node.span,
           ),
           false,
@@ -1836,7 +1833,7 @@ final class SourceTyper(
       case other =>
         val left = expr(node.left, scope, None, context)
         val right =
-          expr(node.right, scope, Some(left.expr.valueType), context)
+          expr(node.right, scope, Some(left.expr.ty), context)
         error(
           "cosmo0.type.invalid-binary",
           s"unsupported binary operator $other",
@@ -1862,20 +1859,20 @@ final class SourceTyper(
   ): ExprInfo =
     val cond = expr(node.cond, scope, Some(SourceType.Bool), context)
     requireBool(cond, node.cond.span)
-    val thenBranch = expr(node.thenBranch, scope.child, expected, context)
-    val elseBranch =
-      node.elseBranch.map(expr(_, scope.child, expected, context))
-    val valueType = elseBranch match
+    val thenExp = expr(node.thenExp, scope.child, expected, context)
+    val elseExp =
+      node.elseExp.map(expr(_, scope.child, expected, context))
+    val valueType = elseExp match
       case Some(other)
           if SourceType.same(
-            thenBranch.expr.valueType,
-            other.expr.valueType,
+            thenExp.expr.ty,
+            other.expr.ty,
           ) =>
-        thenBranch.expr.valueType
+        thenExp.expr.ty
       case Some(other) =>
         error(
           "cosmo0.type.branch-mismatch",
-          s"if branches have types ${thenBranch.expr.valueType.display} and ${other.expr.valueType.display}",
+          s"if branches have types ${thenExp.expr.ty.display} and ${other.expr.ty.display}",
           node.span,
         )
         SourceType.Error
@@ -1883,8 +1880,8 @@ final class SourceTyper(
     ExprInfo(
       TypedIf(
         cond.expr,
-        thenBranch.expr,
-        elseBranch.map(_.expr),
+        thenExp.expr,
+        elseExp.map(_.expr),
         valueType,
         node.span,
       ),
@@ -1898,7 +1895,7 @@ final class SourceTyper(
       context: FunctionContext,
   ): ExprInfo =
     val iter = expr(node.iter, scope, None, context)
-    val itemType = SourceType.dealias(iter.expr.valueType) match
+    val itemType = SourceType.dealias(iter.expr.ty) match
       case SourceType.Standard("Vec" | "Set" | "Arena", item :: Nil) => item
       case SourceType.Standard("Map", key :: _ :: Nil)               => key
       case other =>
@@ -1938,15 +1935,15 @@ final class SourceTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
-    val scrutinee = expr(node.scrutinee, scope, None, context)
+    val scrutinee = expr(node.scrut, scope, None, context)
     val arms = node.arms.map { arm =>
       val armScope = scope.child
       val typedPattern =
-        pattern(arm.pattern, scrutinee.expr.valueType, armScope)
+        pattern(arm.pat, scrutinee.expr.ty, armScope)
       val body = arm.body.map(expr(_, armScope, expected, context))
       TypedMatchArm(typedPattern, body.map(_.expr), arm.span)
     }
-    val bodyTypes = arms.flatMap(_.body.map(_.valueType))
+    val bodyTypes = arms.flatMap(_.body.map(_.ty))
     val valueType =
       if bodyTypes.isEmpty then SourceType.Unit
       else
@@ -1974,10 +1971,10 @@ final class SourceTyper(
     context match
       case FunctionContext.Some(returnType, _) =>
         val value = expr(node.value, scope, Some(returnType), context)
-        if !SourceType.assignable(value.expr.valueType, returnType) then
+        if !SourceType.assignable(value.expr.ty, returnType) then
           error(
             "cosmo0.type.return-mismatch",
-            s"return has type ${value.expr.valueType.display}, expected ${returnType.display}",
+            s"return has type ${value.expr.ty.display}, expected ${returnType.display}",
             node.span,
           )
         ExprInfo(
@@ -2064,7 +2061,7 @@ final class SourceTyper(
       scope: Scope,
   ): TypedPattern =
     val constructor =
-      constructorExprForPattern(node.constructor, expectedType)
+      constructorExprForPattern(node.ctor, expectedType)
     val signature = constructor.flatMap { case (ownerType, variantName, expr) =>
       constructorSignature(ownerType, variantName, expr.span).map(signature =>
         (signature, expr),
@@ -2280,7 +2277,7 @@ final class SourceTyper(
         )
         SourceType.Error
       case Some(alias) =>
-        resolveType(alias.target, None, seen + name, alias.typeParams.toSet)
+        resolveType(alias.target, None, seen + name, alias.tyParams.toSet)
       case None =>
         SourceType.Error
     aliasTypes.getOrElseUpdate(name, resolved)
@@ -2354,19 +2351,19 @@ final class SourceTyper(
               resolvedArgs,
             )
           case aliasName :: Nil
-              if rawAliases.get(aliasName).exists(_.typeParams.nonEmpty) =>
+              if rawAliases.get(aliasName).exists(_.tyParams.nonEmpty) =>
             val alias = rawAliases(aliasName)
-            if alias.typeParams.length != args.length then
+            if alias.tyParams.length != args.length then
               error(
                 "cosmo0.type.wrong-arity",
-                s"$aliasName expects ${alias.typeParams.length} type argument(s), got ${args.length}",
+                s"$aliasName expects ${alias.tyParams.length} type argument(s), got ${args.length}",
                 span,
               )
             val resolvedArgs =
               args.map(resolveType(_, owner, seenAliases, typeParams))
             substituteTypeParams(
               resolveAlias(aliasName, seenAliases),
-              alias.typeParams.zip(resolvedArgs).toMap,
+              alias.tyParams.zip(resolvedArgs).toMap,
             )
           case _ =>
             standardGenerics.get(name) match
@@ -2458,7 +2455,7 @@ final class SourceTyper(
   private def canPass(actual: ExprInfo, expected: SourceType): Boolean =
     SourceType.dealias(expected) match
       case SourceType.Ref(target, mutable) =>
-        SourceType.dealias(actual.expr.valueType) match
+        SourceType.dealias(actual.expr.ty) match
           case SourceType.Ref(actualTarget, actualMutable) =>
             SourceType.same(
               actualTarget,
@@ -2470,7 +2467,7 @@ final class SourceTyper(
               target,
             ) && (!mutable || actual.mutationAllowed)
       case other =>
-        SourceType.assignable(actual.expr.valueType, other)
+        SourceType.assignable(actual.expr.ty, other)
 
   private def checkAssignable(
       actual: ExprInfo,
@@ -2478,10 +2475,10 @@ final class SourceTyper(
       span: SourceSpan,
       code: String,
   ): Unit =
-    if !SourceType.assignable(actual.expr.valueType, expected) then
+    if !SourceType.assignable(actual.expr.ty, expected) then
       error(
         code,
-        s"expected ${expected.display}, got ${actual.expr.valueType.display}",
+        s"expected ${expected.display}, got ${actual.expr.ty.display}",
         span,
       )
 
@@ -2500,10 +2497,10 @@ final class SourceTyper(
     }
 
   private def requireBool(value: ExprInfo, span: SourceSpan): Unit =
-    if !SourceType.same(value.expr.valueType, SourceType.Bool) then
+    if !SourceType.same(value.expr.ty, SourceType.Bool) then
       error(
         "cosmo0.type.expected-bool",
-        s"expected Bool, got ${value.expr.valueType.display}",
+        s"expected Bool, got ${value.expr.ty.display}",
         span,
       )
 

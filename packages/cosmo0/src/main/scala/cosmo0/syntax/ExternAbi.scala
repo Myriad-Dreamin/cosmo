@@ -404,14 +404,14 @@ object TrustedExternAbi:
     name == abiName || name == directCAbiName
 
   def bindingForDeclaration(function: TypedFunction): Option[LirExternBinding] =
-    function.externBinding
+    function.extern
       .flatMap(directCBindingForDeclaration(function, _))
       .orElse {
         if function.owner.nonEmpty || function.body.nonEmpty then None
         else
           trustedBindings
             .get(function.name)
-            .filter(_.accepts(function.signature))
+            .filter(_.accepts(function.sig))
             .map(_.lirBinding)
       }
 

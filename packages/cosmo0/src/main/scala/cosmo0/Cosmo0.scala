@@ -287,20 +287,20 @@ final class Cosmo0:
         )
 
   private def runnableEntrypoint(pkg: CheckedPackage): Option[TypedFunction] =
-    pkg.checked.typed.declarations.collectFirst {
+    pkg.checked.typed.decls.collectFirst {
       case fn: TypedFunction if fn.owner.isEmpty && fn.name == "main" => fn
     }
 
   private def isRunnableEntrypoint(fn: TypedFunction): Boolean =
     runnableParams(fn) &&
-      fn.externBinding.isEmpty &&
+      fn.extern.isEmpty &&
       fn.body.nonEmpty &&
-      runnableReturnType(fn.returnType)
+      runnableReturnType(fn.retTy)
 
   private def runnableParams(fn: TypedFunction): Boolean =
     fn.params.isEmpty ||
       (fn.params match
-        case param :: Nil => SourceType.same(param.valueType, runnableArgsType)
+        case param :: Nil => SourceType.same(param.ty, runnableArgsType)
         case _            => false
       )
 

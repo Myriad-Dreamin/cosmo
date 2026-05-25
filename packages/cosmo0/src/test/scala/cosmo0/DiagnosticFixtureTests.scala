@@ -6,28 +6,36 @@ class DiagnosticFixtureTests extends munit.FunSuite:
   test("diagnostic fixture directives are well formed"):
     val fixtures = DiagnosticFixtureScanner.load()
 
-    assert(fixtures.nonEmpty, "fixtures/diagnostics must contain at least one .cos fixture with /// diag")
+    assert(
+      fixtures.nonEmpty,
+      "fixtures/diagnostics must contain at least one .cos fixture with /// diag",
+    )
     assertEquals(fixtures.map(_.id).distinct.length, fixtures.length)
 
     fixtures.foreach: fixture =>
-      assert(ParserFixtureManifest.exists(fixture.path), s"missing diagnostic fixture ${fixture.path}")
+      assert(
+        ParserFixtureManifest.exists(fixture.path),
+        s"missing diagnostic fixture ${fixture.path}",
+      )
       DiagnosticFixtureParser.parse(fixture)
 
   test("cosmo0 diagnostic fixtures report expected diagnostics"):
-    DiagnosticFixtureScanner.load().foreach: fixtureRef =>
-      val fixture = DiagnosticFixtureParser.parse(fixtureRef)
-      val result = checkFixture(fixture)
+    DiagnosticFixtureScanner
+      .load()
+      .foreach: fixtureRef =>
+        val fixture = DiagnosticFixtureParser.parse(fixtureRef)
+        val result = checkFixture(fixture)
 
-      assert(
-        !result.isSuccess,
-        s"${fixture.id} should fail but succeeded",
-      )
-
-      fixture.expected.foreach: expected =>
         assert(
-          result.diagnostics.exists(matches(expected, _)),
-          s"${fixture.id} missing ${expected.label}; got ${renderDiagnostics(result.diagnostics)}",
+          !result.isSuccess,
+          s"${fixture.id} should fail but succeeded",
         )
+
+        fixture.expected.foreach: expected =>
+          assert(
+            result.diagnostics.exists(matches(expected, _)),
+            s"${fixture.id} missing ${expected.label}; got ${renderDiagnostics(result.diagnostics)}",
+          )
 
   private def checkFixture(fixture: DiagnosticFixture): Result[CheckedPackage] =
     val modules = fixture.files.map(file =>
@@ -66,8 +74,9 @@ class DiagnosticFixtureTests extends munit.FunSuite:
     diagnostics
       .map: diagnostic =>
         val location = diagnostic.span match
-          case Some(span) => s"${span.fileName}:${span.start.line}:${span.start.column}"
-          case None       => "<no span>"
+          case Some(span) =>
+            s"${span.fileName}:${span.start.line}:${span.start.column}"
+          case None => "<no span>"
         s"$location ${diagnostic.code}: ${diagnostic.message}"
       .mkString("; ")
 
@@ -145,23 +154,33 @@ object DiagnosticFixtureParser:
 
       line match
         case value if value.startsWith(PathPrefix) =>
-          assert(currentPath.isEmpty, s"${ref.path}:$directiveLine starts a path before ending ${currentPath.get}")
+          assert(
+            currentPath.isEmpty,
+            s"${ref.path}:$directiveLine starts a path before ending ${currentPath.get}",
+          )
           currentPath = Some(value.stripPrefix(PathPrefix).trim)
           body = ListBuffer.empty[String]
 
         case value if value.startsWith(EndPathPrefix) =>
           val expectedPath = value.stripPrefix(EndPathPrefix).trim
           val path = currentPath.getOrElse {
-            throw new AssertionError(s"${ref.path}:$directiveLine ends $expectedPath without an open path")
+            throw new AssertionError(
+              s"${ref.path}:$directiveLine ends $expectedPath without an open path",
+            )
           }
-          assert(path == expectedPath, s"${ref.path}:$directiveLine ends $expectedPath but current path is $path")
+          assert(
+            path == expectedPath,
+            s"${ref.path}:$directiveLine ends $expectedPath but current path is $path",
+          )
           files += DiagnosticFixtureFile(path, body.mkString("\n"))
           currentPath = None
           body = ListBuffer.empty[String]
 
         case DiagnosticLine(rawSeverity, rawLine, rawColumn, text) =>
           val path = currentPath.getOrElse {
-            throw new AssertionError(s"${ref.path}:$directiveLine declares a diagnostic outside a path block")
+            throw new AssertionError(
+              s"${ref.path}:$directiveLine declares a diagnostic outside a path block",
+            )
           }
           expected += ExpectedDiagnostic(
             path,
@@ -172,18 +191,29 @@ object DiagnosticFixtureParser:
           )
 
         case value if value.startsWith("///") =>
-          throw new AssertionError(s"${ref.path}:$directiveLine has unknown directive: $value")
+          throw new AssertionError(
+            s"${ref.path}:$directiveLine has unknown directive: $value",
+          )
 
         case value =>
           currentPath match
             case Some(_) =>
               body += value
             case None =>
-              assert(value.trim.isEmpty, s"${ref.path}:$directiveLine has source text outside a path block")
+              assert(
+                value.trim.isEmpty,
+                s"${ref.path}:$directiveLine has source text outside a path block",
+              )
 
-    assert(currentPath.isEmpty, s"${ref.path} ended before closing ${currentPath.get}")
+    assert(
+      currentPath.isEmpty,
+      s"${ref.path} ended before closing ${currentPath.get}",
+    )
     assert(files.nonEmpty, s"${ref.path} must contain at least one path block")
-    assert(expected.nonEmpty, s"${ref.path} must declare at least one expected diagnostic")
+    assert(
+      expected.nonEmpty,
+      s"${ref.path} must declare at least one expected diagnostic",
+    )
 
     DiagnosticFixture(ref.id, ref.path, files.toList, expected.toList)
 
@@ -197,4 +227,6 @@ object DiagnosticFixtureParser:
       case "warning" => DiagnosticSeverity.Warning
       case "info"    => DiagnosticSeverity.Info
       case other =>
-        throw new IllegalArgumentException(s"$path:$line has unknown diagnostic severity '$other'")
+        throw new IllegalArgumentException(
+          s"$path:$line has unknown diagnostic severity '$other'",
+        )

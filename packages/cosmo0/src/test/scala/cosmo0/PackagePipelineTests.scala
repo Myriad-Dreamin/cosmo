@@ -1,7 +1,9 @@
 package cosmo0
 
 class PackagePipelineTests extends munit.FunSuite:
-  test("package loader reads metadata and discovers cosmo0 sources deterministically"):
+  test(
+    "package loader reads metadata and discovers cosmo0 sources deterministically",
+  ):
     val result = Cosmo0().loadPackage("fixtures/cosmo0/package/single")
 
     assertEquals(result.phase, Phase.Check)
@@ -17,7 +19,9 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(pkg.metadata.sourceFiles, None)
     assertEquals(pkg.modules.map(_.modulePath), List(List("main")))
 
-  test("package loader reports metadata, source, and unsupported target diagnostics"):
+  test(
+    "package loader reports metadata, source, and unsupported target diagnostics",
+  ):
     val cases = List(
       "fixtures/cosmo0/package/no-metadata" ->
         (PhaseStatus.Failed, "cosmo0.package.missing-metadata"),
@@ -44,7 +48,8 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Check)
     assert(
       result.isSuccess,
-      s"package check failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"package check failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(result.value.get.moduleOrder, List("main"))
     assert(result.value.get.lowered.lir.declarations.exists(_.name == "answer"))
@@ -55,19 +60,23 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Check)
     assert(
       result.isSuccess,
-      s"package check failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"package check failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(result.value.get.moduleOrder, List("util", "main"))
-    assert(result.value.get.checked.typed.declarations.exists(_.name == "collect"))
-    assert(result.value.get.checked.typed.declarations.exists(_.name == "entry"))
+    assert(result.value.get.checked.typed.decls.exists(_.name == "collect"))
+    assert(result.value.get.checked.typed.decls.exists(_.name == "entry"))
 
   test("package check diagnoses missing imports and dependency cycles"):
-    val missingImport = Cosmo0().checkPackage("fixtures/cosmo0/package/missing-import")
+    val missingImport =
+      Cosmo0().checkPackage("fixtures/cosmo0/package/missing-import")
 
     assertEquals(missingImport.phase, Phase.Check)
     assertEquals(missingImport.status, PhaseStatus.Failed)
     assert(
-      missingImport.diagnostics.exists(_.code == "cosmo0.package.missing-import"),
+      missingImport.diagnostics.exists(
+        _.code == "cosmo0.package.missing-import",
+      ),
       s"missing import diagnostic in ${missingImport.diagnostics.map(_.code)}",
     )
     assert(missingImport.diagnostics.exists(_.span.nonEmpty))
@@ -82,18 +91,22 @@ class PackagePipelineTests extends munit.FunSuite:
     )
     assert(cycle.diagnostics.exists(_.message.contains("a -> b -> a")))
 
-  test("package compile emits deterministic output and unique runtime requirements"):
+  test(
+    "package compile emits deterministic output and unique runtime requirements",
+  ):
     val first = Cosmo0().compilePackage("fixtures/cosmo0/package/multi")
     val second = Cosmo0().compilePackage("fixtures/cosmo0/package/multi")
 
     assertEquals(first.phase, Phase.Compile)
     assert(
       first.isSuccess,
-      s"package compile failed with diagnostics: ${first.diagnostics.map(d => d.code -> d.message)}",
+      s"package compile failed with diagnostics: ${first.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assert(
       second.isSuccess,
-      s"package compile failed with diagnostics: ${second.diagnostics.map(d => d.code -> d.message)}",
+      s"package compile failed with diagnostics: ${second.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val firstOutput = first.value.get.output
@@ -101,9 +114,14 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(firstOutput.source, secondOutput.source)
     assertEquals(firstOutput.moduleName, "cosmo0_package_multi")
     assert(firstOutput.source.contains("namespace cosmo0_package_multi {"))
-    assert(firstOutput.source.contains("inline std::vector<std::string> collect()"))
+    assert(
+      firstOutput.source.contains("inline std::vector<std::string> collect()"),
+    )
     assert(firstOutput.source.contains("inline std::size_t entry()"))
-    assertEquals(firstOutput.runtimeRequirements, firstOutput.runtimeRequirements.distinct.sorted)
+    assertEquals(
+      firstOutput.runtimeRequirements,
+      firstOutput.runtimeRequirements.distinct.sorted,
+    )
     assert(firstOutput.runtimeRequirements.contains("vec"))
     assert(!firstOutput.source.contains("CodeGen"))
 
@@ -114,16 +132,21 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(checked.phase, Phase.Check)
     assert(
       checked.isSuccess,
-      s"cosmo1 span/token package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmo1 span/token package check failed with diagnostics: ${checked.diagnostics
+          .map(d => d.code -> d.message)}",
     )
-    assertEquals(checked.value.get.moduleOrder, List("source/span", "lex/token", "main"))
+    assertEquals(
+      checked.value.get.moduleOrder,
+      List("source/span", "lex/token", "main"),
+    )
 
     val compiled = Cosmo0().compilePackage(path)
 
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"cosmo1 span/token package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmo1 span/token package compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.output
     assert(output.source.contains("struct Span"))
@@ -131,14 +154,17 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("struct Token"))
     assert(output.source.contains("inline bool span_token_smoke()"))
 
-  test("cosmo1 extern std smoke package checks and records runtime requirements"):
+  test(
+    "cosmo1 extern std smoke package checks and records runtime requirements",
+  ):
     val path = "fixtures/cosmo0/cosmo1/extern-std-smoke"
     val checked = Cosmo0().checkPackage(path)
 
     assertEquals(checked.phase, Phase.Check)
     assert(
       checked.isSuccess,
-      s"cosmo1 extern std package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmo1 extern std package check failed with diagnostics: ${checked.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(checked.value.get.moduleOrder, List("std/io", "main"))
 
@@ -147,13 +173,26 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"cosmo1 extern std package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmo1 extern std package compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.output
     assert(output.source.contains("inline void extern_std_smoke()"))
-    assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
-    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
+    assert(
+      output.source.contains(
+        "::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));",
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::println"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.include("<cstdio>"),
+      ),
+    )
 
   test("cosmoc Stage 1 package selects the cosmo1 Stage 1 capability profile"):
     val path = "packages/cosmoc"
@@ -162,9 +201,13 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(loaded.phase, Phase.Check)
     assert(
       loaded.isSuccess,
-      s"cosmoc Stage 1 package load failed with diagnostics: ${loaded.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmoc Stage 1 package load failed with diagnostics: ${loaded.diagnostics
+          .map(d => d.code -> d.message)}",
     )
-    assertEquals(loaded.value.get.metadata.stageProfile, Some(StageCapabilityRegistry.Cosmo1Stage1))
+    assertEquals(
+      loaded.value.get.metadata.stageProfile,
+      Some(StageCapabilityRegistry.Cosmo1Stage1),
+    )
     assertEquals(loaded.value.get.metadata.checkerProfile, None)
     assertEquals(
       loaded.value.get.metadata.sourceFiles,
@@ -238,7 +281,8 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(checked.phase, Phase.Check)
     assert(
       checked.isSuccess,
-      s"cosmoc Stage 1 package check failed with diagnostics: ${checked.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmoc Stage 1 package check failed with diagnostics: ${checked.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(
       checked.value.get.moduleOrder,
@@ -284,11 +328,13 @@ class PackagePipelineTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"cosmoc Stage 1 package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"cosmoc Stage 1 package compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assert(
       compiledAgain.isSuccess,
-      s"second cosmoc Stage 1 package compile failed with diagnostics: ${compiledAgain.diagnostics.map(d => d.code -> d.message)}",
+      s"second cosmoc Stage 1 package compile failed with diagnostics: ${compiledAgain.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val output = compiled.value.get.output
@@ -315,17 +361,29 @@ class PackagePipelineTests extends munit.FunSuite:
     assert(output.source.contains("Result<SourceText, IoError>"))
     assert(output.source.contains("core0_fs_read_to_string("))
     assert(output.source.contains("load_source_text("))
-    assert(output.source.contains("inline SyntaxParserResult parse_source_ast("))
+    assert(
+      output.source.contains("inline SyntaxParserResult parse_source_ast("),
+    )
     assert(output.source.contains("inline bool parse_source("))
     assert(output.source.contains("::cosmo0_runtime::read_file("))
     assert(!output.source.contains("StringBuilder"))
     assert(!output.source.contains("TextWriter_descriptor"))
     assert(!output.source.contains("Path_descriptor"))
     assert(!output.source.contains("Filesystem_descriptor"))
-    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<fstream>")))
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::read_file"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.include("<fstream>"),
+      ),
+    )
 
-  test("cosmo1 Stage 1 negative fixtures reject unsupported full-language features"):
+  test(
+    "cosmo1 Stage 1 negative fixtures reject unsupported full-language features",
+  ):
     val cases = List(
       "fixtures/cosmo0/cosmo1/stage1-negative/user-generics" ->
         "cosmo0.elaborate.unsupported.generic-function",

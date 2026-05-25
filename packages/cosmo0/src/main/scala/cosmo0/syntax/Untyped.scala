@@ -21,7 +21,7 @@ package cosmo0
   * UntypedFunction(
   *   "add",
   *   params = List(left: i32, right: i32),
-  *   returnType = Some(i32),
+  *   retTy = Some(i32),
   *   body = Some(UntypedBinary("+", left, right, span)),
   *   span = span,
   * )
@@ -29,7 +29,7 @@ package cosmo0
   * UntypedValueDecl(
   *   Val,
   *   "answer",
-  *   valueType = None,
+  *   ty = None,
   *   init = Some(UntypedCall(add, List(20, 22), span)),
   *   span = span,
   * )
@@ -54,22 +54,22 @@ sealed trait UntypedNode:
 
 /** A complete elaborated source file.
   *
-  * `cIncludes` and `cppNamespaceImports` are collected from file-level
+  * `cIncludes` and `cppImports` are collected from file-level
   * decorators/imports and kept beside declarations so later lowering and
   * backend stages can emit required foreign headers.
   */
 final case class UntypedModule(
     source: SourceFile,
-    declarations: List[UntypedDecl],
+    decls: List[UntypedDecl],
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
-    cppNamespaceImports: List[SourceCppNamespaceImport] = Nil,
+    cppImports: List[SourceCppNamespaceImport] = Nil,
 ) extends UntypedNode
 
 /** Top-level declaration accepted by the cosmo0 checker. */
 sealed trait UntypedDecl extends UntypedNode:
   def name: String
-  def visibility: UntypedVisibility
+  def vis: UntypedVisibility
 
 /** Source visibility as observed during elaboration. */
 enum UntypedVisibility:
@@ -113,14 +113,14 @@ final case class UntypedImport(
     path: UntypedPath,
     dest: Option[UntypedPath],
     span: SourceSpan,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
+    vis: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl:
   def name: String = dest.orElse(Some(path)).fold("<import>")(_.text)
 
 /** C++ namespace import produced from a trusted C++ header import form. */
 final case class UntypedCppNamespaceImport(
     value: SourceCppNamespaceImport,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
+    vis: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl:
   def name: String = value.alias
   def span: SourceSpan = value.span
@@ -130,7 +130,7 @@ final case class UntypedClass(
     name: String,
     members: List[UntypedClassMember],
     span: SourceSpan,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
+    vis: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
 
 /** Trait declaration. Method signatures have no bodies at this stage. */
@@ -138,22 +138,22 @@ final case class UntypedTrait(
     name: String,
     methods: List[UntypedFunction],
     span: SourceSpan,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
+    vis: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
 
 /** Function or method declaration.
   *
-  * `returnType = None` means the typer will use Unit. `body = None` is valid
-  * for trait methods and trusted extern declarations.
+  * `retTy = None` means the typer will use Unit. `body = None` is valid for
+  * trait methods and trusted extern declarations.
   */
 final case class UntypedFunction(
     name: String,
     params: List[UntypedParam],
-    returnType: Option[UntypedType],
+    retTy: Option[UntypedType],
     body: Option[UntypedExpr],
     span: SourceSpan,
-    externBinding: Option[SourceExternBinding] = None,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
+    extern: Option[SourceExternBinding] = None,
+    vis: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -163,10 +163,10 @@ final case class UntypedFunction(
 final case class UntypedValueDecl(
     kind: UntypedValueKind,
     name: String,
-    valueType: Option[UntypedType],
+    ty: Option[UntypedType],
     init: Option[UntypedExpr],
     span: SourceSpan,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
+    vis: UntypedVisibility = UntypedVisibility.Public,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -177,8 +177,8 @@ final case class UntypedTypeAlias(
     name: String,
     target: UntypedType,
     span: SourceSpan,
-    visibility: UntypedVisibility = UntypedVisibility.Public,
-    typeParams: List[String] = Nil,
+    vis: UntypedVisibility = UntypedVisibility.Public,
+    tyParams: List[String] = Nil,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -190,7 +190,7 @@ final case class UntypedImpl(
     target: UntypedPath,
     members: List[UntypedClassMember],
     span: SourceSpan,
-    visibility: UntypedVisibility = UntypedVisibility.Private,
+    vis: UntypedVisibility = UntypedVisibility.Private,
 ) extends UntypedDecl:
   def name: String = s"${traitName.text} for ${target.text}"
 
@@ -206,7 +206,7 @@ final case class UntypedVariant(
   */
 final case class UntypedVariantField(
     name: Option[String],
-    valueType: UntypedType,
+    ty: UntypedType,
     span: SourceSpan,
 ) extends UntypedNode
 
@@ -215,7 +215,7 @@ final case class UntypedVariantField(
   */
 final case class UntypedParam(
     name: String,
-    valueType: Option[UntypedType],
+    ty: Option[UntypedType],
     default: Option[UntypedExpr],
     span: SourceSpan,
 ) extends UntypedNode
@@ -233,12 +233,11 @@ final case class UntypedAppliedType(
     span: SourceSpan,
 ) extends UntypedType
 
-/** Reference type syntax. `mutable = true` corresponds to `&mut T` or
-  * `RefMut[T]`.
+/** Reference type syntax. `mut = true` corresponds to `&mut T` or `RefMut[T]`.
   */
 final case class UntypedRefType(
     target: UntypedType,
-    mutable: Boolean,
+    mut: Boolean,
     span: SourceSpan,
 ) extends UntypedType
 
@@ -248,7 +247,7 @@ final case class UntypedRefType(
 final case class UntypedLocal(
     kind: UntypedValueKind,
     name: String,
-    valueType: Option[UntypedType],
+    ty: Option[UntypedType],
     init: Option[UntypedExpr],
     span: SourceSpan,
 ) extends UntypedStmt
@@ -281,7 +280,7 @@ final case class UntypedName(
   * method.
   */
 final case class UntypedSelect(
-    receiver: UntypedExpr,
+    recv: UntypedExpr,
     field: String,
     span: SourceSpan,
 ) extends UntypedExpr
@@ -297,7 +296,7 @@ final case class UntypedVariantConstructor(
   * types, for example `Vec[i32](...)`.
   */
 final case class UntypedTypeConstructor(
-    valueType: UntypedType,
+    ty: UntypedType,
     span: SourceSpan,
 ) extends UntypedExpr
 
@@ -345,8 +344,8 @@ final case class UntypedBinary(
   */
 final case class UntypedIf(
     cond: UntypedExpr,
-    thenBranch: UntypedExpr,
-    elseBranch: Option[UntypedExpr],
+    thenExp: UntypedExpr,
+    elseExp: Option[UntypedExpr],
     span: SourceSpan,
 ) extends UntypedExpr
 
@@ -377,7 +376,7 @@ final case class UntypedFor(
   * result types must match when bodies are present.
   */
 final case class UntypedMatch(
-    scrutinee: UntypedExpr,
+    scrut: UntypedExpr,
     arms: List[UntypedMatchArm],
     span: SourceSpan,
 ) extends UntypedExpr
@@ -386,7 +385,7 @@ final case class UntypedMatch(
   * not contribute to the match expression result type.
   */
 final case class UntypedMatchArm(
-    pattern: UntypedPattern,
+    pat: UntypedPattern,
     body: Option[UntypedExpr],
     span: SourceSpan,
 ) extends UntypedNode
@@ -481,7 +480,7 @@ final case class UntypedBindingPattern(
   * each payload sub-pattern.
   */
 final case class UntypedVariantPattern(
-    constructor: UntypedExpr,
+    ctor: UntypedExpr,
     args: List[UntypedPattern],
     span: SourceSpan,
 ) extends UntypedPattern

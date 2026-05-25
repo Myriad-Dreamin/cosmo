@@ -6,7 +6,8 @@ import scala.scalajs.js.annotation.JSImport
 class CppBackendTests extends munit.FunSuite:
   private val tokenType = SourceType.User("Token")
   private val optionTokenType = SourceType.Standard("Option", List(tokenType))
-  private val stringVecType = SourceType.Standard("Vec", List(SourceType.String))
+  private val stringVecType =
+    SourceType.Standard("Vec", List(SourceType.String))
   private val spanSourcePath = "packages/cosmoc/src/source/span.cos"
   private val syntaxAstSourcePath = "packages/cosmoc/src/syntax/ast.cos"
   private val symbolSourcePath = "packages/cosmoc/src/names/symbol.cos"
@@ -14,7 +15,8 @@ class CppBackendTests extends munit.FunSuite:
   private val resolutionSourcePath = "packages/cosmoc/src/names/resolution.cos"
   private val typeModelSourcePath = "packages/cosmoc/src/types/model.cos"
   private val profileSourcePath = "packages/cosmoc/src/types/profile.cos"
-  private val declarationResolutionSourcePath = "packages/cosmoc/src/types/declaration_resolution.cos"
+  private val declarationResolutionSourcePath =
+    "packages/cosmoc/src/types/declaration_resolution.cos"
   private val typeCheckSourcePath = "packages/cosmoc/src/types/check.cos"
 
   test("backend rejects structurally invalid LIR at the compile boundary"):
@@ -40,13 +42,16 @@ class CppBackendTests extends munit.FunSuite:
       s"missing LIR boundary diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
-  test("backend emits declarations, bodies, descriptors, variants, and runtime support"):
+  test(
+    "backend emits declarations, bodies, descriptors, variants, and runtime support",
+  ):
     val result = CppBackend(checkedLirModule()).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assert(
       result.isSuccess,
-      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"C++ emission failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
 
     val source = result.value.get.source
@@ -54,7 +59,9 @@ class CppBackendTests extends munit.FunSuite:
     assert(source.contains("namespace checked {"))
     assert(source.contains("struct Token"))
     assert(source.contains("Token() : data(Variant_Empty{}) {}"))
-    assert(source.contains("std::variant<Variant_Empty, Variant_WithText> data;"))
+    assert(
+      source.contains("std::variant<Variant_Empty, Variant_WithText> data;"),
+    )
     assert(source.contains("inline int32_t identity(int32_t value);"))
     assert(source.contains("tmp = token.offset;"))
     assert(source.contains("labels.push_back(std::string(\"ok\"));"))
@@ -83,8 +90,14 @@ class CppBackendTests extends munit.FunSuite:
     val firstOutput = CppBackend(first).emit()
     val secondOutput = CppBackend(second).emit()
 
-    assert(firstOutput.isSuccess, firstOutput.diagnostics.map(_.message).mkString("\n"))
-    assert(secondOutput.isSuccess, secondOutput.diagnostics.map(_.message).mkString("\n"))
+    assert(
+      firstOutput.isSuccess,
+      firstOutput.diagnostics.map(_.message).mkString("\n"),
+    )
+    assert(
+      secondOutput.isSuccess,
+      secondOutput.diagnostics.map(_.message).mkString("\n"),
+    )
     assertEquals(firstOutput.value.get.source, secondOutput.value.get.source)
 
   test("backend avoids stdio macro names in generated C++ identifiers"):
@@ -115,7 +128,9 @@ class CppBackendTests extends munit.FunSuite:
     assert(!source.contains("std::string stdin{};"))
     assertCxxAccepts(source)
 
-  test("backend diagnoses descriptor operations that are valid LIR but unsupported by C++ emission"):
+  test(
+    "backend diagnoses descriptor operations that are valid LIR but unsupported by C++ emission",
+  ):
     val boxType = SourceType.Standard("Box", List(SourceType.I32))
     val refType = SourceType.Ref(SourceType.I32, mutable = false)
     val module = LirModule(
@@ -151,7 +166,8 @@ class CppBackendTests extends munit.FunSuite:
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
       result.diagnostics.exists(_.code == "cosmo0.cpp.unsupported-descriptor"),
-      s"missing backend unsupported descriptor diagnostic in ${result.diagnostics.map(_.code)}",
+      s"missing backend unsupported descriptor diagnostic in ${result.diagnostics
+          .map(_.code)}",
     )
 
   test("Cosmo0 compile emits C++ for the HelloWorld executable target"):
@@ -177,7 +193,11 @@ class CppBackendTests extends munit.FunSuite:
     )
     val output = result.value.get.output
     assert(output.contains("int main()"))
-    assert(output.contains("::cosmo0_runtime::println(std::string(\"Hello, World!\"));"))
+    assert(
+      output.contains(
+        "::cosmo0_runtime::println(std::string(\"Hello, World!\"));",
+      ),
+    )
     assert(output.contains("::cosmo0_runtime::println(z);"))
     assertCxxAccepts(output)
 
@@ -263,13 +283,30 @@ class CppBackendTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Compile)
     assert(
       result.isSuccess,
-      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"C++ emission failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = result.value.get
-    assert(output.source.contains("::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));"))
-    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("cosmo0_runtime::println")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<cstdio>")))
-    assert(output.runtimeRequirements.contains("runtime-symbol:cosmo0_runtime::println"))
+    assert(
+      output.source.contains(
+        "::cosmo0_runtime::println(std::string(\"cosmo1 extern smoke\"));",
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.runtimeSymbol("cosmo0_runtime::println"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.include("<cstdio>"),
+      ),
+    )
+    assert(
+      output.runtimeRequirements.contains(
+        "runtime-symbol:cosmo0_runtime::println",
+      ),
+    )
     assert(!output.runtimeRequirements.contains("Runtime"))
     assertCxxAccepts(output.source)
 
@@ -299,16 +336,33 @@ class CppBackendTests extends munit.FunSuite:
     assertEquals(result.phase, Phase.Compile)
     assert(
       result.isSuccess,
-      s"C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"C++ emission failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = result.value.get
     assert(output.source.contains("#include <stdio.h>"))
-    assert(output.source.indexOf("#include <stdio.h>") < output.source.indexOf("#include <stdlib.h>"))
+    assert(
+      output.source.indexOf("#include <stdio.h>") < output.source.indexOf(
+        "#include <stdlib.h>",
+      ),
+    )
     assert(output.source.contains("#include <stdlib.h>"))
     assert(output.source.contains("abs(value);"))
-    assert(output.backendRequirements.contains(BackendRequirement.runtimeSymbol("abs")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<stdio.h>")))
-    assert(output.backendRequirements.contains(BackendRequirement.include("<stdlib.h>")))
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.runtimeSymbol("abs"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.include("<stdio.h>"),
+      ),
+    )
+    assert(
+      output.backendRequirements.contains(
+        BackendRequirement.include("<stdlib.h>"),
+      ),
+    )
     assert(output.runtimeRequirements.contains("runtime-symbol:abs"))
     assertCxxAccepts(output.source)
 
@@ -347,16 +401,21 @@ class CppBackendTests extends munit.FunSuite:
       ),
     )
 
-    val result = CppBackend(LirModule("missing_extern", List(extern, caller))).emit()
+    val result =
+      CppBackend(LirModule("missing_extern", List(extern, caller))).emit()
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
-      result.diagnostics.exists(_.code == "cosmo0.cpp.missing-extern-runtime-symbol"),
+      result.diagnostics.exists(
+        _.code == "cosmo0.cpp.missing-extern-runtime-symbol",
+      ),
       s"missing extern runtime diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
-  test("Cosmo0 compile emits library-shaped C++ for parser.cos without a main wrapper"):
+  test(
+    "Cosmo0 compile emits library-shaped C++ for parser.cos without a main wrapper",
+  ):
     val result = Cosmo0().compile(
       SourceFile(
         ParserFixtureManifest.parserSourcePath,
@@ -374,7 +433,11 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("struct SyntaxParserResult"))
     assert(output.contains("struct ParserToken"))
     assert(output.contains("inline std::size_t source_len(std::string source)"))
-    assert(output.contains("inline SyntaxParserResult parse_source_ast(std::string source)"))
+    assert(
+      output.contains(
+        "inline SyntaxParserResult parse_source_ast(std::string source)",
+      ),
+    )
     assert(output.contains("inline bool parse_source(std::string source)"))
     assert(output.contains("inline std::string syntax_debug_module("))
     assert(output.contains("inline bool parser_result_required_spans_ok("))
@@ -382,22 +445,29 @@ class CppBackendTests extends munit.FunSuite:
     assertCxxAccepts(output)
 
   test("Cosmo0 compile emits byte-for-byte stable C++ for parser.cos"):
-    val source = SourceFile(ParserFixtureManifest.parserSourcePath, combineParserLibrarySources())
+    val source = SourceFile(
+      ParserFixtureManifest.parserSourcePath,
+      combineParserLibrarySources(),
+    )
     val first = Cosmo0().compile(source)
     val second = Cosmo0().compile(source)
 
     assert(
       first.isSuccess,
-      s"first parser.cos compile failed with diagnostics: ${first.diagnostics.map(d => d.code -> d.message)}",
+      s"first parser.cos compile failed with diagnostics: ${first.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assert(
       second.isSuccess,
-      s"second parser.cos compile failed with diagnostics: ${second.diagnostics.map(d => d.code -> d.message)}",
+      s"second parser.cos compile failed with diagnostics: ${second.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     assertEquals(first.value.get.output, second.value.get.output)
     assertCxxAccepts(first.value.get.output)
 
-  test("Cosmo0 compile emits executable C++ for parser_test linked with parser.cos"):
+  test(
+    "Cosmo0 compile emits executable C++ for parser_test linked with parser.cos",
+  ):
     val result = compileParserTestProgram()
 
     assertEquals(result.phase, Phase.Compile)
@@ -420,15 +490,27 @@ class CppBackendTests extends munit.FunSuite:
       s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
     )
     val output = result.value.get.output
-    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for parser_test execution test"))
-    TestNodeFs.mkdirSync("target/cosmo0-cpp-tests", js.Dynamic.literal("recursive" -> true))
+    val compiler = cxxCompiler().getOrElse(
+      fail("no C++ compiler found for parser_test execution test"),
+    )
+    TestNodeFs.mkdirSync(
+      "target/cosmo0-cpp-tests",
+      js.Dynamic.literal("recursive" -> true),
+    )
     val sourcePath = "target/cosmo0-cpp-tests/parser_test.cpp"
     val executablePath = "target/cosmo0-cpp-tests/parser_test"
     TestNodeFs.writeFileSync(sourcePath, output)
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array(
+        "-std=c++17",
+        "-O2",
+        NlohmannJsonDependency.includeArg,
+        sourcePath,
+        "-o",
+        executablePath,
+      ),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -445,7 +527,8 @@ class CppBackendTests extends munit.FunSuite:
     assertEquals(
       run.status.toOption,
       Some(0),
-      s"parser_test fixture run failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+      s"parser_test fixture run failed\nstdout:\n${run.stdout
+          .getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
     )
 
   test("core0 json_test executable passes through nlohmann runtime bridge"):
@@ -461,33 +544,51 @@ class CppBackendTests extends munit.FunSuite:
 
     assert(
       lowered.isSuccess,
-      s"json_test lower failed with diagnostics: ${lowered.diagnostics.map(d => d.code -> d.message)}",
+      s"json_test lower failed with diagnostics: ${lowered.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val result = CppBackend(lowered.value.get.lir).emit()
     assert(
       result.isSuccess,
-      s"json_test C++ emission failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+      s"json_test C++ emission failed with diagnostics: ${result.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = result.value.get.source
     assert(output.contains("nlohmann::json"))
     assertCxxAccepts(output)
 
-    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for json_test execution test"))
-    TestNodeFs.mkdirSync("target/cosmo0-cpp-tests", js.Dynamic.literal("recursive" -> true))
+    val compiler = cxxCompiler().getOrElse(
+      fail("no C++ compiler found for json_test execution test"),
+    )
+    TestNodeFs.mkdirSync(
+      "target/cosmo0-cpp-tests",
+      js.Dynamic.literal("recursive" -> true),
+    )
     val sourcePath = "target/cosmo0-cpp-tests/json_test.cpp"
     val executablePath = "target/cosmo0-cpp-tests/json_test"
     val entry =
       s"""
          |int main() {
-         |  return ${result.value.get.namespace.mkString("::")}::json_test_smoke() &&
-         |    ${result.value.get.namespace.mkString("::")}::json_test_rejects_invalid() ? 0 : 1;
+         |  return ${result.value.get.namespace.mkString(
+          "::",
+        )}::json_test_smoke() &&
+         |    ${result.value.get.namespace.mkString(
+          "::",
+        )}::json_test_rejects_invalid() ? 0 : 1;
          |}
          |""".stripMargin
     TestNodeFs.writeFileSync(sourcePath, output + entry)
 
     val compile = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", "-O2", NlohmannJsonDependency.includeArg, sourcePath, "-o", executablePath),
+      js.Array(
+        "-std=c++17",
+        "-O2",
+        NlohmannJsonDependency.includeArg,
+        sourcePath,
+        "-o",
+        executablePath,
+      ),
       js.Dynamic.literal(encoding = "utf8"),
     )
     assertEquals(
@@ -504,7 +605,8 @@ class CppBackendTests extends munit.FunSuite:
     assertEquals(
       run.status.toOption,
       Some(0),
-      s"json_test fixture run failed\nstdout:\n${run.stdout.getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
+      s"json_test fixture run failed\nstdout:\n${run.stdout
+          .getOrElse("")}\nstderr:\n${run.stderr.getOrElse("")}",
     )
 
   private def compileParserTestProgram(): Result[CompiledModule] =
@@ -514,7 +616,9 @@ class CppBackendTests extends munit.FunSuite:
         List(
           ParserFixtureManifest.readFile(spanSourcePath),
           ParserFixtureManifest.readFile(syntaxAstSourcePath),
-          ParserFixtureManifest.readFile(ParserFixtureManifest.parserSourcePath),
+          ParserFixtureManifest.readFile(
+            ParserFixtureManifest.parserSourcePath,
+          ),
           ParserFixtureManifest.readFile(symbolSourcePath),
           ParserFixtureManifest.readFile(scopeSourcePath),
           ParserFixtureManifest.readFile(resolutionSourcePath),
@@ -522,7 +626,9 @@ class CppBackendTests extends munit.FunSuite:
           ParserFixtureManifest.readFile(profileSourcePath),
           ParserFixtureManifest.readFile(declarationResolutionSourcePath),
           ParserFixtureManifest.readFile(typeCheckSourcePath),
-          ParserFixtureManifest.readFile(ParserFixtureManifest.parserTestSourcePath),
+          ParserFixtureManifest.readFile(
+            ParserFixtureManifest.parserTestSourcePath,
+          ),
         ).mkString("\n"),
       ),
     )
@@ -535,10 +641,19 @@ class CppBackendTests extends munit.FunSuite:
     ).mkString("\n")
 
   private def assertCxxAccepts(source: String): Unit =
-    val compiler = cxxCompiler().getOrElse(fail("no C++ compiler found for cosmo0 backend acceptance test"))
+    val compiler = cxxCompiler().getOrElse(
+      fail("no C++ compiler found for cosmo0 backend acceptance test"),
+    )
     val result = NodeSpawnSync(
       compiler,
-      js.Array("-std=c++17", NlohmannJsonDependency.includeArg, "-fsyntax-only", "-x", "c++", "-"),
+      js.Array(
+        "-std=c++17",
+        NlohmannJsonDependency.includeArg,
+        "-fsyntax-only",
+        "-x",
+        "c++",
+        "-",
+      ),
       js.Dynamic.literal(input = source, encoding = "utf8"),
     )
     assertEquals(
@@ -614,7 +729,10 @@ class CppBackendTests extends munit.FunSuite:
     List(
       LirAllocLocal(Lir.local("token", tokenType, mutable = true)),
       LirAllocLocal(Lir.local("labels", stringVecType, mutable = true)),
-      LirAllocLocal(Lir.local("count", SourceType.I32, mutable = true), Some(Lir.int(0))),
+      LirAllocLocal(
+        Lir.local("count", SourceType.I32, mutable = true),
+        Some(Lir.int(0)),
+      ),
       LirFieldGet(
         Lir.localId("tmp"),
         Lir.ref("token", tokenType),
@@ -675,7 +793,10 @@ class CppBackendTests extends munit.FunSuite:
         LirField("offset", Lir.t(SourceType.Usize), mutable = true),
       ),
       variants = List(
-        LirVariant("WithText", List(LirVariantPayload(Some("value"), Lir.t(SourceType.String)))),
+        LirVariant(
+          "WithText",
+          List(LirVariantPayload(Some("value"), Lir.t(SourceType.String))),
+        ),
         LirVariant("Empty"),
       ),
     )
@@ -697,7 +818,11 @@ class CppBackendTests extends munit.FunSuite:
 @js.native
 @JSImport("node:child_process", "spawnSync")
 private object NodeSpawnSync extends js.Object:
-  def apply(command: String, args: js.Array[String], options: js.Any): NodeSpawnSyncResult = js.native
+  def apply(
+      command: String,
+      args: js.Array[String],
+      options: js.Any,
+  ): NodeSpawnSyncResult = js.native
 
 @js.native
 private trait NodeSpawnSyncResult extends js.Object:
@@ -706,7 +831,7 @@ private trait NodeSpawnSyncResult extends js.Object:
   val stderr: js.UndefOr[String] = js.native
 
 @js.native
-@JSImport("node:fs",JSImport.Namespace)
+@JSImport("node:fs", JSImport.Namespace)
 private object TestNodeFs extends js.Object:
   def mkdirSync(path: String, options: js.Any): Unit = js.native
   def writeFileSync(path: String, data: String): Unit = js.native

@@ -8,9 +8,13 @@ class LspTypesPackageTests extends munit.FunSuite:
     assertEquals(loaded.phase, Phase.Check)
     assert(
       loaded.isSuccess,
-      s"lsp-types package load failed with diagnostics: ${loaded.diagnostics.map(d => d.code -> d.message)}",
+      s"lsp-types package load failed with diagnostics: ${loaded.diagnostics
+          .map(d => d.code -> d.message)}",
     )
-    assertEquals(loaded.value.get.metadata.stageProfile, Some(StageCapabilityRegistry.Cosmo1Stage1))
+    assertEquals(
+      loaded.value.get.metadata.stageProfile,
+      Some(StageCapabilityRegistry.Cosmo1Stage1),
+    )
     assertEquals(
       loaded.value.get.modules.map(_.modulePath),
       List(
@@ -36,7 +40,8 @@ class LspTypesPackageTests extends munit.FunSuite:
     assertEquals(compiled.phase, Phase.Compile)
     assert(
       compiled.isSuccess,
-      s"lsp-types package compile failed with diagnostics: ${compiled.diagnostics.map(d => d.code -> d.message)}",
+      s"lsp-types package compile failed with diagnostics: ${compiled.diagnostics
+          .map(d => d.code -> d.message)}",
     )
     val output = compiled.value.get.output
     assertEquals(output.moduleName, "cosmo_lsp_types")
@@ -63,10 +68,15 @@ class LspTypesPackageTests extends munit.FunSuite:
       assert(source.contains("Flavor: lspt-style"))
     }
 
-    val base = ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/base.cos")
-    val requests = ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/request.cos")
-    val notifications = ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/notification.cos")
-    val structs = ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/structs.cos")
+    val base =
+      ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/base.cos")
+    val requests =
+      ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/request.cos")
+    val notifications = ParserFixtureManifest.readFile(
+      "packages/lsp-types/src/lsp/notification.cos",
+    )
+    val structs =
+      ParserFixtureManifest.readFile("packages/lsp-types/src/lsp/structs.cos")
 
     assert(base.contains("type Uri = String"))
     assert(base.contains("type HashMap[K, V] = Map[K, V]"))
@@ -74,7 +84,11 @@ class LspTypesPackageTests extends munit.FunSuite:
     assert(structs.contains("class ReferenceParams"))
     assert(structs.contains("val TextDocument: TextDocumentIdentifier"))
     assert(structs.contains("val PartialResultToken: Option[ProgressToken]"))
-    assert(structs.contains("class CodeActionClientCapabilitiesCodeActionLiteralSupportObject"))
+    assert(
+      structs.contains(
+        "class CodeActionClientCapabilitiesCodeActionLiteralSupportObject",
+      ),
+    )
     assert(requests.contains("class InitializeRequest {}"))
     assert(requests.contains("type InitializeRequestParams = InitializeParams"))
     assert(notifications.contains("class DidOpenTextDocumentNotification {}"))

@@ -1372,9 +1372,9 @@ final class Elaborator(
     * {{{
     * i32          => UntypedNamedType(i32)
     * Vec[i32]    => UntypedAppliedType(Vec, List(i32))
-    * &String     => UntypedRefType(String, mutable = false)
-    * &mut String => UntypedRefType(String, mutable = true)
-    * RefMut[T]   => UntypedRefType(T, mutable = true)
+    * &String     => UntypedRefType(String, mut = false)
+    * &mut String => UntypedRefType(String, mut = true)
+    * RefMut[T]   => UntypedRefType(T, mut = true)
     * }}}
     *
     * This method checks only the syntactic admissibility of type forms. Unknown
@@ -1395,11 +1395,11 @@ final class Elaborator(
         )
       case UnOp("&", UnOp("mut", target)) =>
         typeFromNode(target, fallbackSpan, typeParams).map(t =>
-          UntypedRefType(t, mutable = true, nodeSpan(node, fallbackSpan)),
+          UntypedRefType(t, mut = true, nodeSpan(node, fallbackSpan)),
         )
       case UnOp("&", target) =>
         typeFromNode(target, fallbackSpan, typeParams).map(t =>
-          UntypedRefType(t, mutable = false, nodeSpan(node, fallbackSpan)),
+          UntypedRefType(t, mut = false, nodeSpan(node, fallbackSpan)),
         )
       case Apply(lhs, args, true) =>
         pathFromNode(lhs, fallbackSpan) match
@@ -1415,13 +1415,13 @@ final class Elaborator(
                 case Some("Ref") if values.size == 1 =>
                   UntypedRefType(
                     values.head,
-                    mutable = false,
+                    mut = false,
                     nodeSpan(node, fallbackSpan),
                   )
                 case Some("RefMut") if values.size == 1 =>
                   UntypedRefType(
                     values.head,
-                    mutable = true,
+                    mut = true,
                     nodeSpan(node, fallbackSpan),
                   )
                 case _ =>
