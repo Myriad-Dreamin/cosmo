@@ -3,6 +3,23 @@ package cosmo0
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
+/** Index and family term fragment used by dependent-pattern elaboration.
+  *
+  * Term examples:
+  *
+  * {{{
+  * n               // Var("n")
+  * ?m0             // Meta(0)
+  * Z               // Constructor("Z", Nil)
+  * S(n)            // Constructor("S", List(n))
+  * Vec(A, S(n))    // Family("Vec", List(A, S(n)))
+  * }}}
+  *
+  * These terms model constructor result indices, not ordinary cosmo0
+  * expressions. They are stored by integer ids in `DependentPatternTermStore`
+  * so case-tree refinements can share the same compact representation as the
+  * Scala MLTT mirror.
+  */
 enum DependentPatternTerm:
   case Var(name: String)
   case Meta(index: Int)
@@ -91,6 +108,17 @@ final case class DependentPatternUnifyResult(
   def firstCode: String =
     diagnostics.headOption.map(_.code).getOrElse("")
 
+/** Source-level pattern fragment accepted by the dependent-pattern experiment.
+  *
+  * Pattern examples for `xs : Vec(A, S(n))`:
+  *
+  * {{{
+  * Cons(head, tail)  // refines the length index by unifying S(n) with S(k)
+  * _                 // catch-all branch
+  * impossible        // source marks an unreachable branch
+  * left = right      // represented but currently rejected by elaboration
+  * }}}
+  */
 enum DependentSourcePattern:
   case Constructor(name: String, args: List[Int], span: SourceSpan)
   case Variable(name: String, span: SourceSpan)
@@ -161,6 +189,63 @@ final case class DependentCaseTree(
   def firstCode: String =
     diagnostics.headOption.map(_.code).getOrElse("")
 
+/** Elaborates dependent source pattern clauses into a small case tree.
+  *
+  * Direct harness example:
+  *
+  * {{{
+  * val store = DependentPatterns.termStore()
+  * val env = DependentPatterns.env()
+  * val patterns = DependentPatterns.sourcePatternStore()
+  * DependentPatterns.addNatFixture(store, env)
+  * DependentPatterns.addVecFixture(store, env)
+  *
+  * val n = store.allocVar("n")
+  * val xsType = DependentPatterns.vecIndices(
+  *   store,
+  *   DependentPatterns.natSuccessor(store, n),
+  * )
+  * val cons = patterns.allocConstructor(
+  *   "Cons",
+  *   List(patterns.allocVariable("head", span), patterns.allocVariable("tail", span)),
+  *   span,
+  * )
+  * DependentPatterns.elaborateClauses(
+  *   CheckerProfiles.MlttDependentPatterns,
+  *   env,
+  *   store,
+  *   patterns,
+  *   "Vec",
+  *   "xs",
+  *   xsType,
+  *   "A",
+  *   List(DependentPatternClause(cons, "head", span)),
+  * )
+  * }}}
+  *
+  * Elaboration and refinement rules:
+  *
+  *   - Profile gate: the selected `CheckerProfile` must support
+  *     `dependent-pattern-elaboration`; otherwise elaboration returns an
+  *     unsupported diagnostic and no branches.
+  *   - Constructor branch: find constructor metadata, unify the scrutinee
+  *     family indices with the constructor result indices, add constructor
+  *     telescope binders to the branch, and record the resulting substitution
+  *     summary as the branch refinement.
+  *   - Variable or wildcard branch: accept as a catch-all and mark all later
+  *     constructor branches redundant.
+  *   - Impossible branch: preserve a branch marked impossible by source.
+  *   - Equality branch: keep the representation, but reject it because equality
+  *     pattern matching is outside the current accepted fragment.
+  *   - Coverage: every constructor whose result indices are not impossible for
+  *     the scrutinee must be covered by a constructor branch or catch-all.
+  *   - Unification: variables and metas receive first-order substitutions,
+  *     same-headed constructors/families unify recursively, different heads
+  *     mark a branch impossible, and recursive solutions fail the occurs check.
+  *
+  * Pipeline note: this object is an experiment and test harness. The ordinary
+  * cosmo0 package pipeline still type-checks source through `SourceTyper`.
+  */
 object DependentPatterns:
   private val UnsupportedUnificationCode =
     "cosmo.type.dependent-pattern.unsupported-unification"

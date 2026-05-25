@@ -2,6 +2,27 @@ package cosmo0
 
 import scala.collection.mutable.ListBuffer
 
+/** Core Martin-Lof type theory term language used by the experimental MLTT
+  * checker mirror.
+  *
+  * Term examples:
+  *
+  * {{{
+  * Type0                         // Universe(0)
+  * (x: A) -> A                   // Pi("x", A, A)
+  * fun x: A => x                 // Lambda("x", A, Var("x"))
+  * f(a)                          // Apply(f, a)
+  * Sigma(x: A). B                // Sigma("x", A, B)
+  * (a, b), fst(p), snd(p)        // Pair and projections
+  * Eq(A, x, y), Refl(x)          // identity type and reflexivity witness
+  * Nat, Z, S(n)                  // builtin Nat fixture
+  * Vec(A, n), Nil, Cons(k,h,t)   // builtin Vec fixture
+  * }}}
+  *
+  * Terms are stored by integer ids in `MlttTermStore`. The checker expects an
+  * already elaborated core term; ordinary cosmo0 source is not translated into
+  * this representation by the default compiler pipeline.
+  */
 enum MlttTerm:
   case Var(name: String)
   case Universe(level: Int)
@@ -251,6 +272,47 @@ final case class MlttCheckResult(
   def artifactSummary: String =
     s"$profileId|$artifactKind|$status|$normalizationStrategy"
 
+/** Bidirectional checker for the experimental `mltt.core` profile.
+  *
+  * Direct harness example:
+  *
+  * {{{
+  * val store = MlttTypeChecker.termStore()
+  * val type0 = store.allocUniverse(0)
+  * val a = store.allocVar("A")
+  * val id = store.allocLambda("x", a, store.allocVar("x"))
+  * val idType = store.allocPi("x", a, a)
+  * val context = MlttTypeChecker.context().extendLocal("A", type0)
+  *
+  * MlttTypeChecker.check(store, context, id, idType)
+  * }}}
+  *
+  * Core infer/check rules:
+  *
+  *   - Universe: `Type n` infers `Type (n + 1)`.
+  *   - Variable: `x` infers the type stored for `x` in the context.
+  *   - Pi/Sigma: domains and bodies must infer universe-classified types; the
+  *     resulting universe is the maximum level of both sides.
+  *   - Lambda: a lambda can infer a Pi type only when its annotation is a type;
+  *     when checking, it is accepted only against an expected Pi type.
+  *   - Application: infer the callee, reduce it to WHNF, require a Pi type,
+  *     check the argument against the domain, then substitute in the codomain.
+  *   - Pair: pair inference is intentionally unsupported; pairs check only
+  *     against an expected Sigma type.
+  *   - Projection: infer the pair, require a Sigma type, then return the first
+  *     component type or the second component type after substituting `fst(p)`.
+  *   - Equality/Refl: `Eq(A, l, r)` checks `A` as a type and both sides as `A`;
+  *     `Refl(v)` checks against `Eq(A, l, r)` when `v`, `l`, and `r` convert.
+  *   - Constructors: Nat and Vec constructors check against expected inductive
+  *     families. Constructor inference is only accepted for simple Nat terms.
+  *   - Conversion: definitional equality uses WHNF normalization with beta,
+  *     let, transparent pure definitions, and Sigma projections. Opaque or
+  *     effectful definitions are not reduced during conversion.
+  *
+  * Pipeline note: this object is exercised by tests and fixtures directly.
+  * `Cosmo0.check` and package checking currently return unsupported for
+  * non-`cosmo0.subset` profiles instead of routing source here.
+  */
 object MlttTypeChecker:
   val WhnfConversionStrategy = "mltt.whnf-conversion"
   val UnknownVariableCode = "cosmo.type.mltt.unknown-variable"

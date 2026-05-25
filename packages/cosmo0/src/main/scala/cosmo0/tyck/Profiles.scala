@@ -1,5 +1,37 @@
 package cosmo0
 
+/** Static description of a checker implementation or experiment.
+  *
+  * A profile is deliberately metadata, not a dynamic dispatcher. It records the
+  * artifact a checker expects as input, the artifact it returns, and the
+  * feature set that callers may advertise or reject in diagnostics.
+  *
+  * Profile selection examples:
+  *
+  * {{{
+  * // No package metadata:
+  * //   checkerProfile = None
+  * //   selected profile = cosmo0.subset
+  * //   implementation = SourceTyper over UntypedModule
+  *
+  * // Experimental package metadata:
+  * //   "checkerProfile": "mltt.core"
+  * //   selected profile = mltt.core
+  * //   implementation = no source-pipeline route yet; report unsupported
+  *
+  * // Direct test harness:
+  * //   MlttTypeChecker.infer(store, context, term)
+  * //   implementation = Scala MLTT core mirror in tyck/mltt/TypeChecker.scala
+  * }}}
+  *
+  * Routing rule:
+  *
+  *   - `Cosmo0.check` and `source/Pipeline.check` execute only `cosmo0.subset`.
+  *   - Other profiles are still useful as stable contracts for diagnostics,
+  *     fixtures, and future checker artifacts, but selecting them from ordinary
+  *     source currently yields an unsupported result instead of invoking the
+  *     experimental MLTT or dependent-pattern code.
+  */
 final case class CheckerProfile(
     id: String,
     owner: String,
@@ -21,6 +53,29 @@ final case class CheckerProfile(
   def summary: String =
     s"$id|$inputArtifact|$artifactKind|$diagnosticNamespace"
 
+/** Registry of type-checker profiles known to cosmo0.
+  *
+  * Language profile examples:
+  *
+  * {{{
+  * cosmo0.subset:
+  *   source declarations, expressions, classes, traits, impls, variants,
+  *   standard generics, source match patterns, and C++ namespace imports.
+  *
+  * mltt.core:
+  *   core terms such as Type0, Pi, Sigma, lambda, application, Eq, Refl,
+  *   Nat, Vec, metavariables, and WHNF conversion.
+  *
+  * mltt.dependent-patterns:
+  *   MLTT core terms plus constructor metadata and source pattern clauses
+  *   elaborated to case-tree artifacts.
+  * }}}
+  *
+  * Feature inference is intentionally simple: callers ask whether a profile
+  * supports or rejects a named feature. The profile does not infer source
+  * syntax by itself; concrete inference rules live in `SourceTyper`,
+  * `MlttTypeChecker`, and `DependentPatterns`.
+  */
 object CheckerProfiles:
   val CosmocBasicExprId = "cosmoc.basic-expr"
   val Cosmo0SubsetId = "cosmo0.subset"

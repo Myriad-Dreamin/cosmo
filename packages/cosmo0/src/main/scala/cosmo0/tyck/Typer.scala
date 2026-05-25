@@ -3,6 +3,13 @@ package cosmo0
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
+/** Factory for the source-level checker.
+  *
+  * The no-profile entry point intentionally selects `cosmo0.subset`. MLTT and
+  * dependent-pattern profiles are registered in `CheckerProfiles`, but the
+  * public cosmo0 source pipeline does not elaborate ordinary source into those
+  * artifacts yet.
+  */
 object SourceTyper:
   def apply(module: UntypedModule): SourceTyper =
     new SourceTyper(
@@ -14,6 +21,66 @@ object SourceTyper:
   def apply(module: UntypedModule, profile: CheckerProfile): SourceTyper =
     new SourceTyper(module, StandardGenericDescriptors.all, profile)
 
+/** Checks an `UntypedModule` into a `TypedModule` for the default cosmo0 source
+  * language subset.
+  *
+  * Source language examples handled here:
+  *
+  * {{{
+  * val answer = 42
+  * var name: String = "cosmo"
+  *
+  * class Nat {
+  *   case Zero
+  *   case Succ(Nat)
+  * }
+  *
+  * def inc(value: i32): i32 = { value + 1 }
+  *
+  * def pred(value: Nat): i32 = {
+  *   value match {
+  *     case Nat.Zero => 0
+  *     case Nat.Succ(rest) => 1
+  *   }
+  * }
+  * }}}
+  *
+  * The `profile` constructor parameter is metadata for diagnostics and future
+  * routing. It is not a second dispatcher inside this class: today this
+  * implementation checks the cosmo0 source subset, while public callers reject
+  * non-`cosmo0.subset` profiles before reaching `SourceTyper`.
+  *
+  * The checker is bidirectional in a small, source-oriented sense: `expr(node,
+  * expected, context)` infers a type when `expected` is absent, and uses
+  * `expected` to guide literals, calls, branch bodies, assignments, returns,
+  * and block final expressions.
+  *
+  * Inference and checking rules:
+  *
+  *   - Declarations: `val x: T = e` checks `e <= T`; `val x = e` infers `T`
+  *     from `e`. Fields and parameters require explicit source types.
+  *   - Functions: parameter and return annotations form a `CallableSignature`.
+  *     A missing return annotation is `Unit`; the body is checked against the
+  *     declared return type.
+  *   - Names: lexical values are looked up first; otherwise a single-segment
+  *     name may resolve to a function, class constructor, or standard generic
+  *     constructor.
+  *   - Literals: integer and float literals use an expected numeric type when
+  *     one is available, defaulting to `i32` and `f64`; bool, string, unit,
+  *     ASCII, and rune literals have fixed types.
+  *   - Calls: the callee must have a `CallableSignature` or function type; each
+  *     argument is checked against the matching parameter, including mutable
+  *     reference passing rules.
+  *   - Blocks: only the final item receives the outer expected type; the block
+  *     type is the final expression type, or `Unit` for statement-only blocks.
+  *   - `if` and `match`: conditions check as `Bool`; branch bodies must agree
+  *     on one result type unless no branch body is present.
+  *   - Patterns: a match pattern is checked against the scrutinee type. Binding
+  *     patterns introduce locals of the expected type, and variant patterns
+  *     check payloads against the selected constructor signature.
+  *   - Mutation: assignable values require mutable bindings, and mutable
+  *     receiver methods require a mutable receiver capability.
+  */
 final class SourceTyper(
     module: UntypedModule,
     standardGenerics: Map[String, StandardGenericDescriptor] =
@@ -1935,6 +2002,9 @@ final class SourceTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
+    // Ordinary cosmo0 match checking is SourceType-based: it checks variant
+    // payloads and branch result agreement, but it does not elaborate indexed
+    // families into `DependentPatterns` case trees.
     val scrut = expr(node.scrut, scope, None, context)
     val arms = node.arms.map { arm =>
       val armScope = scope.child
