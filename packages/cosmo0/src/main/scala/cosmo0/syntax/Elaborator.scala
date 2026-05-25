@@ -6,7 +6,49 @@ import scala.collection.mutable.ListBuffer
 import cosmo.syntax
 import cosmo.syntax.*
 
+/** Converts the shared parser AST into the cosmo0 untyped AST.
+  *
+  * The parser accepts a larger source language than the initial cosmo0 subset.
+  * Elaboration is the syntactic boundary between that broad AST and the source
+  * forms accepted by the cosmo0 checker. This pass preserves source spans,
+  * records file-level foreign metadata, and reports unsupported constructs as
+  * check-phase diagnostics.
+  *
+  * Example source forms accepted here:
+  *
+  * {{{
+  * @include("stdint.h", kind = "c");
+  *
+  * @extern("c", name = "puts")
+  * def puts(value: String): i32
+  *
+  * type Bytes[T: Type] = Vec[T]
+  *
+  * class OptionI32:
+  *   case Some(value: i32)
+  *   case None
+  *
+  * def add(left: i32, right: i32): i32 =
+  *   left + right
+  * }}}
+  *
+  * Elaboration rules:
+  *
+  *   - Top-level declarations may be imports, classes, traits, impls,
+  *     functions, values, variables, type aliases, or accepted decorators.
+  *   - Class bodies may contain fields, methods, aliases, and enum-style case
+  *     variants. Case blocks are accepted as variant lists.
+  *   - Expressions are lowered structurally into `UntypedExpr`; expression type
+  *     inference is intentionally deferred to `SourceTyper`.
+  *   - Type applications must use compile-time square-bracket syntax.
+  *     Registered standard generic names and known C++ namespace aliases are
+  *     accepted.
+  *   - `Ref[T]` and `RefMut[T]` are normalized to reference type nodes.
+  */
 object Elaborator:
+  /** Standard generic families that may appear in cosmo0 type positions before
+    * the typer resolves their arity and descriptor.
+    */
   val defaultStandardGenericNames: Set[String] =
     Set(
       "Arena",
@@ -25,10 +67,19 @@ object Elaborator:
   def apply(parsed: ParsedModule): Elaborator =
     new Elaborator(parsed, defaultStandardGenericNames)
 
+/** Stateful elaboration pass for one parsed source file.
+  *
+  * The instance owns diagnostic and metadata buffers for a single module. It
+  * does not resolve names or compute `SourceType`; those jobs belong to the
+  * type checker after an `UntypedModule` has been produced.
+  */
 final class Elaborator(
     parsed: ParsedModule,
     standardGenericNames: Set[String] = Elaborator.defaultStandardGenericNames,
 ):
+  /** Elaborates all parser statements and either returns an `UntypedModule` or
+    * the diagnostics collected while rejecting unsupported forms.
+    */
   def elaborate(): Result[UntypedModule] =
     val declarations = parsed.ast.stmts.flatMap(moduleDecl)
     val emittedDiagnostics = diagnostics.toList
@@ -65,6 +116,10 @@ final class Elaborator(
   private val higherOrderMethodNames =
     Set("filter", "flatMap", "fold", "forEach", "foreach", "map")
 
+  /** Lowers one parser statement into a cosmo0 module declaration. Empty
+    * semicolon nodes disappear; unsupported top-level constructs produce a
+    * diagnostic and no declaration.
+    */
   private def moduleDecl(node: syntax.Node): Option[UntypedDecl] =
     unwrapSemi(node) match
       case None                     => None
@@ -100,6 +155,13 @@ final class Elaborator(
       kind: Option[String] = None,
   )
 
+  /** Handles file-level decorators that are meaningful during elaboration.
+    *
+    * `@include(...)` contributes module C include metadata and must decorate an
+    * empty semicolon. `@extern("c", ...)` may decorate only a top-level
+    * function declaration and records the trusted foreign binding on that
+    * function.
+    */
   private def decoratedModuleDecl(node: Decorate): Option[UntypedDecl] =
     includeDecorator(node.lhs) match
       case Some(include) =>
@@ -134,6 +196,9 @@ final class Elaborator(
               )
         }
 
+  /** Parses `@include(path, kind = "c")` into source metadata. If `kind` is
+    * omitted, `.h` paths infer the C include kind.
+    */
   private def includeDecorator(node: syntax.Node): Option[SourceCInclude] =
     node match
       case Apply(Ident("include"), args, false) =>
@@ -171,6 +236,14 @@ final class Elaborator(
       case Ident("include-c") | Apply(Ident("include-c"), _, false) => true
       case _                                                        => false
 
+  /** Valid include examples:
+    *
+    * {{{
+    * @include("stdint.h", kind = "c");
+    * @include("<stddef.h>");
+    * @include("\"local.h\"", kind = "c");
+    * }}}
+    */
   private def includeDecoratorArgs(
       node: syntax.Node,
       args: List[syntax.Node],
@@ -234,6 +307,10 @@ final class Elaborator(
           "include path must be a string literal",
         )
 
+  /** Parses `@extern("c", ...)` bindings. The elaborator validates only the
+    * decorator shape and trusted ABI metadata; call signatures are checked by
+    * the typer.
+    */
   private def externDecorator(
       node: syntax.Node,
   ): Option[SourceExternBinding] =
@@ -469,6 +546,15 @@ final class Elaborator(
       case _ =>
         cosmoImportDecl(node)
 
+  /** C++ header imports must bind a namespace alias so downstream stages can
+    * distinguish foreign qualified symbols from Cosmo paths.
+    *
+    * Example:
+    *
+    * {{{
+    * import std.vector as vec from "cpp:<vector>"
+    * }}}
+    */
   private def cppImportDecl(node: Import): Option[UntypedDecl] =
     node.path match
       case StrLit(header) if SourceCppNamespaceImport.isCppHeader(header) =>
@@ -544,6 +630,10 @@ final class Elaborator(
       UntypedImport(p, d, span, declarationVisibility(node))
     }
 
+  /** Concrete classes become `UntypedClass`, while abstract classes become
+    * cosmo0 traits. Generic class and trait parameters are rejected at this
+    * source boundary.
+    */
   private def classDecl(node: Class): Option[UntypedDecl] =
     if node.ab then traitDecl(node)
     else concreteClassDecl(node)
@@ -779,6 +869,11 @@ final class Elaborator(
           "cosmo0 type aliases must name a concrete target type",
         )
 
+  /** Lowers a generic type alias such as `type Boxed[T: Type] = Box[T]`.
+    *
+    * Type parameters are recorded as names only. Their use is resolved in
+    * `SourceTyper.resolveType`, where alias arity and substitution are checked.
+    */
   private def genericTypeAlias(node: GenericTyp): Option[UntypedTypeAlias] =
     genericTypeAliasNames += node.name.name
     val typeParams = typeAliasParamNames(node.params, node)
@@ -952,6 +1047,12 @@ final class Elaborator(
         UntypedParam(node.name.name, t, d, span)
       }
 
+  /** Lowers block declarations and expression statements.
+    *
+    * A semicolon around a non-declaration expression forces `UntypedExprStmt`,
+    * which lets the typer keep statement position separate from the final value
+    * of a block.
+    */
   private def blockItem(node: syntax.Node): Option[UntypedBlockItem] =
     node match
       case Semi(None) => None
@@ -1003,6 +1104,17 @@ final class Elaborator(
       UntypedLocal(kind, node.name.name, t, i, span)
     }
 
+  /** Lowers parser expressions into untyped expressions.
+    *
+    * The output keeps operator names, paths, calls, control flow, and literals
+    * but carries no static type. A few parser forms are interpreted specially:
+    *
+    *   - `Type[Args](...)` becomes a type-constructor call.
+    *   - `Owner.Variant` in type-selection syntax becomes a variant
+    *     constructor.
+    *   - Assignment operators become `UntypedAssign`.
+    *   - Empty semicolons become the unit literal.
+    */
   private def expr(node: syntax.Node): Option[UntypedExpr] =
     unwrapSemi(node) match
       case None => Some(UntypedUnitLiteral(nodeSpan(node)))
@@ -1200,6 +1312,10 @@ final class Elaborator(
           s"${constructName(other)} is outside the initial cosmo0 expression subset",
         )
 
+  /** Lowers match-arm patterns. Literal patterns share the same untyped nodes
+    * as literal expressions so the typer can assign them the scrutinee-driven
+    * expected type.
+    */
   private def matchArm(node: Case): Option[UntypedMatchArm] =
     val span = nodeSpan(node)
     val body = node.body.fold[Option[Option[UntypedExpr]]](Some(None)) {
@@ -1210,6 +1326,9 @@ final class Elaborator(
       UntypedMatchArm(patternValue, bodyValue, span)
     }
 
+  /** Accepts the pattern subset used by cosmo0 match arms: wildcards, bindings,
+    * literal patterns, and variant-constructor patterns.
+    */
   private def pattern(node: syntax.Node): Option[UntypedPattern] =
     node match
       case Ident("_") =>
@@ -1246,6 +1365,22 @@ final class Elaborator(
           s"${constructName(other)} is not a supported cosmo0 pattern",
         )
 
+  /** Converts parser type syntax into `UntypedType`.
+    *
+    * Examples:
+    *
+    * {{{
+    * i32          => UntypedNamedType(i32)
+    * Vec[i32]    => UntypedAppliedType(Vec, List(i32))
+    * &String     => UntypedRefType(String, mutable = false)
+    * &mut String => UntypedRefType(String, mutable = true)
+    * RefMut[T]   => UntypedRefType(T, mutable = true)
+    * }}}
+    *
+    * This method checks only the syntactic admissibility of type forms. Unknown
+    * names, alias cycles, generic arity, and assignment compatibility are
+    * handled by the typer.
+    */
   private def typeFromNode(
       node: syntax.Node,
       fallbackSpan: Option[SourceSpan] = None,
@@ -1334,6 +1469,9 @@ final class Elaborator(
           UntypedNamedType(path, nodeSpan(pathNode, fallbackSpan)),
         )
 
+  /** Converts identifier/selection syntax into a path while preserving the
+    * source span that should be used in later diagnostics.
+    */
   private def pathFromNode(
       node: syntax.Node,
       fallbackSpan: Option[SourceSpan] = None,
