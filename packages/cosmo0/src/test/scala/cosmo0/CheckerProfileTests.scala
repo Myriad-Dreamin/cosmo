@@ -47,8 +47,19 @@ class CheckerProfileTests extends munit.FunSuite:
     )
     assert(!dependent.rejects(CheckerProfiles.DependentPatternsFeature))
 
-  test("default cosmo0 check result uses the cosmo0 subset profile"):
+  test("default cosmo0 check result uses the MLTT dependent source typer"):
     val result = Cosmo0().check("val answer = 42")
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    assertEquals(result.value.get.typed.decls.length, 1)
+
+  test("MLTT dependent profile checks ordinary source without directives"):
+    val result = Cosmo0().checkWithProfile(
+      "val answer = 42",
+      CheckerProfiles.MlttDependentPatterns.id,
+    )
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -79,6 +90,22 @@ class CheckerProfileTests extends munit.FunSuite:
     val summary = result.value.get.typed.checkerArtifactSummary
     assert(summary.contains("mltt_core_lambda_checks_pi"))
     assert(summary.contains("mltt_core_application_infers_through_pi"))
+
+  test("MLTT type checker exposes the cosmo0 source checker entry point"):
+    val source = SourceFile(
+      "mltt-direct.cos",
+      """mltt: lambda-checks-pi
+        |mltt: conversion-beta-let
+        |""".stripMargin,
+    )
+    val result = MlttTypeChecker.checkSource(source)
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    val summary = result.value.get.checkerArtifactSummary
+    assert(summary.contains("mltt_core_lambda_checks_pi"))
+    assert(summary.contains("mltt_core_conversion_beta_let"))
 
   test("MLTT profile rejects source that does not declare MLTT assertions"):
     val result = Cosmo0().checkWithProfile(
@@ -198,6 +225,42 @@ class CheckerProfileTests extends munit.FunSuite:
     assertEquals(checked.phase, Phase.Check)
     assertEquals(checked.status, PhaseStatus.Succeeded)
     val summary = checked.value.get.checked.typed.checkerArtifactSummary
+    assert(summary.contains("dependent_pattern_vec_head_elaborates"))
+    assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
+
+  test("MLTT source type relation backs same and assignable checks"):
+    val alias = SourceType.Alias("Answer", SourceType.I32)
+    val mutableRef = SourceType.Ref(SourceType.String, mutable = true)
+    val readonlyRef = SourceType.Ref(SourceType.String, mutable = false)
+
+    assert(MlttTypeChecker.sourceTypesSame(alias, SourceType.I32))
+    assert(MlttTypeChecker.sourceTypeAssignable(mutableRef, readonlyRef))
+    assert(!MlttTypeChecker.sourceTypeAssignable(readonlyRef, mutableRef))
+    assert(
+      !MlttTypeChecker.sourceTypesSame(
+        SourceType.TypeParam("T"),
+        SourceType.User("T"),
+      ),
+    )
+
+  test(
+    "MLTT checker runs dependent-pattern profile as an extension",
+  ):
+    val source = SourceFile(
+      "dependent-direct.cos",
+      """mltt: lambda-checks-pi
+        |dependent-pattern: vec-head-elaborates
+        |dependent-pattern: impossible-nil-diagnostic
+        |""".stripMargin,
+    )
+    val result =
+      MlttTypeChecker.checkSource(source, CheckerProfiles.MlttDependentPatterns)
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    val summary = result.value.get.checkerArtifactSummary
+    assert(summary.contains("mltt_core_lambda_checks_pi"))
     assert(summary.contains("dependent_pattern_vec_head_elaborates"))
     assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
 

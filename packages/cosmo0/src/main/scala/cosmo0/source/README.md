@@ -15,7 +15,7 @@ Package flow:
 3. Validate duplicate modules, duplicate declarations, imports, visibility, and
    import cycles.
 4. Combine declarations in topological order.
-5. Type-check with `tyck/Typer.scala`.
+5. Type-check with `tyck/mltt/Typer.scala`.
 6. Lower with `lir/Lowerer.scala`.
 7. Compile with `backend/cpp/Backend.scala` when requested by the facade.
 

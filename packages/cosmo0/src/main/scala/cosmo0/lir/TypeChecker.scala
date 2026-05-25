@@ -1429,13 +1429,13 @@ final class LirTypeChecker(
     sameSourceType(left.source, right.source)
 
   private def sameSourceType(left: SourceType, right: SourceType): Boolean =
-    SourceType.same(left, right)
+    MlttTypeChecker.sourceTypesSame(left, right)
 
   private def assignable(from: LirTypeRef, to: LirTypeRef): Boolean =
     assignable(from.source, to.source)
 
   private def assignable(from: SourceType, to: SourceType): Boolean =
-    SourceType.assignable(from, to)
+    MlttTypeChecker.sourceTypeAssignable(from, to)
 
   private def valueDescription(value: LirValue): String =
     value match

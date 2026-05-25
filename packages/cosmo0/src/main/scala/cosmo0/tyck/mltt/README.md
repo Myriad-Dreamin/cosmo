@@ -1,13 +1,18 @@
 # mltt
 
-This directory contains the Scala mirror for the experimental MLTT core checker.
+This directory contains the MLTT-backed source typer and the Scala mirror for
+the experimental MLTT core checker.
 
 `TypeChecker.scala` defines MLTT terms, contexts, declaration metadata,
 metavariables, conversion, bidirectional infer/check entry points, and
 diagnostics.
 
-It is profile-gated and separate from the default cosmo0 source checker.
-`MlttProfileChecker` lets `checkerProfile: "mltt.core"` source fixtures execute
-named MLTT assertions by constructing core terms and calling this checker. The
-ordinary `cosmo0.subset` source path still does not elaborate general user
-source into MLTT core.
+`Typer.scala` is the ordinary cosmo0 source frontend. It keeps source
+declaration/expression elaboration in the source AST, but its type equality,
+assignability, and indexed match hooks call `MlttTypeChecker`.
+
+`MlttTypeChecker.checkSource` and `MlttTypeChecker.checkSources` let
+`checkerProfile: "mltt.core"` and `checkerProfile: "mltt.dependent-patterns"`
+source fixtures execute named MLTT assertions by constructing core terms inside
+this checker. The dependent-pattern profile invokes `DependentPatterns` as an
+MLTT extension rather than as a separate checker path.
