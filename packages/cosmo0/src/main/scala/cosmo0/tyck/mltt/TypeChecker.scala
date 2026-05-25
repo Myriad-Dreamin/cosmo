@@ -373,8 +373,16 @@ object MlttTypeChecker:
     "cosmo.type.mltt.unknown-profile-assertion"
   val SourceAssertionFailedCode =
     "cosmo.type.mltt.profile-assertion-failed"
+  val UnsupportedSourcePatternCode =
+    "cosmo.type.dependent-pattern.unsupported-source-pattern"
 
   private val SourceDirectivePrefix = "mltt:"
+
+  private final case class SourceDependentFamily(
+      name: String,
+      indices: List[Int],
+      expectedType: String,
+  )
 
   def termStore(): MlttTermStore =
     MlttTermStore()
@@ -392,6 +400,295 @@ object MlttTypeChecker:
     profile.id == CheckerProfiles.MlttCore.id ||
       profile.id == CheckerProfiles.MlttDependentPatterns.id
 
+  def supportsMlttTyperProfile(profile: CheckerProfile): Boolean =
+    profile.id == CheckerProfiles.Cosmo0Subset.id ||
+      profile.id == CheckerProfiles.MlttDependentPatterns.id
+
+  def hasSourceAssertions(
+      source: SourceFile,
+      profile: CheckerProfile,
+  ): Boolean =
+    hasSourceAssertions(List(source), profile)
+
+  def hasSourceAssertions(
+      sources: List[SourceFile],
+      profile: CheckerProfile,
+  ): Boolean =
+    val hasCoreAssertions = hasCoreSourceAssertions(sources)
+    val hasDependentAssertions = DependentPatterns.hasSourceAssertions(sources)
+    profile.id == CheckerProfiles.MlttCore.id && hasCoreAssertions ||
+    profile.id == CheckerProfiles.MlttDependentPatterns.id &&
+    (hasCoreAssertions || hasDependentAssertions)
+
+  def sourceTypesSame(left: SourceType, right: SourceType): Boolean =
+    if sourceTypeRecoveryCompatible(left, right) then return true
+
+    val store = termStore()
+    val leftTerm = sourceTypeTerm(store, left)
+    val rightTerm = sourceTypeTerm(store, right)
+    convert(store, context(), leftTerm, rightTerm).isOk
+
+  def sourceTypeAssignable(from: SourceType, to: SourceType): Boolean =
+    sourceTypesSame(from, to) ||
+      ((SourceType.dealias(from), SourceType.dealias(to)) match
+        case (
+              SourceType.Ref(fromTarget, true),
+              SourceType.Ref(toTarget, false),
+            ) =>
+          sourceTypesSame(fromTarget, toTarget)
+        case _ =>
+          false
+      )
+
+  private def sourceTypeRecoveryCompatible(
+      left: SourceType,
+      right: SourceType,
+  ): Boolean =
+    (SourceType.dealias(left), SourceType.dealias(right)) match
+      case (SourceType.Error, _) | (_, SourceType.Error) => true
+      case (SourceType.Never, _) | (_, SourceType.Never) => true
+      case _                                             => false
+
+  private def sourceTypeTerm(
+      store: MlttTermStore,
+      value: SourceType,
+  ): Int =
+    SourceType.dealias(value) match
+      case SourceType.Builtin(name) =>
+        store.allocInductive(s"builtin:$name")
+      case SourceType.User(name) =>
+        store.allocInductive(s"user:$name")
+      case SourceType.Alias(_, target) =>
+        sourceTypeTerm(store, target)
+      case SourceType.TypeParam(name) =>
+        store.allocInductive(s"type-param:$name")
+      case SourceType.ForeignNamespace(value) =>
+        store.allocInductive(
+          s"foreign-namespace:${value.alias}:${value.canonicalNamespace}:${value.headers.mkString("|")}",
+        )
+      case SourceType.ForeignSymbol(canonicalName) =>
+        store.allocInductive(s"foreign-symbol:$canonicalName")
+      case SourceType.ForeignApplied(canonicalName, args) =>
+        store.allocInductive(
+          s"foreign-applied:$canonicalName",
+          args.map(sourceTypeTerm(store, _)),
+        )
+      case SourceType.Ref(target, mutable) =>
+        val name = if mutable then "source-ref-mut" else "source-ref"
+        store.allocInductive(name, List(sourceTypeTerm(store, target)))
+      case SourceType.Standard(name, args) =>
+        store.allocInductive(
+          s"standard:$name",
+          args.map(sourceTypeTerm(store, _)),
+        )
+      case SourceType.Function(params, returnType) =>
+        store.allocInductive(
+          "source-function",
+          params.map(sourceTypeTerm(store, _)),
+          List(sourceTypeTerm(store, returnType)),
+        )
+      case SourceType.Never =>
+        store.allocInductive("source-never")
+      case SourceType.Error =>
+        store.allocError()
+
+  def validateDependentPatternMatch(
+      profile: CheckerProfile,
+      scrutineeType: SourceType,
+      arms: List[UntypedMatchArm],
+  ): List[Diagnostic] =
+    val store = DependentPatterns.termStore()
+    val envValue = DependentPatterns.env()
+    DependentPatterns.addNatFixture(store, envValue)
+    DependentPatterns.addVecFixture(store, envValue)
+
+    dependentSourceFamily(store, scrutineeType) match
+      case None =>
+        Nil
+      case Some(family) =>
+        if !DependentPatterns.profileSupportsElaboration(profile) then
+          val span = arms.headOption.map(_.span).getOrElse(emptySourceSpan)
+          val diagnosticValue =
+            DependentPatterns.unsupportedProfileDiagnostic(profile, span)
+          return dependentPatternDiagnostics(List(diagnosticValue))
+
+        val patterns = DependentPatterns.sourcePatternStore()
+        dependentSourceClauses(patterns, arms) match
+          case Left(diagnosticValue) =>
+            List(diagnosticValue)
+          case Right(clauses) =>
+            val tree =
+              DependentPatterns.elaborateClauses(
+                profile,
+                envValue,
+                store,
+                patterns,
+                family.name,
+                "scrutinee",
+                family.indices,
+                family.expectedType,
+                clauses,
+              )
+            dependentPatternDiagnostics(tree.diagnostics)
+
+  private def dependentSourceFamily(
+      store: DependentPatternTermStore,
+      scrutineeType: SourceType,
+  ): Option[SourceDependentFamily] =
+    SourceType.dealias(scrutineeType) match
+      case SourceType.Standard("Vec", element :: length :: Nil) =>
+        Some(
+          SourceDependentFamily(
+            "Vec",
+            List(
+              dependentTermFromSourceType(store, element),
+              dependentTermFromSourceType(store, length),
+            ),
+            element.display,
+          ),
+        )
+      case _ =>
+        None
+
+  private def dependentTermFromSourceType(
+      store: DependentPatternTermStore,
+      value: SourceType,
+  ): Int =
+    SourceType.dealias(value) match
+      case SourceType.Alias(_, target) =>
+        dependentTermFromSourceType(store, target)
+      case SourceType.Standard("S", value :: Nil) =>
+        store.allocConstructor(
+          "S",
+          List(dependentTermFromSourceType(store, value)),
+        )
+      case SourceType.Standard("Z", Nil) =>
+        store.allocConstructor("Z")
+      case SourceType.Standard(name, args) =>
+        store.allocFamily(name, args.map(dependentTermFromSourceType(store, _)))
+      case SourceType.TypeParam("Z") =>
+        store.allocConstructor("Z")
+      case SourceType.User("Z") =>
+        store.allocConstructor("Z")
+      case SourceType.Builtin("Z") =>
+        store.allocConstructor("Z")
+      case SourceType.TypeParam(name) =>
+        store.allocVar(name)
+      case SourceType.User(name) =>
+        store.allocVar(name)
+      case SourceType.Builtin(name) =>
+        store.allocVar(name)
+      case other =>
+        store.allocVar(other.display)
+
+  private def dependentSourceClause(
+      patterns: DependentSourcePatternStore,
+      arm: UntypedMatchArm,
+  ): Either[Diagnostic, DependentPatternClause] =
+    dependentSourcePattern(patterns, arm.pat) match
+      case Left(diagnosticValue) =>
+        Left(diagnosticValue)
+      case Right(patternId) =>
+        Right(
+          DependentPatternClause(
+            patternId,
+            dependentArmBodySummary(arm),
+            arm.span,
+          ),
+        )
+
+  private def dependentSourcePattern(
+      patterns: DependentSourcePatternStore,
+      pattern: UntypedPattern,
+  ): Either[Diagnostic, Int] =
+    pattern match
+      case UntypedWildcardPattern(span) =>
+        Right(patterns.allocWildcard(span))
+      case UntypedBindingPattern("impossible", span) =>
+        Right(patterns.allocImpossible(span))
+      case UntypedBindingPattern(name, span) =>
+        Right(patterns.allocVariable(name, span))
+      case UntypedVariantPattern(ctor, args, span) =>
+        dependentConstructorName(ctor) match
+          case None =>
+            Left(unsupportedSourcePatternDiagnostic(span))
+          case Some(name) =>
+            dependentSourcePatternArgs(patterns, args) match
+              case Left(diagnosticValue) =>
+                Left(diagnosticValue)
+              case Right(argIds) =>
+                Right(patterns.allocConstructor(name, argIds, span))
+      case other =>
+        Left(unsupportedSourcePatternDiagnostic(other.span))
+
+  private def dependentSourceClauses(
+      patterns: DependentSourcePatternStore,
+      arms: List[UntypedMatchArm],
+  ): Either[Diagnostic, List[DependentPatternClause]] =
+    val clauses = ListBuffer.empty[DependentPatternClause]
+    var remaining = arms
+    while remaining.nonEmpty do
+      dependentSourceClause(patterns, remaining.head) match
+        case Left(diagnosticValue) =>
+          return Left(diagnosticValue)
+        case Right(clause) =>
+          clauses += clause
+      remaining = remaining.tail
+    Right(clauses.toList)
+
+  private def dependentSourcePatternArgs(
+      patterns: DependentSourcePatternStore,
+      args: List[UntypedPattern],
+  ): Either[Diagnostic, List[Int]] =
+    val ids = ListBuffer.empty[Int]
+    var remaining = args
+    while remaining.nonEmpty do
+      dependentSourcePattern(patterns, remaining.head) match
+        case Left(diagnosticValue) =>
+          return Left(diagnosticValue)
+        case Right(id) =>
+          ids += id
+      remaining = remaining.tail
+    Right(ids.toList)
+
+  private def dependentConstructorName(ctor: UntypedExpr): Option[String] =
+    ctor match
+      case UntypedVariantConstructor(_, variant, _) =>
+        Some(variant)
+      case UntypedName(path, _) =>
+        path.parts.lastOption
+      case UntypedSelect(_, field, _) =>
+        Some(field)
+      case _ =>
+        None
+
+  private def dependentArmBodySummary(arm: UntypedMatchArm): String =
+    arm.body match
+      case Some(UntypedName(path, _)) => path.text
+      case Some(_)                    => "body"
+      case None                       => "Unit"
+
+  private def dependentPatternDiagnostics(
+      diagnostics: List[DependentPatternDiagnostic],
+  ): List[Diagnostic] =
+    diagnostics.map { diagnosticValue =>
+      sourceDiagnostic(
+        diagnosticValue.code,
+        s"${diagnosticValue.message}; ${diagnosticValue.summary}",
+        diagnosticValue.span,
+      )
+    }
+
+  private def unsupportedSourcePatternDiagnostic(span: SourceSpan): Diagnostic =
+    sourceDiagnostic(
+      UnsupportedSourcePatternCode,
+      "indexed dependent pattern matching only accepts constructor, binding, wildcard, and impossible patterns",
+      span,
+    )
+
+  private def emptySourceSpan: SourceSpan =
+    SourceFile("<mltt-source>", "").span(0, 0)
+
   /** Checks a cosmo0 source file selected by an MLTT-backed checker profile.
     *
     * Source examples:
@@ -402,11 +699,11 @@ object MlttTypeChecker:
     * mltt: vec-constructors-check
     * }}}
     *
-    * The current cosmo0 frontend still does not elaborate arbitrary source
-    * declarations into MLTT core terms. Instead, this entry point accepts
-    * profile fixture directives that name concrete MLTT obligations, constructs
-    * those core terms, and checks them through this object. The
-    * `mltt.dependent-patterns` profile is handled here as an MLTT extension and
+    * Ordinary cosmo0 source reaches MLTT through `MlttTyper`, which delegates
+    * source type relations and dependent-pattern hooks to this object. This
+    * entry point is for profile fixture directives: each directive names a
+    * concrete MLTT obligation, constructs core terms, and checks them here. The
+    * `mltt.dependent-patterns` profile is handled as an MLTT extension and
     * invokes `DependentPatterns` for case-tree elaboration obligations.
     */
   def checkSource(source: SourceFile): Result[TypedModule] =

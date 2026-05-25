@@ -79,6 +79,43 @@ class DependentPatternTests extends munit.FunSuite:
     )
     assertEquals(tree.diagnostics.head.summary, "S cannot refine Z")
 
+  test("MLTT source typer hook elaborates indexed Vec match clauses"):
+    val dependentVec =
+      SourceType.Standard(
+        "Vec",
+        List(
+          SourceType.TypeParam("A"),
+          SourceType.Standard("S", List(SourceType.TypeParam("n"))),
+        ),
+      )
+    val armSpan = span(8, 31)
+    val consPattern =
+      UntypedVariantPattern(
+        UntypedName(UntypedPath(List("Cons"), span(8, 12)), span(8, 12)),
+        List(
+          UntypedBindingPattern("head", span(13, 17)),
+          UntypedBindingPattern("tail", span(19, 23)),
+        ),
+        span(8, 24),
+      )
+    val arm =
+      UntypedMatchArm(
+        consPattern,
+        Some(
+          UntypedName(UntypedPath(List("head"), span(28, 32)), span(28, 32)),
+        ),
+        armSpan,
+      )
+
+    val diagnostics =
+      MlttTypeChecker.validateDependentPatternMatch(
+        CheckerProfiles.MlttDependentPatterns,
+        dependentVec,
+        List(arm),
+      )
+
+    assertEquals(diagnostics, List.empty[Diagnostic])
+
   private final case class VecHeadFixture(tree: DependentCaseTree)
 
   private def vecHeadFixture(profile: CheckerProfile): VecHeadFixture =

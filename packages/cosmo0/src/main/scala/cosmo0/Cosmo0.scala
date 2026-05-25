@@ -70,7 +70,10 @@ final class Cosmo0:
       profileId: String,
   ): Result[CheckedModule] =
     CheckerProfiles.byId(profileId) match
-      case Some(profile) if profile.id == CheckerProfiles.Cosmo0Subset.id =>
+      case Some(profile)
+          if MlttTypeChecker.hasSourceAssertions(source, profile) =>
+        checkedModuleResult(MlttTypeChecker.checkSource(source, profile))
+      case Some(profile) if MlttTypeChecker.supportsMlttTyperProfile(profile) =>
         checkWithProfile(source, profile)
       case Some(profile) if MlttTypeChecker.supportsProfile(profile) =>
         checkedModuleResult(MlttTypeChecker.checkSource(source, profile))
@@ -113,7 +116,7 @@ final class Cosmo0:
   ): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
-        SourceTyper(elaborated.value.get, profile).check() match
+        MlttTyper(elaborated.value.get, profile).check() match
           case checked if checked.isSuccess =>
             Result.success(Phase.Check, CheckedModule(checked.value.get))
           case failed =>
@@ -318,14 +321,16 @@ final class Cosmo0:
   private def runnableParams(fn: TypedFunction): Boolean =
     fn.params.isEmpty ||
       (fn.params match
-        case param :: Nil => SourceType.same(param.ty, runnableArgsType)
-        case _            => false
+        case param :: Nil =>
+          MlttTypeChecker.sourceTypesSame(param.ty, runnableArgsType)
+        case _ => false
       )
 
   private def runnableReturnType(ty: SourceType): Boolean =
-    SourceType.same(ty, SourceType.Unit) || SourceType.isInteger(
-      ty,
-    )
+    MlttTypeChecker.sourceTypesSame(ty, SourceType.Unit) || SourceType
+      .isInteger(
+        ty,
+      )
 
   private def runnableArgsType: SourceType =
     SourceType.Standard("Vec", List(SourceType.String))

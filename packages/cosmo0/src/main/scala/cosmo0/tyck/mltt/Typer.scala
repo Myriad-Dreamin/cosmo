@@ -3,26 +3,25 @@ package cosmo0
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
-/** Factory for the source-level checker.
+/** Factory for the MLTT-backed source checker.
   *
-  * The no-profile entry point intentionally selects `cosmo0.subset`. MLTT and
-  * dependent-pattern profiles are registered in `CheckerProfiles`, but the
-  * public cosmo0 source pipeline routes them before this factory is used:
-  * `mltt.core` and `mltt.dependent-patterns` go to `MlttTypeChecker`.
+  * The no-profile entry point selects `mltt.dependent-patterns`: ordinary
+  * cosmo0 source still needs source-level declaration and expression
+  * elaboration, but its type relations are delegated to `MlttTypeChecker`.
   */
-object SourceTyper:
-  def apply(module: UntypedModule): SourceTyper =
-    new SourceTyper(
+object MlttTyper:
+  def apply(module: UntypedModule): MlttTyper =
+    new MlttTyper(
       module,
       StandardGenericDescriptors.all,
-      CheckerProfiles.Cosmo0Subset,
+      CheckerProfiles.MlttDependentPatterns,
     )
 
-  def apply(module: UntypedModule, profile: CheckerProfile): SourceTyper =
-    new SourceTyper(module, StandardGenericDescriptors.all, profile)
+  def apply(module: UntypedModule, profile: CheckerProfile): MlttTyper =
+    new MlttTyper(module, StandardGenericDescriptors.all, profile)
 
-/** Checks an `UntypedModule` into a `TypedModule` for the default cosmo0 source
-  * language subset.
+/** Checks an `UntypedModule` into a `TypedModule` through the MLTT-backed
+  * source frontend.
   *
   * Program examples:
   *
@@ -45,10 +44,10 @@ object SourceTyper:
   * }
   * }}}
   *
-  * The `profile` constructor parameter is metadata for diagnostics and future
-  * routing. It is not a second dispatcher inside this class: today this
-  * implementation checks only the cosmo0 source subset, while public callers
-  * route non-`cosmo0.subset` profiles before reaching `SourceTyper`.
+  * The `profile` constructor parameter controls MLTT feature validation. The
+  * frontend is responsible for source declaration resolution and typed-tree
+  * construction; type equality, assignability, and dependent-pattern hooks are
+  * delegated to `MlttTypeChecker`.
   *
   * The checker is bidirectional in a small, source-oriented sense: `expr(node,
   * expected, context)` infers a type when `expected` is absent, and uses
@@ -143,11 +142,11 @@ object SourceTyper:
   *   - Mutation: assignable values require mutable bindings, and mutable
   *     receiver methods require a mutable receiver capability.
   */
-final class SourceTyper(
+final class MlttTyper(
     module: UntypedModule,
     standardGenerics: Map[String, StandardGenericDescriptor] =
       StandardGenericDescriptors.all,
-    profile: CheckerProfile = CheckerProfiles.Cosmo0Subset,
+    profile: CheckerProfile = CheckerProfiles.MlttDependentPatterns,
 ):
   private final case class ValueSymbol(
       name: String,
@@ -253,6 +252,12 @@ final class SourceTyper(
   private val traits = mutable.LinkedHashMap.empty[String, TraitInfo]
   private val classes = mutable.LinkedHashMap.empty[String, ClassInfo]
   private val functions = mutable.LinkedHashMap.empty[String, FunctionInfo]
+
+  private def sameType(left: SourceType, right: SourceType): Boolean =
+    MlttTypeChecker.sourceTypesSame(left, right)
+
+  private def assignableType(from: SourceType, to: SourceType): Boolean =
+    MlttTypeChecker.sourceTypeAssignable(from, to)
 
   /** Runs declaration collection before expression inference.
     *
@@ -613,9 +618,9 @@ final class SourceTyper(
       sameRecv(left.receiver, right.receiver) &&
       left.params.length == right.params.length &&
       left.params.zip(right.params).forall { case (l, r) =>
-        SourceType.same(l.valueType, r.valueType)
+        sameType(l.valueType, r.valueType)
       } &&
-      SourceType.same(left.returnType, right.returnType)
+      sameType(left.returnType, right.returnType)
 
   private def sameRecv(
       left: Option[CallableReceiver],
@@ -625,7 +630,7 @@ final class SourceTyper(
       case (None, None) =>
         true
       case (Some(l), Some(r)) =>
-        l.mutable == r.mutable && SourceType.same(l.valueType, r.valueType)
+        l.mutable == r.mutable && sameType(l.valueType, r.valueType)
       case _ =>
         false
 
@@ -1194,8 +1199,7 @@ final class SourceTyper(
                       )
                     case _ =>
                       descriptorOwner(name) match
-                        case Some(owner)
-                            if SourceType.same(sig.returnType, owner) =>
+                        case Some(owner) if sameType(sig.returnType, owner) =>
                           TypedTypeConstructorExpr(
                             owner,
                             sig.functionType,
@@ -1683,7 +1687,7 @@ final class SourceTyper(
                       case _ =>
                         descriptorOwner(calleeName) match
                           case Some(owner)
-                              if SourceType.same(
+                              if sameType(
                                 sig.returnType,
                                 owner,
                               ) =>
@@ -2001,7 +2005,7 @@ final class SourceTyper(
     typedArgs.zip(sig.params).zipWithIndex.foreach {
       case ((actual, param), index) =>
         val paramType = param.valueType
-        if !SourceType.assignable(actual.ty, paramType) then
+        if !assignableType(actual.ty, paramType) then
           error(
             "cosmo0.type.invalid-call",
             s"argument ${index + 1} has type ${actual.ty.display}, expected ${paramType.display}",
@@ -2061,7 +2065,7 @@ final class SourceTyper(
       if node.op == "=" then Some(target.expr.ty)
       else Some(target.expr.ty)
     val value = expr(node.value, scope, valueExpected, context)
-    if !SourceType.assignable(value.expr.ty, target.expr.ty)
+    if !assignableType(value.expr.ty, target.expr.ty)
     then
       error(
         "cosmo0.type.assignment-mismatch",
@@ -2220,7 +2224,7 @@ final class SourceTyper(
         val left = expr(node.left, scope, None, context)
         val right =
           expr(node.right, scope, Some(left.expr.ty), context)
-        if !SourceType.same(left.expr.ty, right.expr.ty) then
+        if !sameType(left.expr.ty, right.expr.ty) then
           error(
             "cosmo0.type.invalid-binary",
             s"operator ${node.op} requires comparable operands, got ${left.expr.ty.display} and ${right.expr.ty.display}",
@@ -2246,7 +2250,7 @@ final class SourceTyper(
         )
         val right =
           expr(node.right, scope, Some(left.expr.ty), context)
-        if !SourceType.isNumeric(left.expr.ty) || !SourceType.same(
+        if !SourceType.isNumeric(left.expr.ty) || !sameType(
             left.expr.ty,
             right.expr.ty,
           )
@@ -2276,7 +2280,7 @@ final class SourceTyper(
         )
         val right =
           expr(node.right, scope, Some(left.expr.ty), context)
-        if !SourceType.isNumeric(left.expr.ty) || !SourceType.same(
+        if !SourceType.isNumeric(left.expr.ty) || !sameType(
             left.expr.ty,
             right.expr.ty,
           )
@@ -2344,7 +2348,7 @@ final class SourceTyper(
       node.elseExp.map(expr(_, scope.child, expected, context))
     val ty = elseExp match
       case Some(other)
-          if SourceType.same(
+          if sameType(
             thenExp.expr.ty,
             other.expr.ty,
           ) =>
@@ -2441,9 +2445,6 @@ final class SourceTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
-    // Ordinary cosmo0 match checking is SourceType-based: it checks variant
-    // payloads and branch result agreement, but it does not elaborate indexed
-    // families into `DependentPatterns` case trees.
     val scrut = expr(node.scrut, scope, None, context)
     val arms = node.arms.map { arm =>
       val armScope = scope.child
@@ -2452,12 +2453,17 @@ final class SourceTyper(
       val body = arm.body.map(expr(_, armScope, expected, context))
       TypedMatchArm(typedPattern, body.map(_.expr), arm.span)
     }
+    diagnostics ++= MlttTypeChecker.validateDependentPatternMatch(
+      profile,
+      scrut.expr.ty,
+      node.arms,
+    )
     val bodyTypes = arms.flatMap(_.body.map(_.ty))
     val ty =
       if bodyTypes.isEmpty then SourceType.Unit
       else
         val first = bodyTypes.head
-        if bodyTypes.tail.forall(ty => SourceType.same(first, ty))
+        if bodyTypes.tail.forall(ty => sameType(first, ty))
         then first
         else
           error(
@@ -2493,7 +2499,7 @@ final class SourceTyper(
     context match
       case FunctionContext.Some(retTy, _) =>
         val value = expr(node.value, scope, Some(retTy), context)
-        if !SourceType.assignable(value.expr.ty, retTy) then
+        if !assignableType(value.expr.ty, retTy) then
           error(
             "cosmo0.type.return-mismatch",
             s"return has type ${value.expr.ty.display}, expected ${retTy.display}",
@@ -2553,7 +2559,7 @@ final class SourceTyper(
         )
         TypedBindingPattern(value.name, expectedTy, value.span)
       case value: UntypedBoolLiteral =>
-        if !SourceType.same(expectedTy, SourceType.Bool) then
+        if !sameType(expectedTy, SourceType.Bool) then
           invalidPatternType(value.span, expectedTy, SourceType.Bool)
         TypedBoolLiteral(value.value, SourceType.Bool, value.span)
       case value: UntypedIntLiteral =>
@@ -2564,7 +2570,7 @@ final class SourceTyper(
           invalidPatternType(value.span, expectedTy, ty)
         TypedIntLiteral(value.value, ty, value.span)
       case value: UntypedAsciiLiteral =>
-        if !SourceType.same(expectedTy, SourceType.Byte) then
+        if !sameType(expectedTy, SourceType.Byte) then
           invalidPatternType(value.span, expectedTy, SourceType.Byte)
         TypedIntLiteral(
           asciiLiteralValue(value.value, value.span),
@@ -2572,7 +2578,7 @@ final class SourceTyper(
           value.span,
         )
       case value: UntypedRuneLiteral =>
-        if !SourceType.same(expectedTy, SourceType.Rune) then
+        if !sameType(expectedTy, SourceType.Rune) then
           invalidPatternType(value.span, expectedTy, SourceType.Rune)
         TypedIntLiteral(
           runeLiteralValue(value.value, value.span),
@@ -2587,7 +2593,7 @@ final class SourceTyper(
           invalidPatternType(value.span, expectedTy, ty)
         TypedFloatLiteral(value.value, ty, value.span)
       case value: UntypedStringLiteral =>
-        if !SourceType.same(expectedTy, SourceType.String) then
+        if !sameType(expectedTy, SourceType.String) then
           invalidPatternType(value.span, expectedTy, SourceType.String)
         TypedStringLiteral(value.value, SourceType.String, value.span)
       case value: UntypedVariantPattern =>
@@ -2619,7 +2625,7 @@ final class SourceTyper(
     }
     sig match
       case Some((callable, constructorExpr)) =>
-        if !SourceType.same(callable.returnType, expectedTy) then
+        if !sameType(callable.returnType, expectedTy) then
           error(
             "cosmo0.type.invalid-match-payload",
             s"pattern constructor returns ${callable.returnType.display}, expected ${expectedTy.display}",
@@ -3230,17 +3236,17 @@ final class SourceTyper(
       case SourceType.Ref(target, mutable) =>
         SourceType.dealias(actual.expr.ty) match
           case SourceType.Ref(actualTarget, actualMutable) =>
-            SourceType.same(
+            sameType(
               actualTarget,
               target,
             ) && (!mutable || actualMutable)
           case other =>
-            SourceType.same(
+            sameType(
               other,
               target,
             ) && (!mutable || actual.mutAllowed)
       case other =>
-        SourceType.assignable(actual.expr.ty, other)
+        assignableType(actual.expr.ty, other)
 
   /** Emits an assignment-style mismatch when an inferred type cannot flow to an
     * expected type.
@@ -3252,7 +3258,7 @@ final class SourceTyper(
     * }}}
     *
     * This helper centralizes declaration initialization, assignment, and return
-    * checks so all use `SourceType.assignable`.
+    * checks so all use the MLTT-backed assignability relation.
     */
   private def checkAssignable(
       actual: ExprInfo,
@@ -3260,7 +3266,7 @@ final class SourceTyper(
       span: SourceSpan,
       code: String,
   ): Unit =
-    if !SourceType.assignable(actual.expr.ty, expected) then
+    if !assignableType(actual.expr.ty, expected) then
       error(
         code,
         s"expected ${expected.display}, got ${actual.expr.ty.display}",
@@ -3308,7 +3314,7 @@ final class SourceTyper(
     * expected-bool diagnostic when the inferred type is not `Bool`.
     */
   private def requireBool(value: ExprInfo, span: SourceSpan): Unit =
-    if !SourceType.same(value.expr.ty, SourceType.Bool) then
+    if !sameType(value.expr.ty, SourceType.Bool) then
       error(
         "cosmo0.type.expected-bool",
         s"expected Bool, got ${value.expr.ty.display}",

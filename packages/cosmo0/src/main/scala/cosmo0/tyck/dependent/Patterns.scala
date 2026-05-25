@@ -280,8 +280,8 @@ final case class DependentCaseTree(
   * `Nil` branch compares `[A, S(n)]` with `[A, Z]`, so the branch is diagnosed
   * as impossible instead of being treated as a valid head case.
   *
-  * Pipeline note: this object is an experiment and test harness. The ordinary
-  * cosmo0 package pipeline still type-checks source through `SourceTyper`.
+  * Pipeline note: `MlttTypeChecker` owns the public profile entry points and
+  * calls this object for dependent-pattern directives and source-match hooks.
   */
 object DependentPatterns:
   private val UnsupportedUnificationCode =

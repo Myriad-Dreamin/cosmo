@@ -47,8 +47,19 @@ class CheckerProfileTests extends munit.FunSuite:
     )
     assert(!dependent.rejects(CheckerProfiles.DependentPatternsFeature))
 
-  test("default cosmo0 check result uses the cosmo0 subset profile"):
+  test("default cosmo0 check result uses the MLTT dependent source typer"):
     val result = Cosmo0().check("val answer = 42")
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+    assertEquals(result.value.get.typed.decls.length, 1)
+
+  test("MLTT dependent profile checks ordinary source without directives"):
+    val result = Cosmo0().checkWithProfile(
+      "val answer = 42",
+      CheckerProfiles.MlttDependentPatterns.id,
+    )
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -216,6 +227,21 @@ class CheckerProfileTests extends munit.FunSuite:
     val summary = checked.value.get.checked.typed.checkerArtifactSummary
     assert(summary.contains("dependent_pattern_vec_head_elaborates"))
     assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
+
+  test("MLTT source type relation backs same and assignable checks"):
+    val alias = SourceType.Alias("Answer", SourceType.I32)
+    val mutableRef = SourceType.Ref(SourceType.String, mutable = true)
+    val readonlyRef = SourceType.Ref(SourceType.String, mutable = false)
+
+    assert(MlttTypeChecker.sourceTypesSame(alias, SourceType.I32))
+    assert(MlttTypeChecker.sourceTypeAssignable(mutableRef, readonlyRef))
+    assert(!MlttTypeChecker.sourceTypeAssignable(readonlyRef, mutableRef))
+    assert(
+      !MlttTypeChecker.sourceTypesSame(
+        SourceType.TypeParam("T"),
+        SourceType.User("T"),
+      ),
+    )
 
   test(
     "MLTT checker runs dependent-pattern profile as an extension",
