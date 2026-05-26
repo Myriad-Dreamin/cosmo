@@ -43,6 +43,11 @@ final class LirTypeChecker(
       entry: LirLabel,
   )
 
+  private final case class StructuredState(
+      defined: Set[LirLocalId],
+      terminated: Boolean = false,
+  )
+
   private final case class PlaceInfo(
       valueType: LirTypeRef,
       mutable: Boolean,
@@ -168,10 +173,12 @@ final class LirTypeChecker(
       checkExternFunction(function)
       return
 
-    if function.blocks.isEmpty then
+    val hasStructuredBody =
+      function.structuredBody.exists(_.statements.nonEmpty)
+    if function.blocks.isEmpty && !hasStructuredBody then
       error(
         "cosmo0.lir.missing-block",
-        s"${function.id} has no LIR blocks",
+        s"${function.id} has no LIR body",
       )
       return
 
@@ -180,16 +187,23 @@ final class LirTypeChecker(
     val entry = blocks
       .get(LirLabel("entry"))
       .map(_.label)
-      .getOrElse(blocks.keys.toList.sortBy(_.value).head)
+      .orElse(blocks.keys.toList.sortBy(_.value).headOption)
+      .getOrElse(LirLabel("entry"))
     val env = FunctionEnv(function, declarations, locals, blocks, entry)
 
-    checkBranchTargets(env)
-    val inSets = computeDefinedInputs(env)
-    inSets.keys.toList.sortBy(_.value).foreach { label =>
-      blocks.get(label).foreach { block =>
-        checkReachableBlock(block, env, inSets(label))
-      }
+    function.structuredBody.foreach { body =>
+      val initial = env.locals.values.filter(_.param).map(_.id).toSet
+      checkStructuredStatements(body.statements, env, initial, loopDepth = 0)
     }
+
+    if function.blocks.nonEmpty then
+      checkBranchTargets(env)
+      val inSets = computeDefinedInputs(env)
+      inSets.keys.toList.sortBy(_.value).foreach { label =>
+        blocks.get(label).foreach { block =>
+          checkReachableBlock(block, env, inSets(label))
+        }
+      }
 
   private def checkSourceSignature(
       function: LirFunction,
@@ -270,6 +284,11 @@ final class LirTypeChecker(
       error(
         "cosmo0.lir.invalid-extern-binding",
         s"${function.id} extern binding cannot also define LIR blocks",
+      )
+    if function.structuredBody.nonEmpty then
+      error(
+        "cosmo0.lir.invalid-extern-binding",
+        s"${function.id} extern binding cannot also define a structured LIR body",
       )
     binding.requirements
       .map(_.legacyName)
@@ -428,6 +447,165 @@ final class LirTypeChecker(
         checkOp(op, env, defined)
     }
     checkTerminator(block, env, finalDefined)
+
+  private def checkStructuredStatements(
+      statements: List[LirStmt],
+      env: FunctionEnv,
+      initiallyDefined: Set[LirLocalId],
+      loopDepth: Int,
+  ): StructuredState =
+    statements.foldLeft(StructuredState(initiallyDefined)) { (state, stmt) =>
+      if state.terminated then state
+      else checkStructuredStmt(stmt, env, state.defined, loopDepth)
+    }
+
+  private def checkStructuredStmt(
+      stmt: LirStmt,
+      env: FunctionEnv,
+      defined: Set[LirLocalId],
+      loopDepth: Int,
+  ): StructuredState =
+    stmt match
+      case LirOpStmt(op) =>
+        StructuredState(checkOp(op, env, defined))
+
+      case LirLoopStmt(prologue, condition, body, epilogue) =>
+        val prologueState =
+          checkStructuredStatements(prologue, env, defined, loopDepth)
+        if prologueState.terminated then prologueState
+        else
+          val conditionState =
+            checkLoopCondition(condition, env, prologueState.defined, loopDepth)
+          if conditionState.terminated then conditionState
+          else
+            checkStructuredStatements(
+              body,
+              env,
+              conditionState.defined,
+              loopDepth + 1,
+            )
+            checkStructuredStatements(
+              epilogue,
+              env,
+              conditionState.defined,
+              loopDepth + 1,
+            )
+            StructuredState(conditionState.defined)
+
+      case LirIfStmt(condition, thenBody, elseBody) =>
+        checkValue(condition, env, defined)
+        if !sameSourceType(condition.valueType.source, SourceType.Bool) then
+          error(
+            "cosmo0.lir.invalid-branch",
+            s"${env.function.id} structured if branches on ${condition.valueType.display}, expected Bool",
+          )
+        val thenState =
+          checkStructuredStatements(thenBody, env, defined, loopDepth)
+        val elseState =
+          checkStructuredStatements(elseBody, env, defined, loopDepth)
+        mergeStructuredBranches(thenState, elseState)
+
+      case LirReturnStmt(value) =>
+        checkStructuredReturn(value, env, defined)
+        StructuredState(defined, terminated = true)
+
+      case LirBreakStmt =>
+        if loopDepth == 0 then
+          error(
+            "cosmo0.lir.invalid-break",
+            s"${env.function.id} has structured break outside a loop",
+          )
+        StructuredState(defined, terminated = true)
+
+      case LirContinueStmt =>
+        if loopDepth == 0 then
+          error(
+            "cosmo0.lir.invalid-continue",
+            s"${env.function.id} has structured continue outside a loop",
+          )
+        StructuredState(defined, terminated = true)
+
+      case LirTerminatorStmt(terminator) =>
+        checkStructuredTerminator(terminator, env, defined)
+        StructuredState(defined, terminated = true)
+
+  private def checkLoopCondition(
+      condition: LirLoopCondition,
+      env: FunctionEnv,
+      defined: Set[LirLocalId],
+      loopDepth: Int,
+  ): StructuredState =
+    condition match
+      case LirLoopAlways =>
+        StructuredState(defined)
+      case LirLoopValueCondition(setup, value) =>
+        val setupState =
+          checkStructuredStatements(setup, env, defined, loopDepth)
+        if !setupState.terminated then
+          checkValue(value, env, setupState.defined)
+          if !sameSourceType(value.valueType.source, SourceType.Bool) then
+            error(
+              "cosmo0.lir.invalid-branch",
+              s"${env.function.id} structured loop condition has ${value.valueType.display}, expected Bool",
+            )
+        setupState
+
+  private def mergeStructuredBranches(
+      thenState: StructuredState,
+      elseState: StructuredState,
+  ): StructuredState =
+    (thenState.terminated, elseState.terminated) match
+      case (true, true) =>
+        StructuredState(thenState.defined intersect elseState.defined, true)
+      case (true, false) =>
+        elseState
+      case (false, true) =>
+        thenState
+      case (false, false) =>
+        StructuredState(thenState.defined intersect elseState.defined)
+
+  private def checkStructuredReturn(
+      value: Option[LirValue],
+      env: FunctionEnv,
+      defined: Set[LirLocalId],
+  ): Unit =
+    value.foreach(checkValue(_, env, defined))
+    (value, env.function.returnType.source) match
+      case (None, SourceType.Unit) =>
+      case (None, _) =>
+        error(
+          "cosmo0.lir.invalid-return",
+          s"${env.function.id} structured body returns no value, expected ${env.function.returnType.display}",
+        )
+      case (Some(actual), expected)
+          if !assignable(actual.valueType.source, expected) =>
+        error(
+          "cosmo0.lir.invalid-return",
+          s"${env.function.id} structured body returns ${actual.valueType.display}, expected ${env.function.returnType.display}",
+        )
+      case _ =>
+
+  private def checkStructuredTerminator(
+      terminator: LirTerminator,
+      env: FunctionEnv,
+      defined: Set[LirLocalId],
+  ): Unit =
+    terminator match
+      case value: LirReturn =>
+        checkStructuredReturn(value.value, env, defined)
+      case LirBranch(target) =>
+        error(
+          "cosmo0.lir.invalid-branch",
+          s"${env.function.id} structured body branches to $target",
+        )
+      case LirCondBranch(condition, _, _) =>
+        checkValue(condition, env, defined)
+        error(
+          "cosmo0.lir.invalid-branch",
+          s"${env.function.id} structured body contains a flat conditional branch",
+        )
+      case LirUnreachable(_)  =>
+      case LirErrorExit(_, _) =>
 
   private def checkOp(
       op: LirOp,

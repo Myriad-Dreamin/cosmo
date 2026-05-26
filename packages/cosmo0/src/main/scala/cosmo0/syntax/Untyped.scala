@@ -349,26 +349,33 @@ final case class UntypedIf(
     span: SourceSpan,
 ) extends UntypedExpr
 
-/** Infinite loop expression. The body is expected to type as Unit. */
-final case class UntypedLoop(
-    body: UntypedExpr,
-    span: SourceSpan,
-) extends UntypedExpr
-
-/** While loop expression. The condition is Bool and the body is Unit. */
-final case class UntypedWhile(
-    cond: UntypedExpr,
-    body: UntypedExpr,
-    span: SourceSpan,
-) extends UntypedExpr
-
-/** For loop over supported collection-like standard types. The typer infers the
-  * loop item type from the iterator expression.
+/** Canonical loop condition after elaboration. Source `loop`, `while`, and
+  * restricted `for` forms share this representation so later phases can
+  * preserve loop structure instead of recovering it from source-specific nodes.
   */
-final case class UntypedFor(
-    name: String,
-    iter: UntypedExpr,
+sealed trait UntypedLoopCondition:
+  def span: SourceSpan
+
+object UntypedLoopCondition:
+  final case class Always(span: SourceSpan) extends UntypedLoopCondition
+  final case class SourceCondition(value: UntypedExpr)
+      extends UntypedLoopCondition:
+    def span: SourceSpan = value.span
+  final case class ForEach(
+      name: String,
+      iter: UntypedExpr,
+      span: SourceSpan,
+  ) extends UntypedLoopCondition
+
+/** Canonical loop expression. The shape is `prologue; while condition { body;
+  * epilogue }`; source loops currently elaborate with empty prologue and
+  * epilogue slots.
+  */
+final case class UntypedLoop(
+    prologue: List[UntypedExpr],
+    condition: UntypedLoopCondition,
     body: UntypedExpr,
+    epilogue: List[UntypedExpr],
     span: SourceSpan,
 ) extends UntypedExpr
 

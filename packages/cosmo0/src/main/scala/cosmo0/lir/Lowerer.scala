@@ -110,10 +110,15 @@ final class LirLowerer(
       context: DeclContext,
       report: (String, String, SourceSpan) => Unit,
       useSyntheticExtern: String => LirDeclId,
+      structured: Boolean,
   ):
     private final class OpenBlock(val label: LirLabel):
       val operations: ListBuffer[LirOp] = ListBuffer.empty
       var terminator: Option[LirTerminator] = None
+
+    private final class StructuredFrame:
+      val statements: ListBuffer[LirStmt] = ListBuffer.empty
+      var terminated: Boolean = false
 
     private final case class LoopTargets(
         breakTarget: LirLabel,
@@ -135,9 +140,12 @@ final class LirLowerer(
     private val labelOrdinals = mutable.LinkedHashMap.empty[String, Int]
     private val localBuffer = ListBuffer.empty[LirLocal]
     private val blockBuffer = ListBuffer.empty[OpenBlock]
+    private val structuredRoot = new StructuredFrame
     private val loopStack = mutable.ArrayBuffer.empty[LoopTargets]
     private var tempIndex = 0
     private var current: OpenBlock = newBlock(Lir.label("entry"))
+    private var currentStructured: StructuredFrame = structuredRoot
+    private var structuredLoopDepth = 0
 
     scopes += mutable.LinkedHashMap.empty[String, Binding]
 
@@ -183,15 +191,21 @@ final class LirLowerer(
         params,
         Lir.t(function.retTy),
         localBuffer.toList.sortBy(_.id.value),
-        blockBuffer.toList.map(block =>
-          LirBlock(
-            block.label,
-            block.operations.toList,
-            block.terminator.getOrElse(LirUnreachable()),
-          ),
-        ),
+        blockBuffer.toList
+          .map(block =>
+            LirBlock(
+              block.label,
+              block.operations.toList,
+              block.terminator.getOrElse(LirUnreachable()),
+            ),
+          )
+          .filter(_ => !structured),
         owner = function.owner.flatMap(context.typeId),
         sourceSignature = Some(function.sig),
+        structuredBody =
+          if structured then
+            Some(LirStructuredBody(structuredRoot.statements.toList))
+          else None,
       )
 
     private def lowerBlock(block: TypedBlock): Option[LirValue] =
@@ -293,10 +307,6 @@ final class LirLowerer(
             lowerIf(value)
           case value: TypedLoop =>
             lowerLoop(value)
-          case value: TypedWhile =>
-            lowerWhile(value)
-          case value: TypedFor =>
-            lowerFor(value)
           case value: TypedMatch =>
             lowerMatch(value)
           case value: TypedBreak =>
@@ -744,6 +754,7 @@ final class LirLowerer(
         value: TypedBinary,
         isAnd: Boolean,
     ): Option[LirValue] =
+      if structured then return lowerStructuredShortCircuitBinary(value, isAnd)
       lowerExpr(value.left) match
         case Some(left) =>
           val group = nextLabelGroup(if isAnd then "and" else "or")
@@ -783,6 +794,50 @@ final class LirLowerer(
           } else {
             None
           }
+        case None =>
+          None
+
+    private def lowerStructuredShortCircuitBinary(
+        value: TypedBinary,
+        isAnd: Boolean,
+    ): Option[LirValue] =
+      lowerExpr(value.left) match
+        case Some(left) =>
+          val output = declareTemp(value.ty, mutable = true)
+          val trueBody =
+            captureStructuredStatements {
+              if isAnd then
+                val right = lowerExpr(value.right)
+                finishStructuredStatementBranch(
+                  Some(output),
+                  right,
+                  value.right.span,
+                )
+              else
+                finishStructuredStatementBranch(
+                  Some(output),
+                  Some(LirBoolValue(true)),
+                  value.left.span,
+                )
+            }._1
+          val falseBody =
+            captureStructuredStatements {
+              if isAnd then
+                finishStructuredStatementBranch(
+                  Some(output),
+                  Some(LirBoolValue(false)),
+                  value.left.span,
+                )
+              else
+                val right = lowerExpr(value.right)
+                finishStructuredStatementBranch(
+                  Some(output),
+                  right,
+                  value.right.span,
+                )
+            }._1
+          emitStructuredStmt(LirIfStmt(left, trueBody, falseBody))
+          Some(LirLocalRef(output.id, Lir.t(output.ty)))
         case None =>
           None
 
@@ -839,6 +894,7 @@ final class LirLowerer(
           Some(LirLocalRef(output.id, Lir.t(output.ty)))
 
     private def lowerIf(value: TypedIf): Option[LirValue] =
+      if structured then return lowerStructuredIf(value)
       lowerExpr(value.cond) match
         case Some(condition) =>
           val group = nextLabelGroup("if")
@@ -886,7 +942,66 @@ final class LirLowerer(
         case None =>
           None
 
+    private def lowerStructuredIf(value: TypedIf): Option[LirValue] =
+      lowerExpr(value.cond) match
+        case Some(condition) =>
+          val resultSlot = joinOutput(value.ty)
+          val (thenBody, thenTerminated, _) =
+            captureStructuredStatements {
+              val result = lowerExpr(value.thenExp)
+              finishStructuredStatementBranch(
+                resultSlot,
+                result,
+                value.thenExp.span,
+              )
+            }
+          val (elseBody, elseTerminated) =
+            value.elseExp match
+              case Some(elseExpr) =>
+                val (statements, terminated, _) =
+                  captureStructuredStatements {
+                    val result = lowerExpr(elseExpr)
+                    finishStructuredStatementBranch(
+                      resultSlot,
+                      result,
+                      elseExpr.span,
+                    )
+                  }
+                statements -> terminated
+              case None =>
+                Nil -> false
+          emitStructuredStmt(LirIfStmt(condition, thenBody, elseBody))
+          if thenTerminated && elseTerminated then
+            currentStructured.terminated = true
+            None
+          else structuredResult(resultSlot)
+        case None =>
+          None
+
     private def lowerLoop(value: TypedLoop): Option[LirValue] =
+      if structured then lowerStructuredLoop(value)
+      else lowerFlatLoop(value)
+
+    private def lowerFlatLoop(value: TypedLoop): Option[LirValue] =
+      lowerUnitExprs(value.prologue)
+      if isTerminated then return None
+      value.condition match
+        case _: TypedLoopCondition.Always =>
+          lowerFlatInfiniteLoop(value)
+        case TypedLoopCondition.SourceCondition(cond) =>
+          lowerFlatWhileLoop(value, cond)
+        case forEach: TypedLoopCondition.ForEach =>
+          lowerExpr(forEach.iter).flatMap { iterValue =>
+            iterableDescriptor(
+              iterValue.valueType.source,
+              forEach.itemTy,
+              forEach.span,
+            ).flatMap { descriptor =>
+              lowerFlatForLoop(value, forEach, iterValue, descriptor)
+            }
+          }
+
+    private def lowerFlatInfiniteLoop(value: TypedLoop): Option[LirValue] =
       val group = nextLabelGroup("loop")
       val headerLabel = numberedLabel(group, 0, "header")
       val bodyLabel = numberedLabel(group, 1, "body")
@@ -904,12 +1019,16 @@ final class LirLowerer(
       }
 
       startBlock(continueLabel)
+      lowerUnitExprs(value.epilogue)
       terminate(LirBranch(headerLabel))
 
       startBlock(exitLabel)
       Some(LirUnitValue)
 
-    private def lowerWhile(value: TypedWhile): Option[LirValue] =
+    private def lowerFlatWhileLoop(
+        value: TypedLoop,
+        cond: TypedExpr,
+    ): Option[LirValue] =
       val group = nextLabelGroup("while")
       val headerLabel = numberedLabel(group, 0, "header")
       val bodyLabel = numberedLabel(group, 1, "body")
@@ -918,7 +1037,7 @@ final class LirLowerer(
 
       terminate(LirBranch(headerLabel))
       startBlock(headerLabel)
-      lowerExpr(value.cond) match
+      lowerExpr(cond) match
         case Some(condition) =>
           terminate(LirCondBranch(condition, bodyLabel, exitLabel))
         case None =>
@@ -926,7 +1045,7 @@ final class LirLowerer(
             report(
               "cosmo0.lir.lower.missing-condition",
               "while condition did not produce a LIR value",
-              value.cond.span,
+              cond.span,
             )
             terminate(
               LirErrorExit("cosmo0.lir.lower.missing-condition", Some("while")),
@@ -939,28 +1058,15 @@ final class LirLowerer(
       }
 
       startBlock(continueLabel)
+      lowerUnitExprs(value.epilogue)
       terminate(LirBranch(headerLabel))
 
       startBlock(exitLabel)
       Some(LirUnitValue)
 
-    private def lowerFor(value: TypedFor): Option[LirValue] =
-      val iterAndDescriptor =
-        lowerExpr(value.iter).flatMap(iterValue =>
-          iterableDescriptor(
-            iterValue.valueType.source,
-            value.itemTy,
-            value.span,
-          ).map(iterValue -> _),
-        )
-      iterAndDescriptor match
-        case None =>
-          None
-        case Some((iterValue, descriptor)) =>
-          lowerForLoop(value, iterValue, descriptor)
-
-    private def lowerForLoop(
-        value: TypedFor,
+    private def lowerFlatForLoop(
+        value: TypedLoop,
+        forEach: TypedLoopCondition.ForEach,
         iterValue: LirValue,
         descriptor: LirDescriptorRef,
     ): Option[LirValue] =
@@ -970,7 +1076,7 @@ final class LirLowerer(
       val continueLabel = numberedLabel(group, 2, "continue")
       val exitLabel = numberedLabel(group, 3, "exit")
       val itemBinding =
-        declareLocal(value.name, value.itemTy, mutable = false)
+        declareLocal(forEach.name, forEach.itemTy, mutable = false)
 
       terminate(LirBranch(headerLabel))
       startBlock(headerLabel)
@@ -1002,7 +1108,7 @@ final class LirLowerer(
               descriptor,
               "iter_next",
               List(iterValue),
-              Some(Lir.t(value.itemTy)),
+              Some(Lir.t(forEach.itemTy)),
             ),
           )
           lowerExpr(value.body)
@@ -1011,10 +1117,147 @@ final class LirLowerer(
       }
 
       startBlock(continueLabel)
+      lowerUnitExprs(value.epilogue)
       terminate(LirBranch(headerLabel))
 
       startBlock(exitLabel)
       Some(LirUnitValue)
+
+    private def lowerStructuredLoop(value: TypedLoop): Option[LirValue] =
+      val prologue =
+        captureStructuredStatements(lowerUnitExprs(value.prologue))._1
+      value.condition match
+        case _: TypedLoopCondition.Always =>
+          emitStructuredLoop(value, prologue, LirLoopAlways)
+        case TypedLoopCondition.SourceCondition(cond) =>
+          val (setup, _, condition) = captureStructuredStatements {
+            lowerExpr(cond)
+          }
+          condition match
+            case Some(conditionValue) =>
+              emitStructuredLoop(
+                value,
+                prologue,
+                LirLoopValueCondition(setup, conditionValue),
+              )
+            case None =>
+              reportMissingStructuredCondition(cond.span)
+              None
+        case forEach: TypedLoopCondition.ForEach =>
+          lowerStructuredForLoop(value, prologue, forEach)
+
+    private def emitStructuredLoop(
+        value: TypedLoop,
+        loopPrologue: List[LirStmt],
+        loopCondition: LirLoopCondition,
+    ): Option[LirValue] =
+      val body = captureStructuredLoopBody {
+        lowerExpr(value.body)
+      }
+      val epilogue =
+        captureStructuredStatements(lowerUnitExprs(value.epilogue))._1
+      emitStructuredStmt(
+        LirLoopStmt(
+          loopPrologue,
+          loopCondition,
+          body,
+          epilogue,
+        ),
+      )
+      Some(LirUnitValue)
+
+    private def lowerStructuredForLoop(
+        loop: TypedLoop,
+        prologue: List[LirStmt],
+        forEach: TypedLoopCondition.ForEach,
+    ): Option[LirValue] =
+      val (iterSetup, _, iterValue) = captureStructuredStatements {
+        lowerExpr(forEach.iter)
+      }
+      iterValue match
+        case Some(value) =>
+          iterableDescriptor(
+            value.valueType.source,
+            forEach.itemTy,
+            forEach.span,
+          ) match
+            case Some(descriptor) =>
+              val (conditionSetup, _, condition) =
+                structuredForHasNextCondition(descriptor, value)
+              condition match
+                case Some(conditionValue) =>
+                  val loopCondition =
+                    LirLoopValueCondition(conditionSetup, conditionValue)
+                  val body = captureStructuredLoopBody {
+                    structuredForBody(forEach, loop.body, value, descriptor)
+                  }
+                  val epilogue =
+                    captureStructuredStatements(
+                      lowerUnitExprs(loop.epilogue),
+                    )._1
+                  emitStructuredStmt(
+                    LirLoopStmt(
+                      prologue ++ iterSetup,
+                      loopCondition,
+                      body,
+                      epilogue,
+                    ),
+                  )
+                  Some(LirUnitValue)
+                case None =>
+                  reportMissingStructuredCondition(forEach.span)
+                  None
+            case None =>
+              None
+        case None =>
+          None
+
+    private def structuredForHasNextCondition(
+        descriptor: LirDescriptorRef,
+        iterValue: LirValue,
+    ): (List[LirStmt], Boolean, Option[LirValue]) =
+      captureStructuredStatements {
+        val hasNext = declareTemp(SourceType.Bool)
+        emit(
+          LirDescriptorIntrinsic(
+            Some(hasNext.id),
+            descriptor,
+            "iter_has_next",
+            List(iterValue),
+            Some(Lir.t(SourceType.Bool)),
+          ),
+        )
+        Some(LirLocalRef(hasNext.id, Lir.t(SourceType.Bool)))
+      }
+
+    private def structuredForBody(
+        forEach: TypedLoopCondition.ForEach,
+        body: TypedExpr,
+        iterValue: LirValue,
+        descriptor: LirDescriptorRef,
+    ): Option[LirValue] =
+      withScope {
+        val binding =
+          declareLocal(forEach.name, forEach.itemTy, mutable = false)
+        bind(binding)
+        emit(
+          LirDescriptorIntrinsic(
+            Some(binding.id),
+            descriptor,
+            "iter_next",
+            List(iterValue),
+            Some(Lir.t(forEach.itemTy)),
+          ),
+        )
+        lowerExpr(body)
+      }
+
+    private def reportMissingStructuredCondition(span: SourceSpan): Unit =
+      report(
+        "cosmo0.lir.lower.missing-condition",
+        "structured loop condition did not produce a LIR value",
+        span,
+      )
 
     private def lowerMatch(value: TypedMatch): Option[LirValue] =
       lowerExpr(value.scrut) match
@@ -1094,6 +1337,18 @@ final class LirLowerer(
       else None
 
     private def lowerBreak(value: TypedBreak): Option[LirValue] =
+      if structured then
+        if structuredLoopDepth > 0 then emitStructuredStmt(LirBreakStmt)
+        else
+          report(
+            "cosmo0.lir.lower.invalid-break",
+            "break can only be lowered inside a loop",
+            value.span,
+          )
+          terminate(
+            LirErrorExit("cosmo0.lir.lower.invalid-break", Some(function.name)),
+          )
+        return None
       loopStack.lastOption match
         case Some(targets) =>
           terminate(LirBranch(targets.breakTarget))
@@ -1109,6 +1364,21 @@ final class LirLowerer(
       None
 
     private def lowerContinue(value: TypedContinue): Option[LirValue] =
+      if structured then
+        if structuredLoopDepth > 0 then emitStructuredStmt(LirContinueStmt)
+        else
+          report(
+            "cosmo0.lir.lower.invalid-continue",
+            "continue can only be lowered inside a loop",
+            value.span,
+          )
+          terminate(
+            LirErrorExit(
+              "cosmo0.lir.lower.invalid-continue",
+              Some(function.name),
+            ),
+          )
+        return None
       loopStack.lastOption match
         case Some(targets) =>
           terminate(LirBranch(targets.continueTarget))
@@ -1159,6 +1429,11 @@ final class LirLowerer(
 
         case other =>
           unsupported(other, "assignment target")
+
+    private def lowerUnitExprs(values: List[TypedExpr]): Unit =
+      values.foreach { value =>
+        if !isTerminated then lowerExpr(value)
+      }
 
     private def returnTerminator(
         value: Option[LirValue],
@@ -1220,7 +1495,8 @@ final class LirLowerer(
         joinLabel: LirLabel,
         span: SourceSpan,
     ): Boolean =
-      if isTerminated then false
+      if structured then finishStructuredStatementBranch(output, result, span)
+      else if isTerminated then false
       else
         var canBranch = true
         output match
@@ -1251,6 +1527,38 @@ final class LirLowerer(
           terminate(LirBranch(joinLabel))
           true
         else false
+
+    private def finishStructuredStatementBranch(
+        output: Option[Binding],
+        result: Option[LirValue],
+        span: SourceSpan,
+    ): Boolean =
+      if isTerminated then return false
+      output match
+        case Some(binding) =>
+          result match
+            case Some(value) =>
+              emit(
+                LirAssign(
+                  LirLocalPlace(binding.id, Lir.t(binding.ty)),
+                  value,
+                ),
+              )
+            case None =>
+              report(
+                "cosmo0.lir.lower.missing-branch-value",
+                s"structured expression did not produce ${binding.ty.display}",
+                span,
+              )
+              terminate(
+                LirErrorExit(
+                  "cosmo0.lir.lower.missing-branch-value",
+                  Some(function.name),
+                ),
+              )
+              return false
+        case None =>
+      !isTerminated
 
     private def declareLocal(
         name: String,
@@ -1313,14 +1621,58 @@ final class LirLowerer(
       try body
       finally loopStack.remove(loopStack.length - 1)
 
+    private def withStructuredLoop[A](body: => A): A =
+      structuredLoopDepth += 1
+      try body
+      finally structuredLoopDepth -= 1
+
+    private def captureStructuredLoopBody[A](body: => A): List[LirStmt] =
+      withStructuredLoop {
+        captureStructuredStatements(body)._1
+      }
+
+    private def captureStructuredStatements[A](
+        body: => A,
+    ): (List[LirStmt], Boolean, A) =
+      val parent = currentStructured
+      val frame = new StructuredFrame
+      currentStructured = frame
+      try
+        val result = body
+        (frame.statements.toList, frame.terminated, result)
+      finally currentStructured = parent
+
+    private def emitStructuredStmt(stmt: LirStmt): Unit =
+      if !structured || isTerminated then return
+      currentStructured.statements += stmt
+      stmt match
+        case _: LirReturnStmt | LirBreakStmt | LirContinueStmt |
+            _: LirTerminatorStmt =>
+          currentStructured.terminated = true
+        case _ =>
+
     private def emit(op: LirOp): Unit =
-      if !isTerminated then current.operations += op
+      if structured then
+        if !isTerminated then currentStructured.statements += LirOpStmt(op)
+      else if !isTerminated then current.operations += op
 
     private def terminate(terminator: LirTerminator): Unit =
-      if current.terminator.isEmpty then current.terminator = Some(terminator)
+      if structured then terminateStructured(terminator)
+      else if current.terminator.isEmpty then
+        current.terminator = Some(terminator)
+
+    private def terminateStructured(terminator: LirTerminator): Unit =
+      if currentStructured.terminated then return
+      terminator match
+        case LirReturn(value) =>
+          currentStructured.statements += LirReturnStmt(value)
+        case other =>
+          currentStructured.statements += LirTerminatorStmt(other)
+      currentStructured.terminated = true
 
     private def isTerminated: Boolean =
-      current.terminator.nonEmpty
+      if structured then currentStructured.terminated
+      else current.terminator.nonEmpty
 
     private def newBlock(label: LirLabel): OpenBlock =
       val block = new OpenBlock(label)
@@ -1649,9 +2001,113 @@ final class LirLowerer(
           s"function ${function.name} has no body and no trusted extern ABI binding",
           function.span,
         )
-        FunctionBuilder(function, context, error, useSyntheticExtern).lower()
+        FunctionBuilder(
+          function,
+          context,
+          error,
+          useSyntheticExtern,
+          structured = false,
+        ).lower()
       case None =>
-        FunctionBuilder(function, context, error, useSyntheticExtern).lower()
+        FunctionBuilder(
+          function,
+          context,
+          error,
+          useSyntheticExtern,
+          structured = shouldUseStructuredBody(function),
+        ).lower()
+
+  private def shouldUseStructuredBody(function: TypedFunction): Boolean =
+    function.body.exists(body =>
+      containsTypedLoop(body) && !containsTypedMatch(body),
+    )
+
+  private def containsTypedLoop(expr: TypedExpr): Boolean =
+    expr match
+      case _: TypedLoop =>
+        true
+      case block: TypedBlock =>
+        block.items.exists(containsTypedLoopItem)
+      case select: TypedSelect =>
+        containsTypedLoop(select.recv)
+      case call: TypedCall =>
+        containsTypedLoop(call.callee) || call.args.exists(containsTypedLoop)
+      case assign: TypedAssign =>
+        containsTypedLoop(assign.target) || containsTypedLoop(assign.value)
+      case unary: TypedUnary =>
+        containsTypedLoop(unary.expr)
+      case binary: TypedBinary =>
+        containsTypedLoop(binary.left) || containsTypedLoop(binary.right)
+      case value: TypedIf =>
+        containsTypedLoop(value.cond) ||
+        containsTypedLoop(value.thenExp) ||
+        value.elseExp.exists(containsTypedLoop)
+      case value: TypedMatch =>
+        containsTypedLoop(value.scrut) ||
+        value.arms.exists(_.body.exists(containsTypedLoop))
+      case ret: TypedReturn =>
+        containsTypedLoop(ret.value)
+      case _ =>
+        false
+
+  private def containsTypedLoopItem(item: TypedBlockItem): Boolean =
+    item match
+      case local: TypedLocal =>
+        local.init.exists(containsTypedLoop)
+      case stmt: TypedExprStmt =>
+        containsTypedLoop(stmt.expr)
+      case expr: TypedExpr =>
+        containsTypedLoop(expr)
+
+  private def containsTypedMatch(expr: TypedExpr): Boolean =
+    expr match
+      case _: TypedMatch =>
+        true
+      case loop: TypedLoop =>
+        loop.prologue.exists(containsTypedMatch) ||
+        containsTypedMatchCondition(loop.condition) ||
+        containsTypedMatch(loop.body) ||
+        loop.epilogue.exists(containsTypedMatch)
+      case block: TypedBlock =>
+        block.items.exists(containsTypedMatchItem)
+      case select: TypedSelect =>
+        containsTypedMatch(select.recv)
+      case call: TypedCall =>
+        containsTypedMatch(call.callee) || call.args.exists(containsTypedMatch)
+      case assign: TypedAssign =>
+        containsTypedMatch(assign.target) || containsTypedMatch(assign.value)
+      case unary: TypedUnary =>
+        containsTypedMatch(unary.expr)
+      case binary: TypedBinary =>
+        containsTypedMatch(binary.left) || containsTypedMatch(binary.right)
+      case value: TypedIf =>
+        containsTypedMatch(value.cond) ||
+        containsTypedMatch(value.thenExp) ||
+        value.elseExp.exists(containsTypedMatch)
+      case ret: TypedReturn =>
+        containsTypedMatch(ret.value)
+      case _ =>
+        false
+
+  private def containsTypedMatchItem(item: TypedBlockItem): Boolean =
+    item match
+      case local: TypedLocal =>
+        local.init.exists(containsTypedMatch)
+      case stmt: TypedExprStmt =>
+        containsTypedMatch(stmt.expr)
+      case expr: TypedExpr =>
+        containsTypedMatch(expr)
+
+  private def containsTypedMatchCondition(
+      condition: TypedLoopCondition,
+  ): Boolean =
+    condition match
+      case _: TypedLoopCondition.Always =>
+        false
+      case TypedLoopCondition.SourceCondition(value) =>
+        containsTypedMatch(value)
+      case value: TypedLoopCondition.ForEach =>
+        containsTypedMatch(value.iter)
 
   private def useSyntheticExtern(name: String): LirDeclId =
     syntheticExternNames += name

@@ -201,6 +201,41 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("::cosmo0_runtime::println(z);"))
     assertCxxAccepts(output)
 
+  test("Cosmo0 compile emits structured C++ while loops"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "structured_loops.cos",
+        """def structured(items: Vec[i32], keep: Bool): Unit = {
+          |  while (keep) {
+          |    continue
+          |  }
+          |
+          |  loop {
+          |    break
+          |  }
+          |
+          |  for (item in items) {
+          |    item;
+          |  }
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("while (true) {"))
+    assert(output.contains("continue;"))
+    assert(output.contains("break;"))
+    assert(output.contains("iter_has_next"))
+    assert(output.contains("iter_next"))
+    assert(!output.contains("goto"))
+    assertCxxAccepts(output)
+
   test("Cosmo0 compile supports mutable references to generic Vec values"):
     val result = Cosmo0().compile(
       SourceFile(

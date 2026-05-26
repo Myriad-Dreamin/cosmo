@@ -217,13 +217,11 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(
-      rendered.contains("cond_branch %keep ? ^while0_01_body : ^while0_03_exit"),
-    )
-    assert(
-      rendered.contains("^while0_01_body:\n      branch ^while0_02_continue"),
-    )
-    assert(rendered.contains("^loop0_01_body:\n      branch ^loop0_03_exit"))
+    assert(rendered.contains("structured:"))
+    assert(rendered.contains("condition %keep"))
+    assert(rendered.contains("continue"))
+    assert(rendered.contains("condition always"))
+    assert(rendered.contains("break"))
     assert(
       rendered.contains(
         "%tmp0 = descriptor Vec[i32]::iter_has_next(%items) -> Bool",
@@ -232,6 +230,8 @@ class LirLowererTests extends munit.FunSuite:
     assert(
       rendered.contains("%item = descriptor Vec[i32]::iter_next(%items) -> i32"),
     )
+    assert(!rendered.contains("^while0_"))
+    assert(!rendered.contains("^loop0_"))
 
   test(
     "lowers descriptor constructors and standard generic methods to intrinsics",

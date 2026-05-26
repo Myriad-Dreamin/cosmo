@@ -996,16 +996,26 @@ final class CppBackend(
         s"${valueType(local.valueType)} ${locals.local(local.id)}{};",
       )
     }
-    if function.blocks.nonEmpty then
-      lines += line(2, s"goto ${locals.label(entryBlock(function).label)};")
-    function.blocks.sortBy(_.label.value).foreach { block =>
-      lines += s"${locals.label(block.label)}:"
-      block.operations.foreach(op =>
-        lines ++= renderOp(op, function, locals).map(line(2, _)),
-      )
-      lines ++= renderTerminator(block.terminator, function, locals)
-        .map(line(2, _))
-    }
+    function.structuredBody match
+      case Some(body) =>
+        lines ++= renderStructuredStatements(
+          body.statements,
+          function,
+          locals,
+          indent = 2,
+          epilogueStack = Nil,
+        )
+      case None =>
+        if function.blocks.nonEmpty then
+          lines += line(2, s"goto ${locals.label(entryBlock(function).label)};")
+        function.blocks.sortBy(_.label.value).foreach { block =>
+          lines += s"${locals.label(block.label)}:"
+          block.operations.foreach(op =>
+            lines ++= renderOp(op, function, locals).map(line(2, _)),
+          )
+          lines ++= renderTerminator(block.terminator, function, locals)
+            .map(line(2, _))
+        }
     lines += "}"
     lines.mkString("\n")
 
@@ -1021,6 +1031,138 @@ final class CppBackend(
     function.params
       .map(param => s"${valueType(param.valueType)} ${locals.local(param.id)}")
       .mkString(", ")
+
+  private def renderStructuredStatements(
+      statements: List[LirStmt],
+      function: LirFunction,
+      locals: FunctionNames,
+      indent: Int,
+      epilogueStack: List[List[LirStmt]],
+  ): List[String] =
+    statements.flatMap(
+      renderStructuredStmt(_, function, locals, indent, epilogueStack),
+    )
+
+  private def renderStructuredStmt(
+      stmt: LirStmt,
+      function: LirFunction,
+      locals: FunctionNames,
+      indent: Int,
+      epilogueStack: List[List[LirStmt]],
+  ): List[String] =
+    stmt match
+      case LirOpStmt(op) =>
+        renderOp(op, function, locals).map(line(indent, _))
+
+      case LirLoopStmt(prologue, condition, body, epilogue) =>
+        renderStructuredStatements(
+          prologue,
+          function,
+          locals,
+          indent,
+          epilogueStack,
+        ) ++
+          List(line(indent, "while (true) {")) ++
+          renderLoopCondition(condition, function, locals, indent + 2) ++
+          renderStructuredStatements(
+            body,
+            function,
+            locals,
+            indent + 2,
+            epilogue :: epilogueStack,
+          ) ++
+          renderStructuredStatements(
+            epilogue,
+            function,
+            locals,
+            indent + 2,
+            epilogueStack,
+          ) ++
+          List(line(indent, "}"))
+
+      case LirIfStmt(condition, thenBody, elseBody) =>
+        val thenLines =
+          renderStructuredStatements(
+            thenBody,
+            function,
+            locals,
+            indent + 2,
+            epilogueStack,
+          )
+        val elseLines =
+          renderStructuredStatements(
+            elseBody,
+            function,
+            locals,
+            indent + 2,
+            epilogueStack,
+          )
+        val header =
+          List(line(indent, s"if (${renderValue(condition, locals)}) {"))
+        if elseLines.isEmpty then header ++ thenLines ++ List(line(indent, "}"))
+        else
+          header ++ thenLines ++
+            List(line(indent, "} else {")) ++
+            elseLines ++
+            List(line(indent, "}"))
+
+      case LirReturnStmt(value) =>
+        renderStructuredReturn(value, function, locals).map(line(indent, _))
+
+      case LirBreakStmt =>
+        List(line(indent, "break;"))
+
+      case LirContinueStmt =>
+        val epilogueLines = epilogueStack.headOption
+          .map(epilogue =>
+            renderStructuredStatements(
+              epilogue,
+              function,
+              locals,
+              indent,
+              epilogueStack.drop(1),
+            ),
+          )
+          .getOrElse(Nil)
+        epilogueLines :+ line(indent, "continue;")
+
+      case LirTerminatorStmt(terminator) =>
+        renderTerminator(terminator, function, locals).map(line(indent, _))
+
+  private def renderLoopCondition(
+      condition: LirLoopCondition,
+      function: LirFunction,
+      locals: FunctionNames,
+      indent: Int,
+  ): List[String] =
+    condition match
+      case LirLoopAlways =>
+        Nil
+      case LirLoopValueCondition(setup, value) =>
+        renderStructuredStatements(
+          setup,
+          function,
+          locals,
+          indent,
+          epilogueStack = Nil,
+        ) ++ List(
+          line(indent, s"if (!(${renderValue(value, locals)})) {"),
+          line(indent + 2, "break;"),
+          line(indent, "}"),
+        )
+
+  private def renderStructuredReturn(
+      value: Option[LirValue],
+      function: LirFunction,
+      locals: FunctionNames,
+  ): List[String] =
+    function.returnType.source match
+      case SourceType.Unit =>
+        List("return;")
+      case _ =>
+        value
+          .map(value => List(s"return ${renderValue(value, locals)};"))
+          .getOrElse(List("return {};"))
 
   private def renderOp(
       op: LirOp,
