@@ -9,7 +9,7 @@ $Output = if ($env:COSMO_OUTPUT) {
 
 Push-Location $RepoRoot
 try {
-  sbt fullLinkJS
+  sbt cosmo0/fullLinkJS
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
   }

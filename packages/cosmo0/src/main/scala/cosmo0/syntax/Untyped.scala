@@ -47,7 +47,7 @@ package cosmo0
   *     ending in a statement.
   *   - If and match expressions require compatible branch result types.
   *   - Assignment, call arguments, returns, and declaration initializers are
-  *     checked with `SourceType.assignable`.
+  *     checked with the MLTT-backed source type assignability relation.
   */
 sealed trait UntypedNode:
   def span: SourceSpan

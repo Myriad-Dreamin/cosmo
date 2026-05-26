@@ -8,7 +8,7 @@ import {
 import { basename, dirname, join, resolve } from "path";
 
 import { ensureNlohmannJsonDependency } from "../cmd/cosmo/main.js";
-import * as cosmo from "../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js";
+import * as cosmo0 from "../packages/cosmo0/target/scala-3.3.3/cosmo0-opt/main.js";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const packageRoot = join(repoRoot, "packages/cosmos");
@@ -19,7 +19,7 @@ const executablePath = join(outDir, executableName);
 const logPath = join(outDir, "cosmos-lsp-host.compile.log");
 const gitRevision = resolveGitRevision();
 
-const compiler = new cosmo.Cosmo0();
+const compiler = new cosmo0.Cosmo0();
 const compiled = compiler.compilePackageForHost(packageRoot);
 if (!compiled.ok) {
   printDiagnostics(compiled.diagnostics);

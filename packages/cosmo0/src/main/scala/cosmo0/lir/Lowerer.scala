@@ -528,11 +528,11 @@ final class LirLowerer(
           val expectedRef = SourceType.Ref(target, mutable)
           SourceType.dealias(value.valueType.source) match
             case actual @ SourceType.Ref(actualTarget, _)
-                if SourceType.same(actualTarget, target) && SourceType
-                  .assignable(actual, expectedRef) =>
+                if sourceTypesSame(actualTarget, target) &&
+                  sourceTypeAssignable(actual, expectedRef) =>
               Some(value)
             case actual @ SourceType.Ref(actualTarget, _)
-                if SourceType.same(actualTarget, target) =>
+                if sourceTypesSame(actualTarget, target) =>
               report(
                 "cosmo0.lir.lower.argument-mismatch",
                 s"cannot pass ${actual.display} as ${expected.display}",
@@ -540,9 +540,9 @@ final class LirLowerer(
               )
               None
             case actual
-                if SourceType.same(actual, target) && isBorrowable(value) =>
+                if sourceTypesSame(actual, target) && isBorrowable(value) =>
               Some(LirBorrowValue(value, mutable))
-            case actual if SourceType.same(actual, target) =>
+            case actual if sourceTypesSame(actual, target) =>
               report(
                 "cosmo0.lir.lower.unsupported-borrow",
                 s"cannot borrow non-place ${actual.display} as ${expected.display}",
@@ -566,6 +566,18 @@ final class LirLowerer(
         case _: LirDerefValue => true
         case _: LirFieldRef   => true
         case _                => false
+
+    private def sourceTypesSame(
+        left: SourceType,
+        right: SourceType,
+    ): Boolean =
+      MlttTypeChecker.sourceTypesSame(left, right)
+
+    private def sourceTypeAssignable(
+        from: SourceType,
+        to: SourceType,
+    ): Boolean =
+      MlttTypeChecker.sourceTypeAssignable(from, to)
 
     private def sequence[A](items: List[Option[A]]): Option[List[A]] =
       if items.forall(_.isDefined) then Some(items.flatten) else None
@@ -1391,7 +1403,7 @@ final class LirLowerer(
               name @ ("Vec" | "Set" | "Arena"),
               item :: Nil,
             ) =>
-          if !SourceType.same(item, itemTy) then
+          if !sourceTypesSame(item, itemTy) then
             report(
               "cosmo0.lir.lower.invalid-iterator",
               s"for loop item type ${itemTy.display} does not match ${ty.display} item ${item.display}",
@@ -1399,7 +1411,7 @@ final class LirLowerer(
             )
           Some(LirDescriptorRef(name, List(Lir.t(item))))
         case SourceType.Standard("Map", key :: value :: Nil) =>
-          if !SourceType.same(key, itemTy) then
+          if !sourceTypesSame(key, itemTy) then
             report(
               "cosmo0.lir.lower.invalid-iterator",
               s"for loop item type ${itemTy.display} does not match ${ty.display} key ${key.display}",

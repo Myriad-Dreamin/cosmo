@@ -383,11 +383,9 @@ class FacadeTests extends munit.FunSuite:
       value
     }.get
     assertEquals(alias.name, "TokenId")
-    assert(
-      SourceType.same(
-        alias.target,
-        SourceType.Standard("Id", List(SourceType.User("Token"))),
-      ),
+    assertEquals(
+      alias.target,
+      SourceType.Standard("Id", List(SourceType.User("Token"))),
     )
 
     val build = module.decls.collectFirst {

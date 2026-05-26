@@ -2051,7 +2051,7 @@ final class CppBackend(
     function.params.isEmpty ||
       (function.params match
         case param :: Nil =>
-          SourceType.same(
+          MlttTypeChecker.sourceTypesSame(
             param.valueType.source,
             SourceType.Standard("Vec", List(SourceType.String)),
           )

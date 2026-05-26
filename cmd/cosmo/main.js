@@ -11,10 +11,9 @@ import {
 } from "fs";
 import { basename, dirname, join, resolve } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import repl from "repl";
 
 const linkedCompilerModule =
-  "../../packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js";
+  "../../packages/cosmo0/target/scala-3.3.3/cosmo0-opt/main.js";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const nativeSupportLibrariesField = "nativeSupportLibraries";
 const cosmoClangSysLibrary = "cosmo-clang-sys";
@@ -321,42 +320,25 @@ async function main(argv = process.argv.slice(2)) {
       return;
     }
 
-    const cosmo = await loadCompilerModule();
-    const compiler = new cosmo.Cosmo0();
+    const cosmo0 = await loadCompilerModule();
+    const compiler = new cosmo0.Cosmo0();
     await runSingleFile(compiler, sourceRun.input, sourceRun.runArgs);
     return;
   }
 
-  const action = envOptions.argv[0];
-  const input = envOptions.argv[1];
-  const cosmo = await loadCompilerModule();
-
-  if (action === "run") {
-    const compiler = new cosmo.Cosmo0();
-    await runSingleFile(compiler, input, []);
-  } else if (action === "i") {
-    const compiler = new cosmo.Cosmo();
-    startRepl(compiler);
-  } else if (action === "parse") {
-    requireInput(input, "parse");
-    const compiler = new cosmo.Cosmo();
-    const inputData = readFileSync(input, "utf8");
-    console.log(compiler.parseAsJson(inputData));
-  } else {
-    requireInput(input, "compile");
-    const compiler = new cosmo.Cosmo();
-    const inputData = readFileSync(input, "utf8");
-    const output = envOptions.argv[2];
-    const outputData = compiler.convert(inputData);
-
-    writeFileSync(output, outputData, "utf8");
+  if (envOptions.argv[0] === "run") {
+    throw new CliError("missing input for cosmo run");
   }
+
+  throw new CliError(
+    "unsupported cosmo command; use `cosmo run <file>` or `cosmo -p <package> run|build`",
+  );
 }
 
 async function runPackageCommand(packagePath, runArgs) {
   const packageRoot = resolve(packagePath);
-  const cosmo = await loadCompilerModule();
-  const compiler = new cosmo.Cosmo0();
+  const cosmo0 = await loadCompilerModule();
+  const compiler = new cosmo0.Cosmo0();
   const compiled = compiler.compileRunnablePackageForHost(packageRoot);
 
   if (!compiled.ok) {
@@ -374,8 +356,8 @@ async function runPackageBuildCommand(packagePath, outputPath) {
   }
 
   const packageRoot = resolve(packagePath);
-  const cosmo = await loadCompilerModule();
-  const compiler = new cosmo.Cosmo0();
+  const cosmo0 = await loadCompilerModule();
+  const compiler = new cosmo0.Cosmo0();
   const compiled = compiler.compileRunnablePackageForHost(packageRoot);
 
   if (!compiled.ok) {
@@ -845,40 +827,6 @@ async function runSingleFile(compiler, input, runArgs = []) {
 
   const executablePath = compilePackageExecutable(packageRoot, compiled);
   await spawnExecutable(executablePath, runArgs, process.cwd());
-}
-
-function startRepl(compiler) {
-  const showError = (result) => {
-    if (result.errors) {
-      for (const err of result.errors) {
-        console.error(err);
-      }
-    }
-  };
-
-  compiler.loadPackageByPath("library/std");
-  compiler.preloadPackage("std");
-
-  const env = compiler.createEnv();
-  const result = compiler.repl("import _ from std::prelude", env);
-  showError(result);
-  console.log("REPL started...");
-
-  repl.start({
-    prompt: "$ ",
-    writer: (t) => t,
-    eval(cmd, _context, _filename, callback) {
-      if (cmd.trim() === "clear") {
-        console.clear();
-        callback(null, "");
-        return;
-      }
-
-      const result = compiler.repl(cmd, env);
-      showError(result);
-      callback(null, result.result);
-    },
-  });
 }
 
 function spawnExecutable(executable, args, cwd) {

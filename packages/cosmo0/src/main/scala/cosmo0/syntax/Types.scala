@@ -20,15 +20,10 @@ package cosmo0
   * std.vector[i32]   => SourceType.ForeignApplied("::std::vector", List(i32))
   * }}}
   *
-  * Inference and checking rules anchored here:
+  * Inference and checking helpers anchored here:
   *
-  *   - `dealias` removes alias wrappers before most equality and category
-  *     checks.
-  *   - `same` treats Error and Never as compatible recovery types, compares
-  *     builtins/users by name, and recursively compares references, functions,
-  *     standard generics, and foreign applied types.
-  *   - `assignable(from, to)` is `same(from, to)` plus mutable-reference to
-  *     immutable-reference coercion for the same target type.
+  *   - `dealias` removes alias wrappers before category checks, descriptor
+  *     lookup, and MLTT source type relation construction.
   *   - Numeric inference uses `isInteger`, `isFloat`, and `isNumeric`; the
   *     typer supplies expected numeric types to literals and arithmetic
   *     operands.
@@ -72,7 +67,8 @@ enum SourceType:
       case SourceType.Never => "never"
       case SourceType.Error => "<error>"
 
-/** Constructors, scalar aliases, and structural operations for `SourceType`.
+/** Constructors, scalar aliases, normalization, and predicates for
+  * `SourceType`.
   */
 object SourceType:
   /** Builtin Unit type. */
@@ -131,8 +127,8 @@ object SourceType:
 
   /** Removes alias wrappers recursively while preserving all other structure.
     *
-    * This is the first step for equality, assignability, category checks, and
-    * most descriptor lookup.
+    * This is the first step for category checks, most descriptor lookup, and
+    * MLTT source type relation construction.
     */
   def dealias(value: SourceType): SourceType =
     value match
@@ -149,50 +145,6 @@ object SourceType:
       case Function(params, returnType) =>
         Function(params.map(dealias), dealias(returnType))
       case other => other
-
-  /** Structural compatibility used by expression typing.
-    *
-    * Error and Never are accepted as compatible with any type so a single
-    * earlier diagnostic does not cascade through the rest of the tree.
-    */
-  def same(left: SourceType, right: SourceType): Boolean =
-    (dealias(left), dealias(right)) match
-      case (Error, _) | (_, Error)      => true
-      case (Never, _) | (_, Never)      => true
-      case (Builtin(a), Builtin(b))     => a == b
-      case (User(a), User(b))           => a == b
-      case (TypeParam(a), TypeParam(b)) => a == b
-      case (ForeignNamespace(a), ForeignNamespace(b)) =>
-        a.alias == b.alias && a.namespace == b.namespace && a.headers == b.headers
-      case (ForeignSymbol(a), ForeignSymbol(b)) => a == b
-      case (ForeignApplied(na, aa), ForeignApplied(nb, ab)) =>
-        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) =>
-          same(a, b)
-        }
-      case (Ref(a, ma), Ref(b, mb)) => ma == mb && same(a, b)
-      case (Standard(na, aa), Standard(nb, ab)) =>
-        na == nb && aa.length == ab.length && aa.zip(ab).forall { case (a, b) =>
-          same(a, b)
-        }
-      case (Function(ap, ar), Function(bp, br)) =>
-        ap.length == bp.length && ap.zip(bp).forall { case (a, b) =>
-          same(a, b)
-        } && same(ar, br)
-      case _ => false
-
-  /** Assignment compatibility.
-    *
-    * In addition to `same`, a mutable reference can be assigned where an
-    * immutable reference to the same target is expected.
-    */
-  def assignable(from: SourceType, to: SourceType): Boolean =
-    same(from, to) ||
-      ((dealias(from), dealias(to)) match
-        case (Ref(fromTarget, true), Ref(toTarget, false)) =>
-          same(fromTarget, toTarget)
-        case _ =>
-          false
-      )
 
   /** True for builtin signed and unsigned integer types. */
   def isInteger(value: SourceType): Boolean =

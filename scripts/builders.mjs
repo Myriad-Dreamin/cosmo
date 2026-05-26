@@ -33,7 +33,7 @@ export async function buildSyntax() {
 }
 
 export async function buildCosmosHost() {
-  await spawnAsync("cosmos", "sbt fullLinkJS");
+  await spawnAsync("cosmos", "sbt cosmo0/fullLinkJS");
   await spawnAsync("cosmos:lsp-host", "node scripts/build-cosmos-lsp-host.mjs");
   await spawnAsync("cosmos:package", "pnpm --dir editors/vscode run copy-cosmos-package");
 }

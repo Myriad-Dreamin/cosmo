@@ -228,7 +228,7 @@ class CheckerProfileTests extends munit.FunSuite:
     assert(summary.contains("dependent_pattern_vec_head_elaborates"))
     assert(summary.contains("dependent_pattern_impossible_nil_diagnostic"))
 
-  test("MLTT source type relation backs same and assignable checks"):
+  test("MLTT source type relation handles aliases and assignability"):
     val alias = SourceType.Alias("Answer", SourceType.I32)
     val mutableRef = SourceType.Ref(SourceType.String, mutable = true)
     val readonlyRef = SourceType.Ref(SourceType.String, mutable = false)
