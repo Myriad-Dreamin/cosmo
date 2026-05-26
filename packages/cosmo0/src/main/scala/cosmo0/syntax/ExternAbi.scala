@@ -207,9 +207,9 @@ object TrustedExternAbi:
       params.length == signature.params.length &&
         params.zip(signature.params).forall { case (expected, actual) =>
           SourceType.dealias(expected) == SourceType.Error ||
-          SourceType.assignable(actual.valueType, expected)
+          MlttTypeChecker.sourceTypeAssignable(actual.valueType, expected)
         } &&
-        SourceType.assignable(signature.returnType, returnType)
+        MlttTypeChecker.sourceTypeAssignable(signature.returnType, returnType)
 
     def syntheticFunction: LirFunction =
       LirFunction(

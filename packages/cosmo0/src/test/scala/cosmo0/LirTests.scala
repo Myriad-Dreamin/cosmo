@@ -145,10 +145,10 @@ class LirTests extends munit.FunSuite:
     val readonlyRef = SourceType.Ref(boxType, mutable = false)
     val mutableRef = SourceType.Ref(boxType, mutable = true)
 
-    assert(SourceType.assignable(mutableRef, readonlyRef))
-    assert(!SourceType.assignable(readonlyRef, mutableRef))
+    assert(MlttTypeChecker.sourceTypeAssignable(mutableRef, readonlyRef))
+    assert(!MlttTypeChecker.sourceTypeAssignable(readonlyRef, mutableRef))
     assert(
-      !SourceType.assignable(
+      !MlttTypeChecker.sourceTypeAssignable(
         SourceType.Function(List(mutableRef), SourceType.Unit),
         SourceType.Function(List(readonlyRef), SourceType.Unit),
       ),

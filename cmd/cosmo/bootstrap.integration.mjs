@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const linkedCompilerModule = resolve(
   repoRoot,
-  "packages/cosmo/target/scala-3.3.3/cosmo-opt/main.js",
+  "packages/cosmo0/target/scala-3.3.3/cosmo0-opt/main.js",
 );
 const outputDir = resolve(repoRoot, "target/cosmoc-bootstrap-tests");
 
@@ -19,7 +19,7 @@ test(
   () => {
     assert.ok(
       existsSync(linkedCompilerModule),
-      `missing linked compiler module ${linkedCompilerModule}; run sbt fullLinkJS first when developing cosmo0`,
+      `missing linked compiler module ${linkedCompilerModule}; run sbt cosmo0/fullLinkJS first when developing cosmo0`,
     );
     assert.ok(
       findCxxCompiler(),

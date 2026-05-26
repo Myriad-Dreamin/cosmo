@@ -34,7 +34,8 @@ package cosmo0
   *     surface (`sig`).
   *   - `return`, `break`, and `continue` carry Never so they can inhabit any
   *     expected type after diagnostics.
-  *   - Assignment and declaration initialization use `SourceType.assignable`.
+  *   - Assignment and declaration initialization use the MLTT-backed source
+  *     type assignability relation.
   */
 sealed trait TypedNode:
   def span: SourceSpan

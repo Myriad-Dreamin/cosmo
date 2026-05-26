@@ -1,3 +1,0 @@
-[T(x: 1) match T] => true, err: ""
-[T(x: 1) match T(x: 1)] => ClassDestruct(Str($),class(T),List(BinOp(==,Str($),Int64(1)))), err: ""
-[T match T(x: 1)] => ClassDestruct(Str($),class(T),List(BinOp(==,Str($),Int64(1)))), err: ""
