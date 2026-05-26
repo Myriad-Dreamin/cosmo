@@ -1,8 +1,0 @@
-block {
- none
- def fib@50(n@51: u32): DeclExpr(u32@53) = if (BinInst(Int(u32,Le),n@51,Int64(1))) block {
-  n@51
- } else block {
-  "+"(fib@50(BinInst(Int(u32,Sub),n@51,Int64(1))), fib@50(BinInst(Int(u32,Sub),n@51,Int64(2))))
- }
-}
