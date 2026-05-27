@@ -791,10 +791,16 @@ final class CppBackend(
       val variantTypes = variants
         .map(variant => variantStructName(variant.name))
         .mkString(", ")
+      body += line(2, "enum class Tag : int32_t {")
+      variants.zipWithIndex.foreach { case (variant, index) =>
+        val suffix = if index == variants.length - 1 then "" else ","
+        body += line(4, s"${variantTagName(variant.name)}$suffix")
+      }
+      body += line(2, "};")
       body += line(2, s"std::variant<$variantTypes> data;")
       body += line(
         2,
-        "int32_t tag() const { return static_cast<int32_t>(data.index()); }",
+        "Tag tag() const { return static_cast<Tag>(data.index()); }",
       )
       variants.foreach { variant =>
         val variantName = variantStructName(variant.name)
@@ -821,7 +827,10 @@ final class CppBackend(
           2,
           s"bool is_${safeIdent(variant.name, "variant")}() const {",
         )
-        body += line(4, s"return std::holds_alternative<$variantName>(data);")
+        body += line(
+          4,
+          s"return tag() == Tag::${variantTagName(variant.name)};",
+        )
         body += line(2, "}")
         body += line(
           2,
@@ -1106,6 +1115,18 @@ final class CppBackend(
             elseLines ++
             List(line(indent, "}"))
 
+      case LirVariantMatchStmt(scrutinee, owner, arms, defaultBody) =>
+        renderStructuredVariantMatch(
+          scrutinee,
+          owner,
+          arms,
+          defaultBody,
+          function,
+          locals,
+          indent,
+          epilogueStack,
+        )
+
       case LirReturnStmt(value) =>
         renderStructuredReturn(value, function, locals).map(line(indent, _))
 
@@ -1128,6 +1149,180 @@ final class CppBackend(
 
       case LirTerminatorStmt(terminator) =>
         renderTerminator(terminator, function, locals).map(line(indent, _))
+
+  private def renderStructuredVariantMatch(
+      scrutinee: LirValue,
+      owner: LirTypeRef,
+      arms: List[LirVariantMatchArm],
+      defaultBody: Option[List[LirStmt]],
+      function: LirFunction,
+      locals: FunctionNames,
+      indent: Int,
+      epilogueStack: List[List[LirStmt]],
+  ): List[String] =
+    if canRenderVariantSwitch(owner, arms, defaultBody) then
+      renderStructuredVariantSwitch(
+        scrutinee,
+        owner,
+        arms,
+        defaultBody,
+        function,
+        locals,
+        indent,
+        epilogueStack,
+      )
+    else
+      renderStructuredVariantIfChain(
+        scrutinee,
+        owner,
+        arms,
+        defaultBody,
+        function,
+        locals,
+        indent,
+        epilogueStack,
+      )
+
+  private def canRenderVariantSwitch(
+      owner: LirTypeRef,
+      arms: List[LirVariantMatchArm],
+      defaultBody: Option[List[LirStmt]],
+  ): Boolean =
+    SourceType.dealias(owner.source) match
+      case SourceType.User(name) =>
+        env.typesByName.contains(name) &&
+        !arms.exists(arm => containsSwitchUnsafeBreak(arm.body, 0)) &&
+        !defaultBody.exists(containsSwitchUnsafeBreak(_, 0))
+      case _ =>
+        false
+
+  private def renderStructuredVariantSwitch(
+      scrutinee: LirValue,
+      owner: LirTypeRef,
+      arms: List[LirVariantMatchArm],
+      defaultBody: Option[List[LirStmt]],
+      function: LirFunction,
+      locals: FunctionNames,
+      indent: Int,
+      epilogueStack: List[List[LirStmt]],
+  ): List[String] =
+    val caseLines = arms.flatMap { arm =>
+      List(
+        line(
+          indent + 2,
+          s"case ${valueTypeName(owner)}::Tag::${variantTagName(arm.variant)}: {",
+        ),
+      ) ++
+        renderStructuredStatements(
+          arm.body,
+          function,
+          locals,
+          indent + 4,
+          epilogueStack,
+        ) ++
+        List(line(indent + 4, "break;"), line(indent + 2, "}"))
+    }
+    val defaultLines = defaultBody.toList.flatMap { body =>
+      List(line(indent + 2, "default: {")) ++
+        renderStructuredStatements(
+          body,
+          function,
+          locals,
+          indent + 4,
+          epilogueStack,
+        ) ++
+        List(line(indent + 4, "break;"), line(indent + 2, "}"))
+    }
+    List(
+      line(
+        indent,
+        s"switch (${renderValue(scrutinee, locals)}.tag()) {",
+      ),
+    ) ++
+      caseLines ++
+      defaultLines ++
+      List(line(indent, "}"))
+
+  private def renderStructuredVariantIfChain(
+      scrutinee: LirValue,
+      owner: LirTypeRef,
+      arms: List[LirVariantMatchArm],
+      defaultBody: Option[List[LirStmt]],
+      function: LirFunction,
+      locals: FunctionNames,
+      indent: Int,
+      epilogueStack: List[List[LirStmt]],
+  ): List[String] =
+    val armsWithConditions = arms.map { arm =>
+      checkVariant(scrutinee, owner, arm.variant, locals).map(arm -> _)
+    }
+    if armsWithConditions.exists(_.isEmpty) then return Nil
+    val branchLines = armsWithConditions.flatten.zipWithIndex.flatMap {
+      case ((arm, condition), index) =>
+        val header =
+          if index == 0 then s"if ($condition) {"
+          else s"} else if ($condition) {"
+        List(line(indent, header)) ++
+          renderStructuredStatements(
+            arm.body,
+            function,
+            locals,
+            indent + 2,
+            epilogueStack,
+          )
+    }
+    val defaultLines = defaultBody.toList.flatMap { body =>
+      val header = if arms.isEmpty then "{" else "} else {"
+      List(line(indent, header)) ++
+        renderStructuredStatements(
+          body,
+          function,
+          locals,
+          indent + 2,
+          epilogueStack,
+        )
+    }
+    val closeLines =
+      if arms.nonEmpty || defaultBody.nonEmpty then List(line(indent, "}"))
+      else Nil
+    branchLines ++ defaultLines ++ closeLines
+
+  private def containsSwitchUnsafeBreak(
+      statements: List[LirStmt],
+      loopDepth: Int,
+  ): Boolean =
+    statements.exists(containsSwitchUnsafeBreak(_, loopDepth))
+
+  private def containsSwitchUnsafeBreak(
+      stmt: LirStmt,
+      loopDepth: Int,
+  ): Boolean =
+    stmt match
+      case LirBreakStmt =>
+        loopDepth == 0
+      case LirLoopStmt(prologue, condition, body, epilogue) =>
+        containsSwitchUnsafeBreak(prologue, loopDepth) ||
+        containsSwitchUnsafeBreak(condition, loopDepth) ||
+        containsSwitchUnsafeBreak(body, loopDepth + 1) ||
+        containsSwitchUnsafeBreak(epilogue, loopDepth + 1)
+      case LirIfStmt(_, thenBody, elseBody) =>
+        containsSwitchUnsafeBreak(thenBody, loopDepth) ||
+        containsSwitchUnsafeBreak(elseBody, loopDepth)
+      case LirVariantMatchStmt(_, _, arms, defaultBody) =>
+        arms.exists(arm => containsSwitchUnsafeBreak(arm.body, loopDepth)) ||
+        defaultBody.exists(containsSwitchUnsafeBreak(_, loopDepth))
+      case _ =>
+        false
+
+  private def containsSwitchUnsafeBreak(
+      condition: LirLoopCondition,
+      loopDepth: Int,
+  ): Boolean =
+    condition match
+      case LirLoopAlways =>
+        false
+      case LirLoopValueCondition(setup, _) =>
+        containsSwitchUnsafeBreak(setup, loopDepth)
 
   private def renderLoopCondition(
       condition: LirLoopCondition,
@@ -2072,7 +2267,9 @@ final class CppBackend(
       case SourceType.User(name) =>
         env.typesByName
           .get(name)
-          .map(_ => s"${renderValue(scrutinee, locals)}.tag()")
+          .map(_ =>
+            s"static_cast<int32_t>(${renderValue(scrutinee, locals)}.tag())",
+          )
       case _ =>
         unsupportedType(owner.source)
         None
@@ -2112,7 +2309,7 @@ final class CppBackend(
         env.typesByName.get(name) match
           case Some(_) =>
             Some(
-              s"${renderValue(scrutinee, locals)}.is_${safeIdent(variant, "variant")}()",
+              s"${renderValue(scrutinee, locals)}.tag() == ${valueTypeName(owner)}::Tag::${variantTagName(variant)}",
             )
           case None =>
             unsupportedType(owner.source)
@@ -2368,6 +2565,9 @@ final class CppBackend(
 
   private def variantStructName(value: String): String =
     s"Variant_${safeIdent(value, "case")}"
+
+  private def variantTagName(value: String): String =
+    safeIdent(value, "variant")
 
   private def safeIdent(value: String, fallback: String): String =
     val builder = new StringBuilder

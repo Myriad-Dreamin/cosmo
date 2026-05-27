@@ -56,26 +56,26 @@ class LirLowererTests extends munit.FunSuite:
         |  fn @Counter.get get(%self self: &Counter) -> i32 owner @Counter {
         |    local %tmp0 tmp0: i32
         |
-        |    ^entry:
+        |    structured:
         |      %tmp0 = field_get %self.count: i32
         |      return %tmp0
         |  }
         |
         |  fn @Counter.set set(%self self: &mut Counter, %value value: i32) -> Unit owner @Counter {
-        |    ^entry:
+        |    structured:
         |      field_set %self.count = %value
         |      return
         |  }
         |
         |  fn @id id(%value value: i32) -> i32 {
-        |    ^entry:
+        |    structured:
         |      return %value
         |  }
         |
         |  fn @read read(%counter counter: &Counter) -> i32 {
         |    local %tmp0 tmp0: i32
         |
-        |    ^entry:
+        |    structured:
         |      %tmp0 = method_call %counter.get() -> i32
         |      return %tmp0
         |  }
@@ -84,7 +84,7 @@ class LirLowererTests extends munit.FunSuite:
         |    local %current current: i32 mut
         |    local %tmp0 tmp0: i32
         |
-        |    ^entry:
+        |    structured:
         |      alloc %current current: i32 mut = 0:i32
         |      %tmp0 = call @id(%value) -> i32
         |      assign %current = %tmp0
@@ -92,7 +92,7 @@ class LirLowererTests extends munit.FunSuite:
         |  }
         |
         |  fn @write write(%counter counter: &mut Counter, %value value: i32) -> Unit {
-        |    ^entry:
+        |    structured:
         |      method_call %counter.set(%value) -> Unit
         |      return
         |  }
@@ -132,7 +132,7 @@ class LirLowererTests extends munit.FunSuite:
     )
     assert(result.diagnostics.exists(_.span.nonEmpty))
 
-  test("lowers if expressions into checked branch and join blocks"):
+  test("lowers if expressions into structured LIR branches"):
     val result = Cosmo0().lower(
       """def choose(flag: Bool): i32 = {
         |  if (flag) {
@@ -151,12 +151,15 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(rendered.contains("cond_branch %flag ? ^if0_00_then : ^if0_01_else"))
+    assert(rendered.contains("structured:"))
+    assert(rendered.contains("if %flag {"))
     assert(rendered.contains("assign %tmp0 = 1:i32"))
     assert(rendered.contains("assign %tmp0 = 2:i32"))
-    assert(rendered.contains("^if0_02_join:\n      return %tmp0"))
+    assert(rendered.contains("return %tmp0"))
+    assert(!rendered.contains("cond_branch"))
+    assert(!rendered.contains("^if0_"))
 
-  test("lowers boolean and/or with short-circuit control flow"):
+  test("lowers boolean and/or with structured short-circuit control flow"):
     val result = Cosmo0().lower(
       """def both(left: Bool, right: Bool): Bool = {
         |  left and right
@@ -175,16 +178,14 @@ class LirLowererTests extends munit.FunSuite:
     )
 
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
-    assert(
-      rendered.contains("cond_branch %left ? ^and0_00_rhs : ^and0_01_short"),
-    )
-    assert(rendered.contains("^and0_00_rhs:\n      assign %tmp0 = %right"))
-    assert(rendered.contains("^and0_01_short:\n      assign %tmp0 = false"))
-    assert(rendered.contains("^and0_02_join:\n      return %tmp0"))
-    assert(rendered.contains("cond_branch %left ? ^or0_01_short : ^or0_00_rhs"))
-    assert(rendered.contains("^or0_00_rhs:\n      assign %tmp0 = %right"))
-    assert(rendered.contains("^or0_01_short:\n      assign %tmp0 = true"))
-    assert(rendered.contains("^or0_02_join:\n      return %tmp0"))
+    assert(rendered.contains("structured:"))
+    assert(rendered.contains("if %left {"))
+    assert(rendered.contains("assign %tmp0 = %right"))
+    assert(rendered.contains("assign %tmp0 = false"))
+    assert(rendered.contains("assign %tmp0 = true"))
+    assert(!rendered.contains("cond_branch"))
+    assert(!rendered.contains("^and0_"))
+    assert(!rendered.contains("^or0_"))
     assert(!rendered.contains("descriptor Bool::and("))
     assert(!rendered.contains("descriptor Bool::or("))
 
@@ -423,7 +424,8 @@ class LirLowererTests extends munit.FunSuite:
     assert(rendered.contains("descriptor u8::ne(%byte, 0:u8) -> Bool"))
     assert(rendered.contains("descriptor usize::gt("))
     assert(rendered.contains("descriptor usize::eq("))
-    assert(rendered.contains("cond_branch %flag ? ^and"))
+    assert(rendered.contains("if %flag {"))
+    assert(!rendered.contains("cond_branch"))
     assert(!rendered.contains("descriptor Bool::and("))
     assert(!rendered.contains("descriptor Bool::or("))
 
@@ -522,10 +524,53 @@ class LirLowererTests extends munit.FunSuite:
     val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
     assert(rendered.contains("%tmp0 = variant Option[i32]::Some(%value)"))
     assert(rendered.contains("%tmp0 = variant Option[i32]::None()"))
-    assert(rendered.contains("variant_is %value: Option[i32]::Some"))
-    assert(rendered.contains("variant_is %value: Option[i32]::None"))
+    assert(rendered.contains("variant_match %value: Option[i32] {"))
+    assert(rendered.contains("case Some {"))
+    assert(rendered.contains("case None {"))
     assert(rendered.contains("%item = variant_payload %value.Some[0]: i32"))
-    assert(rendered.contains("^match0_90_join:\n      return %tmp0"))
+    assert(rendered.contains("return %tmp0"))
+    assert(!rendered.contains("variant_is %value"))
+    assert(!rendered.contains("^match"))
+
+  test("lowers supported user variant matches into structured LIR"):
+    val result = Cosmo0().lower(
+      """class Shape {
+        |  case Empty
+        |  case Circle(i32)
+        |  case Rect(i32, i32)
+        |}
+        |
+        |def score(shape: Shape): i32 = {
+        |  shape match {
+        |    case Shape.Circle(radius) => {
+        |      radius
+        |    }
+        |    case Shape.Rect(width, height) => {
+        |      width + height
+        |    }
+        |    case Shape.Empty => {
+        |      0
+        |    }
+        |  }
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"lowering failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+
+    val rendered = LirDebugRenderer.renderModule(result.value.get.lir)
+    assert(rendered.contains("structured:"))
+    assert(rendered.contains("variant_match %shape: Shape {"))
+    assert(rendered.contains("case Circle {"))
+    assert(rendered.contains("case Rect {"))
+    assert(rendered.contains("case Empty {"))
+    assert(rendered.contains("%radius = variant_payload %shape.Circle[0]: i32"))
+    assert(!rendered.contains("variant_is %shape"))
+    assert(!rendered.contains("^match"))
 
   test("lowers minimal Result variants and Vec emptiness checks"):
     val result = Cosmo0().lower(

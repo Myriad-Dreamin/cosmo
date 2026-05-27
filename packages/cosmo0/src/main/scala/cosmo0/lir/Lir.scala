@@ -140,6 +140,18 @@ final case class LirIfStmt(
     elseBody: List[LirStmt],
 ) extends LirStmt
 
+final case class LirVariantMatchStmt(
+    scrutinee: LirValue,
+    owner: LirTypeRef,
+    arms: List[LirVariantMatchArm],
+    defaultBody: Option[List[LirStmt]],
+) extends LirStmt
+
+final case class LirVariantMatchArm(
+    variant: String,
+    body: List[LirStmt],
+)
+
 final case class LirReturnStmt(value: Option[LirValue]) extends LirStmt
 
 case object LirBreakStmt extends LirStmt
@@ -553,6 +565,23 @@ object LirDebugRenderer:
         List(line(indent, s"if ${renderValue(condition)} {")) ++
           thenLines ++
           elseLines ++
+          List(line(indent, "}"))
+      case LirVariantMatchStmt(scrutinee, owner, arms, defaultBody) =>
+        val armLines = arms.flatMap { arm =>
+          List(line(indent + 2, s"case ${arm.variant} {")) ++
+            arm.body.flatMap(renderStmt(_, indent + 4)) ++
+            List(line(indent + 2, "}"))
+        }
+        val defaultLines =
+          defaultBody.toList.flatMap(renderStmtGroup("default", _, indent + 2))
+        List(
+          line(
+            indent,
+            s"variant_match ${renderValue(scrutinee)}: ${renderType(owner)} {",
+          ),
+        ) ++
+          armLines ++
+          defaultLines ++
           List(line(indent, "}"))
       case LirReturnStmt(value) =>
         List(

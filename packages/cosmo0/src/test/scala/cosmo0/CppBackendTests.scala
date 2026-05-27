@@ -59,6 +59,13 @@ class CppBackendTests extends munit.FunSuite:
     assert(source.contains("namespace checked {"))
     assert(source.contains("struct Token"))
     assert(source.contains("Token() : data(Variant_Empty{}) {}"))
+    assert(source.contains("enum class Tag : int32_t {"))
+    assert(
+      source.contains(
+        "Tag tag() const { return static_cast<Tag>(data.index()); }",
+      ),
+    )
+    assert(source.contains("return tag() == Tag::Empty;"))
     assert(
       source.contains("std::variant<Variant_Empty, Variant_WithText> data;"),
     )
@@ -68,6 +75,7 @@ class CppBackendTests extends munit.FunSuite:
     assert(source.contains("maybe = std::optional<Token>(token);"))
     assert(source.contains("is_some = maybe.has_value();"))
     assert(source.contains("payload = maybe.value();"))
+    assert(!source.contains("std::holds_alternative"))
     assert(!source.contains("CodeGen"))
 
   test("backend output is byte-for-byte stable for equivalent LIR ordering"):
@@ -233,6 +241,90 @@ class CppBackendTests extends munit.FunSuite:
     assert(output.contains("break;"))
     assert(output.contains("iter_has_next"))
     assert(output.contains("iter_next"))
+    assert(!output.contains("goto"))
+    assertCxxAccepts(output)
+
+  test("Cosmo0 compile emits ordinary if and standard matches without goto"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "structured_if_and_option.cos",
+        """def choose(flag: Bool, left: Bool, right: Bool): i32 = {
+          |  if (flag and (left or right)) {
+          |    1
+          |  } else {
+          |    2
+          |  }
+          |}
+          |
+          |def unpack(value: Option[i32]): i32 = {
+          |  value match {
+          |    case Option[i32]::Some(item) => {
+          |      item
+          |    }
+          |    case Option[i32]::None => {
+          |      0
+          |    }
+          |  }
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("if (flag) {"))
+    assert(output.contains("if (value.has_value()) {"))
+    assert(!output.contains("goto"))
+    assertCxxAccepts(output)
+
+  test("Cosmo0 compile emits variant matches as switches over named tags"):
+    val result = Cosmo0().compile(
+      SourceFile(
+        "structured_variant_match.cos",
+        """class Shape {
+          |  case Empty
+          |  case Circle(i32)
+          |  case Rect(i32, i32)
+          |}
+          |
+          |def score(shape: Shape, keep: Bool): i32 = {
+          |  while (keep) {
+          |    break
+          |  }
+          |
+          |  shape match {
+          |    case Shape.Circle(radius) => {
+          |      radius
+          |    }
+          |    case Shape.Rect(width, height) => {
+          |      width + height
+          |    }
+          |    case Shape.Empty => {
+          |      0
+          |    }
+          |  }
+          |}
+          |""".stripMargin,
+      ),
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assert(
+      result.isSuccess,
+      s"compile failed with diagnostics: ${result.diagnostics.map(d => d.code -> d.message)}",
+    )
+    val output = result.value.get.output
+    assert(output.contains("enum class Tag : int32_t {"))
+    assert(output.contains("while (true) {"))
+    assert(output.contains("switch (shape.tag()) {"))
+    assert(output.contains("case Shape::Tag::Circle: {"))
+    assert(output.contains("case Shape::Tag::Rect: {"))
+    assert(output.contains("case Shape::Tag::Empty: {"))
+    assert(!output.contains("std::holds_alternative"))
     assert(!output.contains("goto"))
     assertCxxAccepts(output)
 

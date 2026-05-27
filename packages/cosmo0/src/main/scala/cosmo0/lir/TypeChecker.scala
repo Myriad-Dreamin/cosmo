@@ -505,6 +505,17 @@ final class LirTypeChecker(
           checkStructuredStatements(elseBody, env, defined, loopDepth)
         mergeStructuredBranches(thenState, elseState)
 
+      case LirVariantMatchStmt(scrutinee, owner, arms, defaultBody) =>
+        checkStructuredVariantMatch(
+          scrutinee,
+          owner,
+          arms,
+          defaultBody,
+          env,
+          defined,
+          loopDepth,
+        )
+
       case LirReturnStmt(value) =>
         checkStructuredReturn(value, env, defined)
         StructuredState(defined, terminated = true)
@@ -563,6 +574,78 @@ final class LirTypeChecker(
         thenState
       case (false, false) =>
         StructuredState(thenState.defined intersect elseState.defined)
+
+  private def mergeStructuredBranchStates(
+      states: List[StructuredState],
+      fallback: Set[LirLocalId],
+  ): StructuredState =
+    states match
+      case head :: tail =>
+        tail.foldLeft(head)(mergeStructuredBranches)
+      case Nil =>
+        StructuredState(fallback)
+
+  private def checkStructuredVariantMatch(
+      scrutinee: LirValue,
+      owner: LirTypeRef,
+      arms: List[LirVariantMatchArm],
+      defaultBody: Option[List[LirStmt]],
+      env: FunctionEnv,
+      defined: Set[LirLocalId],
+      loopDepth: Int,
+  ): StructuredState =
+    checkValue(scrutinee, env, defined)
+    if !sameSourceType(
+        SourceType.deref(scrutinee.valueType.source),
+        owner.source,
+      )
+    then
+      error(
+        "cosmo0.lir.assignment-mismatch",
+        s"${env.function.id} structured variant match for ${owner.display} from ${scrutinee.valueType.display}",
+      )
+
+    val availableVariants = variantNames(owner, env)
+    if availableVariants.isEmpty then
+      error(
+        "cosmo0.lir.invalid-variant",
+        s"${env.function.id} structured variant match on non-variant type ${owner.display}",
+      )
+
+    val seen = mutable.LinkedHashSet.empty[String]
+    arms.foreach { arm =>
+      if !availableVariants.contains(arm.variant) then
+        error(
+          "cosmo0.lir.invalid-variant",
+          s"${env.function.id} structured variant match has missing variant ${owner.display}::${arm.variant}",
+        )
+      if seen.contains(arm.variant) then
+        error(
+          "cosmo0.lir.invalid-variant",
+          s"${env.function.id} structured variant match repeats ${owner.display}::${arm.variant}",
+        )
+      seen += arm.variant
+    }
+
+    val armStates = arms.map(arm =>
+      checkStructuredStatements(arm.body, env, defined, loopDepth),
+    )
+    val exhaustive = availableVariants.nonEmpty && availableVariants.subsetOf(
+      seen.toSet,
+    )
+    val defaultStates =
+      defaultBody match
+        case Some(body) =>
+          List(checkStructuredStatements(body, env, defined, loopDepth))
+        case None if exhaustive =>
+          Nil
+        case None =>
+          error(
+            "cosmo0.lir.invalid-variant",
+            s"${env.function.id} structured variant match for ${owner.display} is non-exhaustive",
+          )
+          List(StructuredState(defined))
+    mergeStructuredBranchStates(armStates ++ defaultStates, defined)
 
   private def checkStructuredReturn(
       value: Option[LirValue],

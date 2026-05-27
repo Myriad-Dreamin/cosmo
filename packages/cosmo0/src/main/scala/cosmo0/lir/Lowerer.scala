@@ -97,6 +97,17 @@ final class LirLowerer(
         topLevelFunctions.toMap,
       )
 
+  private final case class StructuredVariantMatchArmPlan(
+      variant: String,
+      arm: TypedMatchArm,
+  )
+
+  private final case class StructuredVariantMatchPlan(
+      owner: SourceType,
+      arms: List[StructuredVariantMatchArmPlan],
+      defaultArm: Option[TypedMatchArm],
+  )
+
   private final case class Binding(
       name: String,
       id: LirLocalId,
@@ -1262,9 +1273,93 @@ final class LirLowerer(
     private def lowerMatch(value: TypedMatch): Option[LirValue] =
       lowerExpr(value.scrut) match
         case Some(scrut) =>
-          lowerMatchWithScrut(value, scrut)
+          if structured then lowerStructuredMatchWithScrut(value, scrut)
+          else lowerMatchWithScrut(value, scrut)
         case None =>
           None
+
+    private def lowerStructuredMatchWithScrut(
+        value: TypedMatch,
+        scrut: LirValue,
+    ): Option[LirValue] =
+      structuredVariantMatch(value) match
+        case Some(plan) =>
+          lowerStructuredVariantMatch(value, scrut, plan)
+        case None =>
+          report(
+            "cosmo0.lir.lower.unsupported-pattern",
+            "structured match lowering only supports top-level user variant patterns",
+            value.span,
+          )
+          terminate(
+            LirErrorExit(
+              "cosmo0.lir.lower.unsupported-pattern",
+              Some("match"),
+            ),
+          )
+          None
+
+    private def lowerStructuredVariantMatch(
+        value: TypedMatch,
+        scrut: LirValue,
+        plan: StructuredVariantMatchPlan,
+    ): Option[LirValue] =
+      val resultSlot = joinOutput(value.ty)
+      val loweredArms = plan.arms.map { armPlan =>
+        val (statements, terminated, _) =
+          captureStructuredStatements {
+            withScope {
+              bindPattern(armPlan.arm.pat, scrut)
+              val armResult =
+                armPlan.arm.body.flatMap(lowerExpr).orElse(Some(LirUnitValue))
+              finishStructuredStatementBranch(
+                resultSlot,
+                armResult,
+                armPlan.arm.span,
+              )
+            }
+          }
+        LirVariantMatchArm(armPlan.variant, statements) -> terminated
+      }
+      val (defaultBody, defaultTerminated) =
+        plan.defaultArm match
+          case Some(arm) =>
+            val (statements, terminated, _) =
+              captureStructuredStatements {
+                withScope {
+                  bindPattern(arm.pat, scrut)
+                  val armResult =
+                    arm.body.flatMap(lowerExpr).orElse(Some(LirUnitValue))
+                  finishStructuredStatementBranch(
+                    resultSlot,
+                    armResult,
+                    arm.span,
+                  )
+                }
+              }
+            statements -> terminated
+          case None =>
+            List(
+              LirTerminatorStmt(
+                LirErrorExit(
+                  "cosmo0.lir.lower.non-exhaustive-match",
+                  Some(function.name),
+                ),
+              ),
+            ) -> true
+
+      emitStructuredStmt(
+        LirVariantMatchStmt(
+          scrut,
+          Lir.t(plan.owner),
+          loweredArms.map(_._1),
+          Some(defaultBody),
+        ),
+      )
+      if loweredArms.forall(_._2) && defaultTerminated then
+        currentStructured.terminated = true
+        None
+      else structuredResult(resultSlot)
 
     private def lowerMatchWithScrut(
         value: TypedMatch,
@@ -1885,6 +1980,9 @@ final class LirLowerer(
 
   private val errors = ListBuffer.empty[Diagnostic]
   private val context = DeclContext.from(module)
+  private val typedClassesByName = module.decls.collect {
+    case cls: TypedClass => cls.name -> cls
+  }.toMap
   private val syntheticExternNames = mutable.LinkedHashSet.empty[String]
 
   private def diagnostics: List[Diagnostic] =
@@ -2018,9 +2116,130 @@ final class LirLowerer(
         ).lower()
 
   private def shouldUseStructuredBody(function: TypedFunction): Boolean =
-    function.body.exists(body =>
-      containsTypedLoop(body) && !containsTypedMatch(body),
-    )
+    function.body.exists(supportsStructuredMatches)
+
+  private def supportsStructuredMatches(expr: TypedExpr): Boolean =
+    expr match
+      case value: TypedMatch =>
+        structuredVariantMatch(value).nonEmpty &&
+        supportsStructuredMatches(value.scrut) &&
+        value.arms.forall { arm =>
+          arm.body.forall(supportsStructuredMatches)
+        }
+      case loop: TypedLoop =>
+        loop.prologue.forall(supportsStructuredMatches) &&
+        supportsStructuredMatchesCondition(loop.condition) &&
+        supportsStructuredMatches(loop.body) &&
+        loop.epilogue.forall(supportsStructuredMatches)
+      case block: TypedBlock =>
+        block.items.forall(supportsStructuredMatchesItem)
+      case select: TypedSelect =>
+        supportsStructuredMatches(select.recv)
+      case call: TypedCall =>
+        supportsStructuredMatches(call.callee) &&
+        call.args.forall(supportsStructuredMatches)
+      case assign: TypedAssign =>
+        supportsStructuredMatches(assign.target) &&
+        supportsStructuredMatches(assign.value)
+      case unary: TypedUnary =>
+        supportsStructuredMatches(unary.expr)
+      case binary: TypedBinary =>
+        supportsStructuredMatches(binary.left) &&
+        supportsStructuredMatches(binary.right)
+      case value: TypedIf =>
+        supportsStructuredMatches(value.cond) &&
+        supportsStructuredMatches(value.thenExp) &&
+        value.elseExp.forall(supportsStructuredMatches)
+      case ret: TypedReturn =>
+        supportsStructuredMatches(ret.value)
+      case _ =>
+        true
+
+  private def supportsStructuredMatchesItem(item: TypedBlockItem): Boolean =
+    item match
+      case local: TypedLocal =>
+        local.init.forall(supportsStructuredMatches)
+      case stmt: TypedExprStmt =>
+        supportsStructuredMatches(stmt.expr)
+      case expr: TypedExpr =>
+        supportsStructuredMatches(expr)
+
+  private def supportsStructuredMatchesCondition(
+      condition: TypedLoopCondition,
+  ): Boolean =
+    condition match
+      case _: TypedLoopCondition.Always =>
+        true
+      case TypedLoopCondition.SourceCondition(value) =>
+        supportsStructuredMatches(value)
+      case value: TypedLoopCondition.ForEach =>
+        supportsStructuredMatches(value.iter)
+
+  private def structuredVariantMatch(
+      value: TypedMatch,
+  ): Option[StructuredVariantMatchPlan] =
+    variantOwner(value.scrut.ty).flatMap { owner =>
+      val arms = ListBuffer.empty[StructuredVariantMatchArmPlan]
+      val seen = mutable.LinkedHashSet.empty[String]
+      var defaultArm = Option.empty[TypedMatchArm]
+      var supported = true
+
+      value.arms.zipWithIndex.foreach { case (arm, index) =>
+        arm.pat match
+          case _: TypedWildcardPattern | _: TypedBindingPattern =>
+            if index != value.arms.length - 1 || defaultArm.nonEmpty then
+              supported = false
+            else defaultArm = Some(arm)
+          case TypedVariantPattern(
+                constructor: TypedVariantConstructorExpr,
+                args,
+                ty,
+                _,
+              ) =>
+            val ownerMatches = MlttTypeChecker.sourceTypesSame(ty, owner)
+            val duplicate = seen.contains(constructor.variant)
+            val payloadSupported = args.forall(simplePayloadPattern)
+            if !ownerMatches || duplicate || !payloadSupported ||
+              defaultArm.nonEmpty
+            then supported = false
+            else
+              arms += StructuredVariantMatchArmPlan(
+                constructor.variant,
+                arm,
+              )
+              seen += constructor.variant
+          case _ =>
+            supported = false
+      }
+
+      if supported then
+        Some(StructuredVariantMatchPlan(owner, arms.toList, defaultArm))
+      else None
+    }
+
+  private def variantOwner(ty: SourceType): Option[SourceType] =
+    SourceType.dealias(ty) match
+      case owner @ SourceType.User(name) =>
+        typedClassesByName
+          .get(name)
+          .filter(_.variants.nonEmpty)
+          .map(_ => owner)
+      case owner @ SourceType.Standard(name, args) =>
+        descriptors
+          .get(name)
+          .filter(descriptor =>
+            descriptor.arity == args.length &&
+              descriptor.constructors.keys.exists(_ != "<init>"),
+          )
+          .map(_ => owner)
+      case _ =>
+        None
+
+  private def simplePayloadPattern(pattern: TypedPattern): Boolean =
+    pattern match
+      case _: TypedWildcardPattern => true
+      case _: TypedBindingPattern  => true
+      case _                       => false
 
   private def containsTypedLoop(expr: TypedExpr): Boolean =
     expr match

@@ -34,9 +34,18 @@
 - [x] 5.3 Emit structured `break` as native C++ `break`.
 - [x] 5.4 Emit structured `continue` with the active loop epilogue before native C++ `continue`.
 - [x] 5.5 Add backend tests that assert generated C++ uses `while` for representative loop, while, and for inputs.
+- [x] 5.6 Emit named variant `Tag` enums inside generated C++ variant structs and use the named enum values for tag checks.
+- [x] 5.7 Preserve supported top-level variant `match` expressions in structured LIR instead of forcing whole functions back to flat blocks.
+- [x] 5.8 Emit supported structured variant matches as C++ `switch` statements over named variant tags.
+- [x] 5.9 Add backend/lowering tests that assert representative enum matches use named `Tag` cases and no numeric tag magic constants.
+- [x] 5.10 Use structured lowering by default for supported source control flow so ordinary `if`, short-circuit boolean operators, loops, and matches emit native C++ control flow instead of `goto`.
+- [x] 5.11 Emit standard `Option`/`Result` structured matches as C++ `if`/`else` chains and avoid `switch` when a match arm contains source `break`.
 
 ## 6. Verification
 
 - [x] 6.1 Run `scripts/check-scala-style.sh` from the repository root and fix any failures.
 - [x] 6.2 Run the cosmo0 Scala test suite covering elaboration, typing, LIR lowering/checking, and C++ emission.
 - [x] 6.3 Compile representative loop programs through the cosmo0 C++ backend and verify the generated C++ is accepted by the configured C++ toolchain.
+- [x] 6.4 Re-run Scala style checks after structured variant match changes.
+- [x] 6.5 Re-run targeted cosmo0 tests covering LIR lowering, backend emission, and cosmoc bootstrap C++ output.
+- [x] 6.6 Verify the regenerated cosmoc C++ render output contains zero `goto` tokens.
