@@ -65,6 +65,7 @@ final case class LirFunction(
     owner: Option[LirDeclId] = None,
     sourceSignature: Option[CallableSignature] = None,
     externBinding: Option[LirExternBinding] = None,
+    structuredBody: Option[LirStructuredBody] = None,
 ) extends LirDeclaration:
   def signature: LirCallableSignature =
     LirCallableSignature(
@@ -117,6 +118,56 @@ final case class LirBlock(
     operations: List[LirOp],
     terminator: LirTerminator,
 )
+
+final case class LirStructuredBody(
+    statements: List[LirStmt],
+)
+
+sealed trait LirStmt
+
+final case class LirOpStmt(op: LirOp) extends LirStmt
+
+final case class LirLoopStmt(
+    prologue: List[LirStmt],
+    condition: LirLoopCondition,
+    body: List[LirStmt],
+    epilogue: List[LirStmt],
+) extends LirStmt
+
+final case class LirIfStmt(
+    condition: LirValue,
+    thenBody: List[LirStmt],
+    elseBody: List[LirStmt],
+) extends LirStmt
+
+final case class LirVariantMatchStmt(
+    scrutinee: LirValue,
+    owner: LirTypeRef,
+    arms: List[LirVariantMatchArm],
+    defaultBody: Option[List[LirStmt]],
+) extends LirStmt
+
+final case class LirVariantMatchArm(
+    variant: String,
+    body: List[LirStmt],
+)
+
+final case class LirReturnStmt(value: Option[LirValue]) extends LirStmt
+
+case object LirBreakStmt extends LirStmt
+
+case object LirContinueStmt extends LirStmt
+
+final case class LirTerminatorStmt(terminator: LirTerminator) extends LirStmt
+
+sealed trait LirLoopCondition
+
+case object LirLoopAlways extends LirLoopCondition
+
+final case class LirLoopValueCondition(
+    setup: List[LirStmt],
+    value: LirValue,
+) extends LirLoopCondition
 
 sealed trait LirValue:
   def valueType: LirTypeRef
@@ -382,6 +433,7 @@ object Lir:
       owner: Option[LirDeclId] = None,
       sourceSignature: Option[CallableSignature] = None,
       externBinding: Option[LirExternBinding] = None,
+      structuredBody: Option[LirStructuredBody] = None,
   ): LirFunction =
     LirFunction(
       declId(stableId(id, name)),
@@ -393,6 +445,7 @@ object Lir:
       owner,
       sourceSignature,
       externBinding,
+      structuredBody,
     )
 
   private def stableId(value: String, fallback: String): String =
@@ -473,9 +526,16 @@ object LirDebugRenderer:
       function.blocks
         .sortBy(_.label.value)
         .map(block => renderBlock(block, indent + 2))
+    val structuredLines =
+      function.structuredBody.toList.flatMap { body =>
+        line(indent + 2, "structured:") :: body.statements.flatMap(
+          renderStmt(_, indent + 4),
+        )
+      }
     val body =
-      (if localLines.isEmpty then blockLines
-       else localLines ++ List("") ++ blockLines).mkString("\n")
+      val executableLines = structuredLines ++ blockLines
+      if localLines.isEmpty then executableLines.mkString("\n")
+      else (localLines ++ List("") ++ executableLines).mkString("\n")
     if body.isEmpty then s"$header\n${line(indent, "}")}"
     else s"$header\n$body\n${line(indent, "}")}"
 
@@ -483,6 +543,78 @@ object LirDebugRenderer:
     val operations = block.operations.map(op => line(indent + 2, renderOp(op)))
     val terminator = line(indent + 2, renderTerminator(block.terminator))
     s"${line(indent, s"${block.label}:")}\n${(operations :+ terminator).mkString("\n")}"
+
+  private def renderStmt(stmt: LirStmt, indent: Int): List[String] =
+    stmt match
+      case LirOpStmt(op) =>
+        List(line(indent, renderOp(op)))
+      case LirLoopStmt(prologue, condition, body, epilogue) =>
+        val prologueLines = renderStmtGroup("prologue", prologue, indent + 2)
+        val conditionLines = renderLoopCondition(condition, indent + 2)
+        val bodyLines = renderStmtGroup("body", body, indent + 2)
+        val epilogueLines = renderStmtGroup("epilogue", epilogue, indent + 2)
+        List(line(indent, "loop {")) ++
+          prologueLines ++
+          conditionLines ++
+          bodyLines ++
+          epilogueLines ++
+          List(line(indent, "}"))
+      case LirIfStmt(condition, thenBody, elseBody) =>
+        val thenLines = renderStmtGroup("then", thenBody, indent + 2)
+        val elseLines = renderStmtGroup("else", elseBody, indent + 2)
+        List(line(indent, s"if ${renderValue(condition)} {")) ++
+          thenLines ++
+          elseLines ++
+          List(line(indent, "}"))
+      case LirVariantMatchStmt(scrutinee, owner, arms, defaultBody) =>
+        val armLines = arms.flatMap { arm =>
+          List(line(indent + 2, s"case ${arm.variant} {")) ++
+            arm.body.flatMap(renderStmt(_, indent + 4)) ++
+            List(line(indent + 2, "}"))
+        }
+        val defaultLines =
+          defaultBody.toList.flatMap(renderStmtGroup("default", _, indent + 2))
+        List(
+          line(
+            indent,
+            s"variant_match ${renderValue(scrutinee)}: ${renderType(owner)} {",
+          ),
+        ) ++
+          armLines ++
+          defaultLines ++
+          List(line(indent, "}"))
+      case LirReturnStmt(value) =>
+        List(
+          line(indent, value.fold("return")(v => s"return ${renderValue(v)}")),
+        )
+      case LirBreakStmt =>
+        List(line(indent, "break"))
+      case LirContinueStmt =>
+        List(line(indent, "continue"))
+      case LirTerminatorStmt(terminator) =>
+        List(line(indent, renderTerminator(terminator)))
+
+  private def renderStmtGroup(
+      name: String,
+      statements: List[LirStmt],
+      indent: Int,
+  ): List[String] =
+    if statements.isEmpty then Nil
+    else
+      List(line(indent, s"$name {")) ++
+        statements.flatMap(renderStmt(_, indent + 2)) ++
+        List(line(indent, "}"))
+
+  private def renderLoopCondition(
+      condition: LirLoopCondition,
+      indent: Int,
+  ): List[String] =
+    condition match
+      case LirLoopAlways =>
+        List(line(indent, "condition always"))
+      case LirLoopValueCondition(setup, value) =>
+        val setupLines = renderStmtGroup("condition_setup", setup, indent)
+        setupLines :+ line(indent, s"condition ${renderValue(value)}")
 
   private def renderParam(param: LirParam): String =
     s"${param.id} ${param.name}: ${renderType(param.valueType)}"

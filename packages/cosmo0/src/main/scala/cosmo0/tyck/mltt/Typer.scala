@@ -982,25 +982,7 @@ final class MlttTyper(
       case value: UntypedIf =>
         ifExpr(value, scope, expected, context)
       case value: UntypedLoop =>
-        val body =
-          expr(value.body, scope.child, Some(SourceType.Unit), context)
-        ExprInfo(
-          TypedLoop(body.expr, SourceType.Unit, value.span),
-          mutBinding = false,
-          mutAllowed = true,
-        )
-      case value: UntypedWhile =>
-        val cond = expr(value.cond, scope, Some(SourceType.Bool), context)
-        requireBool(cond, value.cond.span)
-        val body =
-          expr(value.body, scope.child, Some(SourceType.Unit), context)
-        ExprInfo(
-          TypedWhile(cond.expr, body.expr, SourceType.Unit, value.span),
-          false,
-          true,
-        )
-      case value: UntypedFor =>
-        forExpr(value, scope, context)
+        loopExpr(value, scope, context)
       case value: UntypedMatch =>
         matchExpr(value, scope, expected, context)
       case value: UntypedReturn =>
@@ -2373,6 +2355,57 @@ final class MlttTyper(
       mutationCapability(ty),
     )
 
+  /** Checks canonical loops and binds for-each loop items when present.
+    *
+    * Program examples:
+    *
+    * {{{
+    * loop { break }
+    * while (keep_running()) { tick() }
+    * for item in values { println(item.to_string()) }
+    * }}}
+    */
+  private def loopExpr(
+      node: UntypedLoop,
+      scope: Scope,
+      context: FunctionContext,
+  ): ExprInfo =
+    val prologue =
+      node.prologue.map(expr(_, scope, Some(SourceType.Unit), context).expr)
+    val (condition, bodyScope) =
+      typedLoopCondition(node.condition, scope, context)
+    val body =
+      expr(node.body, bodyScope, Some(SourceType.Unit), context)
+    val epilogue =
+      node.epilogue.map(expr(_, bodyScope, Some(SourceType.Unit), context).expr)
+    ExprInfo(
+      TypedLoop(
+        prologue,
+        condition,
+        body.expr,
+        epilogue,
+        SourceType.Unit,
+        node.span,
+      ),
+      false,
+      true,
+    )
+
+  private def typedLoopCondition(
+      condition: UntypedLoopCondition,
+      scope: Scope,
+      context: FunctionContext,
+  ): (TypedLoopCondition, Scope) =
+    condition match
+      case UntypedLoopCondition.Always(span) =>
+        TypedLoopCondition.Always(span) -> scope.child
+      case UntypedLoopCondition.SourceCondition(value) =>
+        val cond = expr(value, scope, Some(SourceType.Bool), context)
+        requireBool(cond, value.span)
+        TypedLoopCondition.SourceCondition(cond.expr) -> scope.child
+      case value: UntypedLoopCondition.ForEach =>
+        typedForEachLoopCondition(value, scope, context)
+
   /** Checks supported collection iteration and binds the loop item type.
     *
     * Program examples:
@@ -2385,11 +2418,11 @@ final class MlttTyper(
     * Vec/Set/Arena iterate their element type. Map iteration currently binds
     * the key type. The loop body is expected to type as `Unit`.
     */
-  private def forExpr(
-      node: UntypedFor,
+  private def typedForEachLoopCondition(
+      node: UntypedLoopCondition.ForEach,
       scope: Scope,
       context: FunctionContext,
-  ): ExprInfo =
+  ): (TypedLoopCondition, Scope) =
     val iter = expr(node.iter, scope, None, context)
     val itemTy = SourceType.dealias(iter.expr.ty) match
       case SourceType.Standard("Vec" | "Set" | "Arena", item :: Nil) => item
@@ -2411,19 +2444,13 @@ final class MlttTyper(
         node.span,
       ),
     )
-    val body = expr(node.body, bodyScope, Some(SourceType.Unit), context)
-    ExprInfo(
-      TypedFor(
+    TypedLoopCondition
+      .ForEach(
         node.name,
         itemTy,
         iter.expr,
-        body.expr,
-        SourceType.Unit,
         node.span,
-      ),
-      false,
-      true,
-    )
+      ) -> bodyScope
 
   /** Checks ordinary cosmo0 match expressions.
     *

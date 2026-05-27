@@ -162,6 +162,80 @@ class LirTests extends munit.FunSuite:
     assert(result.diagnostics.isEmpty)
     assertEquals(result.value, Some(checkedLirModule()))
 
+  test("LIR type checker accepts valid structured loop controls"):
+    val function = Lir.function(
+      "structured",
+      params = Nil,
+      returnType = SourceType.Unit,
+      locals = Nil,
+      blocks = Nil,
+      structuredBody = Some(
+        LirStructuredBody(
+          List(
+            LirLoopStmt(
+              prologue = Nil,
+              condition = LirLoopAlways,
+              body = List(LirBreakStmt),
+              epilogue = Nil,
+            ),
+            LirReturnStmt(None),
+          ),
+        ),
+      ),
+    )
+
+    val result = LirTypeChecker(LirModule("structured", List(function))).check()
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+  test("LIR type checker rejects invalid structured loop controls"):
+    val badBreak = Lir.function(
+      "bad_break",
+      params = Nil,
+      returnType = SourceType.Unit,
+      locals = Nil,
+      blocks = Nil,
+      structuredBody = Some(LirStructuredBody(List(LirBreakStmt))),
+    )
+    val badContinue = Lir.function(
+      "bad_continue",
+      params = Nil,
+      returnType = SourceType.Unit,
+      locals = Nil,
+      blocks = Nil,
+      structuredBody = Some(LirStructuredBody(List(LirContinueStmt))),
+    )
+    val badCondition = Lir.function(
+      "bad_condition",
+      params = Nil,
+      returnType = SourceType.Unit,
+      locals = Nil,
+      blocks = Nil,
+      structuredBody = Some(
+        LirStructuredBody(
+          List(
+            LirLoopStmt(
+              prologue = Nil,
+              condition = LirLoopValueCondition(Nil, Lir.int(1)),
+              body = Nil,
+              epilogue = Nil,
+            ),
+            LirReturnStmt(None),
+          ),
+        ),
+      ),
+    )
+
+    val result = LirTypeChecker(
+      LirModule("bad_structured", List(badBreak, badContinue, badCondition)),
+    ).check()
+
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(result.diagnostics.exists(_.code == "cosmo0.lir.invalid-break"))
+    assert(result.diagnostics.exists(_.code == "cosmo0.lir.invalid-continue"))
+    assert(result.diagnostics.exists(_.code == "cosmo0.lir.invalid-branch"))
+
   test(
     "LIR type checker permits mutable refs for readonly arguments and rejects readonly refs for mutable arguments",
   ):
