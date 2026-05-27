@@ -307,27 +307,27 @@ final case class TypedIf(
     span: SourceSpan,
 ) extends TypedExpr
 
-/** Checked infinite loop expression. */
+/** Canonical checked loop condition. */
+sealed trait TypedLoopCondition:
+  def span: SourceSpan
+
+object TypedLoopCondition:
+  final case class Always(span: SourceSpan) extends TypedLoopCondition
+  final case class SourceCondition(value: TypedExpr) extends TypedLoopCondition:
+    def span: SourceSpan = value.span
+  final case class ForEach(
+      name: String,
+      itemTy: SourceType,
+      iter: TypedExpr,
+      span: SourceSpan,
+  ) extends TypedLoopCondition
+
+/** Checked canonical loop expression. Its result type is Unit. */
 final case class TypedLoop(
+    prologue: List[TypedExpr],
+    condition: TypedLoopCondition,
     body: TypedExpr,
-    ty: SourceType,
-    span: SourceSpan,
-) extends TypedExpr
-
-/** Checked while loop expression. */
-final case class TypedWhile(
-    cond: TypedExpr,
-    body: TypedExpr,
-    ty: SourceType,
-    span: SourceSpan,
-) extends TypedExpr
-
-/** Checked for loop. `itemTy` is inferred from the iterator expression. */
-final case class TypedFor(
-    name: String,
-    itemTy: SourceType,
-    iter: TypedExpr,
-    body: TypedExpr,
+    epilogue: List[TypedExpr],
     ty: SourceType,
     span: SourceSpan,
 ) extends TypedExpr

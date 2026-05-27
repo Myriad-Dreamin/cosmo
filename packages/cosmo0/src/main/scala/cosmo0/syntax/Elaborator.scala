@@ -1200,17 +1200,41 @@ final class Elaborator(
             UntypedIf(c, t, e, span)
         }
       case Some(Loop(body)) =>
-        expr(body).map(UntypedLoop(_, nodeSpan(node)))
+        expr(body).map { value =>
+          UntypedLoop(
+            prologue = Nil,
+            condition = UntypedLoopCondition.Always(nodeSpan(node)),
+            body = value,
+            epilogue = Nil,
+            span = nodeSpan(node),
+          )
+        }
       case Some(While(cond, body)) =>
         for
           c <- expr(cond)
           b <- expr(body)
-        yield UntypedWhile(c, b, nodeSpan(node))
+        yield UntypedLoop(
+          prologue = Nil,
+          condition = UntypedLoopCondition.SourceCondition(c),
+          body = b,
+          epilogue = Nil,
+          span = nodeSpan(node),
+        )
       case Some(For(name, iter, body)) =>
         for
           i <- expr(iter)
           b <- expr(body)
-        yield UntypedFor(name.name, i, b, nodeSpan(node))
+        yield UntypedLoop(
+          prologue = Nil,
+          condition = UntypedLoopCondition.ForEach(
+            name.name,
+            i,
+            nodeSpan(name),
+          ),
+          body = b,
+          epilogue = Nil,
+          span = nodeSpan(node),
+        )
       case Some(Match(lhs, rhs: CaseBlock)) =>
         val arms = rhs.stmts.map(matchArm)
         for

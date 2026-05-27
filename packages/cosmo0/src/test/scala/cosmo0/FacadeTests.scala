@@ -60,6 +60,35 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(value.name, "answer")
     assertEquals(value.ty, SourceType.I32)
 
+  test("check types source loops as canonical typed loops"):
+    val result = Cosmo0().check(
+      """def loops(items: Vec[i32], keep: Bool): Unit = {
+        |  while (keep) {
+        |    continue
+        |  }
+        |
+        |  for (item in items) {
+        |    item;
+        |  }
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val fn = result.value.get.typed.decls.head.asInstanceOf[TypedFunction]
+    val body = fn.body.get.asInstanceOf[TypedBlock]
+    val loops = body.items.collect { case loop: TypedLoop => loop }
+
+    assertEquals(loops.length, 2)
+    assertEquals(loops.map(_.ty), List(SourceType.Unit, SourceType.Unit))
+    assert(
+      loops.head.condition.isInstanceOf[TypedLoopCondition.SourceCondition],
+    )
+    val forEach =
+      loops(1).condition.asInstanceOf[TypedLoopCondition.ForEach]
+    assertEquals(forEach.name, "item")
+    assertEquals(forEach.itemTy, SourceType.I32)
+
   test("check types ascii and rune literals as fixed-width integers"):
     val result = Cosmo0().check(
       """val newline: u8 = a"\n"
@@ -156,6 +185,40 @@ class FacadeTests extends munit.FunSuite:
     val selfType = push.params.head.ty.get.asInstanceOf[UntypedRefType]
     assert(selfType.mut)
     assert(push.body.exists(_.isInstanceOf[UntypedBlock]))
+
+  test("elaborate represents source loops with canonical untyped loops"):
+    val result = Cosmo0().elaborate(
+      """def loops(items: Vec[i32], keep: Bool): Unit = {
+        |  loop {
+        |    break
+        |  }
+        |
+        |  while (keep) {
+        |    continue
+        |  }
+        |
+        |  for (item in items) {
+        |    item;
+        |  }
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val fn = result.value.get.decls.head.asInstanceOf[UntypedFunction]
+    val body = fn.body.get.asInstanceOf[UntypedBlock]
+    val loops = body.items.collect { case loop: UntypedLoop => loop }
+
+    assertEquals(loops.length, 3)
+    assert(loops(0).condition.isInstanceOf[UntypedLoopCondition.Always])
+    assert(
+      loops(1).condition
+        .isInstanceOf[UntypedLoopCondition.SourceCondition],
+    )
+    val forEach =
+      loops(2).condition.asInstanceOf[UntypedLoopCondition.ForEach]
+    assertEquals(forEach.name, "item")
+    assert(forEach.iter.isInstanceOf[UntypedName])
 
   test(
     "elaborate represents match arms and standard-generic variant constructors",
@@ -457,6 +520,9 @@ class FacadeTests extends munit.FunSuite:
       "class A {}\ndef f(a: A): i32 = { a.missing }" -> "cosmo0.type.invalid-field",
       "var x: i32 = true" -> "cosmo0.type.assignment-mismatch",
       "def f(): Bool = { 1 }" -> "cosmo0.type.return-mismatch",
+      "def f(): Unit = { while (1) {} }" -> "cosmo0.type.expected-bool",
+      "def f(value: i32): Unit = { for (item in value) {} }" ->
+        "cosmo0.type.invalid-iterator",
       """class A {
         |  var count: usize
         |
