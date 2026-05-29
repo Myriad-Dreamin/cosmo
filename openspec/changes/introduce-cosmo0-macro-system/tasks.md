@@ -1,0 +1,42 @@
+## 1. Documentation And Specs
+
+- [ ] 1.1 Add `docs/cosmo0/macro.typ` covering macros, derives, reflection metadata, hygiene, and non-goals.
+- [ ] 1.2 Link macro documentation from `docs/cosmo0/spec.typ` and update the docs validation script.
+- [ ] 1.3 Add examples for `@derive(...)`, declaration attributes, field attributes, generated methods, and unsupported macro shapes.
+- [ ] 1.4 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
+
+## 2. Syntax And Attribute Preservation
+
+- [ ] 2.1 Extend parsed/elaborated declaration models to preserve structured macro attributes on supported declaration shapes.
+- [ ] 2.2 Keep existing `@include` and `@extern` behavior unchanged.
+- [ ] 2.3 Add diagnostics for malformed macro attributes, repeated keyed arguments, and attributes attached to unsupported syntax nodes.
+- [ ] 2.4 Add fixture coverage proving non-macro profiles still reject unsupported decorators.
+
+## 3. Reflection Metadata
+
+- [ ] 3.1 Add reflection metadata records for classes, fields, functions, variants, defaults, docs, attributes, visibility, and spans.
+- [ ] 3.2 Populate reflection metadata from parsed and resolved declaration shapes.
+- [ ] 3.3 Add deterministic display/serialization for reflection metadata to support golden tests.
+- [ ] 3.4 Add diagnostics for metadata that cannot be produced because a declaration shape is unsupported.
+
+## 4. Macro Expansion Engine
+
+- [ ] 4.1 Add a package pipeline phase that runs after declaration-shape collection and before body checking/lowering.
+- [ ] 4.2 Add a macro provider registry keyed by resolved derive/provider paths.
+- [ ] 4.3 Define the provider input/output contract: reflection metadata in, generated declarations and diagnostics out.
+- [ ] 4.4 Integrate generated declarations into name resolution and type checking.
+- [ ] 4.5 Add generated-span plumbing for diagnostics and generated-source summaries.
+
+## 5. Hygiene And Validation
+
+- [ ] 5.1 Implement fresh internal symbol generation for macro helpers.
+- [ ] 5.2 Diagnose collisions between public generated declarations and user declarations.
+- [ ] 5.3 Reject unconsumed macro attributes after expansion.
+- [ ] 5.4 Add deterministic repeated-expansion tests.
+
+## 6. Derive Provider Smoke Path
+
+- [ ] 6.1 Implement a minimal compiler-hosted derive provider that generates a simple static method from reflected fields.
+- [ ] 6.2 Add positive tests proving user code can call the generated method.
+- [ ] 6.3 Add negative tests for unresolved derive provider paths and unsupported target types.
+- [ ] 6.4 Add end-to-end tests that keep generated code in ordinary checking and C++ backend paths.
