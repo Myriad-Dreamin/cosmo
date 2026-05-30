@@ -4,7 +4,7 @@
 
 这份文档不是最终 spec 条文，而是给 Cosmo macro system 做架构澄清，重点回答五个问题：
 
-1. 为什么不能用一个统一内部 `Expr` 覆盖 `SourceExpr / AttrExpr / ConstValue / GeneratedExpr / TypedExpr`，以及为什么宏边界仍可以有专用 `Expr[T = Any]`。
+1. 为什么不能用一个统一内部 `Expr` 覆盖源码表达式、attribute 数据、compile-time value 与 typer 产物，以及为什么宏边界仍可以有专用 `Expr[T = Untyped]`。
 2. 结合当前 cosmo0 实现，最小可落地的数据边界与 phase boundary 应该是什么。
 3. compile-time computation 与 ordinary type checking / lowering 的边界应如何切，尤其是默认值、属性参数、derive provider 输入输出。
 4. 内部 Macro IR、Wasm sandbox、Component Model、native JIT、dynamic linking 分别适不适合作为“语义层”与“执行后端层”。
@@ -29,12 +29,14 @@
 推荐方向可以先压缩成几句话：
 
 1. 不能把所有阶段对象统一成一个内部 `Expr`，因为这里混杂了不同 phase、不同信任等级、不同求值语义、不同可见性的数据。
-2. 可以定义宏边界专用的 `Expr[T = Any]`：初期 `T = Any` 表示 untyped code value，未来再把 `T` 收紧为 typed quotation 的结果类型。
-3. 宏边界应该冻结在 `DeclShape / AttrExpr / ConstValue / ReflectionMetadata / Expr[Any] / GeneratedDecl`，而不是暴露编译器内部 `UntypedExpr` 或 `TypedExpr`。
-4. compile-time computation 应拆成两个服务：`ConstEval` 与 `ProviderEval`，不要把 ordinary type checker 变成半个解释器。
-5. 宏扩展的最小插入点是“声明形状与签名已知，但 ordinary body typing 尚未开始”的位置；表达式宏则在 ordinary expression typing 前展开为待检查表达式。
-6. 长期语义层应该是 Cosmo 自己的 `MacroProtocol + MacroIR + capability model`；Wasm / Component Model / native JIT 更适合作为执行与分发后端，而不是语言语义本身。
-7. 要避免后续实现发散，必须先冻结 phase 顺序、数据 schema、禁止项、命名/hygiene 规则、以及 golden/negative test 契约。
+2. 可以定义宏边界专用的 `Expr[T = Untyped]`，但它就是 untyped source expression value；`Untyped` 是 macro-level phase marker，不是对象语言里的运行时类型，也不预告多阶段 typed quotation。
+3. typed expression 信息只通过 typer 阶段的 inspector 暴露，例如类似 `Type.of(expr)` 的查询；provider 不拿 `TypedExpr` 树，也不能构造 trusted typed code。
+4. 宏边界应该冻结在 `DeclShape / AttrExpr / ConstValue / ReflectionMetadata / Expr[Untyped] / GeneratedDecl`，而不是暴露编译器内部 `UntypedExpr` 或 `TypedExpr`。
+5. macro function 必须是纯函数：对 cosmo 给出的相同输入反复运行必须得到相同输出，否则行为未定义。
+6. compile-time computation 应拆成两个服务：`ConstEval` 与 `ProviderEval`，不要把 ordinary type checker 变成半个解释器。
+7. 宏扩展的最小插入点是“声明形状与签名已知，但 ordinary body typing 尚未开始”的位置；表达式宏则在 ordinary expression typing 前展开为待检查表达式。
+8. 长期语义层应该是 Cosmo 自己的 `MacroProtocol + MacroIR + capability model`；Wasm / Component Model / native JIT 更适合作为执行与分发后端，而不是语言语义本身。
+9. 要避免后续实现发散，必须先冻结 phase 顺序、数据 schema、禁止项、命名/hygiene 规则、以及 golden/negative test 契约。
 
 下面把这些点展开。
 
@@ -44,19 +46,25 @@
 
 这里需要先区分两个概念：
 
-- 不推荐的设计：把 compiler 内部的 `SourceExpr / AttrExpr / ConstValue / GeneratedExpr / TypedExpr` 合并成一个大 `Expr`。
-- 推荐的设计：在 macro protocol 里定义一个专用 `Expr[T = Any]`，表示“宏可以消费或生成的代码值”。
+- 不推荐的设计：把 compiler 内部的源码表达式、attribute 语法、compile-time value、typer 产物都合并成一个大 `Expr`。
+- 推荐的设计：在 macro protocol 里定义一个专用 `Expr[T = Untyped]`，表示“宏可以消费或生成的 untyped source expression value”。
 
-后者不是前者的复活。`Expr[T = Any]` 是宏边界 ADT；它可以作为过程宏 API 的稳定对象，但不能等同于 parser AST，也不能等同于 type checker 产物。
+后者不是前者的复活。`Expr[T = Untyped]` 是宏边界 ADT；它可以作为过程宏 API 的稳定对象，但它仍然只是未类型检查的源码表达式值，不能等同于 type checker 产物，也不是 staged programming 里的 typed quote。
 
 ### 1. 这几个对象不是同一种东西
 
-建议先区分下面五类对象：
+建议先区分下面几类对象：
 
 - `SourceExpr`
-  - 用户源码中的一般表达式。
+  - 编译器内部的用户源码表达式。
   - 目标是保真地表示用户写了什么。
   - 允许出现普通调用、控制流、局部变量、模式匹配、以及未来更复杂的语言结构。
+- `Expr[T = Untyped]`
+  - provider API 中可消费和可生成的源码表达式值。
+  - 实际语义是 untyped source expression；默认 `T = Untyped` 是显式 phase marker。
+  - `Untyped` 不是对象语言里的普通类型，也不是 compiler-internal `UntypedExpr`。
+  - 当前稳定的类型实参只有 `Untyped`；provider 不能把 `T` 当作任意对象语言类型证据。
+  - 进入用户程序前必须重新走 ordinary typing。
 - `AttrExpr`
   - 只用于 decorator / attribute 参数的受限语法。
   - 目标是做“声明式配置”，不是开放完整程序执行。
@@ -65,14 +73,13 @@
   - compile-time evaluator 的结果，是“值”，不是“树”。
   - 目标是被 provider、schema builder、diagnostic 逻辑稳定消费。
   - 必须有限、可序列化、可比较、可稳定显示。
-- `GeneratedExpr`
-  - 宏生成声明内部的表达式节点。
-  - 目标是“等待 ordinary typer 检查”的生成代码，不是 trusted checked artifact。
-  - 它的合法性要由 ordinary type checking 负责兜底。
 - `TypedExpr`
   - ordinary type checker 产物。
   - 已经带有 resolved type、name resolution 结果、mutability、call signature 等编译器内部不变量。
   - 不应被 provider 直接构造，也不应作为 provider 的长期 ABI。
+- typed inspector output
+  - typer 阶段从某个 `Expr` 对应表达式上观察到的稳定事实。
+  - 例如 `Type.of(expr)` 这类查询返回类型描述，而不是 `TypedExpr` 树。
 
 如果把它们合并为一个 compiler-internal 总 `Expr`，唯一的结果就是：每个使用方都要靠运行时约定去猜“当前拿到的到底是哪种 Expr”。这会立刻引出大量隐式前提。
 
@@ -81,16 +88,18 @@
 phase distinction 不是实现细节，而是语义约束：
 
 - `SourceExpr` 发生在 elaboration 之后、ordinary typing 之前。
+- `Expr[T = Untyped]` 是 macro API 对 untyped source expression 的稳定包装。
 - `AttrExpr` 只存在于 macro attribute / derive config 的语境。
 - `ConstValue` 是 compile-time evaluation 之后的结果。
-- `GeneratedExpr` 存在于 macro expansion 输出中，但还没有被 ordinary typing 信任。
 - `TypedExpr` 只在 ordinary typing 完成后存在。
+- typed inspector output 只在 typer 能回答对应问题的阶段产生。
 
 如果把这些阶段对象统一，宏 provider 很容易越过边界：
 
 - 看到 `SourceExpr` 时开始依赖普通源码 AST 细节。
 - 构造 `TypedExpr` 时绕过 ordinary type checker。
 - 把 `ConstValue` 当作表达式回填，制造“看上去像代码，其实是值”的模糊地带。
+- 把 `Expr[T]` 解释成多阶段 typed quote，绕出当前普通类型检查路径。
 
 这正是后续实现最容易任意发挥的地方。
 
@@ -99,16 +108,17 @@ phase distinction 不是实现细节，而是语义约束：
 宏系统里最重要的不是“能表示什么”，而是“允许谁做什么”。
 
 - `SourceExpr` 代表用户源码，provider 不应默认拥有读取任意用户表达式主体的权力。
+- `Expr[Untyped]` 代表显式交给 expression macro 的源码表达式片段，provider 可以按协议组合和转发，但不能宣称它已类型检查。
 - `AttrExpr` 代表用户显式交给宏消费的配置，因此 provider 可以看到。
 - `ConstValue` 代表编译器确认可公开给宏消费的确定性编译期数据。
-- `GeneratedExpr` 代表 provider 提出的候选程序片段，但并不受信任。
 - `TypedExpr` 代表 type checker 已经确认过的可信内部对象。
+- typed inspector output 代表 typer 公开给宏的只读事实，不代表 provider 获得 typed tree authority。
 
 统一 `Expr` 的直接后果是 authority 也被模糊化。宏 provider 会开始“顺手”拿到自己本不该拿到的数据和能力。
 
 ### 4. 它们依赖不同的不变量
 
-`TypedExpr` 依赖 resolved types、call signatures、mutability、owner 信息。`SourceExpr` 和 `AttrExpr` 根本不满足这些条件。
+`TypedExpr` 依赖 resolved types、call signatures、mutability、owner 信息。`SourceExpr`、`Expr[Untyped]` 和 `AttrExpr` 根本不满足这些条件。
 
 反过来，`AttrExpr` 需要的是：
 
@@ -131,7 +141,7 @@ phase distinction 不是实现细节，而是语义约束：
 - generated declaration 是否仍要经过 ordinary typing？
 - raw source text 是否可以作为 debug artifact 存在，但不能作为 primary output？
 
-分层对象的价值之一，就是让这些问题变成数据类型和测试契约，而不是口头约定。宏边界里的 `Expr[T = Any]` 也应该服务于这个目标：它必须是一个受限、可验证、可序列化、不能伪装成 `TypedExpr` 的代码值，而不是“随便把现有 AST 塞给 provider”。
+分层对象的价值之一，就是让这些问题变成数据类型和测试契约，而不是口头约定。宏边界里的 `Expr[T = Untyped]` 也应该服务于这个目标：它必须是一个受限、可验证、可序列化、不能伪装成 `TypedExpr` 的代码值，而不是“随便把现有 AST 塞给 provider”。
 
 ## 推荐术语与边界
 
@@ -153,12 +163,13 @@ phase distinction 不是实现细节，而是语义约束：
 - `ConstValue`
 - `DeclShape`
 - `ReflectionMetadata`
-- `Expr[T = Any]`
+- `Expr[T = Untyped]`
 - `GeneratedDecl`
+- typed inspector output，例如 `Type.of(expr)` 的返回值
 - `MacroInput`
 - `MacroOutput`
 
-这里的 `Expr[T = Any]` 是 provider API 名称。它可以由编译器内部的 `GeneratedExpr` 树实现，也可以未来换成更稳定的 macro AST；关键是 provider 不直接拿 `UntypedExpr`，也不直接产出 `TypedExpr`。
+这里的 `Expr[T = Untyped]` 是 provider API 名称。它不是 `TypedExpr`，也不是 future-stage `Code[T]`；它就是 provider 可见的 untyped source expression value。关键是 provider 不直接拿可变的 compiler-internal `UntypedExpr`，也不直接产出 `TypedExpr`。
 
 建议关系如下：
 
@@ -166,9 +177,13 @@ phase distinction 不是实现细节，而是语义约束：
 UntypedDecl / SourceType
   -> DeclShape / ReflectionMetadata
   -> MacroInput
-  -> MacroOutput(GeneratedDecl / Expr[Any])
+  -> MacroOutput(GeneratedDecl / Expr[Untyped])
   -> adapter
   -> ordinary UntypedDecl / TypedDecl path
+
+Expr[Untyped]
+  -> ordinary typer
+  -> typed inspector facts, e.g. Type.of(expr)
 ```
 
 ### 建议的数据模型
@@ -251,19 +266,19 @@ DefaultValueInfo =
 - 如果 provider 直接拿到 `SourceExpr` 默认值，后续就会有人要求 provider 自己解释普通源码。
 - `NonConstDefault` 可以让 compile-time 诊断更明确，而不是让 provider 猜测失败原因。
 
-## 过程宏与 `Expr[T = Any]`
+## 过程宏与 `Expr[T = Untyped]`
 
-上面的分层原则不等于 Cosmo 永远没有 `Expr`。更合理的路线是：把 `Expr[T = Any]` 设计成 macro protocol 的公开代码值，而不是编译器内部所有表达式阶段的统一实现。
+上面的分层原则不等于 Cosmo 永远没有 `Expr`。更合理的路线是：把 `Expr[T = Untyped]` 设计成 macro protocol 的公开代码值，而不是编译器内部所有表达式阶段的统一实现。
 
-### 初期：`Expr[Any]` 表示 untyped code value
+### `Expr[Untyped]` 表示 untyped code value
 
-第一阶段可以把表达式宏的参数和输出建模为：
+表达式宏的参数和输出建模为：
 
 ```text
-Expr[T = Any]
+Expr[T = Untyped]
 ```
 
-其中默认的 `Any` 不表示对象语言里真的有一个可随意使用的 `Any` 值，而表示：
+其中默认的 `Untyped` 不是对象语言里真的有一个可使用的类型，而是 macro API 的 phase marker，表示：
 
 - 这是一段对象语言表达式代码。
 - 它尚未经过 ordinary type checking。
@@ -274,12 +289,12 @@ Expr[T = Any]
 换句话说：
 
 ```text
-Expr[Any] != TypedExpr
-Expr[Any] != runtime Any value
-Expr[Any] == untyped macro code value
+Expr[Untyped] != TypedExpr
+Expr[Untyped] != runtime value of any type
+Expr[Untyped] == untyped macro code value
 ```
 
-这个默认值让初期过程宏有可用 API，但不要求现在就设计完整 typed quotation。
+这个默认值让过程宏有可用 API，但不要求也不暗示多阶段 typed quotation。
 
 ### `vec` 的推荐模型
 
@@ -294,11 +309,11 @@ vec(a, b, c)
 ```text
 ExprMacroInput:
   path: PathRef
-  args: List[Expr[Any]]
+  args: List[Expr[Untyped]]
   callSpan: SourceSpan
 
 ExprMacroOutput:
-  expr: Expr[Any]
+  expr: Expr[Untyped]
   diagnostics: List[MacroDiagnostic]
 ```
 
@@ -314,11 +329,11 @@ ExprMacroOutput:
 }
 ```
 
-这里 `<argN>` 是对输入 `Expr[Any]` 的 splice。元素类型、`Vec::new` 是否能推导、`push` 调用是否合法，都由 ordinary type checking 负责。
+这里 `<argN>` 是对输入 `Expr[Untyped]` 的 splice。元素类型、`Vec::new` 是否能推导、`push` 调用是否合法，都由 ordinary type checking 负责。
 
-### 初期 `Expr[Any]` 的能力限制
+### `Expr[Untyped]` 的能力限制
 
-为了避免表达式宏直接升级成 type checker 插件，初期 `Expr[Any]` 应该有明确限制：
+为了避免表达式宏直接升级成 type checker 插件，`Expr[Untyped]` 应该有明确限制：
 
 - provider 可以构造表达式节点。
 - provider 可以把输入表达式 splice 到输出表达式。
@@ -330,76 +345,46 @@ ExprMacroOutput:
 这条路线支持 `vec`、`format`、`sql` 这类常见过程宏的早期版本：
 
 ```text
-literal / const config + Expr[Any] fragments -> Expr[Any]
+literal / const config + Expr[Untyped] fragments -> Expr[Untyped]
 ```
 
 但它暂时不承诺完整的 typed AST reflection，也不开放 Rust 风格 token-tree macro。表达式宏的输入必须已经是合法 Cosmo 表达式 AST，不能借宏调用引入非 Cosmo 语法。
 
-### 未来：`Expr[T]` 表示 typed quotation
+### typed 信息：通过 typer inspector，而不是 typed `Expr`
 
-长期可以把默认的 `Any` 收紧为泛型结果类型：
-
-```text
-Expr[T]
-```
-
-其语义应接近 staged programming 里的 `Code[T]`：
+如果宏需要 typed 信息，第一版不把 `Expr[Untyped]` 升级成 `Expr[T]`，也不引入 typed quotation。唯一推荐的入口是 typer 阶段的只读 inspector：
 
 ```text
-Expr[T] 是一段代码；如果它被 splice 到未来阶段并通过检查，会产生 T。
-Expr[T] 不是 T 本身。
+Type.of(expr): TypeInfo
 ```
 
-例如：
+这里的 `expr` 仍是同一个 untyped source expression value。`Type.of` 这类 API 表示“请在 ordinary typer 能回答时，返回这个表达式对应的类型事实”。它不返回 `TypedExpr`，不开放 scope resolver 的可变 handle，也不允许 provider 把结果反向标记到表达式上。
+
+这条规则让 typed-aware macro 仍然服从普通类型检查：
 
 ```text
-quote(1 + 2): Expr[i32]
+Expr[Untyped]
+  -> ordinary typer
+  -> inspector facts such as Type.of(expr)
+  -> provider uses facts only as read-only input
 ```
 
-这不表示现在有一个 `i32` 值，而表示现在有一段“将来产生 `i32`”的代码。
-
-因此下面这种关系必须保持：
-
-```text
-Expr[i32] 不能隐式当作 i32 使用
-Expr[i32] 只能通过 quote/splice/builder/typecheck 等显式边界参与程序构造
-```
-
-未来 `Expr[T]` 需要配套几个概念，否则类型参数只是装饰：
-
-- `TypeRef[T]` 或 `Type[T]`，表示类型 `T` 的编译期证据。
-- quote/splice 的 phase 规则。
-- 防止 scope extrusion 的作用域规则。
-- typed expression macro 的 re-check 或 validation 策略。
-- `Expr[T]` 与 `TypedExpr` 的边界：前者是宏语言代码值，后者是 ordinary typer 产物。
-
-可以把演进顺序写成：
-
-```text
-Expr[Any]
-  -> Expr[T] with TypeRef[T]
-  -> typed quotation and splice
-  -> optional typed AST reflection
-```
-
-不要反过来从完整 typed AST reflection 开始。
+因此 `Expr[T = Untyped]` 里的 `T` 不承担类型证明语义；当前稳定实参只有 `Untyped`。需要类型事实时，使用 inspector；需要生成代码时，返回新的 `Expr[Untyped]`，再交回 ordinary typer。
 
 ### 参考模型
 
 这个方向可以参考几类语言设计，但不直接照搬：
 
-- Scala 3 的 `Expr[T]` / `Type[T]` / `Quotes`：`Expr[T]` 表示结果类型为 `T` 的 quoted code，`Type[T]` 是类型证据，`Quotes` 是宏展开上下文。
-- MetaOCaml 的 code type：`. < ... > .` 构造 future-stage code，escape/splice 把 code 插回未来阶段。
-- Template Haskell 的 typed quotation：typed quote 产生 `Code m a`，和 `Expr[T]` 的直觉相近。
+- Scala 3 的 `Expr[T]` / `Type[T]` / `Quotes`：可以参考其 typed inspection 与 capability context，但 Cosmo 不采用多阶段 typed quotation 作为当前模型。
 - Rust procedural macro 的 `TokenStream -> TokenStream`：适合作为“展开后再 ordinary typecheck”的保守参考，但 Cosmo 不应停留在 raw token/string 输出。
 
 对 Cosmo 来说，实用结论是：
 
 ```text
-初期过程宏使用 Expr[Any]。
-Expr[Any] 是结构化 untyped code value。
+过程宏使用 Expr[Untyped]。
+Expr[Untyped] 是结构化 untyped code value。
 输出仍进入 ordinary typer。
-未来再引入 Expr[T]，但 Expr[T] 也不能替代 TypedExpr。
+typed 信息只来自 Type.of(expr) 这类 typer inspector。
 ```
 
 ## derive 宏与普通宏函数的语法设计
@@ -531,11 +516,11 @@ val msg = format("{}: {}", name, count)
 
 ```text
 ExprMacroProvider:
-  ExprMacroInput -> MacroResult[Expr[Any]]
+  ExprMacroInput -> MacroResult[Expr[Untyped]]
 
 ExprMacroInput:
   path: PathRef
-  args: List[Expr[Any]]
+  args: List[Expr[Untyped]]
   callSpan: SourceSpan
 ```
 
@@ -543,17 +528,19 @@ ExprMacroInput:
 
 ```text
 vec:
-  List[Expr[Any]] -> MacroResult[Expr[Any]]
+  List[Expr[Untyped]] -> MacroResult[Expr[Untyped]]
 ```
 
-它生成待检查代码，ordinary typer 再推出最终类型或报错。未来 typed macro 成熟后，可以增加更强签名：
+它生成待检查代码，ordinary typer 再推出最终类型或报错。如果 provider 需要 typed 信息，也不通过 `List[Expr[T]]` 这种多阶段签名表达，而是通过 typer inspector 读取事实：
 
 ```text
-vec[T]:
-  List[Expr[T]] -> MacroResult[Expr[Vec[T]]]
+vec:
+  List[Expr[Untyped]] -> MacroResult[Expr[Untyped]]
+
+Type.of(arg0): TypeInfo
 ```
 
-但这需要 `TypeRef[T]`、typed quote/splice、scope safety 和 re-check 规则先稳定，不应作为第一版前提。
+这表示 provider 可以在允许的阶段观察参数类型，但输出仍是待检查的 `Expr[Untyped]`。
 
 ### 普通宏定义语法
 
@@ -570,14 +557,14 @@ vec        -> compiler-hosted expression provider
 macro derive Parser(input: DeriveInput[ReflectClass]): MacroResult[List[GeneratedDecl]]:
   ...
 
-macro expr vec(input: ExprMacroInput): MacroResult[Expr[Any]]:
+macro expr vec(input: ExprMacroInput): MacroResult[Expr[Untyped]]:
   ...
 ```
 
 或者更接近函数的形式：
 
 ```cosmo
-macro def vec(args: List[Expr[Any]]): Expr[Any] =
+macro def vec(args: List[Expr[Untyped]]): Expr[Untyped] =
   ...
 ```
 
@@ -585,7 +572,7 @@ macro def vec(args: List[Expr[Any]]): Expr[Any] =
 
 ```cosmo
 @macro
-def vec(args: List[Expr[Any]]): Expr[Any] =
+def vec(args: List[Expr[Untyped]]): Expr[Untyped] =
   ...
 ```
 
@@ -629,17 +616,18 @@ case class Person(...) derives Show
 
 并通过 compiler-generated `Mirror` 和 type class 的 `derived` 方法生成 given instance。Scala 的设计给 Cosmo 的启发是：
 
-- `Expr[T]` 应该表示 typed code value，而不是 `T` 本身。
-- 类型信息要通过 `Type[T]` / `TypeRef[T]` 这类显式证据传入。
+- `Expr[T = Untyped]` 在 Cosmo 当前模型里表示 untyped source expression value，不表示 typed quote。
+- 类型信息要通过 `Type.of(expr)` 这类显式 typer inspector 传入。
 - 宏展开上下文应像 `Quotes` 一样被能力化，而不是暴露整个 compiler。
 - derive 需要结构化 reflection metadata，不应让 provider 直接 inspect compiler internals。
 
-Cosmo 在 ordinary expression macro 的 surface syntax 上可以采用 Scala 风格：宏调用看起来像普通函数调用，区别来自 callee 是否解析为 compile-time provider。Cosmo 仍不必照搬 Scala 的完整 typed-first 宏系统，初期更稳的选择是：
+Cosmo 在 ordinary expression macro 的 surface syntax 上可以采用 Scala 风格：宏调用看起来像普通函数调用，区别来自 callee 是否解析为 compile-time provider。Cosmo 仍不必照搬 Scala 的完整 typed-first 宏系统，当前更稳的选择是：
 
 ```text
 @derive(path) for declaration derive
 path(...) for expression macro
-Expr[Any] first, Expr[T] later
+Expr[Untyped] as untyped source expr
+typed facts through inspectors
 ```
 
 ## 两套设计备选
@@ -651,7 +639,7 @@ Expr[Any] first, Expr[T] later
 做法：
 
 - 保留 `SourceExpr / TypedExpr` 作为编译器内部对象。
-- 引入 `AttrExpr / ConstValue / DeclShape / ReflectionMetadata / Expr[Any] / GeneratedDecl` 作为宏边界对象。
+- 引入 `AttrExpr / ConstValue / DeclShape / ReflectionMetadata / Expr[Untyped] / GeneratedDecl` 作为宏边界对象。
 - 宏 provider 只接收 `MacroInput`，只返回 `MacroOutput`。
 - generated declarations 之后进入 ordinary type checking。
 
@@ -704,7 +692,7 @@ Expr[Any] first, Expr[T] later
 4. Declaration shape / signature collection
 5. ConstEval for attributes and admitted defaults
 6. Declaration macro expansion
-7. Expression macro expansion to `Expr[Any]`
+7. Expression macro expansion to `Expr[Untyped]`
 8. Ordinary type checking
 9. Lowering / backend
 ```
@@ -752,10 +740,10 @@ Expr[Any] first, Expr[T] later
 - 不给 provider 完整 compiler state
 - 不给 provider `TypedExpr`
 
-#### 7. Expression macro expansion to `Expr[Any]`
+#### 7. Expression macro expansion to `Expr[Untyped]`
 
-- 输入：表达式位置的 macro call 与参数 `Expr[Any]`。
-- 输出：新的 `Expr[Any]`。
+- 输入：表达式位置的 macro call 与参数 `Expr[Untyped]`。
+- 输出：新的 `Expr[Untyped]`。
 - 不读取参数的 ordinary type。
 - 不直接生成 `TypedExpr`。
 - 输出表达式继续进入 ordinary expression typing。
@@ -817,6 +805,20 @@ Expr[Any] first, Expr[T] later
 - 绕过 ordinary typer。
 - 直接构造 `TypedExpr`。
 - 修改编译器全局状态。
+
+### macro function purity
+
+所有 macro function 都必须是纯函数。这里的“纯”不是说实现语言不能有局部变量，而是说 provider 对 cosmo 给出的同一份输入必须可重复：
+
+```text
+same provider identity
+same source package / macro call
+same ReflectionMetadata / ConstValue / Expr[Untyped]
+same capability set
+  -> same MacroOutput / diagnostics / consumed attributes
+```
+
+编译器可以缓存、丢弃、重跑、并行运行或比较宏求值结果。provider 如果读取隐藏全局状态、时间、随机数、未声明文件、网络、环境变量，或者用内部可变状态让同一输入产生不同输出，就进入未定义行为。实现可以在明显违规时诊断，但语义上不保证非纯 macro function 的结果稳定。
 
 ### 属性参数
 
@@ -893,7 +895,7 @@ Expr[Any] first, Expr[T] later
 
 - macro path / resolved provider identity
 - call span
-- 参数 `Expr[Any]`
+- 参数 `Expr[Untyped]`
 - admitted literal / const config
 
 明确不包含：
@@ -908,11 +910,11 @@ Expr[Any] first, Expr[T] later
 
 建议第一版 expression macro 输出只包含：
 
-- 一个 `Expr[Any]`
+- 一个 `Expr[Untyped]`
 - provider-authored diagnostics
 - optional expansion summary
 
-这个输出必须进入 ordinary expression typing。provider 不能把 `Expr[Any]` 标记成已经 checked，也不能把它直接塞进 lowering。
+这个输出必须进入 ordinary expression typing。provider 不能把 `Expr[Untyped]` 标记成已经 checked，也不能把它直接塞进 lowering。
 
 ## 语义层与执行后端层
 
@@ -925,7 +927,7 @@ Language semantics:
   MacroProtocol
   Reflection schema
   AttrExpr / ConstValue model
-  Expr[Any] / GeneratedDecl / hygiene / diagnostics contract
+  Expr[Untyped] / GeneratedDecl / hygiene / diagnostics contract
   Capability model
   Determinism contract
 
@@ -1039,7 +1041,7 @@ Execution backend:
 - `DeclShape`
 - `ReflectionMetadata`
 - `DefaultValueInfo`
-- `Expr[Any]`
+- `Expr[Untyped]`
 - `GeneratedDecl`
 - `MacroInput`
 - `MacroOutput`
@@ -1054,7 +1056,7 @@ Execution backend:
 ### 需要先冻结的 phase 规则
 
 - expansion 必须发生在 ordinary body typing 之前。
-- expression macro 必须在对应表达式被 ordinary type checking 之前展开成 `Expr[Any]`。
+- expression macro 必须在对应表达式被 ordinary type checking 之前展开成 `Expr[Untyped]`。
 - generated code 必须进入 ordinary typing。
 - lowering 不能看见 reflection-only 数据。
 - unconsumed attributes 必须在 expansion 后报错，不得漂移到 runtime。
@@ -1067,12 +1069,13 @@ Execution backend:
 下面这些最好在设计讨论稿阶段就写死，不要留给实现者“自由发挥”。
 
 - provider 不得构造 `TypedExpr`
-- provider 不得把 `Expr[Any]` 标记成 already typed
-- expression provider 不得查询参数 ordinary type
+- provider 不得把 `Expr[Untyped]` 标记成 already typed
+- expression provider 不得通过 `Type.of(expr)` 这类 typer inspector 之外的通道查询参数 ordinary type
 - provider 不得返回 raw source text 作为 primary output
 - provider 不得执行 target runtime code
 - provider 不得依赖 backend availability
 - provider 不得访问 ambient filesystem / network / env / time / randomness
+- provider 不得让同一份 cosmo 输入因为隐藏可变状态产生不同输出；非纯 macro function 行为未定义
 - provider 不得默认读取任意用户 function body
 - expansion 不得直接 patch lowering IR
 - 未解析到 compile-time provider 的 `path(...)` 只能作为 ordinary call 继续解析；如果调用点被要求必须是宏展开，则必须报 unresolved provider。
@@ -1092,11 +1095,13 @@ Execution backend:
 
 - reflection metadata display
 - `ConstValue` display / serialization
-- `Expr[Any]` display / serialization
+- `Expr[Untyped]` display / serialization
 - `GeneratedDecl` display / serialization
 - expression macro expansion display
+- typed inspector output display / serialization
 - expansion summary deterministic ordering
 - repeated expansion stable
+- repeated macro function evaluation same-output check
 - unresolved provider path
 - invalid provider output
 - raw source primary output rejection
@@ -1120,10 +1125,10 @@ Execution backend:
 2. 从当前 `UntypedDecl + SourceType` collection 中抽出 `DeclShape / ReflectionMetadata`。
 3. 只支持受限 `AttrExpr` 与小型 `ConstValue`。
 4. 支持 class / sum derive，以及受限 expression macro。
-5. expression macro 的公共表达式类型先落为 `Expr[T = Any]`。
+5. expression macro 的公共表达式类型固定为 `Expr[T = Untyped]`，其语义是 untyped source expression value。
 6. declaration provider 只返回 `GeneratedDecl` 树。
-7. expression provider 只返回 `Expr[Any]`。
-8. 通过 adapter 把 `GeneratedDecl` 和 `Expr[Any]` 重新接入 ordinary typing 路径。
+7. expression provider 只返回 `Expr[Untyped]`。
+8. 通过 adapter 把 `GeneratedDecl` 和 `Expr[Untyped]` 重新接入 ordinary typing 路径。
 9. CLI derive 默认值只接受可形成 `ConstDefault` 的 initializer。
 10. surface syntax 先冻结为 `@derive(path)` 和普通 Cosmo 调用形态 `path(...)`。
 11. 暂缓任意 attribute macro 与 item macro。
@@ -1138,16 +1143,17 @@ Execution backend:
 
 如果现在就要拍板，我推荐的设计结论如下：
 
-1. 采用方案 A：严格分层，`SourceExpr / AttrExpr / ConstValue / GeneratedExpr / TypedExpr` 明确分离。
-2. 宏系统的第一稳定边界不是 `UntypedExpr`，而是 `DeclShape / ReflectionMetadata / ConstValue / Expr[Any] / GeneratedDecl`。
+1. 采用方案 A：严格分层，compiler-internal `SourceExpr` / provider-facing `Expr[Untyped]` / `AttrExpr` / `ConstValue` / typer `TypedExpr` 与 typed inspector facts 明确分离。
+2. 宏系统的第一稳定边界不是 `UntypedExpr`，而是 `DeclShape / ReflectionMetadata / ConstValue / Expr[Untyped] / GeneratedDecl`。
 3. compile-time computation 拆成 `ConstEval` 与 `ProviderEval`，ordinary typer 不承担宏解释器职责。
 4. phase 顺序固定为“声明形状已知 -> const/default 判定 -> declaration macro expansion -> expression macro expansion -> ordinary typing -> lowering”。
-5. 初期过程宏使用 `Expr[T = Any]`，未来在 quote/splice、`TypeRef[T]`、scope safety 规则清楚后再收紧到 `Expr[T]`。
+5. 过程宏使用 `Expr[T = Untyped]`，但它实际就是 untyped source expression value；typed 信息只通过 `Type.of(expr)` 这类 typer inspector 暴露，不引入多阶段 `Expr[T]`。
 6. surface syntax 第一版采用 `@derive(path)` 与 Scala 风格普通表达式调用 `path(...)`；表达式宏不允许非 Cosmo token-tree/DSL 语法；暂缓 arbitrary attribute macro、item macro、普通 `def` 加 `@macro` 的定义形式。
 7. 长期语义层由 `MacroProtocol + MacroIR + capability model` 定义；Wasm sandbox、Component Model 与 native JIT 只作为执行/分发后端。
 8. `cosmo-jit-sys` 可以作为可选 native support backend，以 N-API 封装 `clang::Interpreter`，但不应成为宏语义本身。
 9. dynamic linking 不应成为宏系统的默认长期执行模型。
-10. 要从第一版开始冻结禁止项、hygiene 规则与 golden/negative tests，否则实现会快速发散。
+10. macro function 必须是纯函数；同一 cosmo 输入反复运行得到不同结果时行为未定义。
+11. 要从第一版开始冻结禁止项、hygiene 规则与 golden/negative tests，否则实现会快速发散。
 
 ## 仍待主线程决定的开放问题
 
@@ -1156,8 +1162,8 @@ Execution backend:
 - macro expansion 放在“模块合并前”还是“模块合并后”更合适；两者对 provider 可见模块边界不同。
 - `DefaultValueInfo` 是否只暴露 `ConstDefault`，还是要保留某种受限 `SourceExpr` 视图。
 - `GeneratedDecl` 是否独立于 `UntypedDecl`，还是第一版先复用 `UntypedDecl` 再逐步抽离。
-- `Expr[Any]` 是否允许 provider inspect 完整语法树，还是第一版只允许有限 inspection 加 splice。
-- `Expr[T]` 的类型参数应如何绑定 `TypeRef[T]`，以及是否需要独立的 `Quotes` / expansion context。
+- `Expr[Untyped]` 是否允许 provider inspect 完整语法树，还是第一版只允许有限 inspection 加 splice。
+- typed inspector 的最小集合是只需要 `Type.of(expr)`，还是还需要 owner、mutability、call resolution 等只读事实。
 - ordinary call 中 macro provider 与 ordinary function 同名时的消歧规则是否由 import priority、显式 macro import，还是 provider namespace 决定。
 - 是否需要专门的语法标记表达“这里必须是 macro call”，以避免 `path(...)` 在 provider 缺失时退回 ordinary call。
 - 多个 `@derive(...)` 的执行顺序是否按源码顺序冻结，或要求 provider 显式声明 ordering。
@@ -1172,7 +1178,7 @@ Execution backend:
 如果后续要把这里的讨论沉淀回 OpenSpec，我建议优先写成 design-level 结论，而不是直接写具体实现：
 
 - 先沉淀术语与 phase boundary。
-- 再沉淀 `AttrExpr / ConstValue / Expr[Any] / GeneratedDecl` 的禁止项。
+- 再沉淀 `AttrExpr / ConstValue / Expr[Untyped] / GeneratedDecl` 的禁止项。
 - 然后再决定是否把 `DefaultValueInfo` 与 `MacroIR` 前置进 spec。
 - `cosmo-jit-sys` 应先作为实验性 native support capability 记录，等 N-API / `clang::Interpreter` smoke path 跑通后再决定是否进入正式 OpenSpec。
 
@@ -1199,7 +1205,7 @@ Cosmo macro semantics:
   MacroProtocol
   ReflectionMetadata
   ConstValue
-  Expr[Any]
+  Expr[Untyped]
   GeneratedDecl
 
 Native JIT support:

@@ -34,10 +34,24 @@ and macro provider inputs.
 - **THEN** compile-time evaluation reports an unsupported compile-time expression diagnostic
 - **AND** the macro provider does not receive a fabricated value
 
-### Requirement: Expression Kind Separation
+### Requirement: Macro Expr Is Untyped Source Expression
 
-cosmo0 SHALL distinguish parsed source expressions, attribute expressions,
-compile-time values, generated expressions, and typed expressions in macro APIs.
+cosmo0 SHALL define macro `Expr[T = Untyped]` as an untyped source-expression value
+and SHALL keep attribute expressions, compile-time values, and typed expression
+facts separate from it.
+
+#### Scenario: Expression macro receives untyped expression values
+
+- **WHEN** macro expansion invokes an expression macro for a parsed source call
+- **THEN** the provider input represents each argument as `Expr[Untyped]`
+- **AND** `Untyped` is a macro-level phase marker, not an object-language runtime type
+- **AND** `Expr[Untyped]` is not a trusted typed expression artifact
+
+#### Scenario: Untyped marker is not arbitrary type evidence
+
+- **WHEN** a macro provider receives or produces `Expr[Untyped]`
+- **THEN** `Untyped` denotes that the expression has not been checked by the ordinary typer
+- **AND** the provider cannot use the `T` parameter as evidence for an arbitrary object-language result type
 
 #### Scenario: Attribute API exposes AttrExpr or ConstValue
 
@@ -45,11 +59,17 @@ compile-time values, generated expressions, and typed expressions in macro APIs.
 - **THEN** it sees restricted `AttrExpr` syntax or evaluated `ConstValue` data
 - **AND** it does not receive arbitrary unchecked `SourceExpr` bodies by default
 
-#### Scenario: Generated expression is checked later
+#### Scenario: Expression macro output is checked later
 
-- **WHEN** a macro provider emits a `GeneratedExpr` inside a generated declaration
-- **THEN** ordinary type checking validates the generated expression after macro expansion
-- **AND** the provider does not mark the expression as trusted `TypedExpr`
+- **WHEN** a macro provider emits `Expr[Untyped]` as expression output or inside a generated declaration
+- **THEN** ordinary type checking validates that expression after macro expansion
+- **AND** the provider does not mark the expression as trusted or already typed
+
+#### Scenario: Typed facts are inspected through typer APIs
+
+- **WHEN** a macro provider needs the type of an expression value admitted for typed inspection
+- **THEN** cosmo0 exposes the information through a bounded typer-phase inspector such as `Type.of(expr)`
+- **AND** the inspector returns stable type facts rather than a mutable or constructible `TypedExpr` tree
 
 ### Requirement: Compile-Time Determinism Controls
 

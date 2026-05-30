@@ -72,6 +72,23 @@ instead of by executing arbitrary target program code.
 - **THEN** macro expansion rejects the operation with a macro capability diagnostic
 - **AND** the package result does not depend on runtime execution
 
+### Requirement: Macro Function Purity Contract
+
+cosmo0 macro functions SHALL be specified as pure computations over the macro
+input supplied by cosmo0.
+
+#### Scenario: Compiler reruns a macro function
+
+- **WHEN** cosmo0 evaluates the same macro function repeatedly with the same provider identity, source input, admitted metadata, compile-time values, and capability set
+- **THEN** each evaluation is required to produce the same generated declarations, expression output, consumed attributes, diagnostics, and generated-source summary data
+- **AND** cosmo0 may cache, discard, rerun, or compare macro function evaluations
+
+#### Scenario: Macro function depends on hidden state
+
+- **WHEN** a macro function observes ambient mutable state, time, randomness, IO, or any other hidden input and produces different results for the same cosmo0-provided input
+- **THEN** the package has undefined behavior
+- **AND** cosmo0 is not required to preserve that provider's observed evaluation order or number of executions
+
 ### Requirement: Generated Declaration Builder Output
 
 cosmo0 macro providers SHALL produce generated declarations through a structured

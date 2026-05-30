@@ -21,10 +21,11 @@
 
 ## 4. Compile-Time Expression And Value Model
 
-- [ ] 4.1 Add distinct data models for `AttrExpr`, `ConstValue`, `GeneratedExpr`, and generated declaration trees.
+- [ ] 4.1 Add distinct data models for `AttrExpr`, `ConstValue`, `Expr[T = Untyped]` as untyped source expression, and generated declaration trees.
 - [ ] 4.2 Restrict first-slice attribute expressions to literals, paths, type references, arrays, records, and keyed arguments.
 - [ ] 4.3 Add diagnostics for unsupported compile-time expression forms.
 - [ ] 4.4 Add deterministic display/serialization for compile-time values and generated declaration trees.
+- [ ] 4.5 Add typer-phase inspectors for typed expression facts, such as `Type.of(expr)`, without exposing `TypedExpr` trees to providers.
 
 ## 5. Macro Expansion Engine
 
@@ -40,6 +41,7 @@
 - [ ] 6.2 Route compiler-hosted providers through the same boundary used by future self-hosted providers.
 - [ ] 6.3 Add diagnostics for side effects, runtime-only APIs, and unsupported compile-time calls.
 - [ ] 6.4 Add budget/fuel controls for the future self-hosted interpreter path.
+- [ ] 6.5 Document and enforce the macro-function purity contract where feasible; non-pure providers have undefined behavior.
 
 ## 7. Hygiene And Validation
 

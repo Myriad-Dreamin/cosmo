@@ -21,12 +21,15 @@ remain outside the accepted source boundary.
   duplicate/conflict diagnostics.
 - Define a conservative macro execution boundary that is deterministic and does
   not grant arbitrary filesystem, command, network, or runtime side effects.
+- Specify macro functions as pure computations over cosmo0-provided inputs; the
+  compiler may rerun or cache them, and non-pure providers have undefined
+  behavior.
 - Define the compile-time computation model for macro providers, including the
   first compiler-hosted provider bridge and the later self-hosted interpreter
   boundary.
-- Define the expression/value taxonomy used by macros so attribute arguments,
-  compile-time values, reflected source expressions, and generated expressions
-  are not treated as one untyped "Expr" bucket.
+- Define `Expr[T = Untyped]` as the macro API's untyped source-expression value,
+  with typed expression facts exposed only through typer-phase inspectors such
+  as `Type.of(expr)`.
 - Add documentation ownership for macros, derives, and reflection under
   `docs/cosmo0/`.
 
@@ -40,8 +43,8 @@ remain outside the accepted source boundary.
 - `cosmo0-derived-reflection`: Defines the reflection metadata and derive macro
   provider contract used by source-level `@derive(...)` macros.
 - `cosmo0-compile-time-evaluation`: Defines the controlled compile-time
-  evaluator/interpreter boundary, macro value model, expression kinds, and
-  deterministic execution rules.
+  evaluator/interpreter boundary, macro value model, untyped `Expr[Untyped]`
+  boundary, typed inspector access, and deterministic execution rules.
 
 ### Modified Capabilities
 

@@ -27,8 +27,10 @@ schema, RPC, and test-discovery libraries.
 - Keep the macro contract compatible with later self-hosted macro packages.
 - Define how macro providers are computed instead of leaving provider execution
   to ad hoc compiler callbacks.
-- Separate source expressions, attribute expressions, compile-time values, and
-  generated expressions into explicit data models.
+- Define `Expr[T = Untyped]` as the macro API's untyped source-expression value and
+  keep attribute expressions and compile-time values separate from it.
+- Define typed-expression information as inspector output from the typer phase,
+  not as a typed expression tree that macro providers can receive or construct.
 - Define the first compile-time evaluator/interpreter boundary without running
   target program code.
 
@@ -45,6 +47,8 @@ schema, RPC, and test-discovery libraries.
 - Interpret arbitrary user functions at compile time in the first slice.
 - Allow macro providers to inspect arbitrary function bodies unless a later
   capability admits quoted expression metadata.
+- Add a multi-stage `Expr[T]` or typed quotation system.
+- Allow macro providers to receive, construct, or trust `TypedExpr` artifacts.
 
 ## Decisions
 
@@ -126,6 +130,14 @@ boundary as future self-hosted providers. It must not read undeclared files,
 spawn commands, inspect ambient environment variables, perform network IO, or
 execute target runtime code.
 
+Every macro function is required to be pure with respect to the macro input
+provided by cosmo0. For the same source package, provider identity, admitted
+metadata, compile-time values, and capability set, repeated evaluation must
+return the same output and diagnostics. The compiler may cache, discard, rerun,
+or compare macro evaluations. If a macro function depends on hidden mutable
+state or ambient effects and produces different results for the same cosmo0
+input, the package has undefined behavior.
+
 When self-hosted providers arrive, they should run inside a dedicated
 compile-time evaluator over a restricted macro IR. That evaluator is part of the
 compiler, not the generated program and not the target C++ backend. Its inputs
@@ -139,17 +151,18 @@ Alternative considered: only allow hard-coded compiler providers forever. That
 keeps execution controlled but prevents user-defined libraries from owning their
 derive behavior.
 
-### Separate Expression And Value Kinds
+### Use `Expr[T = Untyped]` As Untyped Source Expression
 
-The macro system should not expose one universal `Expr` type that means parsed
-source, attribute syntax, compile-time value, generated code, and typed
-expression depending on context. The first model should keep these kinds
-separate:
+The macro system should not expose one universal compiler-internal `Expr` type
+that sometimes means attribute syntax, sometimes means a compile-time value, and
+sometimes means a trusted typed expression. The public macro expression value is
+instead narrow:
 
 ```text
-SourceExpr:
-  parsed user expression with spans; not generally exposed to derive macros in
-  the first slice
+Expr[T = Untyped]:
+  untyped source expression value with spans and hygiene/origin metadata;
+  default T = Untyped is a macro-level phase marker, not an object-language
+  runtime type, and it does not make the expression typed
 
 AttrExpr:
   restricted attribute argument syntax, initially literals, paths, type
@@ -159,20 +172,27 @@ ConstValue:
   evaluated compile-time value such as Bool, String, integer text/value,
   TypeRef, PathRef, array, record, or enum-like tag
 
-GeneratedExpr:
-  expression node inside generated declarations, produced through a declaration
-  builder API and checked later by the ordinary type checker
-
-TypedExpr:
-  ordinary checked expression artifact after macro expansion; not constructed
-  directly by macro providers in the first slice
+GeneratedDecl:
+  generated declaration tree that may contain `Expr[Untyped]` source-expression
+  fragments; checked later by the ordinary type checker
 ```
 
+In the current macro contract, `Untyped` is the only stable expression type
+argument. It is a distinguished marker for "not yet checked by the ordinary
+typer"; providers must not interpret `T` as an arbitrary object-language type
+parameter.
+
 Derive macros primarily consume reflection metadata plus `AttrExpr` values
-lowered to `ConstValue`. They produce `GeneratedDecl` trees that may contain
-`GeneratedExpr` nodes. Generated expressions are type checked later with normal
-source code; the provider does not get to manufacture trusted typed
-expressions.
+lowered to `ConstValue`. Expression macros consume and produce `Expr[Untyped]`.
+Generated declarations may contain these expression fragments. All generated
+expressions are type checked later with normal source code; the provider does
+not get to manufacture trusted typed expressions.
+
+Typed-expression information is exposed only through explicit typer-phase
+inspectors over an `Expr` value, for example a `Type.of(expr)`-style query that
+returns a stable type description for the corresponding expression after or
+during ordinary typing. Such inspectors return facts, not a mutable `TypedExpr`
+tree, and they do not authorize the provider to bypass rechecking.
 
 Alternative considered: let providers return raw source strings. That is easy
 to prototype but makes hygiene, diagnostics, formatting, and validation
@@ -228,9 +248,10 @@ before the macro use case needs them.
 - Macro execution can accidentally become an unrestricted interpreter -> keep a
   separate compile-time evaluator spec with explicit value types, capability
   checks, and fuel limits.
-- A single loose Expr model can leak implementation details across phases ->
-  keep `SourceExpr`, `AttrExpr`, `ConstValue`, `GeneratedExpr`, and `TypedExpr`
-  distinct in APIs and tests.
+- A loose Expr model can leak implementation details across phases -> keep
+  `Expr[Untyped]` as an untyped source-expression value, keep `AttrExpr` and
+  `ConstValue` separate from expression code, and expose typed facts only through
+  bounded typer inspectors.
 
 ## Migration Plan
 
