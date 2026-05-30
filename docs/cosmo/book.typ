@@ -21,6 +21,9 @@
     #prefix-chapter("generator.typ")[Generator Design Notes]
     #prefix-chapter("mltt-typechecking-guidance.typ")[MLTT Type Checking Guidance]
     #prefix-chapter("mltt-problem-ladder.typ")[MLTT Problem Ladder]
+    #prefix-chapter("cosmo0-spec.typ")[cosmo0 Specification]
+    #prefix-chapter("cosmo0-macro-expr.typ")[cosmo0 Macro Expressions]
+    #prefix-chapter("cosmo0-compile-time-evaluation.typ")[cosmo0 Compile-Time Evaluation]
   ],
 )
 
