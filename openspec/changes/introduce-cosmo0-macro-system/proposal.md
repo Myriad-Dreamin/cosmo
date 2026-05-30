@@ -21,6 +21,12 @@ remain outside the accepted source boundary.
   duplicate/conflict diagnostics.
 - Define a conservative macro execution boundary that is deterministic and does
   not grant arbitrary filesystem, command, network, or runtime side effects.
+- Define the compile-time computation model for macro providers, including the
+  first compiler-hosted provider bridge and the later self-hosted interpreter
+  boundary.
+- Define the expression/value taxonomy used by macros so attribute arguments,
+  compile-time values, reflected source expressions, and generated expressions
+  are not treated as one untyped "Expr" bucket.
 - Add documentation ownership for macros, derives, and reflection under
   `docs/cosmo0/`.
 
@@ -33,6 +39,9 @@ remain outside the accepted source boundary.
   diagnostics.
 - `cosmo0-derived-reflection`: Defines the reflection metadata and derive macro
   provider contract used by source-level `@derive(...)` macros.
+- `cosmo0-compile-time-evaluation`: Defines the controlled compile-time
+  evaluator/interpreter boundary, macro value model, expression kinds, and
+  deterministic execution rules.
 
 ### Modified Capabilities
 

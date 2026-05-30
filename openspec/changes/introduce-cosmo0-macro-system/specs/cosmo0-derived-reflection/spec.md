@@ -32,6 +32,12 @@ diagnostics.
 - **THEN** macro expansion reports an invalid provider output diagnostic
 - **AND** the malformed output does not enter later compiler phases
 
+#### Scenario: Provider cannot synthesize trusted typed expressions
+
+- **WHEN** a derive provider emits generated code for the target type
+- **THEN** it emits generated declarations and generated expressions that are checked later
+- **AND** it cannot directly inject trusted typed expression artifacts into the checked program
+
 ### Requirement: Macro Attribute Consumption
 
 cosmo0 SHALL track which attributes a derive provider consumes and SHALL reject

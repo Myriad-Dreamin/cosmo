@@ -49,6 +49,46 @@ registry before invoking a derive or attribute macro.
 - **THEN** macro expansion reports an unresolved macro provider diagnostic
 - **AND** it does not treat the derive as an ordinary runtime call
 
+### Requirement: Macro Provider Evaluation Protocol
+
+cosmo0 SHALL evaluate macro invocations through an explicit provider protocol
+instead of by executing arbitrary target program code.
+
+#### Scenario: Provider receives bounded macro input
+
+- **WHEN** macro expansion invokes a derive provider
+- **THEN** the provider input contains the target declaration metadata, candidate attributes, admitted compile-time constants, and provider configuration
+- **AND** it does not include arbitrary runtime state or an executable target program handle
+
+#### Scenario: Provider returns bounded macro output
+
+- **WHEN** a macro provider finishes evaluation
+- **THEN** it returns generated declarations, consumed attributes, diagnostics, and optional generated-source summary data
+- **AND** later compiler phases accept only the generated declarations that pass ordinary validation
+
+#### Scenario: Provider attempts target runtime execution
+
+- **WHEN** a macro provider attempts to execute target program code during expansion
+- **THEN** macro expansion rejects the operation with a macro capability diagnostic
+- **AND** the package result does not depend on runtime execution
+
+### Requirement: Generated Declaration Builder Output
+
+cosmo0 macro providers SHALL produce generated declarations through a structured
+generated declaration model rather than unvalidated source text.
+
+#### Scenario: Provider returns generated declaration tree
+
+- **WHEN** a macro provider generates a helper method
+- **THEN** the provider output represents that method as a generated declaration tree with generated spans and origin spans
+- **AND** cosmo0 validates the tree before integrating it into the package
+
+#### Scenario: Raw generated source text is rejected as primary output
+
+- **WHEN** a macro provider returns only raw source text as generated code
+- **THEN** macro expansion rejects the output or treats it as debug-only data
+- **AND** the raw text does not bypass generated declaration validation
+
 ### Requirement: Generated Declaration Hygiene
 
 cosmo0 SHALL distinguish public generated declarations from private generated

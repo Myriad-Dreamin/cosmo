@@ -19,24 +19,38 @@
 - [ ] 3.3 Add deterministic display/serialization for reflection metadata to support golden tests.
 - [ ] 3.4 Add diagnostics for metadata that cannot be produced because a declaration shape is unsupported.
 
-## 4. Macro Expansion Engine
+## 4. Compile-Time Expression And Value Model
 
-- [ ] 4.1 Add a package pipeline phase that runs after declaration-shape collection and before body checking/lowering.
-- [ ] 4.2 Add a macro provider registry keyed by resolved derive/provider paths.
-- [ ] 4.3 Define the provider input/output contract: reflection metadata in, generated declarations and diagnostics out.
-- [ ] 4.4 Integrate generated declarations into name resolution and type checking.
-- [ ] 4.5 Add generated-span plumbing for diagnostics and generated-source summaries.
+- [ ] 4.1 Add distinct data models for `AttrExpr`, `ConstValue`, `GeneratedExpr`, and generated declaration trees.
+- [ ] 4.2 Restrict first-slice attribute expressions to literals, paths, type references, arrays, records, and keyed arguments.
+- [ ] 4.3 Add diagnostics for unsupported compile-time expression forms.
+- [ ] 4.4 Add deterministic display/serialization for compile-time values and generated declaration trees.
 
-## 5. Hygiene And Validation
+## 5. Macro Expansion Engine
 
-- [ ] 5.1 Implement fresh internal symbol generation for macro helpers.
-- [ ] 5.2 Diagnose collisions between public generated declarations and user declarations.
-- [ ] 5.3 Reject unconsumed macro attributes after expansion.
-- [ ] 5.4 Add deterministic repeated-expansion tests.
+- [ ] 5.1 Add a package pipeline phase that runs after declaration-shape collection and before body checking/lowering.
+- [ ] 5.2 Add a macro provider registry keyed by resolved derive/provider paths.
+- [ ] 5.3 Define the provider input/output contract: reflection metadata and const values in, generated declaration trees and diagnostics out.
+- [ ] 5.4 Integrate generated declarations into name resolution and type checking.
+- [ ] 5.5 Add generated-span plumbing for diagnostics and generated-source summaries.
 
-## 6. Derive Provider Smoke Path
+## 6. Compile-Time Evaluation Boundary
 
-- [ ] 6.1 Implement a minimal compiler-hosted derive provider that generates a simple static method from reflected fields.
-- [ ] 6.2 Add positive tests proving user code can call the generated method.
-- [ ] 6.3 Add negative tests for unresolved derive provider paths and unsupported target types.
-- [ ] 6.4 Add end-to-end tests that keep generated code in ordinary checking and C++ backend paths.
+- [ ] 6.1 Add a compile-time evaluator interface with explicit input, output, diagnostics, and capability set.
+- [ ] 6.2 Route compiler-hosted providers through the same boundary used by future self-hosted providers.
+- [ ] 6.3 Add diagnostics for side effects, runtime-only APIs, and unsupported compile-time calls.
+- [ ] 6.4 Add budget/fuel controls for the future self-hosted interpreter path.
+
+## 7. Hygiene And Validation
+
+- [ ] 7.1 Implement fresh internal symbol generation for macro helpers.
+- [ ] 7.2 Diagnose collisions between public generated declarations and user declarations.
+- [ ] 7.3 Reject unconsumed macro attributes after expansion.
+- [ ] 7.4 Add deterministic repeated-expansion tests.
+
+## 8. Derive Provider Smoke Path
+
+- [ ] 8.1 Implement a minimal compiler-hosted derive provider that generates a simple static method from reflected fields.
+- [ ] 8.2 Add positive tests proving user code can call the generated method.
+- [ ] 8.3 Add negative tests for unresolved derive provider paths and unsupported target types.
+- [ ] 8.4 Add end-to-end tests that keep generated code in ordinary checking and C++ backend paths.
