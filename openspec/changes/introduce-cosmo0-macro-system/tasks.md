@@ -1,9 +1,10 @@
 ## 1. Documentation And Specs
 
-- [ ] 1.1 Add `docs/cosmo0/macro.typ` covering macros, derives, reflection metadata, hygiene, and non-goals.
-- [ ] 1.2 Link macro documentation from `docs/cosmo0/spec.typ` and update the docs validation script.
-- [ ] 1.3 Add examples for `@derive(...)`, declaration attributes, field attributes, generated methods, and unsupported macro shapes.
-- [ ] 1.4 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
+- [ ] 1.1 Add `docs/cosmo0/macro-expr.typ` covering `Expr[T = Untyped]`, expression macros, typed inspectors, and non-goals.
+- [ ] 1.2 Add `docs/cosmo0/compile-time-evaluation.typ` covering `ConstEval`, `ProviderEval`, purity, capabilities, and runtime separation.
+- [ ] 1.3 Link macro documentation from `docs/cosmo0/spec.typ`, include it in the website book summary, and update the docs validation script.
+- [ ] 1.4 Add examples for `@derive(...)`, declaration attributes, expression macros, generated output, and unsupported macro shapes.
+- [ ] 1.5 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
 
 ## 2. Syntax And Attribute Preservation
 

@@ -10,7 +10,7 @@ behavior, and testing policy.
 #### Scenario: Required skeleton files exist
 
 - **WHEN** the cosmo0 docs skeleton validation runs
-- **THEN** `docs/cosmo0/spec.typ`, `type.typ`, `class.typ`, `expr.typ`, `control-flow.typ`, `std.typ`, `runtime.typ`, `package.typ`, `macro.typ`, and `testing.typ` exist
+- **THEN** `docs/cosmo0/spec.typ`, `type.typ`, `class.typ`, `expr.typ`, `control-flow.typ`, `std.typ`, `runtime.typ`, `package.typ`, `macro-expr.typ`, `compile-time-evaluation.typ`, and `testing.typ` exist
 
 #### Scenario: Ownership is reviewable
 
