@@ -5,22 +5,24 @@
 This file owns the compile-time evaluation boundary for cosmo0 macro design.
 The default cosmo0 subset still rejects general compile-time execution until an
 accepted capability admits it. Future macro and const-evaluation work must use
-the boundary described here rather than executing target program code or
-depending on ambient host state.
+the boundary described here rather than approximating C++ execution in a
+JavaScript host model.
 
-C++ compile-time support, when admitted, is routed through `cosmo-jit-sys`, a
-clang-repl-backed native support service. It is a ProviderEval capability, not a
-general shell escape, target runtime dependency, or backend mutation hook.
+`cosmo-jit-sys` is the compile-time execution engine for provider code that
+needs full C++ capability. It is backed by clang-repl so providers can import C++
+types, instantiate templates, observe Clang's C++ layout rules, and execute C++
+code during compilation.
 
 Compile-time evaluation is split into two services:
 
 - `ConstEval`: lowers admitted attribute/default syntax to finite `ConstValue`
   data or a deterministic diagnostic.
-- `ProviderEval`: evaluates macro providers as pure computations from
-  `MacroInput` to `MacroOutput`.
+- `ProviderEval`: executes macro providers through `cosmo-jit-sys` when the
+  provider needs full C++ compile-time execution, and returns `MacroOutput`.
 
-Neither service is the ordinary runtime, the target executable, the C++ backend,
-or a general interpreter for user code.
+Neither service is a JavaScript emulation of C++ semantics. `ProviderEval` may
+execute C++ code, but generated Cosmo declarations and expressions still return
+to the ordinary compiler pipeline before they affect the package.
 
 == ConstEval
 
@@ -52,7 +54,9 @@ instead of asking the provider to interpret ordinary source code.
 
 == ProviderEval
 
-`ProviderEval` evaluates a provider through an explicit protocol:
+`ProviderEval` evaluates a provider through an explicit protocol. The protocol is
+still the compiler boundary, even when the implementation runs provider code with
+native C++ JIT execution:
 
 ```text
 MacroInput:
@@ -62,7 +66,7 @@ MacroInput:
   admitted ConstValue data
   Expr[Untyped] fragments when the macro kind accepts expressions
   source spans
-  capability set
+  C++ import and execution context
 
 MacroOutput:
   generated declarations
@@ -80,89 +84,86 @@ global compiler state.
 
 Macro functions are specified as pure computations over the input supplied by
 cosmo0. For the same provider identity, source package, macro call, reflection
-metadata, admitted values, expression fragments, and capability set, repeated
-evaluation must produce the same generated output, consumed attributes,
-diagnostics, and summaries.
+metadata, admitted values, expression fragments, C++ imports, and JIT execution
+context, repeated evaluation must produce the same generated output, consumed
+attributes, diagnostics, and summaries.
 
 The compiler may cache, discard, rerun, parallelize, or compare provider
-evaluations. If a provider depends on hidden mutable state or ambient effects
-and produces different results for the same cosmo0 input, package behavior is
-undefined. Implementations may diagnose obvious violations, but the semantics
-do not preserve non-pure provider behavior.
+evaluations. `cosmo-jit-sys` can execute ordinary C++ provider code, but if a
+provider uses hidden mutable state or ambient effects to produce different macro
+output for the same cosmo0 input, package behavior is undefined.
 
-== Capability Boundary
+== C++ JIT Execution
 
-Compile-time evaluation does not grant ambient host capabilities by default.
-The following are outside the boundary unless a future explicit capability
-admits them:
+`cosmo-jit-sys` is not a convenience helper around a separate interpreter. It is
+the execution substrate for compile-time provider evaluation that requires C++
+semantics. The service owns a clang-repl session and exposes enough of Clang's
+model for provider code to:
 
-- filesystem access to undeclared paths;
-- command execution;
-- environment inspection;
-- network IO;
-- time and randomness;
-- target runtime execution;
-- backend availability;
-- dynamic loading or native plugin mutation of compiler state.
+- include C++ headers;
+- import C++ names and types;
+- instantiate C++ templates;
+- query or depend on C++ layout, alignment, padding, overload resolution, and
+  ABI-visible type facts;
+- compile provider snippets and support wrappers;
+- execute C++ code during compilation.
 
-Admitted C++ JIT support is not an exception to this boundary. It must be
-requested through the explicit `cosmo-jit-sys` capability described below, with
-declared inputs and deterministic diagnostics.
+This matters because a JavaScript host JIT cannot faithfully model C++ object
+semantics. A JS object or typed-array mirror can easily get struct padding,
+alignment, bit-fields, reference lifetime, overload resolution, template
+instantiation, exception behavior, or ABI wrapper details wrong. If macro
+providers observe that approximation, users see confusing differences between
+compile-time behavior and the C++ code that the compiler later emits or links.
 
-Self-hosted providers, once admitted, should run through a dedicated
-compile-time evaluator or interpreter over macro IR with fuel, recursion, and
-allocation budgets. Compiler-hosted providers must obey the same input/output
-and capability contract even if the first implementation is not yet self-hosted.
+For that reason, provider execution that needs C++ facts must go through Clang,
+not through a JS reimplementation of C++ type layout or execution.
 
-== C++ JIT Support
+== JIT Protocol
 
-`cosmo-jit-sys` is the compile-time native support service for C++ JIT work. Its
-execution backend is clang-repl, exposed through a controlled session API around
-Clang's interpreter facilities. Macro providers may use it only when the
-provider capability set admits C++ JIT support.
+The compiler-facing protocol remains structured even though the execution engine
+has full C++ capability. The provider may execute C++ code inside the JIT
+session, while the compiler only accepts structured macro output from the
+session boundary.
 
-The service accepts declared inputs:
+The JIT session accepts explicit inputs:
 
 ```text
 CosmoJitRequest:
   provider identity
-  generated C++ probe or wrapper snippet
-  manifest-declared headers
-  manifest-declared include paths
-  manifest-declared libraries
-  expected extern "C" symbols
+  macro input serialization
+  C++ imports and headers
+  include and library search context
+  provider source or generated C++ snippet
+  expected exported provider entry points
   target triple and C++ standard
   LLVM/Clang toolchain identity
 ```
 
-The service returns structured outputs:
+The JIT session returns structured outputs:
 
 ```text
 CosmoJitResult:
   diagnostics
-  support binding metadata
-  opaque symbol tokens
+  MacroOutput serialization
+  imported C++ type facts requested by the provider
+  support binding metadata when generated code needs native support
   generated artifact summary
 ```
 
-The returned symbol tokens are not raw pointers and do not mutate compiler
-state. A provider may use the support binding metadata to produce ordinary macro
-output, but generated Cosmo declarations and expressions still re-enter ordinary
-validation and type checking.
-
-`cosmo-jit-sys` must not make provider behavior depend on undeclared filesystem
-state, undeclared include paths, arbitrary dynamic loading, environment
-variables, wall-clock time, randomness, or target program execution. If the same
-cosmo0 macro input and declared JIT request are evaluated repeatedly with the
-same toolchain identity, the observable result must be the same diagnostics,
-metadata, symbol-token shape, and artifact summary.
+The JIT may execute code, allocate objects, call provider helpers, and inspect
+C++ types inside the session. It must not return raw compiler mutation handles.
+Generated declarations and expression fragments are still ordinary macro output:
+they are validated, name-resolved, type-checked, and lowered by the rest of the
+compiler.
 
 == Runtime Separation
 
-Compile-time evaluation is not target program execution. It must be possible to
-evaluate admitted macros before the target backend emits an executable. Runtime
-APIs remain unavailable unless explicitly admitted by the compile-time
-capability set.
+Compile-time evaluation is real C++ execution in the provider host, but it is
+not execution of the target package binary. It must be possible to run providers
+before the target backend emits the package executable. A provider may use
+clang-repl to execute provider code and imported C++ support code; it may not
+treat that as permission to patch typed modules, lowering IR, or backend state
+outside the `MacroOutput` protocol.
 
 == Examples
 
@@ -179,16 +180,30 @@ class Cli {
 The attribute arguments can be represented as `AttrExpr` and admitted
 `ConstValue` data such as strings and paths.
 
-Accepted C++ JIT support shape:
+Accepted C++ JIT execution shape:
 
 ```text
 ProviderEval:
-  request cosmo-jit-sys with declared headers and wrapper snippet
-  receive diagnostics and opaque support binding metadata
-  emit ordinary macro output that calls the declared support boundary
+  start a cosmo-jit-sys clang-repl session
+  import <vector>, <optional>, or project headers
+  instantiate and inspect C++ types with Clang layout rules
+  execute provider C++ code
+  return MacroOutput
 ```
 
-Rejected compile-time computation shapes:
+Rejected host approximation shape:
+
+```text
+ProviderEval:
+  mirror C++ structs as JavaScript objects
+  guess padding and alignment in JS
+  run macro logic against the guessed layout
+```
+
+The rejected shape makes compile-time behavior diverge from Clang's C++ layout
+and ABI model.
+
+Provider behavior with undefined macro semantics:
 
 ```cos
 @command(version = read_file("VERSION"))
@@ -206,19 +221,20 @@ macro provider(input):
   return generatedName("helper_" + counter)
 ```
 
-The first rejected group depends on runtime or ambient host effects. The second
-produces different output for the same cosmo0 input, violating the macro
-function purity contract.
+These examples are not rejected because C++ JIT is incapable of file, random, or
+time access. They have undefined macro semantics when those effects change the
+macro output for the same cosmo0 input. The counter example also produces
+different output for repeated evaluation of the same input.
 
 == Review Rules
 
 Compile-time evaluation proposals must preserve these rules:
 
 - compile-time values are finite, serializable, and deterministic;
-- ordinary user functions are not interpreted by default;
-- provider evaluation is pure with respect to cosmo0-provided input;
-- side effects require explicit capabilities;
-- admitted C++ JIT support goes through `cosmo-jit-sys`, not arbitrary command
-  execution or native plugin mutation;
-- budget and capability diagnostics are deterministic;
+- provider evaluation uses `cosmo-jit-sys` for full C++ compile-time execution
+  when providers need C++ types or C++ code execution;
+- C++ type layout, padding, alignment, templates, and overload rules come from
+  Clang, not from a JavaScript host approximation;
+- provider output is pure with respect to cosmo0-provided input and the declared
+  JIT execution context;
 - generated code still enters ordinary validation and type checking.

@@ -3,8 +3,8 @@
 ### Requirement: Compile-Time Evaluation Boundary
 
 cosmo0 SHALL provide a controlled compile-time evaluation boundary for macro
-providers and future const evaluation without executing arbitrary runtime
-programs.
+providers and future const evaluation without approximating C++ execution in a
+JavaScript host model.
 
 #### Scenario: Compiler-hosted provider uses the same boundary
 
@@ -12,11 +12,11 @@ programs.
 - **THEN** the provider receives only the explicit macro input admitted by the compile-time evaluation boundary
 - **AND** the provider output is validated through the ordinary macro output contract
 
-#### Scenario: Self-hosted provider uses interpreter boundary
+#### Scenario: Self-hosted provider uses JIT boundary
 
 - **WHEN** a later self-hosted macro provider is compiled for macro execution
-- **THEN** cosmo0 runs it through a dedicated compile-time evaluator or interpreter over macro IR
-- **AND** it does not execute the target program binary or depend on the target C++ backend
+- **THEN** cosmo0 may run it through `cosmo-jit-sys` when it needs C++ compile-time execution
+- **AND** generated Cosmo output still returns through the macro output protocol before ordinary validation and type checking
 
 ### Requirement: Compile-Time Value Model
 
@@ -64,53 +64,55 @@ value.
 - **THEN** cosmo0 exposes the information through a bounded typer-phase inspector such as `Type.of(expr)`
 - **AND** the inspector returns stable type facts rather than a mutable or constructible `TypedExpr` tree
 
-### Requirement: C++ JIT Support Uses cosmo-jit-sys
+### Requirement: C++ Compile-Time Execution Uses cosmo-jit-sys
 
-cosmo0 SHALL route admitted C++ compile-time support through `cosmo-jit-sys`,
-backed by clang-repl, rather than arbitrary command execution or target runtime
-execution.
+cosmo0 SHALL route C++ compile-time provider execution through
+`cosmo-jit-sys`, backed by clang-repl, rather than a JavaScript host JIT or
+handwritten C++ layout emulation.
 
-#### Scenario: Provider requests C++ JIT support
+#### Scenario: Provider executes C++ at compile time
 
-- **WHEN** a macro provider is admitted to request C++ JIT support
-- **THEN** it invokes `cosmo-jit-sys` with declared headers, include paths, libraries, generated wrapper or probe snippets, expected symbols, target settings, and toolchain identity
-- **AND** `cosmo-jit-sys` returns structured diagnostics, support binding metadata, opaque symbol tokens, and generated artifact summaries
+- **WHEN** a macro provider needs to import C++ types, instantiate templates, inspect C++ layout, or execute provider C++ code during compilation
+- **THEN** it runs through a `cosmo-jit-sys` clang-repl session with C++ imports, headers, provider source or generated snippets, target settings, and toolchain identity
+- **AND** `cosmo-jit-sys` returns structured diagnostics, macro output serialization, requested C++ type facts, support binding metadata, and generated artifact summaries
 - **AND** generated Cosmo output still enters ordinary validation and type checking
 
-#### Scenario: Undeclared native capability is requested
+#### Scenario: JavaScript host layout approximation is rejected
 
-- **WHEN** a macro provider requests undeclared include paths, undeclared dynamic libraries, environment access, time, randomness, command execution, or target program execution through the C++ JIT path
-- **THEN** compile-time evaluation reports a capability diagnostic
-- **AND** the package result does not depend on that ambient host state
+- **WHEN** a provider needs C++ struct, class, template, or ABI-visible type facts
+- **THEN** cosmo0 obtains those facts from Clang through `cosmo-jit-sys`
+- **AND** it does not model C++ structs as JavaScript objects, typed arrays, or handwritten layout tables
+- **AND** it does not guess C++ padding, alignment, bit-field placement, overload resolution, or template instantiation in JavaScript
 
 ### Requirement: Compile-Time Determinism Controls
 
-cosmo0 compile-time evaluation SHALL be deterministic and bounded.
+cosmo0 macro output SHALL be deterministic for repeated evaluation of the same
+cosmo0 input and declared C++ JIT execution context.
 
-#### Scenario: Evaluation budget is exceeded
+#### Scenario: Non-pure provider changes macro output
 
-- **WHEN** a self-hosted macro provider exceeds the configured step, recursion, or allocation budget
-- **THEN** compile-time evaluation reports a deterministic budget diagnostic
-- **AND** expansion does not continue with partial unchecked output
+- **WHEN** a provider uses hidden mutable state, time, randomness, filesystem contents, environment state, or other ambient effects to produce different macro output for the same cosmo0 input
+- **THEN** package behavior is undefined
+- **AND** an implementation may diagnose the violation when it can observe it
 
-#### Scenario: Ambient side effect is requested
+#### Scenario: Repeated pure evaluation
 
-- **WHEN** compile-time evaluation attempts undeclared filesystem access, command execution, environment inspection, network IO, time access, randomness, or target runtime execution
-- **THEN** evaluation reports a compile-time capability diagnostic
-- **AND** the package result does not depend on ambient host state
+- **WHEN** a provider is evaluated repeatedly with the same provider identity, macro input, C++ imports, provider source, target settings, and toolchain identity
+- **THEN** it produces the same macro output, diagnostics, and generated artifact summary
 
-### Requirement: Interpreter And Runtime Separation
+### Requirement: Provider Execution And Target Runtime Separation
 
-cosmo0 SHALL keep the compile-time interpreter/evaluator separate from runtime
-execution and backend emission.
+cosmo0 SHALL keep provider host execution separate from target package runtime
+execution and backend mutation.
 
 #### Scenario: Backend is unavailable during macro evaluation
 
-- **WHEN** a package uses only compile-time macro providers and the target backend has not emitted executable code yet
-- **THEN** macro evaluation can still run through the compile-time evaluator
+- **WHEN** a package uses compile-time macro providers and the target backend has not emitted the package executable yet
+- **THEN** macro evaluation can still run through `cosmo-jit-sys`
 - **AND** it does not require compiling or launching the package executable
 
-#### Scenario: Runtime-only API is called at compile time
+#### Scenario: Provider attempts direct compiler mutation
 
-- **WHEN** a macro provider attempts to call a runtime-only API that is not admitted by the compile-time capability set
-- **THEN** compile-time evaluation rejects the call with a capability diagnostic
+- **WHEN** a provider executes C++ code during compilation
+- **THEN** it cannot directly patch typed modules, lowering IR, backend output, or compiler global state
+- **AND** it must affect the package only by returning validated macro output
