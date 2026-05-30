@@ -8,7 +8,8 @@ Current pages:
 - `docs/cosmo0/macro-expr.typ` owns `Expr[T = Untyped]`, expression macro
   input/output, typed inspector access, and expression macro non-goals.
 - `docs/cosmo0/compile-time-evaluation.typ` owns `ConstEval`, `ProviderEval`,
-  macro function purity, capability boundaries, and runtime separation.
+  macro function purity, capability boundaries, C++ JIT support through
+  `cosmo-jit-sys`, and runtime separation.
 
 The original mixed discussion should not be extended here. New macro expression
 or compile-time evaluation changes should update the owning `docs/cosmo0/*.typ`

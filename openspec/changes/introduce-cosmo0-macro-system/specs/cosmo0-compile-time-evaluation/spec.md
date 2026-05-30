@@ -36,9 +36,8 @@ and macro provider inputs.
 
 ### Requirement: Macro Expr Is Untyped Source Expression
 
-cosmo0 SHALL define macro `Expr[T = Untyped]` as an untyped source-expression value
-and SHALL keep attribute expressions, compile-time values, and typed expression
-facts separate from it.
+cosmo0 SHALL define macro `Expr[T = Untyped]` as an untyped source-expression
+value.
 
 #### Scenario: Expression macro receives untyped expression values
 
@@ -53,12 +52,6 @@ facts separate from it.
 - **THEN** `Untyped` denotes that the expression has not been checked by the ordinary typer
 - **AND** the provider cannot use the `T` parameter as evidence for an arbitrary object-language result type
 
-#### Scenario: Attribute API exposes AttrExpr or ConstValue
-
-- **WHEN** a macro provider inspects field attributes
-- **THEN** it sees restricted `AttrExpr` syntax or evaluated `ConstValue` data
-- **AND** it does not receive arbitrary unchecked `SourceExpr` bodies by default
-
 #### Scenario: Expression macro output is checked later
 
 - **WHEN** a macro provider emits `Expr[Untyped]` as expression output or inside a generated declaration
@@ -70,6 +63,25 @@ facts separate from it.
 - **WHEN** a macro provider needs the type of an expression value admitted for typed inspection
 - **THEN** cosmo0 exposes the information through a bounded typer-phase inspector such as `Type.of(expr)`
 - **AND** the inspector returns stable type facts rather than a mutable or constructible `TypedExpr` tree
+
+### Requirement: C++ JIT Support Uses cosmo-jit-sys
+
+cosmo0 SHALL route admitted C++ compile-time support through `cosmo-jit-sys`,
+backed by clang-repl, rather than arbitrary command execution or target runtime
+execution.
+
+#### Scenario: Provider requests C++ JIT support
+
+- **WHEN** a macro provider is admitted to request C++ JIT support
+- **THEN** it invokes `cosmo-jit-sys` with declared headers, include paths, libraries, generated wrapper or probe snippets, expected symbols, target settings, and toolchain identity
+- **AND** `cosmo-jit-sys` returns structured diagnostics, support binding metadata, opaque symbol tokens, and generated artifact summaries
+- **AND** generated Cosmo output still enters ordinary validation and type checking
+
+#### Scenario: Undeclared native capability is requested
+
+- **WHEN** a macro provider requests undeclared include paths, undeclared dynamic libraries, environment access, time, randomness, command execution, or target program execution through the C++ JIT path
+- **THEN** compile-time evaluation reports a capability diagnostic
+- **AND** the package result does not depend on that ambient host state
 
 ### Requirement: Compile-Time Determinism Controls
 

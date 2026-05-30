@@ -20,14 +20,8 @@ the top type, and not the compiler's internal `UntypedExpr`.
 may consume, splice, forward, and produce. It carries source span and
 hygiene/origin metadata, but it is not a trusted checked expression.
 
-The compiler keeps these concepts separate:
-
-- `SourceExpr`: compiler-internal source expression data.
-- `Expr[Untyped]`: provider-facing untyped source expression value.
-- `AttrExpr`: restricted attribute argument syntax.
-- `ConstValue`: evaluated compile-time data.
-- `TypedExpr`: ordinary type-checker artifact, never provider-constructible.
-- typed inspector output: read-only facts returned by typer-phase inspectors.
+This page only defines the expression value boundary. At that boundary, the
+stable provider-facing expression value is `Expr[Untyped]`.
 
 Providers must not treat the `T` parameter of `Expr[T = Untyped]` as evidence
 for an arbitrary object-language result type. Typed facts are requested through
@@ -55,7 +49,7 @@ ExprMacroOutput:
 
 Generated expression output always returns to ordinary type checking. A provider
 may generate a candidate expression, but it cannot manufacture or inject a
-trusted `TypedExpr`.
+trusted checked expression object.
 
 == Typed Inspection
 
@@ -78,7 +72,7 @@ This boundary intentionally does not admit:
 - multi-stage typed quotation;
 - `Expr[Any]` as a synonym for untyped code;
 - `Expr[i32]` as proof that the expression has type `i32`;
-- provider construction of `TypedExpr`;
+- provider construction of already-checked expression objects;
 - raw token-tree macros or parser plugins;
 - raw source text as primary generated output;
 - direct patching of typed modules, lowering IR, or backend state.
@@ -105,13 +99,12 @@ Rejected provider API shapes:
 ```text
 List[Expr[Any]] -> Expr[Any]
 List[Expr[i32]] -> Expr[Vec[i32]]
-TypedExpr -> TypedExpr
 TokenStream -> TokenStream
 ```
 
 The rejected examples either confuse untyped source expressions with an
-object-language top type, imply typed quotation, expose trusted checked trees,
-or bypass the Cosmo parser.
+object-language top type, imply typed quotation, claim checked output, or bypass
+the Cosmo parser.
 
 == Review Rules
 

@@ -8,6 +8,10 @@ accepted capability admits it. Future macro and const-evaluation work must use
 the boundary described here rather than executing target program code or
 depending on ambient host state.
 
+C++ compile-time support, when admitted, is routed through `cosmo-jit-sys`, a
+clang-repl-backed native support service. It is a ProviderEval capability, not a
+general shell escape, target runtime dependency, or backend mutation hook.
+
 Compile-time evaluation is split into two services:
 
 - `ConstEval`: lowers admitted attribute/default syntax to finite `ConstValue`
@@ -101,10 +105,57 @@ admits them:
 - backend availability;
 - dynamic loading or native plugin mutation of compiler state.
 
+Admitted C++ JIT support is not an exception to this boundary. It must be
+requested through the explicit `cosmo-jit-sys` capability described below, with
+declared inputs and deterministic diagnostics.
+
 Self-hosted providers, once admitted, should run through a dedicated
 compile-time evaluator or interpreter over macro IR with fuel, recursion, and
 allocation budgets. Compiler-hosted providers must obey the same input/output
 and capability contract even if the first implementation is not yet self-hosted.
+
+== C++ JIT Support
+
+`cosmo-jit-sys` is the compile-time native support service for C++ JIT work. Its
+execution backend is clang-repl, exposed through a controlled session API around
+Clang's interpreter facilities. Macro providers may use it only when the
+provider capability set admits C++ JIT support.
+
+The service accepts declared inputs:
+
+```text
+CosmoJitRequest:
+  provider identity
+  generated C++ probe or wrapper snippet
+  manifest-declared headers
+  manifest-declared include paths
+  manifest-declared libraries
+  expected extern "C" symbols
+  target triple and C++ standard
+  LLVM/Clang toolchain identity
+```
+
+The service returns structured outputs:
+
+```text
+CosmoJitResult:
+  diagnostics
+  support binding metadata
+  opaque symbol tokens
+  generated artifact summary
+```
+
+The returned symbol tokens are not raw pointers and do not mutate compiler
+state. A provider may use the support binding metadata to produce ordinary macro
+output, but generated Cosmo declarations and expressions still re-enter ordinary
+validation and type checking.
+
+`cosmo-jit-sys` must not make provider behavior depend on undeclared filesystem
+state, undeclared include paths, arbitrary dynamic loading, environment
+variables, wall-clock time, randomness, or target program execution. If the same
+cosmo0 macro input and declared JIT request are evaluated repeatedly with the
+same toolchain identity, the observable result must be the same diagnostics,
+metadata, symbol-token shape, and artifact summary.
 
 == Runtime Separation
 
@@ -127,6 +178,15 @@ class Cli {
 
 The attribute arguments can be represented as `AttrExpr` and admitted
 `ConstValue` data such as strings and paths.
+
+Accepted C++ JIT support shape:
+
+```text
+ProviderEval:
+  request cosmo-jit-sys with declared headers and wrapper snippet
+  receive diagnostics and opaque support binding metadata
+  emit ordinary macro output that calls the declared support boundary
+```
 
 Rejected compile-time computation shapes:
 
@@ -158,5 +218,7 @@ Compile-time evaluation proposals must preserve these rules:
 - ordinary user functions are not interpreted by default;
 - provider evaluation is pure with respect to cosmo0-provided input;
 - side effects require explicit capabilities;
+- admitted C++ JIT support goes through `cosmo-jit-sys`, not arbitrary command
+  execution or native plugin mutation;
 - budget and capability diagnostics are deterministic;
 - generated code still enters ordinary validation and type checking.

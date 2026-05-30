@@ -1,7 +1,7 @@
 ## 1. Documentation And Specs
 
 - [ ] 1.1 Add `docs/cosmo0/macro-expr.typ` covering `Expr[T = Untyped]`, expression macros, typed inspectors, and non-goals.
-- [ ] 1.2 Add `docs/cosmo0/compile-time-evaluation.typ` covering `ConstEval`, `ProviderEval`, purity, capabilities, and runtime separation.
+- [ ] 1.2 Add `docs/cosmo0/compile-time-evaluation.typ` covering `ConstEval`, `ProviderEval`, purity, capabilities, C++ JIT support through `cosmo-jit-sys`, and runtime separation.
 - [ ] 1.3 Link macro documentation from `docs/cosmo0/spec.typ`, include it in the website book summary, and update the docs validation script.
 - [ ] 1.4 Add examples for `@derive(...)`, declaration attributes, expression macros, generated output, and unsupported macro shapes.
 - [ ] 1.5 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
@@ -43,6 +43,7 @@
 - [ ] 6.3 Add diagnostics for side effects, runtime-only APIs, and unsupported compile-time calls.
 - [ ] 6.4 Add budget/fuel controls for the future self-hosted interpreter path.
 - [ ] 6.5 Document and enforce the macro-function purity contract where feasible; non-pure providers have undefined behavior.
+- [ ] 6.6 Route admitted C++ JIT support through `cosmo-jit-sys` with declared inputs, opaque symbol tokens, structured diagnostics, and deterministic capability checks.
 
 ## 7. Hygiene And Validation
 

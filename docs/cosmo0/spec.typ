@@ -58,7 +58,7 @@ The accepted example is intentionally simple: it uses concrete classes, fields, 
 - `runtime.typ` owns primitive descriptors, extern ABI hooks, and backend runtime requirements.
 - `package.typ` owns package metadata, imports, source loading, module ordering, and stage validation.
 - `macro-expr.typ` owns the provider-facing `Expr[T = Untyped]` boundary, expression macro protocol, and typed inspector rules.
-- `compile-time-evaluation.typ` owns `ConstEval`, `ProviderEval`, macro purity, capability boundaries, and runtime separation.
+- `compile-time-evaluation.typ` owns `ConstEval`, `ProviderEval`, macro purity, capability boundaries, C++ JIT support through `cosmo-jit-sys`, and runtime separation.
 - `testing.typ` owns positive, negative, deterministic, and bug regression test policy.
 
 == Conformance Overview
