@@ -57,7 +57,7 @@ instead of by executing arbitrary target program code.
 #### Scenario: Provider receives bounded macro input
 
 - **WHEN** macro expansion invokes a derive provider
-- **THEN** the provider input contains the target declaration metadata, candidate attributes, admitted compile-time constants, and provider configuration
+- **THEN** the provider input is a serialized macro function input record selected by the compiler, including target declaration facts, candidate attributes/defaults, expression fragments when applicable, and provider configuration
 - **AND** it does not include arbitrary runtime state or an executable target program handle
 
 #### Scenario: Provider returns bounded macro output
@@ -69,7 +69,7 @@ instead of by executing arbitrary target program code.
 #### Scenario: Provider attempts target runtime execution
 
 - **WHEN** a macro provider attempts to execute target program code during expansion
-- **THEN** macro expansion rejects the operation with a macro capability diagnostic
+- **THEN** macro expansion rejects the operation with a macro diagnostic
 - **AND** the package result does not depend on runtime execution
 
 ### Requirement: Macro Function Purity Contract
@@ -79,7 +79,7 @@ input supplied by cosmo0.
 
 #### Scenario: Compiler reruns a macro function
 
-- **WHEN** cosmo0 evaluates the same macro function repeatedly with the same provider identity, source input, admitted metadata, compile-time values, and capability set
+- **WHEN** cosmo0 evaluates the same macro function repeatedly with the same provider identity, serialized macro function input, C++ imports, provider source, target settings, and toolchain identity
 - **THEN** each evaluation is required to produce the same generated declarations, expression output, consumed attributes, diagnostics, and generated-source summary data
 - **AND** cosmo0 may cache, discard, rerun, or compare macro function evaluations
 
@@ -137,11 +137,16 @@ generated span and the macro input span that caused the generated code.
 ### Requirement: Macro Expansion Safety Boundary
 
 cosmo0 macro expansion SHALL be deterministic and SHALL NOT grant macro
-providers arbitrary filesystem, command, network, environment, or runtime
-side effects.
+providers direct compiler mutation or target package runtime execution.
 
-#### Scenario: Provider requests an effect outside the boundary
+#### Scenario: Provider attempts direct compiler mutation
 
-- **WHEN** a macro provider attempts to read an undeclared file, run a command, inspect the environment, perform network IO, or execute runtime program code
-- **THEN** macro expansion rejects the operation with a macro capability diagnostic
-- **AND** the package result does not depend on that side effect
+- **WHEN** a macro provider attempts to patch typed modules, lowering IR, backend output, or compiler global state directly
+- **THEN** macro expansion rejects the operation with a macro diagnostic
+- **AND** the provider must affect the package only by returning serialized macro output
+
+#### Scenario: Provider depends on ambient effects for output
+
+- **WHEN** a macro provider uses filesystem contents, commands, environment state, network IO, time, randomness, or hidden mutable state to produce different macro output for the same cosmo0 input
+- **THEN** package behavior is undefined
+- **AND** cosmo0 is not required to preserve that provider's observed evaluation order or number of executions

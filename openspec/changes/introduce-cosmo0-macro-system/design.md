@@ -27,24 +27,26 @@ schema, RPC, and test-discovery libraries.
 - Keep the macro contract compatible with later self-hosted macro packages.
 - Define how macro providers are computed instead of leaving provider execution
   to ad hoc compiler callbacks.
-- Define `Expr[T = Untyped]` as the macro API's untyped source-expression value and
-  keep attribute expressions and compile-time values separate from it.
+- Define `Expr[T = Untyped]` as the macro API's untyped source-expression value
+  and keep serialized macro function input/output records separate from it.
 - Define typed-expression information as inspector output from the typer phase,
   not as a typed expression tree that macro providers can receive or construct.
-- Define the first compile-time evaluator/interpreter boundary without running
-  target program code.
+- Define compile-time macro function execution through `cosmo-jit-sys` and
+  clang-repl, without approximating C++ execution in JavaScript.
 
 **Non-Goals:**
 
 - Add arbitrary expression quotation or function-like expression macros in the
   first slice.
-- Allow macros to perform filesystem, command, network, or runtime effects.
+- Define macro semantics where output depends on ambient filesystem, command,
+  network, time, randomness, or runtime effects.
 - Require all macro providers to be written in Cosmo before the macro execution
   host exists.
 - Make runtime reflection a dependency of generated parsers.
 - Admit every existing full-language staging feature into cosmo0.
 - Replace ordinary type checking with macro-time execution.
-- Interpret arbitrary user functions at compile time in the first slice.
+- Treat JavaScript host JIT or handwritten C++ layout tables as the source of
+  C++ struct, class, template, or ABI-visible type facts.
 - Allow macro providers to inspect arbitrary function bodies unless a later
   capability admits quoted expression metadata.
 - Add a multi-stage `Expr[T]` or typed quotation system.
@@ -105,47 +107,56 @@ derive prove the macro system before self-hosted macro packages exist.
 Alternative considered: require self-hosted Cosmo macro execution first. That
 would make the CLI library depend on a larger compiler bootstrapping problem.
 
-### Define Macro Computation As A Provider Evaluation Protocol
+### Define Macro Computation As A Serialized Function Protocol
 
-Macro computation should not mean "execute arbitrary Cosmo code during
-compilation". A macro invocation is evaluated through a provider protocol:
+Macro computation should not mean direct compiler mutation during compilation. A
+macro invocation is evaluated through a serialized function protocol:
 
 ```text
-MacroInput:
-  target declaration metadata
-  consumed attribute candidates
-  admitted compile-time constants
-  provider configuration
+MacroFunctionInput:
+  provider identity
+  source package identity
+  macro call or macro target identity
+  compiler-selected reflection facts
+  admitted attributes and defaults
+  expression fragments when applicable
+  source spans and hygiene/origin metadata
+  C++ import and execution context
 
-MacroOutput:
+MacroFunctionOutput:
   generated declarations
   consumed attributes
   diagnostics
-  optional generated-source summary
+  generated-source summary
+  native support binding metadata when needed
 ```
 
 The first provider execution host can be Scala-side compiler infrastructure.
-That host is still constrained by the same input/output protocol and capability
-boundary as future self-hosted providers. It must not read undeclared files,
-spawn commands, inspect ambient environment variables, perform network IO, or
-execute target runtime code.
+That host is still constrained by the same serialized input/output protocol as
+future self-hosted providers. If provider execution needs C++ type facts or C++
+code execution, it should route through `cosmo-jit-sys` rather than approximating
+C++ in JavaScript or mutating compiler internals directly.
 
 Every macro function is required to be pure with respect to the macro input
 provided by cosmo0. For the same source package, provider identity, admitted
-metadata, compile-time values, and capability set, repeated evaluation must
-return the same output and diagnostics. The compiler may cache, discard, rerun,
-or compare macro evaluations. If a macro function depends on hidden mutable
-state or ambient effects and produces different results for the same cosmo0
-input, the package has undefined behavior.
+metadata, expression fragments, C++ imports, provider source, target settings,
+and toolchain identity, repeated evaluation must return the same output and
+diagnostics. The compiler may cache, discard, rerun, or compare macro
+evaluations. If a macro function depends on hidden mutable state or ambient
+effects and produces different results for the same cosmo0 input, the package
+has undefined behavior.
 
-When self-hosted providers arrive, they should run inside a dedicated
-compile-time evaluator over a restricted macro IR. That evaluator is part of the
-compiler, not the generated program and not the target C++ backend. Its inputs
-are explicit macro metadata and declared compile-time resources.
+Macro functions that need C++ capability should run through `cosmo-jit-sys`,
+which owns a clang-repl session. This gives providers Clang's C++ type system,
+template instantiation, layout, alignment, padding, overload resolution, and
+execution semantics during compilation while still returning serialized macro
+function output to the compiler.
 
-Alternative considered: treat macro providers as ordinary functions and call
-them with the host runtime. That makes expansion depend on runtime state,
-backend availability, and side effects.
+Alternative considered: treat macro providers as ordinary JavaScript host
+functions or run them through a JS host JIT. That makes C++ struct/class layout,
+padding, alignment, template instantiation, and ABI-visible type facts an
+approximation, which is exactly the behavior users would later see disagree with
+Clang and the generated C++ backend.
 
 Alternative considered: only allow hard-coded compiler providers forever. That
 keeps execution controlled but prevents user-defined libraries from owning their
@@ -164,17 +175,14 @@ Expr[T = Untyped]:
   default T = Untyped is a macro-level phase marker, not an object-language
   runtime type, and it does not make the expression typed
 
-AttrExpr:
-  restricted attribute argument syntax, initially literals, paths, type
-  references, arrays, records, and keyed arguments admitted by the provider
+MacroFunctionInput:
+  serialized compiler-selected input facts, admitted attributes/defaults,
+  expression fragments, source spans, hygiene/origin metadata, and C++ execution
+  context
 
-ConstValue:
-  evaluated compile-time value such as Bool, String, integer text/value,
-  TypeRef, PathRef, array, record, or enum-like tag
-
-GeneratedDecl:
-  generated declaration tree that may contain `Expr[Untyped]` source-expression
-  fragments; checked later by the ordinary type checker
+MacroFunctionOutput:
+  serialized generated declarations, generated expression fragments,
+  diagnostics, generated-source summary, and native support binding metadata
 ```
 
 In the current macro contract, `Untyped` is the only stable expression type
@@ -182,11 +190,11 @@ argument. It is a distinguished marker for "not yet checked by the ordinary
 typer"; providers must not interpret `T` as an arbitrary object-language type
 parameter.
 
-Derive macros primarily consume reflection metadata plus `AttrExpr` values
-lowered to `ConstValue`. Expression macros consume and produce `Expr[Untyped]`.
-Generated declarations may contain these expression fragments. All generated
-expressions are type checked later with normal source code; the provider does
-not get to manufacture trusted typed expressions.
+Derive macros primarily consume serialized macro function input selected by the
+compiler. Expression macros consume and produce `Expr[Untyped]`. Generated
+declarations may contain these expression fragments. All generated expressions
+are type checked later with normal source code; the provider does not get to
+manufacture trusted typed expressions.
 
 Typed-expression information is exposed only through explicit typer-phase
 inspectors over an `Expr` value, for example a `Type.of(expr)`-style query that
@@ -201,27 +209,27 @@ unreliable.
 Alternative considered: let providers return fully typed expressions. That
 turns macros into a type-checker escape hatch.
 
-### Use A Restricted Compile-Time Evaluator
+### Use `cosmo-jit-sys` For C++ Compile-Time Execution
 
-Compile-time evaluation should be a separately specified compiler service used
-by macro expansion and, later, const evaluation. It should evaluate only pure,
-terminating, deterministic macro IR. The first accepted values are enough for
-attributes and derive configuration: booleans, strings, integer literals or
-checked integers, type references, symbol paths, arrays, records, and simple
-enum-like tags.
+Compile-time macro function execution should be a separately specified compiler
+boundary backed by `cosmo-jit-sys` when the provider needs C++ semantics. The JIT
+session receives serialized macro function input plus C++ imports, headers,
+include/library context, provider source or generated snippets, target settings,
+and toolchain identity. It returns diagnostics and serialized macro function
+output.
 
-The evaluator should not interpret arbitrary user code in the first slice.
-Provider code can be compiler-hosted first; self-hosted providers later compile
-to macro IR that the evaluator can run with a fuel/step budget and an explicit
-capability set.
+The JIT may execute C++ provider code and inspect imported C++ types, but it
+does not return raw compiler mutation handles. Generated declarations and
+expression fragments still re-enter ordinary validation and type checking.
 
-Alternative considered: use the runtime interpreter or generated executable for
-compile-time computation. That confuses compile-time and runtime semantics and
-would make macro expansion depend on backend execution.
+Alternative considered: use a restricted interpreter over a small macro IR as
+the semantic model. That was attractive for limited attribute evaluation, but it
+does not provide full C++ type import, template instantiation, layout, padding,
+alignment, overload resolution, or C++ code execution.
 
-Alternative considered: no evaluator, only raw attribute syntax. That works for
-the CLI MVP but prevents typed defaults, reusable constants, and future
-self-hosted derive providers.
+Alternative considered: use the generated target executable for compile-time
+computation. That confuses provider-host execution with target package runtime
+execution and makes macro expansion depend on backend emission.
 
 ### Keep Reflection Compile-Time Only
 
@@ -245,13 +253,11 @@ before the macro use case needs them.
   and duplicate-name diagnostics.
 - Reflection metadata can grow without control -> scope the first metadata set
   to declaration shapes needed by derives.
-- Macro execution can accidentally become an unrestricted interpreter -> keep a
-  separate compile-time evaluator spec with explicit value types, capability
-  checks, and fuel limits.
+- Macro execution can accidentally mutate compiler internals -> keep
+  `cosmo-jit-sys` behind a serialized macro function input/output protocol.
 - A loose Expr model can leak implementation details across phases -> keep
-  `Expr[Untyped]` as an untyped source-expression value, keep `AttrExpr` and
-  `ConstValue` separate from expression code, and expose typed facts only through
-  bounded typer inspectors.
+  `Expr[Untyped]` as an untyped source-expression value and expose typed facts
+  only through bounded typer inspectors.
 
 ## Migration Plan
 
@@ -260,9 +266,9 @@ before the macro use case needs them.
 2. Add macro expansion artifacts and diagnostics behind a profile or package
    capability gate.
 3. Implement compiler-hosted derive provider registration.
-4. Add the restricted attribute expression and compile-time value model.
+4. Add serialized macro function input/output records.
 5. Add generated declaration builders and generated-source debug output.
-6. Add deterministic tests for provider execution and evaluator boundaries.
+6. Add deterministic tests for provider execution and JIT boundaries.
 7. Enable the CLI derive provider as the first end-to-end consumer.
 
 ## Open Questions

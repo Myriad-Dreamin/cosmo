@@ -1,7 +1,7 @@
 ## 1. Documentation And Specs
 
 - [ ] 1.1 Add `docs/cosmo0/macro-expr.typ` covering `Expr[T = Untyped]`, expression macros, typed inspectors, and non-goals.
-- [ ] 1.2 Add `docs/cosmo0/compile-time-evaluation.typ` covering `ConstEval`, `ProviderEval`, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
+- [ ] 1.2 Add `docs/cosmo0/compile-time-evaluation.typ` covering macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
 - [ ] 1.3 Link macro documentation from `docs/cosmo0/spec.typ`, include it in the website book summary, and update the docs validation script.
 - [ ] 1.4 Add examples for `@derive(...)`, declaration attributes, expression macros, generated output, and unsupported macro shapes.
 - [ ] 1.5 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
@@ -20,28 +20,28 @@
 - [ ] 3.3 Add deterministic display/serialization for reflection metadata to support golden tests.
 - [ ] 3.4 Add diagnostics for metadata that cannot be produced because a declaration shape is unsupported.
 
-## 4. Compile-Time Expression And Value Model
+## 4. Macro Input And Expression Model
 
-- [ ] 4.1 Add distinct data models for `AttrExpr`, `ConstValue`, `Expr[T = Untyped]` as untyped source expression, and generated declaration trees.
-- [ ] 4.2 Restrict first-slice attribute expressions to literals, paths, type references, arrays, records, and keyed arguments.
-- [ ] 4.3 Add diagnostics for unsupported compile-time expression forms.
-- [ ] 4.4 Add deterministic display/serialization for compile-time values and generated declaration trees.
+- [ ] 4.1 Add distinct data models for `Expr[T = Untyped]` as untyped source expression, serialized macro function input, serialized macro function output, and generated declaration trees.
+- [ ] 4.2 Define the admitted attribute/default payloads that may appear in serialized macro function input.
+- [ ] 4.3 Add diagnostics for unsupported macro input payloads.
+- [ ] 4.4 Add deterministic display/serialization for macro function input/output records and generated declaration trees.
 - [ ] 4.5 Add typer-phase inspectors for typed expression facts, such as `Type.of(expr)`, without exposing `TypedExpr` trees to providers.
 
 ## 5. Macro Expansion Engine
 
 - [ ] 5.1 Add a package pipeline phase that runs after declaration-shape collection and before body checking/lowering.
 - [ ] 5.2 Add a macro provider registry keyed by resolved derive/provider paths.
-- [ ] 5.3 Define the provider input/output contract: reflection metadata and const values in, generated declaration trees and diagnostics out.
+- [ ] 5.3 Define the provider input/output contract: serialized macro function input in, generated declaration trees and diagnostics out.
 - [ ] 5.4 Integrate generated declarations into name resolution and type checking.
 - [ ] 5.5 Add generated-span plumbing for diagnostics and generated-source summaries.
 
 ## 6. Compile-Time Evaluation Boundary
 
-- [ ] 6.1 Add a compile-time evaluator interface with explicit input, output, diagnostics, and C++ JIT execution context.
+- [ ] 6.1 Add a compile-time evaluator interface with serialized macro function input, serialized macro function output, diagnostics, and C++ JIT execution context.
 - [ ] 6.2 Route compiler-hosted providers through the same boundary used by future self-hosted providers.
 - [ ] 6.3 Add diagnostics where feasible for provider behavior that cannot preserve deterministic macro output.
-- [ ] 6.4 Add budget/fuel controls for the future self-hosted interpreter path.
+- [ ] 6.4 Add resource limits for JIT sessions, provider execution, generated artifacts, and repeated evaluation.
 - [ ] 6.5 Document and enforce the macro-function purity contract where feasible; non-pure providers have undefined behavior.
 - [ ] 6.6 Route C++ compile-time execution through `cosmo-jit-sys` with clang-repl, imported C++ types, provider code execution, structured diagnostics, and Clang-owned layout facts.
 - [ ] 6.7 Reject JS host JIT or handwritten C++ layout emulation as the source of C++ struct/class/template facts.
