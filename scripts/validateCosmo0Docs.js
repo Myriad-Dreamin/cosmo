@@ -10,6 +10,8 @@ const requiredDocs = [
   'std.typ',
   'runtime.typ',
   'package.typ',
+  'macro-expr.typ',
+  'compile-time-evaluation.typ',
   'testing.typ',
 ]
 
