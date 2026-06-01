@@ -1,13 +1,19 @@
 #include "cosmo_clang_sys.h"
 
-#include <clang-c/Index.h>
+#include <clang/Frontend/FrontendActions.h>
+#include <clang/Tooling/Tooling.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifndef COSMO_CLANG_RESOURCE_DIR
+#define COSMO_CLANG_RESOURCE_DIR ""
+#endif
 
 namespace {
 
@@ -114,35 +120,6 @@ std::string normalize_header_name(const std::string &value) {
   return value;
 }
 
-std::string clang_string_to_string(CXString value) {
-  const char *text = clang_getCString(value);
-  std::string result = text == nullptr ? std::string() : std::string(text);
-  clang_disposeString(value);
-  return result;
-}
-
-std::string collect_diagnostics(CXTranslationUnit translation_unit) {
-  std::ostringstream output;
-  const unsigned count = clang_getNumDiagnostics(translation_unit);
-
-  for (unsigned index = 0; index < count; index += 1) {
-    CXDiagnostic diagnostic = clang_getDiagnostic(translation_unit, index);
-    const CXDiagnosticSeverity severity = clang_getDiagnosticSeverity(diagnostic);
-    if (severity >= CXDiagnostic_Error) {
-      if (output.tellp() > 0) {
-        output << '\n';
-      }
-      CXString formatted = clang_formatDiagnostic(
-          diagnostic,
-          clang_defaultDiagnosticDisplayOptions());
-      output << clang_string_to_string(formatted);
-    }
-    clang_disposeDiagnostic(diagnostic);
-  }
-
-  return output.str();
-}
-
 std::string build_probe_source(
     const std::vector<std::string> &headers,
     const std::string &namespace_name,
@@ -155,6 +132,26 @@ std::string build_probe_source(
   source << "using __cosmo_probe_symbol = " << namespace_name << "::" << suffix << ";\n";
   source << "}\n";
   return source.str();
+}
+
+bool parse_probe_source(const std::string &source, std::string *diagnostic) {
+  std::vector<std::string> args = {"-std=c++17"};
+  if (std::strlen(COSMO_CLANG_RESOURCE_DIR) > 0) {
+    args.push_back("-resource-dir");
+    args.push_back(COSMO_CLANG_RESOURCE_DIR);
+  }
+
+  bool parsed = clang::tooling::runToolOnCodeWithArgs(
+      std::make_unique<clang::SyntaxOnlyAction>(),
+      source,
+      args,
+      "cosmo_clang_sys_probe.cc",
+      "cosmo-clang-sys");
+
+  if (!parsed && diagnostic != nullptr) {
+    *diagnostic = "clang failed to parse probe translation unit";
+  }
+  return parsed;
 }
 
 } // namespace
@@ -206,34 +203,9 @@ cosmo_clang_sys_status cosmo_clang_sys_query_symbol(
   }
 
   const std::string source = build_probe_source(headers, namespace_name, suffix);
-  CXIndex index = clang_createIndex(0, 0);
-  CXUnsavedFile file;
-  file.Filename = "cosmo_clang_sys_probe.cc";
-  file.Contents = source.c_str();
-  file.Length = static_cast<unsigned long>(source.size());
-
-  const char *args[] = {"-std=c++17"};
-  CXTranslationUnit translation_unit = clang_parseTranslationUnit(
-      index,
-      file.Filename,
-      args,
-      1,
-      &file,
-      1,
-      CXTranslationUnit_None);
-
-  if (translation_unit == nullptr) {
-    clang_disposeIndex(index);
-    set_result(result, COSMO_CLANG_SYS_PARSE_FAILED, "", "clang failed to parse probe translation unit");
-    return result->status;
-  }
-
-  const std::string diagnostics = collect_diagnostics(translation_unit);
-  clang_disposeTranslationUnit(translation_unit);
-  clang_disposeIndex(index);
-
-  if (!diagnostics.empty()) {
-    set_result(result, COSMO_CLANG_SYS_NOT_FOUND, "", diagnostics);
+  std::string diagnostic;
+  if (!parse_probe_source(source, &diagnostic)) {
+    set_result(result, COSMO_CLANG_SYS_NOT_FOUND, "", diagnostic);
     return result->status;
   }
 
