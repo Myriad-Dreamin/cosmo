@@ -31,7 +31,7 @@ remain outside the accepted source boundary.
   with typed expression facts exposed only through typer-phase inspectors such
   as `Type.of(expr)`.
 - Add documentation ownership for macros, derives, and reflection under
-  `docs/cosmo0/`.
+  `docs/cosmo/`.
 
 ## Capabilities
 
@@ -60,5 +60,5 @@ remain outside the accepted source boundary.
 - Name resolution and diagnostics need generated-span and generated-name support.
 - The first implementation may host macro providers in compiler infrastructure
   before self-hosted macro packages are available.
-- `docs/cosmo0/` must add macro/reflection documentation and the lightweight doc
+- `docs/cosmo/` must add macro/reflection documentation and the lightweight doc
   validation must account for it.

@@ -133,5 +133,5 @@ root as its working directory and receives all arguments after `run` or after
 
 ## More Documentation
 
-The older README notes were moved to [docs/introduction.md](docs/introduction.md)
+The older README notes were moved to [docs/cosmo/introduction.md](docs/cosmo/introduction.md)
 and will be reorganized with the rest of the documentation later.

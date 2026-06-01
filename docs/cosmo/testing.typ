@@ -6,7 +6,7 @@ This file owns testing policy for the cosmo0 model. The bug/spec sync rule and s
 
 == Positive Tests
 
-Accepted source examples that prove documented cosmo0 behavior works through the intended pipeline are indexed in `docs/cosmo0/syntax-corpus-matrix.md`. The matrix maps each current positive sample to syntax areas while keeping concrete programs in the corpus files.
+Accepted source examples that prove documented cosmo0 behavior works through the intended pipeline are indexed in `docs/cosmo/syntax-corpus-matrix.md`. The matrix maps each current positive sample to syntax areas while keeping concrete programs in the corpus files.
 
 == Examples
 
@@ -32,7 +32,7 @@ Bug regression checklist shape:
 ```text
 1. Add the smallest source case that reproduces the bug.
 2. Assert the expected diagnostic or successful output.
-3. Update the owning docs/cosmo0/*.typ file if intended behavior changed.
+3. Update the owning docs/cosmo/*.typ file if intended behavior changed.
 ```
 
 The positive example should compile once its owning language sections are fully specified. The negative example should be rejected because user-defined generic functions are outside the initial cosmo0 subset.
@@ -41,7 +41,7 @@ The positive example should compile once its owning language sections are fully 
 
 Unsupported syntax, type, declaration, expression, control-flow, runtime, and package cases must be rejected with diagnostics that name the unsupported feature area. Stage 1 negative fixtures cover user-defined generic declarations, host `Type`, staging decorators, lambdas and closures, and unsupported higher-order calls.
 
-Current diagnostic fixture coverage is indexed in `docs/cosmo0/syntax-corpus-matrix.md`. Each fixture row names the expected diagnostic while keeping convention-style embedded source programs in `fixtures/diagnostics/*.cos`.
+Current diagnostic fixture coverage is indexed in `docs/cosmo/syntax-corpus-matrix.md`. Each fixture row names the expected diagnostic while keeping convention-style embedded source programs in `fixtures/diagnostics/*.cos`.
 
 == Checker Profile Tests
 
@@ -52,7 +52,7 @@ The `cosmo0.subset` profile declares support for dependent pattern matching and 
 Scala-side checker experiments under `packages/cosmo0` are allowed when they are
 profile-gated, directly tested, and reported through deterministic diagnostics.
 They do not expand the default cosmo0 source subset unless the owning
-`docs/cosmo0/` file and OpenSpec capability explicitly admit the behavior.
+`docs/cosmo/` file and OpenSpec capability explicitly admit the behavior.
 
 Checker profile fixtures should assert:
 
@@ -99,22 +99,22 @@ Placeholder for tests added with bug fixes. A regression test should capture the
 
 When implementation behavior conflicts with the current cosmo0 docs, first decide whether the implementation or the docs are wrong.
 
-If the implementation is wrong, the fix must add or update a regression test and leave the owning `docs/cosmo0/` file unchanged except for clarifying text.
+If the implementation is wrong, the fix must add or update a regression test and leave the owning `docs/cosmo/` file unchanged except for clarifying text.
 
-If the intended behavior is missing or wrong in the docs, the same change must update the owning `docs/cosmo0/` file before cosmo1 source or staged runtime work relies on that behavior. The change must also add tests proving the documented behavior.
+If the intended behavior is missing or wrong in the docs, the same change must update the owning `docs/cosmo/` file before cosmo1 source or staged runtime work relies on that behavior. The change must also add tests proving the documented behavior.
 
 Undocumented implementation behavior must not become a cosmo1 bootstrap dependency just because the current compiler accepts it.
 
 == Spec Impact Review Rule
 
-Future descriptor/std proposals must name each changed `docs/cosmo0/` file, or explicitly justify implementation-only status. This applies to descriptor registry changes, standard API changes, extern/runtime hooks, package behavior, and Stage 1 capability updates.
+Future descriptor/std proposals must name each changed `docs/cosmo/` file, or explicitly justify implementation-only status. This applies to descriptor registry changes, standard API changes, extern/runtime hooks, package behavior, and Stage 1 capability updates.
 
-Reviewers should check the proposal, design, and task list for a concrete spec impact statement before accepting staged runtime work. Acceptable statements include a list of updated files such as `docs/cosmo0/std.typ` and `docs/cosmo0/runtime.typ`, or an implementation-only justification that says no source-facing behavior changed.
+Reviewers should check the proposal, design, and task list for a concrete spec impact statement before accepting staged runtime work. Acceptable statements include a list of updated files such as `docs/cosmo/std.typ` and `docs/cosmo/runtime.typ`, or an implementation-only justification that says no source-facing behavior changed.
 
 == Lightweight Skeleton Validation
 
-The lightweight validation command is `node scripts/validateCosmo0Docs.js`. It checks that required `docs/cosmo0/` files exist, that the Stage 1 and sync policy placeholders are present, and that active staged runtime proposals reference their spec impact or implementation-only status.
+The lightweight validation command is `node scripts/validateCosmo0Docs.js`. It checks that required `docs/cosmo/` files exist, that the Stage 1 and sync policy placeholders are present, and that active staged runtime proposals reference their spec impact or implementation-only status.
 
 == Staged Runtime Proposal Guidance
 
-A staged runtime proposal is review-ready only when its tasks show how the spec impact will be validated. That proof can be a docs-only check, a targeted compiler test, or a clear review step tied to the affected `docs/cosmo0/` file.
+A staged runtime proposal is review-ready only when its tasks show how the spec impact will be validated. That proof can be a docs-only check, a targeted compiler test, or a clear review step tied to the affected `docs/cosmo/` file.

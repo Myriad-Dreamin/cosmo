@@ -15,7 +15,7 @@ const requiredDocs = [
   'testing.typ',
 ]
 
-const docRoot = join('docs', 'cosmo0')
+const docRoot = join('docs', 'cosmo')
 const errors = []
 
 function read(path) {
@@ -100,7 +100,7 @@ for (const [file, snippets] of requiredSnippets) {
 
 const changeRoot = join('openspec', 'changes')
 const stagedRuntimeName = /^(add-core0-|add-cosmo0-|narrow-cosmo0-)/
-const specImpactText = /docs\/cosmo0\/[A-Za-z0-9-]+\.typ|implementation-only|implementation only/i
+const specImpactText = /docs\/cosmo\/[A-Za-z0-9-]+\.typ|implementation-only|implementation only/i
 
 for (const entry of readdirSync(changeRoot, { withFileTypes: true })) {
   if (!entry.isDirectory() || entry.name === 'archive') {
@@ -122,7 +122,7 @@ for (const entry of readdirSync(changeRoot, { withFileTypes: true })) {
   const combined = parts.join('\n')
   if (!specImpactText.test(combined)) {
     errors.push(
-      `${changeDir} must reference changed docs/cosmo0/*.typ files or justify implementation-only status`,
+      `${changeDir} must reference changed docs/cosmo/*.typ files or justify implementation-only status`,
     )
   }
 }

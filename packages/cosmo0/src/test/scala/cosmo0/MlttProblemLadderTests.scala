@@ -47,13 +47,11 @@ class MlttProblemLadderTests extends munit.FunSuite:
   )
 
   test("MLTT problem ladder doc is source-tagged and linked from the book"):
-    val doc = ParserFixtureManifest.readFile("docs/mltt-problem-ladder.typ")
-    val wrapper =
+    val doc =
       ParserFixtureManifest.readFile("docs/cosmo/mltt-problem-ladder.typ")
     val book = ParserFixtureManifest.readFile("docs/cosmo/book.typ")
     val intro = ParserFixtureManifest.readFile("docs/cosmo/intro.typ")
 
-    assert(wrapper.contains("#include \"../mltt-problem-ladder.typ\""))
     assert(
       book.contains(
         "#prefix-chapter(\"mltt-problem-ladder.typ\")[MLTT Problem Ladder]",

@@ -10,7 +10,7 @@ cosmo0 is the bootstrap subset used to compile staged cosmo1 compiler components
 
 The subset is intentionally smaller than full Cosmo. User-defined generic programming, trait solving, type-level evaluation, reflection, staging macros, broad parser-combinator APIs, and arbitrary full-language features are outside cosmo0 until a later spec file admits them.
 
-Source-facing behavior is specified by the `docs/cosmo0/` files. Compiler descriptors, backend intrinsics, and extern hooks are implementation mechanisms unless `runtime.typ` says they are visible capability behavior.
+Source-facing behavior is specified by the `docs/cosmo/` files. Compiler descriptors, backend intrinsics, and extern hooks are implementation mechanisms unless `runtime.typ` says they are visible capability behavior.
 
 The subset boundary is source-facing. Scala-side checker experiments under
 `packages/cosmo0` may implement profile-gated reference behavior for diagnostics
@@ -67,7 +67,7 @@ A cosmo0 implementation conforms to this skeleton when it:
 
 - rejects source outside the documented subset before relying on lowering or backend behavior;
 - reports unsupported constructs with diagnostics that identify the rejected feature area;
-- keeps public source behavior stable through the owning `docs/cosmo0/` file;
+- keeps public source behavior stable through the owning `docs/cosmo/` file;
 - keeps generated package, module, and runtime output deterministic for repeated inputs;
 - updates specs and regression tests when a bug fix changes intended behavior.
 
@@ -90,4 +90,4 @@ Stage validation is requirement-based: a missing required primitive descriptor, 
 
 == Sync Policy
 
-Bug fixes and staged runtime proposals must follow the policy in `testing.typ`. Future descriptor or standard API proposals must name the changed `docs/cosmo0/` files, or explicitly justify why the change is implementation-only.
+Bug fixes and staged runtime proposals must follow the policy in `testing.typ`. Future descriptor or standard API proposals must name the changed `docs/cosmo/` files, or explicitly justify why the change is implementation-only.
