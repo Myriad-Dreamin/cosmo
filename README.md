@@ -80,7 +80,9 @@ it is unset, the CMake link step uses
 `packages/cosmo-clang-sys/config/llvm-manifest.json` and downloads the matching
 `llvm-dist` component archives into `target/cosmo/llvm`. The default manifest
 combines `llvm-core`, `clang-sdk`, `clang-tooling`, and `clang-repl` for the
-selected platform.
+selected platform where `llvm-dist` publishes that target, and keeps legacy
+single-archive `clice-llvm` fallbacks for release targets that are not published
+there yet.
 
 On Linux, the downloaded LLVM/Clang static libraries may require a newer or
 matching GNU toolchain. If the native link reports missing symbols such as

@@ -1,6 +1,26 @@
 [
   {
     "version": "21.1.8",
+    "filename": "aarch64-linux-gnu-releasedbg-lto.tar.xz",
+    "sha256": "f3444ee840b50933c23656cbee7c4d010e752ac55ca66095b97f7c0e997b13b5",
+    "lto": true,
+    "asan": false,
+    "platform": "linux",
+    "arch": "arm64",
+    "build_type": "RelWithDebInfo"
+  },
+  {
+    "version": "21.1.8",
+    "filename": "aarch64-linux-gnu-releasedbg.tar.xz",
+    "sha256": "b9012bf059e4d8673fb564b5780e5fc78c6a2e47f5cc6a39f444d1879b42dd2a",
+    "lto": false,
+    "asan": false,
+    "platform": "linux",
+    "arch": "arm64",
+    "build_type": "RelWithDebInfo"
+  },
+  {
+    "version": "21.1.8",
     "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
     "install_id": "llvm-dist-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu",
     "archives": [
@@ -172,6 +192,26 @@
     "arch": "x64",
     "build_type": "Release",
     "target_triple": "x86_64-apple-darwin"
+  },
+  {
+    "version": "21.1.8",
+    "filename": "aarch64-windows-msvc-releasedbg-lto.tar.xz",
+    "sha256": "8870d16141ba7f9ea12f5147b8d91329abbbaa4376cd4576667dd323d896dd08",
+    "lto": true,
+    "asan": false,
+    "platform": "windows",
+    "arch": "arm64",
+    "build_type": "RelWithDebInfo"
+  },
+  {
+    "version": "21.1.8",
+    "filename": "aarch64-windows-msvc-releasedbg.tar.xz",
+    "sha256": "ad394e79ec85dd40f942671bb0342ffe54a103eb2baabacb773999d57d80134b",
+    "lto": false,
+    "asan": false,
+    "platform": "windows",
+    "arch": "arm64",
+    "build_type": "RelWithDebInfo"
   },
   {
     "version": "21.1.8",
