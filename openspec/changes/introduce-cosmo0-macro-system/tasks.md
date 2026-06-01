@@ -1,8 +1,8 @@
 ## 1. Documentation And Specs
 
-- [ ] 1.1 Add `docs/cosmo0/macro-expr.typ` covering `Expr[T = Untyped]`, expression macros, typed inspectors, and non-goals.
-- [ ] 1.2 Add `docs/cosmo0/compile-time-evaluation.typ` covering macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
-- [ ] 1.3 Link macro documentation from `docs/cosmo0/spec.typ`, include it in the website book summary, and update the docs validation script.
+- [ ] 1.1 Add `docs/cosmo/macro-expr.typ` covering `Expr[T = Untyped]`, expression macros, typed inspectors, and non-goals.
+- [ ] 1.2 Add `docs/cosmo/compile-time-evaluation.typ` covering macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
+- [ ] 1.3 Link macro documentation from `docs/cosmo/spec.typ`, include it in the website book summary, and update the docs validation script.
 - [ ] 1.4 Add examples for `@derive(...)`, declaration attributes, expression macros, generated output, and unsupported macro shapes.
 - [ ] 1.5 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
 
