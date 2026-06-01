@@ -99,7 +99,26 @@ function(cosmo_llvm_require_usable PREFIX CONTEXT)
         "Expected include and lib directories.")
 endfunction()
 
-function(cosmo_llvm_pick_artifact VERSION BUILD_TYPE PLATFORM ARCH OUTPUT_FILENAME OUTPUT_SHA256)
+function(cosmo_llvm_manifest_optional_entry_string MANIFEST INDEX KEY OUTPUT_VARIABLE)
+    string(JSON COSMO_LLVM_OPTIONAL_VALUE ERROR_VARIABLE COSMO_LLVM_OPTIONAL_ERROR
+        GET "${MANIFEST}" ${INDEX} ${KEY})
+    if (COSMO_LLVM_OPTIONAL_ERROR STREQUAL "NOTFOUND")
+        set(${OUTPUT_VARIABLE} "${COSMO_LLVM_OPTIONAL_VALUE}" PARENT_SCOPE)
+        return()
+    endif ()
+
+    set(${OUTPUT_VARIABLE} "" PARENT_SCOPE)
+endfunction()
+
+function(cosmo_llvm_pick_artifact
+        VERSION
+        BUILD_TYPE
+        PLATFORM
+        ARCH
+        OUTPUT_FILENAMES
+        OUTPUT_SHA256S
+        OUTPUT_BASE_URL
+        OUTPUT_INSTALL_ID)
     if (NOT COSMO_LLVM_MANIFEST_PATH)
         set(COSMO_LLVM_MANIFEST_PATH "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/config/llvm-manifest.json")
     endif ()
@@ -146,10 +165,45 @@ function(cosmo_llvm_pick_artifact VERSION BUILD_TYPE PLATFORM ARCH OUTPUT_FILENA
             continue()
         endif ()
 
-        string(JSON COSMO_LLVM_ENTRY_FILENAME GET "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} filename)
-        string(JSON COSMO_LLVM_ENTRY_SHA256 GET "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} sha256)
-        set(${OUTPUT_FILENAME} "${COSMO_LLVM_ENTRY_FILENAME}" PARENT_SCOPE)
-        set(${OUTPUT_SHA256} "${COSMO_LLVM_ENTRY_SHA256}" PARENT_SCOPE)
+        set(COSMO_LLVM_ENTRY_FILENAMES)
+        set(COSMO_LLVM_ENTRY_SHA256S)
+        string(JSON COSMO_LLVM_ENTRY_ARCHIVE_COUNT ERROR_VARIABLE COSMO_LLVM_ENTRY_ARCHIVE_ERROR
+            LENGTH "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} archives)
+        if (COSMO_LLVM_ENTRY_ARCHIVE_ERROR STREQUAL "NOTFOUND")
+            if (COSMO_LLVM_ENTRY_ARCHIVE_COUNT LESS_EQUAL 0)
+                message(FATAL_ERROR
+                    "LLVM manifest entry archives must be non-empty: ${COSMO_LLVM_MANIFEST_ABS}")
+            endif ()
+
+            math(EXPR COSMO_LLVM_LAST_ARCHIVE_INDEX "${COSMO_LLVM_ENTRY_ARCHIVE_COUNT} - 1")
+            foreach (COSMO_LLVM_ARCHIVE_INDEX RANGE 0 ${COSMO_LLVM_LAST_ARCHIVE_INDEX})
+                string(JSON COSMO_LLVM_ARCHIVE_FILENAME GET
+                    "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} archives ${COSMO_LLVM_ARCHIVE_INDEX} filename)
+                string(JSON COSMO_LLVM_ARCHIVE_SHA256 GET
+                    "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} archives ${COSMO_LLVM_ARCHIVE_INDEX} sha256)
+                list(APPEND COSMO_LLVM_ENTRY_FILENAMES "${COSMO_LLVM_ARCHIVE_FILENAME}")
+                list(APPEND COSMO_LLVM_ENTRY_SHA256S "${COSMO_LLVM_ARCHIVE_SHA256}")
+            endforeach ()
+        else ()
+            string(JSON COSMO_LLVM_ENTRY_FILENAME GET "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} filename)
+            string(JSON COSMO_LLVM_ENTRY_SHA256 GET "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} sha256)
+            list(APPEND COSMO_LLVM_ENTRY_FILENAMES "${COSMO_LLVM_ENTRY_FILENAME}")
+            list(APPEND COSMO_LLVM_ENTRY_SHA256S "${COSMO_LLVM_ENTRY_SHA256}")
+        endif ()
+
+        cosmo_llvm_manifest_optional_entry_string(
+            "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} base_url COSMO_LLVM_ENTRY_BASE_URL)
+        cosmo_llvm_manifest_optional_entry_string(
+            "${COSMO_LLVM_MANIFEST_JSON}" ${COSMO_LLVM_INDEX} install_id COSMO_LLVM_ENTRY_INSTALL_ID)
+        if (NOT COSMO_LLVM_ENTRY_INSTALL_ID)
+            list(GET COSMO_LLVM_ENTRY_FILENAMES 0 COSMO_LLVM_FIRST_FILENAME)
+            cosmo_llvm_artifact_stem("${COSMO_LLVM_FIRST_FILENAME}" COSMO_LLVM_ENTRY_INSTALL_ID)
+        endif ()
+
+        set(${OUTPUT_FILENAMES} "${COSMO_LLVM_ENTRY_FILENAMES}" PARENT_SCOPE)
+        set(${OUTPUT_SHA256S} "${COSMO_LLVM_ENTRY_SHA256S}" PARENT_SCOPE)
+        set(${OUTPUT_BASE_URL} "${COSMO_LLVM_ENTRY_BASE_URL}" PARENT_SCOPE)
+        set(${OUTPUT_INSTALL_ID} "${COSMO_LLVM_ENTRY_INSTALL_ID}" PARENT_SCOPE)
         return()
     endforeach ()
 
@@ -159,7 +213,13 @@ function(cosmo_llvm_pick_artifact VERSION BUILD_TYPE PLATFORM ARCH OUTPUT_FILENA
         "build_type=${BUILD_TYPE}, lto=${COSMO_LLVM_WANT_LTO}.")
 endfunction()
 
-function(cosmo_llvm_archive_url VERSION FILENAME OUTPUT_VARIABLE)
+function(cosmo_llvm_archive_url VERSION FILENAME BASE_URL OUTPUT_VARIABLE)
+    if (BASE_URL)
+        string(REGEX REPLACE "/$" "" COSMO_LLVM_BASE_URL "${BASE_URL}")
+        set(${OUTPUT_VARIABLE} "${COSMO_LLVM_BASE_URL}/${FILENAME}" PARENT_SCOPE)
+        return()
+    endif ()
+
     string(REPLACE "+" "%2B" COSMO_LLVM_URL_VERSION "${VERSION}")
     set(${OUTPUT_VARIABLE}
         "https://github.com/clice-io/clice-llvm/releases/download/${COSMO_LLVM_URL_VERSION}/${FILENAME}"
@@ -262,14 +322,17 @@ function(cosmo_llvm_flatten_install_dir PREFIX)
     file(REMOVE_RECURSE "${COSMO_LLVM_NESTED_DIR}")
 endfunction()
 
-function(cosmo_llvm_extract_archive ARCHIVE PREFIX)
+function(cosmo_llvm_extract_archives ARCHIVES PREFIX)
     if (EXISTS "${PREFIX}")
         file(REMOVE_RECURSE "${PREFIX}")
     endif ()
     file(MAKE_DIRECTORY "${PREFIX}")
 
-    message(STATUS "Extracting LLVM artifact to: ${PREFIX}")
-    file(ARCHIVE_EXTRACT INPUT "${ARCHIVE}" DESTINATION "${PREFIX}")
+    foreach (COSMO_LLVM_ARCHIVE IN LISTS ARCHIVES)
+        message(STATUS "Extracting LLVM artifact: ${COSMO_LLVM_ARCHIVE}")
+        file(ARCHIVE_EXTRACT INPUT "${COSMO_LLVM_ARCHIVE}" DESTINATION "${PREFIX}")
+    endforeach ()
+
     cosmo_llvm_flatten_install_dir("${PREFIX}")
     cosmo_llvm_require_usable("${PREFIX}" "Downloaded")
 endfunction()
@@ -310,28 +373,38 @@ function(cosmo_setup_llvm)
             "${COSMO_LLVM_BUILD_TYPE}"
             "${COSMO_LLVM_PLATFORM}"
             "${COSMO_LLVM_ARCH}"
-            COSMO_LLVM_ARTIFACT_FILENAME
-            COSMO_LLVM_ARTIFACT_SHA256)
-        cosmo_llvm_artifact_stem("${COSMO_LLVM_ARTIFACT_FILENAME}" COSMO_LLVM_ARTIFACT_STEM)
+            COSMO_LLVM_ARTIFACT_FILENAMES
+            COSMO_LLVM_ARTIFACT_SHA256S
+            COSMO_LLVM_ARTIFACT_BASE_URL
+            COSMO_LLVM_ARTIFACT_INSTALL_ID)
 
         set(COSMO_LLVM_RESOLVED_PATH
-            "${COSMO_LLVM_DOWNLOAD_ROOT}/${COSMO_LLVM_VERSION}/${COSMO_LLVM_ARTIFACT_STEM}")
+            "${COSMO_LLVM_DOWNLOAD_ROOT}/${COSMO_LLVM_VERSION}/${COSMO_LLVM_ARTIFACT_INSTALL_ID}")
         cosmo_llvm_install_is_usable("${COSMO_LLVM_RESOLVED_PATH}" COSMO_LLVM_CACHE_USABLE)
 
         if (COSMO_LLVM_CACHE_USABLE)
             message(STATUS "Using cached LLVM install: ${COSMO_LLVM_RESOLVED_PATH}")
         else ()
-            set(COSMO_LLVM_ARCHIVE
-                "${COSMO_LLVM_DOWNLOAD_ROOT}/cache/${COSMO_LLVM_VERSION}/${COSMO_LLVM_ARTIFACT_FILENAME}")
-            cosmo_llvm_archive_url(
-                "${COSMO_LLVM_VERSION}"
-                "${COSMO_LLVM_ARTIFACT_FILENAME}"
-                COSMO_LLVM_DOWNLOAD_URL)
-            cosmo_llvm_ensure_archive(
-                "${COSMO_LLVM_DOWNLOAD_URL}"
-                "${COSMO_LLVM_ARCHIVE}"
-                "${COSMO_LLVM_ARTIFACT_SHA256}")
-            cosmo_llvm_extract_archive("${COSMO_LLVM_ARCHIVE}" "${COSMO_LLVM_RESOLVED_PATH}")
+            set(COSMO_LLVM_ARCHIVES)
+            list(LENGTH COSMO_LLVM_ARTIFACT_FILENAMES COSMO_LLVM_ARTIFACT_COUNT)
+            math(EXPR COSMO_LLVM_LAST_ARTIFACT_INDEX "${COSMO_LLVM_ARTIFACT_COUNT} - 1")
+            foreach (COSMO_LLVM_ARTIFACT_INDEX RANGE 0 ${COSMO_LLVM_LAST_ARTIFACT_INDEX})
+                list(GET COSMO_LLVM_ARTIFACT_FILENAMES ${COSMO_LLVM_ARTIFACT_INDEX} COSMO_LLVM_ARTIFACT_FILENAME)
+                list(GET COSMO_LLVM_ARTIFACT_SHA256S ${COSMO_LLVM_ARTIFACT_INDEX} COSMO_LLVM_ARTIFACT_SHA256)
+                set(COSMO_LLVM_ARCHIVE
+                    "${COSMO_LLVM_DOWNLOAD_ROOT}/cache/${COSMO_LLVM_VERSION}/${COSMO_LLVM_ARTIFACT_FILENAME}")
+                cosmo_llvm_archive_url(
+                    "${COSMO_LLVM_VERSION}"
+                    "${COSMO_LLVM_ARTIFACT_FILENAME}"
+                    "${COSMO_LLVM_ARTIFACT_BASE_URL}"
+                    COSMO_LLVM_DOWNLOAD_URL)
+                cosmo_llvm_ensure_archive(
+                    "${COSMO_LLVM_DOWNLOAD_URL}"
+                    "${COSMO_LLVM_ARCHIVE}"
+                    "${COSMO_LLVM_ARTIFACT_SHA256}")
+                list(APPEND COSMO_LLVM_ARCHIVES "${COSMO_LLVM_ARCHIVE}")
+            endforeach ()
+            cosmo_llvm_extract_archives("${COSMO_LLVM_ARCHIVES}" "${COSMO_LLVM_RESOLVED_PATH}")
             message(STATUS "Using downloaded LLVM install: ${COSMO_LLVM_RESOLVED_PATH}")
         endif ()
     endif ()

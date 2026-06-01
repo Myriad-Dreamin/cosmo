@@ -1,142 +1,234 @@
 [
   {
     "version": "21.1.8",
-    "filename": "aarch64-linux-gnu-releasedbg-lto.tar.xz",
-    "sha256": "f3444ee840b50933c23656cbee7c4d010e752ac55ca66095b97f7c0e997b13b5",
-    "lto": true,
-    "asan": false,
-    "platform": "linux",
-    "arch": "arm64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "aarch64-linux-gnu-releasedbg.tar.xz",
-    "sha256": "b9012bf059e4d8673fb564b5780e5fc78c6a2e47f5cc6a39f444d1879b42dd2a",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "7b42134621ceaa79055282e8d471100bc9e8b13d2beb391b028f3e251bc54049"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "ae664c99f1ad785161012a939e302ab5c9f9a1c9972465701eecc2f7fac69c1e"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "cdc18481fcdc61247622481533daa2d9687bb97e55fe4a5a438713b95f51bb00"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "666f25a103a1bfa017dbc5f295ad177426712bc442a68bdb4230f79ec82517d3"
+      }
+    ],
     "lto": false,
     "asan": false,
     "platform": "linux",
-    "arch": "arm64",
-    "build_type": "RelWithDebInfo"
+    "arch": "x64",
+    "build_type": "RelWithDebInfo",
+    "target_triple": "x86_64-unknown-linux-gnu"
   },
   {
     "version": "21.1.8",
-    "filename": "aarch64-windows-msvc-releasedbg-lto.tar.xz",
-    "sha256": "8870d16141ba7f9ea12f5147b8d91329abbbaa4376cd4576667dd323d896dd08",
-    "lto": true,
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "6666e6886a627ab4fd2d5879f10bfa3c0dcd678f55a5b30bb5cb998336ba5de9"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "8c027fe9e4aa161c328d35569404e09cf4a9192d6d58ddc4295a04a061b0f47b"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "057eb5412f48b30263e9b906b0776c7ddc6f3b4d3193e05d7170cb99e9683ea8"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "c28b7f0b7d0570700955efba4db60a2a8ec7ddbb00403dada63d3617c18f5398"
+      }
+    ],
+    "lto": false,
+    "asan": false,
+    "platform": "linux",
+    "arch": "x64",
+    "build_type": "Release",
+    "target_triple": "x86_64-unknown-linux-gnu"
+  },
+  {
+    "version": "21.1.8",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
+        "sha256": "049fb8b95775091ecb5b6629d95da708714cfb25e2ec6b02673582c8394601e5"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
+        "sha256": "fac47e053b1bd4deebd9cda1ffe3974e0c302dccd41667c21afb71d7287b7e16"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
+        "sha256": "0e4c831c24fd2f8f0c0178f96ddc43e6cb932dbf5e0b58b3f7bf527a047d41d1"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
+        "sha256": "38a7b3e7bcdad4caace64fc3a09b550e841d7ada94dfb918252d104c9578a57d"
+      }
+    ],
+    "lto": false,
+    "asan": false,
+    "platform": "macosx",
+    "arch": "arm64",
+    "build_type": "RelWithDebInfo",
+    "target_triple": "aarch64-apple-darwin"
+  },
+  {
+    "version": "21.1.8",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-release-aarch64-apple-darwin",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
+        "sha256": "55173e24be85de2fc2a2125e29ef2faa9a7d12e2a5611b60833b5c8a20df0816"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
+        "sha256": "5a4c6b8f1191a8d6dda4ca831bb0d08ab1adb21dec8c2eb5f62326be28466b2c"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
+        "sha256": "7d5f5dbbc4496e0ac443b223470b0c050fbfce19660603b0b4e75b16ea78f45b"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
+        "sha256": "dd5379a84b23b53922e7fb17aaf544c2cff51a2a276683b0c607d08de3007705"
+      }
+    ],
+    "lto": false,
+    "asan": false,
+    "platform": "macosx",
+    "arch": "arm64",
+    "build_type": "Release",
+    "target_triple": "aarch64-apple-darwin"
+  },
+  {
+    "version": "21.1.8",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
+        "sha256": "287b837dd8d0c7e04b5e2db044738ad20ebb46951161ae9227be03e8ec96d220"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
+        "sha256": "e19fc82a833d286a8eb9c74c2eb92ed6047065c001cec882abe82af36ffe1a22"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
+        "sha256": "89998709a7069f143c627eb7c2978fd73de9aaa6934f19143b3372819aef3db5"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
+        "sha256": "9c08a1272f9ef63c407a8cc32c99809d11dbe6b911eed77e77b8ea77397fa103"
+      }
+    ],
+    "lto": false,
+    "asan": false,
+    "platform": "macosx",
+    "arch": "x64",
+    "build_type": "RelWithDebInfo",
+    "target_triple": "x86_64-apple-darwin"
+  },
+  {
+    "version": "21.1.8",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-release-x86_64-apple-darwin",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
+        "sha256": "6e9117c67399690152eed86851654bfda5ee774f3f28e800b9f5f09fda40a115"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
+        "sha256": "f2e06b880d5b83d2e848c1b580cf042e6e6862608a4c4b2a217e21e462f951b2"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
+        "sha256": "d7c937dea03457e7bad6d25070c341281bcecba40d6391f70d698cc3c0879597"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
+        "sha256": "fa878a5000c6bd1c1c718e6d1f28aadcdaca6d76d9cfedbdbf5c7e94cca88f13"
+      }
+    ],
+    "lto": false,
+    "asan": false,
+    "platform": "macosx",
+    "arch": "x64",
+    "build_type": "Release",
+    "target_triple": "x86_64-apple-darwin"
+  },
+  {
+    "version": "21.1.8",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "838aa6c02f44d02d29235c629530b6d82f69be24e89a5767ba71c34978d91111"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "1f60c919b94e6902a1165c11b2fe725ecf85946a39c5e9bf8d06fd57a2d99085"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "f3cf90e5439a8e0ee75866db8832febdc79c9660ee56f3799e4c418caa162b89"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "edf2d030200c3dde01330a869cc178953c4564297d2f1c32cbae21c1c6f5e02e"
+      }
+    ],
+    "lto": false,
     "asan": false,
     "platform": "windows",
-    "arch": "arm64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "aarch64-windows-msvc-releasedbg.tar.xz",
-    "sha256": "ad394e79ec85dd40f942671bb0342ffe54a103eb2baabacb773999d57d80134b",
-    "lto": false,
-    "asan": false,
-    "platform": "windows",
-    "arch": "arm64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "arm64-macos-clang-debug-asan.tar.xz",
-    "sha256": "b02d20e4f7294ee33f49a09dfdd765b3b44135e003ef50e3a760aeee39e3f993",
-    "lto": false,
-    "asan": true,
-    "platform": "macosx",
-    "arch": "arm64",
-    "build_type": "Debug"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "arm64-macos-clang-releasedbg-lto.tar.xz",
-    "sha256": "e40c21eb0d0b91d9d4ab31212a5cb01ea46707f5c29839414567857e4147604d",
-    "lto": true,
-    "asan": false,
-    "platform": "macosx",
-    "arch": "arm64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "arm64-macos-clang-releasedbg.tar.xz",
-    "sha256": "e1b01de34f0edfd41c118e4981a93afb35556ae369597e864f4a393db623b926",
-    "lto": false,
-    "asan": false,
-    "platform": "macosx",
-    "arch": "arm64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "x64-linux-gnu-debug-asan.tar.xz",
-    "sha256": "76bb82d822b5377fb5e0fac8abcfba125142e6a0acc02bb36d1fa1532a268646",
-    "lto": false,
-    "asan": true,
-    "platform": "linux",
     "arch": "x64",
-    "build_type": "Debug"
+    "build_type": "RelWithDebInfo",
+    "target_triple": "x86_64-pc-windows-msvc"
   },
   {
     "version": "21.1.8",
-    "filename": "x64-linux-gnu-releasedbg-lto.tar.xz",
-    "sha256": "32f5edddec1e689124f045b586fb402ae30febc05203af7391b088bc8494cd53",
-    "lto": true,
-    "asan": false,
-    "platform": "linux",
-    "arch": "x64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "x64-linux-gnu-releasedbg.tar.xz",
-    "sha256": "8ba3c84f23a2a81a86c54780754a61adf99048aa2ac0dc9b9708d0f842d553de",
-    "lto": false,
-    "asan": false,
-    "platform": "linux",
-    "arch": "x64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "x64-macos-clang-releasedbg-lto.tar.xz",
-    "sha256": "97e81d6296896d7237f118f728d05291707b9e4e5791e07ce4be8aee0517505d",
-    "lto": true,
-    "asan": false,
-    "platform": "macosx",
-    "arch": "x64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "x64-macos-clang-releasedbg.tar.xz",
-    "sha256": "53c13f8e1082fa2fe2f9c05303de48cb3133bf5f24271f4b3062f1dec578159c",
-    "lto": false,
-    "asan": false,
-    "platform": "macosx",
-    "arch": "x64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "x64-windows-msvc-releasedbg-lto.tar.xz",
-    "sha256": "16bcf0e4cbc3d2b1204edd619a3837004dacea28eeff0a101c8d0212f936427d",
-    "lto": true,
-    "asan": false,
-    "platform": "windows",
-    "arch": "x64",
-    "build_type": "RelWithDebInfo"
-  },
-  {
-    "version": "21.1.8",
-    "filename": "x64-windows-msvc-releasedbg.tar.xz",
-    "sha256": "81d31fad05e200726c8178314b0b2045c947483dddd8cb974f4c376ae5f441fa",
+    "base_url": "https://github.com/Myriad-Dreamin/llvm-dist/releases/download/v21.1.8",
+    "install_id": "llvm-dist-llvmorg-21.1.8-release-x86_64-pc-windows-msvc",
+    "archives": [
+      {
+        "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "8e9a00d09fb7a5af69ab8229371a17315f8ea40e9763ba62070c8abd3e880f50"
+      },
+      {
+        "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "047fa350672d1ce32c6bc75147f018e3a73fd6e949772e219e3f35733f675807"
+      },
+      {
+        "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "349111af3d67c4b3943165dc10d5d45370a95db2bd80cd7c657d096dc54698d9"
+      },
+      {
+        "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
+        "sha256": "eaac30183d05356fe105734587f6578fc777a56d3c6bff077085480cfbf2619c"
+      }
+    ],
     "lto": false,
     "asan": false,
     "platform": "windows",
     "arch": "x64",
-    "build_type": "RelWithDebInfo"
+    "build_type": "Release",
+    "target_triple": "x86_64-pc-windows-msvc"
   }
 ]

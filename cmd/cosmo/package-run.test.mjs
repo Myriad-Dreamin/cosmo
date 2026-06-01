@@ -6,10 +6,12 @@ import test from "node:test";
 
 import {
   applyEnvironmentFile,
+  cosmoClangSysCMakeCacheArgs,
   findPackageRootForSource,
   packageBuildBuildPaths,
   packageRunBuildPaths,
   nativePackageCMakeSource,
+  nativeGnuToolchainLinkHint,
   parseEnvironmentFile,
   parseEnvironmentOptions,
   parsePackageBuildCommand,
@@ -166,6 +168,49 @@ test("environment file application reads default and explicit files", () => {
     { COSMO_LLVM_PATH: "/toolchains/llvm" },
   );
   assert.equal(env.COSMO_LLVM_PATH, "/toolchains/llvm");
+});
+
+test("cosmo-clang-sys CMake args pass GCC toolchain configuration", () => {
+  const args = cosmoClangSysCMakeCacheArgs({
+    GCC_TOOLCHAIN: "/usr/local/gcc-14.3.0",
+    COSMO_STATIC_GNU_RUNTIME: "OFF",
+    COSMO_CMAKE_C_COMPILER: "/opt/llvm/bin/clang",
+    COSMO_CMAKE_CXX_COMPILER: "/opt/llvm/bin/clang++",
+  });
+
+  assert.ok(args.includes("-DCOSMO_GCC_TOOLCHAIN=/usr/local/gcc-14.3.0"));
+  assert.ok(args.includes("-DCOSMO_STATIC_GNU_RUNTIME=OFF"));
+  assert.ok(args.includes("-DCMAKE_C_COMPILER=/opt/llvm/bin/clang"));
+  assert.ok(args.includes("-DCMAKE_CXX_COMPILER=/opt/llvm/bin/clang++"));
+});
+
+test("cosmo-clang-sys CMake args prefer COSMO_GCC_TOOLCHAIN", () => {
+  const args = cosmoClangSysCMakeCacheArgs({
+    COSMO_GCC_TOOLCHAIN: "/toolchains/gcc",
+    GCC_TOOLCHAIN: "/usr/local/gcc-14.3.0",
+  });
+
+  assert.ok(args.includes("-DCOSMO_GCC_TOOLCHAIN=/toolchains/gcc"));
+  assert.ok(args.includes("-DCOSMO_STATIC_GNU_RUNTIME=ON"));
+});
+
+test("native link failures explain GCC toolchain configuration", () => {
+  const hint = nativeGnuToolchainLinkHint(
+    "undefined reference to `__isoc23_strtoll'\nundefined reference to `arc4random'",
+    {},
+  );
+
+  assert.match(hint, /Set COSMO_GCC_TOOLCHAIN or GCC_TOOLCHAIN/);
+  assert.match(hint, /COSMO_GCC_TOOLCHAIN=\/usr\/local\/gcc-14\.3\.0/);
+});
+
+test("native link failures mention configured GCC toolchain", () => {
+  const hint = nativeGnuToolchainLinkHint(
+    "/lib/libLLVM.a: version `GLIBC_2.38' not found",
+    { GCC_TOOLCHAIN: "/usr/local/gcc-14.3.0" },
+  );
+
+  assert.match(hint, /Configured GCC toolchain: \/usr\/local\/gcc-14\.3\.0/);
 });
 
 test("package run build paths stay under the selected package target directory", () => {
