@@ -18,6 +18,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const nativeSupportLibrariesField = "nativeSupportLibraries";
 const cosmoClangSysLibrary = "cosmo-clang-sys";
 const nativePackageExecutableTarget = "cosmoPackageExecutable";
+const nativeGnuToolchainMissingSymbolPattern =
+  /(?:__isoc23_[A-Za-z0-9_]+|\barc4random(?:_[A-Za-z0-9_]+)?\b|GLIBC_2\.(?:3[6-9]|[4-9]\d))/;
 const nlohmannJsonDependency = {
   repoUrl: "https://github.com/nlohmann/json.git",
   version: "v3.11.3",
@@ -519,6 +521,36 @@ function nativeBuildFailureMessage(stage, logPath, log) {
   return [
     `cosmo package run native CMake ${stage} failed; log written to ${logPath}`,
     log,
+    nativeGnuToolchainLinkHint(log),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function nativeGnuToolchainLinkHint(log, env = process.env) {
+  if (!nativeGnuToolchainMissingSymbolPattern.test(log)) {
+    return "";
+  }
+
+  const configuredToolchain = firstNonEmptyEnvironmentValue(
+    env,
+    "COSMO_GCC_TOOLCHAIN",
+    "GCC_TOOLCHAIN",
+  );
+  if (configuredToolchain) {
+    return [
+      "Detected missing GNU runtime symbols while a GCC toolchain is configured.",
+      `Configured GCC toolchain: ${configuredToolchain}`,
+      "Check that this GCC toolchain matches the LLVM/Clang install and that the CMake build directory was reconfigured.",
+    ].join("\n");
+  }
+
+  return [
+    "Detected missing GNU runtime symbols from the LLVM/Clang static libraries.",
+    "Set COSMO_GCC_TOOLCHAIN or GCC_TOOLCHAIN to a compatible GCC toolchain root, for example:",
+    "  COSMO_GCC_TOOLCHAIN=/usr/local/gcc-14.3.0",
+    "For a local LLVM build, also set COSMO_LLVM_PATH and matching Clang compilers before rerunning the command.",
+    "Use CC/CXX before first configure, or COSMO_CMAKE_C_COMPILER/COSMO_CMAKE_CXX_COMPILER for explicit CMake cache entries.",
   ].join("\n");
 }
 
@@ -575,10 +607,10 @@ function validateNativeSupportLibraries(libraries) {
   );
 }
 
-function cosmoClangSysCMakeCacheArgs() {
+export function cosmoClangSysCMakeCacheArgs(env = process.env) {
   const values = {
-    COSMO_LLVM_PATH: process.env.COSMO_LLVM_PATH ?? "",
-    COSMO_LLVM_VERSION: process.env.COSMO_LLVM_VERSION ?? "21.1.8",
+    COSMO_LLVM_PATH: env.COSMO_LLVM_PATH ?? "",
+    COSMO_LLVM_VERSION: env.COSMO_LLVM_VERSION ?? "21.1.8",
     COSMO_LLVM_DOWNLOAD_DIR: join(repoRoot, "target", "cosmo", "llvm"),
     COSMO_LLVM_MANIFEST_PATH: join(
       repoRoot,
@@ -587,15 +619,49 @@ function cosmoClangSysCMakeCacheArgs() {
       "config",
       "llvm-manifest.json",
     ),
-    COSMO_LLVM_ENABLE_LTO: process.env.COSMO_LLVM_ENABLE_LTO ?? "OFF",
-    COSMO_LLVM_OFFLINE: process.env.COSMO_LLVM_OFFLINE ?? "OFF",
-    COSMO_LLVM_TARGET_PLATFORM: process.env.COSMO_LLVM_TARGET_PLATFORM ?? "",
-    COSMO_LLVM_TARGET_ARCH: process.env.COSMO_LLVM_TARGET_ARCH ?? "",
+    COSMO_LLVM_ENABLE_LTO: env.COSMO_LLVM_ENABLE_LTO ?? "OFF",
+    COSMO_LLVM_OFFLINE: env.COSMO_LLVM_OFFLINE ?? "OFF",
+    COSMO_LLVM_TARGET_PLATFORM: env.COSMO_LLVM_TARGET_PLATFORM ?? "",
+    COSMO_LLVM_TARGET_ARCH: env.COSMO_LLVM_TARGET_ARCH ?? "",
+    COSMO_GCC_TOOLCHAIN: firstNonEmptyEnvironmentValue(
+      env,
+      "COSMO_GCC_TOOLCHAIN",
+      "GCC_TOOLCHAIN",
+    ),
+    COSMO_STATIC_GNU_RUNTIME: env.COSMO_STATIC_GNU_RUNTIME ?? "ON",
   };
+
+  const cCompiler = firstNonEmptyEnvironmentValue(
+    env,
+    "COSMO_CMAKE_C_COMPILER",
+    "CMAKE_C_COMPILER",
+  );
+  if (cCompiler) {
+    values.CMAKE_C_COMPILER = cCompiler;
+  }
+
+  const cxxCompiler = firstNonEmptyEnvironmentValue(
+    env,
+    "COSMO_CMAKE_CXX_COMPILER",
+    "CMAKE_CXX_COMPILER",
+  );
+  if (cxxCompiler) {
+    values.CMAKE_CXX_COMPILER = cxxCompiler;
+  }
 
   return Object.entries(values).map(([key, value]) => {
     return `-D${key}=${value}`;
   });
+}
+
+function firstNonEmptyEnvironmentValue(env, ...keys) {
+  for (const key of keys) {
+    const value = env[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+  return "";
 }
 
 function writeNativeBuildLog(logPath, command, args, result) {

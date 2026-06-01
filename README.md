@@ -78,7 +78,22 @@ node cmd/cosmo/main.js -f .env.prod -p packages/cosmoc build -o target/cosmoc
 `COSMO_LLVM_PATH` to a local LLVM/Clang install prefix when one is available; if
 it is unset, the CMake link step uses
 `packages/cosmo-clang-sys/config/llvm-manifest.json` and downloads the matching
-LLVM artifact into `target/cosmo/llvm`.
+`llvm-dist` component archives into `target/cosmo/llvm`. The default manifest
+combines `llvm-core`, `clang-sdk`, `clang-tooling`, and `clang-repl` for the
+selected platform where `llvm-dist` publishes that target, and keeps legacy
+single-archive `clice-llvm` fallbacks for release targets that are not published
+there yet.
+
+On Linux, the downloaded LLVM/Clang static libraries may require a newer or
+matching GNU toolchain. If the native link reports missing symbols such as
+`__isoc23_*`, `arc4random`, or newer `GLIBC_2.xx` versions, set
+`COSMO_GCC_TOOLCHAIN` or `GCC_TOOLCHAIN` to the matching GCC root, for example
+`COSMO_GCC_TOOLCHAIN=/usr/local/gcc-14.3.0`. The CMake target passes that value
+to Clang as `--gcc-toolchain` and links `libgcc`/`libstdc++` statically by
+default; for a local LLVM build, also set `COSMO_LLVM_PATH` and `CC`/`CXX` to
+the matching Clang install before the generated CMake build directory is first
+configured. Use `COSMO_CMAKE_C_COMPILER` and `COSMO_CMAKE_CXX_COMPILER` when the
+driver should pass compiler paths as explicit CMake cache entries.
 
 ## Minimal Commands
 
