@@ -463,7 +463,7 @@ def big_decimal_to_string(value: BigDecimal): String
 
 Descriptor-backed implementation support is transitional unless a standard API explicitly exposes it. Source code should depend on standard capability identifiers, not on descriptor registry details.
 
-Future descriptor/std proposals must name each changed `docs/cosmo0/` file in their design, tasks, or proposal text. If a change only moves implementation internals and does not alter source-facing behavior, it must say that it is implementation-only and explain why no `docs/cosmo0/` file changes.
+Future descriptor/std proposals must name each changed `docs/cosmo/` file in their design, tasks, or proposal text. If a change only moves implementation internals and does not alter source-facing behavior, it must say that it is implementation-only and explain why no `docs/cosmo/` file changes.
 
 == Placeholder API Areas
 

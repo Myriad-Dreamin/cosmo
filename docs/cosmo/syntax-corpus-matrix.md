@@ -2,7 +2,7 @@
 
 This document makes the current cosmo0 sample and diagnostic corpus reviewable as
 a syntax matrix. It is not a full grammar specification; the normative language
-boundary remains in the adjacent `docs/cosmo0/*.typ` files.
+boundary remains in the adjacent `docs/cosmo/*.typ` files.
 
 The matrix intentionally references corpus files instead of embedding source
 programs. Concrete programs live in `samples/**/*.cos` and
