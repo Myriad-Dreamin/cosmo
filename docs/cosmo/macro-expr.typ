@@ -45,97 +45,126 @@ Provider-facing expression macro behavior is specified as a macro function
 implementation shape:
 
 ```text
-macro def provider(input: Expr[Untyped]): Expr[Untyped] = {
+@macro def provider(input: Expr[Untyped]): Expr[Untyped] = {
   val generated: Expr[Untyped] = ...
   return generated
 }
 ```
 
-The provider-facing input is the selected source expression as `Expr[Untyped]`.
-The compiler may still record provider identity, source spans, hygiene/origin
+The provider-facing input is a normalized macro payload as `Expr[Untyped]`. The
+compiler may still record provider identity, source spans, hygiene/origin
 metadata, diagnostics, and execution context in the surrounding macro execution
-record, but those are not a second public provider argument. Call syntax is one
-possible `Expr[Untyped]` shape, not the general macro ABI.
+record, but those are not a second public provider argument. Parenthesized
+arguments and method-like syntax feed `Expr.Args`; attached blocks feed
+`Expr.Block`; templates and interpolations feed `Expr.Template`.
 
 Generated expression output always returns to ordinary type checking. A provider
 may generate a candidate expression, but it cannot manufacture or inject a
 trusted checked expression object.
 
+== Macro Selection
+
+The `@macro` marker declares a compile-time provider. It does not change how
+the source expression is parsed, and it does not make macro lookup a textual
+match on a callee name.
+
+Macro selection follows the same resolved callee that the parsed expression
+would otherwise use for an ordinary operation:
+
+- `vec(1, 2, 3)` can select `@macro def vec(...)` only when ordinary name
+  resolution for the callee `vec` resolves to that macro provider.
+- `value.expand(2)` can select an `@macro def expand(...)` provider only when
+  member, method, or extension lookup for the selected member `.expand` resolves
+  to that macro provider. A free `@macro def expand(...)` in scope does not by
+  itself match every `.expand` selection by string name.
+- `j.path { ... }` can select a macro only when lookup for the selected target
+  `j.path` resolves to that macro provider.
+- `fmt"x $name y"` can select a macro only when interpolation tag lookup for
+  `fmt` resolves to that macro provider.
+
+After selection, the provider receives the selected macro payload as
+`Expr[Untyped]`.
+
 == Macro Input Shapes
 
-Different surface forms feed different `Expr[Untyped]` shapes to the macro
-function. The shape names below are illustrative; the stable rule is that the
-provider receives one parsed expression value, not raw tokens and not a special
-context value.
+Different surface forms feed one of three provider-facing `Expr[Untyped]`
+payload shapes to the macro function: `Expr.Args`, `Expr.Block`, or
+`Expr.Template`. The field names below are illustrative; the stable rule is that
+the provider receives one parsed expression value, not raw tokens and not a
+special context value.
 
-Call-like syntax feeds the whole call expression:
+Parenthesized argument syntax feeds an argument payload. The resolved provider
+identity is not repeated inside the payload:
 
 ```cos
 val xs = vec(1, 2, 3)
 ```
 
 ```text
-macro def vec(input: Expr[Untyped]): Expr[Untyped]
+@macro def vec(input: Expr[Untyped]): Expr[Untyped]
 
 input =
-  Expr.Call(
-    callee = Expr.Name("vec"),
-    args = [Expr.Int(1), Expr.Int(2), Expr.Int(3)],
+  Expr.Args(
+    receiver = None,
+    positional = [Expr.Int(1), Expr.Int(2), Expr.Int(3)],
+    named = [],
   )
 ```
 
-Method-like syntax feeds the selected expression shape, preserving the receiver
-inside the expression:
+Method-like syntax also feeds an argument payload. Member, method, or extension
+lookup has already selected the macro provider; the receiver is preserved as an
+ordinary expression field in the payload:
 
 ```cos
 val y = value.expand(2)
 ```
 
 ```text
-macro def expand(input: Expr[Untyped]): Expr[Untyped]
+resolved provider =
+  @macro def expand(input: Expr[Untyped]): Expr[Untyped]
 
 input =
-  Expr.Call(
-    callee = Expr.Select(Expr.Name("value"), "expand"),
-    args = [Expr.Int(2)],
+  Expr.Args(
+    receiver = Some(Expr.Name("value")),
+    positional = [Expr.Int(2)],
+    named = [],
   )
 ```
 
-Block-attached syntax feeds one expression whose target and block body are both
-part of the parsed expression:
+Block-attached syntax feeds a block payload. Lookup has already selected the
+macro provider; a receiver from the selected target is preserved when the
+surface form has one:
 
 ```cos
-val field = j.path { self.field(0) }
+val field = j.path { self.field }
 ```
 
 ```text
-macro def path(input: Expr[Untyped]): Expr[Untyped]
+resolved provider =
+  @macro def path(input: Expr[Untyped]): Expr[Untyped]
 
 input =
-  Expr.BlockApply(
-    target = Expr.Select(Expr.Name("j"), "path"),
-    body = Expr.Block([
-      Expr.Call(
-        callee = Expr.Select(Expr.Name("self"), "field"),
-        args = [Expr.Int(0)],
-      ),
-    ]),
+  Expr.Block(
+    receiver = Some(Expr.Name("j")),
+    statements = [
+      Expr.Select(Expr.Name("self"), "field"),
+    ],
   )
 ```
 
-Interpolation feeds one interpolation expression. Literal parts are structured
-data inside that expression node, while holes remain `Expr[Untyped]` values:
+Interpolation feeds a template payload. Tag lookup has already selected the
+macro provider; literal parts are structured data inside the payload, while
+holes remain `Expr[Untyped]` values:
 
 ```cos
 val message = fmt"x $name y"
 ```
 
 ```text
-macro def fmt(input: Expr[Untyped]): Expr[Untyped]
+@macro def fmt(input: Expr[Untyped]): Expr[Untyped]
 
 input =
-  Expr.Interpolate(
-    tag = Expr.Name("fmt"),
+  Expr.Template(
     parts = [
       Text("x "),
       Hole(Expr.Name("name")),
@@ -176,37 +205,39 @@ Accepted macro function implementation shape once expression macros are
 admitted. Helper method names on `Expr[Untyped]` are illustrative:
 
 ```text
-macro def vec(input: Expr[Untyped]): Expr[Untyped] = {
-  val items = input.callArgs()
+@macro def vec(input: Expr[Untyped]): Expr[Untyped] = {
+  val items = input.args().positional
   val output = quote_expr(Vec.from_array(Array(..items)))
   return output
 }
 ```
 
-Call-like use is still allowed, but it is only one accepted surface form:
+Parenthesized argument use is still allowed, but it is only one accepted surface
+form:
 
 ```cos
 val xs = vec(1, 2, 3)
 ```
 
 The same boundary can describe a block-attached application. The macro inspects
-the input expression to get the target and block body; the body is structured
-`Expr[Untyped]` data, not raw source text and not a checked expression:
+the input expression to get the optional receiver and block body; the body is
+structured `Expr[Untyped]` data, not raw source text and not a checked
+expression:
 
 ```cos
-val field = j.path { self.field(0) }
+val field = j.path { self.field }
 ```
 
 ```text
-macro def path(input: Expr[Untyped]): Expr[Untyped] = {
-  val receiver = input.blockTarget()
-  val body = input.blockBody()
+@macro def path(input: Expr[Untyped]): Expr[Untyped] = {
+  val receiver = input.block().receiver
+  val body = input.block().statements
   val output = build_path_access(receiver, body)
   return output
 }
 ```
 
-Interpolation may also be admitted without making the source expression look
+Template syntax may also be admitted without making the source expression look
 like an ordinary call:
 
 ```cos
@@ -214,8 +245,8 @@ val message = fmt"x $name y"
 ```
 
 ```text
-macro def fmt(input: Expr[Untyped]): Expr[Untyped] = {
-  val parts = input.interpolationParts()
+@macro def fmt(input: Expr[Untyped]): Expr[Untyped] = {
+  val parts = input.template().parts
   val output = build_format_expr(parts)
   return output
 }
@@ -228,13 +259,14 @@ Expr[Any] -> Expr[Any]
 Expr[i32] -> Expr[Vec[i32]]
 List[Expr[Untyped]] -> Expr[Untyped]
 Call(path: PathRef, args: List[Expr[Untyped]]) -> Expr[Untyped]
+Apply(target: Expr[Untyped], args: List[Expr[Untyped]]) -> Expr[Untyped]
 TokenStream -> TokenStream
 ```
 
 The rejected examples either confuse untyped source expressions with an
 object-language top type, imply typed quotation, claim checked output, add a
-separate public context value, force macros into a pre-extracted argument-list
-or function-call shape, or bypass the Cosmo parser.
+separate public context value, force macros into a pre-extracted argument-list,
+function-call shape, or generic apply shape, or bypass the Cosmo parser.
 
 == Review Rules
 
@@ -247,5 +279,7 @@ Macro expression proposals must preserve these rules:
   already checked.
 - expression macro provider input is `Expr[Untyped]`, not a separate context
   value, raw token stream, or pre-extracted argument list.
+- provider-facing macro input normalizes to `Expr.Args`, `Expr.Block`, or
+  `Expr.Template`, not call or apply nodes.
 - generated expression output must be deterministic and must re-enter ordinary
   checking before lowering.
