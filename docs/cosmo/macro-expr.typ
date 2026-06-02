@@ -77,13 +77,69 @@ would otherwise use for an ordinary operation:
   member, method, or extension lookup for the selected member `.expand` resolves
   to that macro provider. A free `@macro def expand(...)` in scope does not by
   itself match every `.expand` selection by string name.
-- `j.path { ... }` can select a macro only when lookup for the selected target
-  `j.path` resolves to that macro provider.
+- `path { ... }` can select a macro only when lookup for the selected target
+  `path` resolves to that macro provider.
 - `fmt"x $name y"` can select a macro only when interpolation tag lookup for
   `fmt` resolves to that macro provider.
 
 After selection, the provider receives the selected macro payload as
 `Expr[Untyped]`.
+
+== Single Payload Rule
+
+An expression macro consumes exactly one provider-facing payload. The payload is
+one `Expr.Args`, one `Expr.Block`, or one `Expr.Template`.
+
+Consecutive surface forms do not feed multiple provider parameters to the same
+macro invocation. This keeps the macro boundary closer to Rust's single
+delimited-input macro model than Scala's multiple-parameter-list macro model.
+
+Rejected as one macro invocation:
+
+```cos
+A(1) { check }
+```
+
+If `A(1)` selects a macro, the selected input is only:
+
+```text
+Expr.Args(
+  receiver = None,
+  positional = [Expr.Int(1)],
+  named = [],
+)
+```
+
+The trailing `{ check }` is not passed as a second macro payload. A later
+capability may define how an already-expanded result accepts a following block,
+but that is not part of this expression macro input boundary.
+
+When a macro needs both arguments and block-like data, the source must encode
+them inside one payload. For example:
+
+```cos
+A(args: (1), body: { check })
+```
+
+feeds one argument payload whose named values contain structured expressions:
+
+```text
+Expr.Args(
+  receiver = None,
+  positional = [],
+  named = [
+    "args" -> Expr.Args(
+      receiver = None,
+      positional = [Expr.Int(1)],
+      named = [],
+    ),
+    "body" -> Expr.Block(
+      receiver = None,
+      statements = [Expr.Name("check")],
+    ),
+  ],
+)
+```
 
 == Macro Input Shapes
 
@@ -132,11 +188,10 @@ input =
 ```
 
 Block-attached syntax feeds a block payload. Lookup has already selected the
-macro provider; a receiver from the selected target is preserved when the
-surface form has one:
+macro provider:
 
 ```cos
-val field = j.path { self.field }
+val field = path { self.field }
 ```
 
 ```text
@@ -145,7 +200,7 @@ resolved provider =
 
 input =
   Expr.Block(
-    receiver = Some(Expr.Name("j")),
+    receiver = None,
     statements = [
       Expr.Select(Expr.Name("self"), "field"),
     ],
@@ -220,19 +275,17 @@ val xs = vec(1, 2, 3)
 ```
 
 The same boundary can describe a block-attached application. The macro inspects
-the input expression to get the optional receiver and block body; the body is
-structured `Expr[Untyped]` data, not raw source text and not a checked
-expression:
+the input expression to get the block body; the body is structured
+`Expr[Untyped]` data, not raw source text and not a checked expression:
 
 ```cos
-val field = j.path { self.field }
+val field = path { self.field }
 ```
 
 ```text
 @macro def path(input: Expr[Untyped]): Expr[Untyped] = {
-  val receiver = input.block().receiver
   val body = input.block().statements
-  val output = build_path_access(receiver, body)
+  val output = build_path_access(body)
   return output
 }
 ```
@@ -258,6 +311,7 @@ Rejected provider API shapes:
 Expr[Any] -> Expr[Any]
 Expr[i32] -> Expr[Vec[i32]]
 List[Expr[Untyped]] -> Expr[Untyped]
+Args, Block -> Expr[Untyped]
 Call(path: PathRef, args: List[Expr[Untyped]]) -> Expr[Untyped]
 Apply(target: Expr[Untyped], args: List[Expr[Untyped]]) -> Expr[Untyped]
 TokenStream -> TokenStream
@@ -266,7 +320,8 @@ TokenStream -> TokenStream
 The rejected examples either confuse untyped source expressions with an
 object-language top type, imply typed quotation, claim checked output, add a
 separate public context value, force macros into a pre-extracted argument-list,
-function-call shape, or generic apply shape, or bypass the Cosmo parser.
+multiple provider parameters, function-call shape, or generic apply shape, or
+bypass the Cosmo parser.
 
 == Review Rules
 
@@ -279,6 +334,7 @@ Macro expression proposals must preserve these rules:
   already checked.
 - expression macro provider input is `Expr[Untyped]`, not a separate context
   value, raw token stream, or pre-extracted argument list.
+- an expression macro consumes exactly one provider-facing payload.
 - provider-facing macro input normalizes to `Expr.Args`, `Expr.Block`, or
   `Expr.Template`, not call or apply nodes.
 - generated expression output must be deterministic and must re-enter ordinary
