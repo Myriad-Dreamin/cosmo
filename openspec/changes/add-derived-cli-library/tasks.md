@@ -8,8 +8,8 @@
 ## 2. Macro Provider
 
 - [ ] 2.1 Register `cli.Parser`, `cli.Args`, and `cli.Subcommand` derive providers.
-- [ ] 2.2 Generate `schema()` and `parse(args: Vec[String])` methods for a simple parser struct.
-- [ ] 2.3 Generate typed extraction and target struct construction from `CliMatches`.
+- [ ] 2.2 Generate `cli.Parser for T` implementation records for a simple parser struct.
+- [ ] 2.3 Generate typed extraction and target struct construction from `CliMatches` inside the trait implementation.
 - [ ] 2.4 Add compile-time diagnostics for duplicate flags, unsupported types, ambiguous positionals, invalid subcommands, and unconsumed attributes.
 - [ ] 2.5 Add generated-source golden tests for representative derived CLI declarations.
 

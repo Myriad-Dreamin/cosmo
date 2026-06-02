@@ -2,14 +2,15 @@
 
 ### Requirement: Derived Parser Surface
 
-Cosmo SHALL provide a source-facing CLI derive API that generates typed parsers
-from annotated declarations.
+Cosmo SHALL provide a source-facing CLI derive API that generates
+implementations of existing CLI traits from annotated declarations.
 
-#### Scenario: Parser derive generates parse method
+#### Scenario: Parser derive generates parser trait implementation
 
 - **WHEN** a class is annotated with `@derive(cli.Parser)`
-- **THEN** macro expansion generates a public `parse(args: Vec[String]): Result[Self, CliError]` entry point for that class
-- **AND** the generated parser constructs the annotated class from parsed argument values
+- **THEN** macro expansion generates an implementation of the existing `cli.Parser` trait for that class
+- **AND** the implementation constructs the annotated class from parsed argument values
+- **AND** no new `parse` member or top-level parse function is added to ordinary name resolution
 
 #### Scenario: Args derive can be flattened
 
@@ -80,18 +81,18 @@ process exit from the library by default.
 
 #### Scenario: Valid arguments construct parser struct
 
-- **WHEN** `Cli::parse(args)` receives valid arguments for the derived schema
+- **WHEN** `cli.Parser.parse[Cli](args)` receives valid arguments for the derived schema
 - **THEN** it returns `Result[Cli, CliError]::Ok` containing the typed parser struct
 
 #### Scenario: Invalid arguments return structured error
 
-- **WHEN** `Cli::parse(args)` receives an unknown option, missing value, invalid value, or missing required argument
+- **WHEN** `cli.Parser.parse[Cli](args)` receives an unknown option, missing value, invalid value, or missing required argument
 - **THEN** it returns `Result[Cli, CliError]::Err`
 - **AND** the error includes a renderable message and intended process exit code
 
 #### Scenario: Help and version are structured
 
-- **WHEN** `Cli::parse(args)` receives help or version arguments handled by the CLI backend
+- **WHEN** `cli.Parser.parse[Cli](args)` receives help or version arguments handled by the CLI backend
 - **THEN** it returns a structured result that lets the program print the backend-rendered text and exit with the conventional successful status
 
 ### Requirement: Typed Defaults

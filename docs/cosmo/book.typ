@@ -23,6 +23,7 @@
     #prefix-chapter("mltt-problem-ladder.typ")[MLTT Problem Ladder]
     #prefix-chapter("spec.typ")[cosmo0 Specification]
     #prefix-chapter("macro-expr.typ")[cosmo0 Macro Expressions]
+    #prefix-chapter("derive-macro.typ")[cosmo0 Derive Macros]
     #prefix-chapter("compile-time-evaluation.typ")[cosmo0 Compile-Time Evaluation]
   ],
 )
