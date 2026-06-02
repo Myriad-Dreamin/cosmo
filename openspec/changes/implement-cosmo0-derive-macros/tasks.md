@@ -34,9 +34,13 @@
   checking where possible.
 - [ ] 4.2 Reject duplicate or conflicting trait implementations for the same
   target item.
-- [ ] 4.3 Attach valid generated implementations without adding names to the
+- [ ] 4.3 Build an implementation fact index from source impls and
+  derive-generated implementation attachments.
+- [ ] 4.4 Attach valid generated implementations without adding names to the
   ordinary declaration index.
-- [ ] 4.4 Add generated implementation summaries for tests and debugging.
+- [ ] 4.5 Add method-set facts for receiver type and selector name where
+  derive-generated impls can contribute trait or extension candidates.
+- [ ] 4.6 Add generated implementation summaries for tests and debugging.
 
 ## 5. Fixtures And Validation
 
@@ -44,9 +48,13 @@
   existing trait through a generated implementation.
 - [ ] 5.2 Add coverage proving derive does not make a new method or top-level
   name resolvable.
-- [ ] 5.3 Add unsupported target, unsupported trait, invalid output,
+- [ ] 5.3 Add coverage proving trait uses wait for derive-generated impl facts
+  without rerunning ordinary name resolution.
+- [ ] 5.4 Add coverage proving method-like selector resolution waits for
+  method-set facts when trait or extension lookup can contribute candidates.
+- [ ] 5.5 Add unsupported target, unsupported trait, invalid output,
   duplicate-impl, unresolved provider, and unconsumed attribute fixtures.
-- [ ] 5.4 Verify repeated runs produce stable provider input, output,
+- [ ] 5.6 Verify repeated runs produce stable provider input, output,
   diagnostics, and summaries.
-- [ ] 5.5 Run the relevant cosmo0 tests and `scripts/check-scala-style.sh` if
+- [ ] 5.7 Run the relevant cosmo0 tests and `scripts/check-scala-style.sh` if
   Scala sources are edited.

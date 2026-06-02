@@ -17,6 +17,8 @@ resolve names before derive expansion affects trait satisfaction.
 - Accept only generated trait implementation records for the target item.
 - Validate generated implementations through the ordinary trait/impl checker.
 - Keep ordinary name resolution unchanged by derive expansion.
+- Feed derive-generated implementation facts into trait resolution and
+  method-set selector resolution.
 - Emit deterministic diagnostics and generated implementation summaries.
 
 **Non-Goals:**
@@ -60,6 +62,13 @@ trait/target identities or enough reflected field/type facts.
 Because derive output cannot introduce names, the ordinary binding set remains
 the same before and after derive expansion. Later code can use the generated
 capability only through trait APIs whose names were already resolved.
+
+Derive output still affects trait resolution. A generated implementation
+attachment contributes an `ImplFact(trait for target)` to the implementation
+fact index. Type checking that needs that trait evidence waits for the fact.
+Method-like selector resolution also waits for `MethodSetFact(receiver,
+selector)` when trait or extension lookup can contribute candidates, because
+derive-generated impls may add candidates to that method set.
 
 Alternative considered: allow derive output to add members, then rerun name
 resolution. That makes the first implementation much larger and overlaps with

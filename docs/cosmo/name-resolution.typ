@@ -52,11 +52,12 @@ ResolveHead("value") -> Binding(value)
 
 The selector `.expand` is not classified by string name. It is resolved after
 the compiler has the facts required by selector lookup, such as the receiver
-type or namespace kind:
+type, namespace kind, or method-set facts:
 
 ```text
 Binding(value)
   -> TypeFact(value)
+  -> MethodSetFact(TypeFact(value), "expand") when trait or extension lookup can contribute
   -> ResolveSelector(receiver = value, selector = "expand")
   -> ordinary method, extension method, associated item, or macro provider
 ```
@@ -81,6 +82,13 @@ The resolver tracks facts separately from the final typed tree:
   accepted input/output shape.
 - `ExecutableProviderFact`: a macro provider host artifact has been checked and
   compiled for compile-time execution.
+- `ImplFact`: an existing trait is implemented for an existing target item.
+  These facts may come from source `impl` declarations or from derive-generated
+  implementation attachments.
+- `MethodSetFact(receiver, selector)`: the selector candidates available for a
+  receiver type and selector name after inherent methods, admitted extension
+  methods, source impl facts, and derive-generated impl facts have been
+  accounted for.
 
 A delayed obligation declares the facts it needs. An obligation becomes
 runnable when those facts are available. This model lets `pkg.Type.member`,
@@ -100,9 +108,11 @@ source items:
    and function parameter scopes;
 5. resolve the leading segment of type paths, expression names, selector
    receivers, variant constructors, macro provider paths, and local references;
-6. run delayed suffix, selector, provider, and foreign-namespace obligations
+6. collect source impl facts and derive-generated impl facts into implementation
+   and method-set indexes;
+7. run delayed suffix, selector, provider, and foreign-namespace obligations
    when their required facts are available;
-7. report unresolved, duplicate, conflicting alias, failed obligation, and
+8. report unresolved, duplicate, conflicting alias, failed obligation, and
    unsupported-cycle diagnostics before lowering.
 
 Repeated input order must not change the final alias/header set, diagnostic
@@ -163,6 +173,31 @@ checked as an ordinary call.
 A free `@macro def expand(...)` in scope does not by itself match every
 `.expand` selector. The selected member, method, or extension lookup result must
 resolve to that provider.
+
+Selector resolution is delayed only as far as its lookup rules require. An
+inherent method on the receiver type can be selected as soon as the receiver
+type and class/member method index are known. A selector that may be supplied by
+trait or extension lookup must wait for the relevant method-set fact:
+
+```text
+ResolveSelector(x.parse)
+  waits for TypeFact(x)
+  waits for MethodSetFact(TypeFact(x), "parse") when trait or extension lookup can contribute
+```
+
+`MethodSetFact(T, "parse")` includes candidates from source impls and
+derive-generated impls for `T`. Therefore derive expansion may affect selector
+resolution and trait-resolution obligations even though it does not add ordinary
+name-resolution bindings. Implementations may conservatively wait for the full
+`ImplFactIndex(T)` before resolving a selector, but the semantic dependency is
+only on facts that can contribute to that receiver type and selector name.
+
+For example, if `@derive(cli.Parser)` attaches `cli.Parser for Config`, then
+`cli.Parser.parse[Config](args)` uses ordinary name resolution for `cli.Parser`
+and `Config`, but the call type-checking waits for `ImplFact(cli.Parser for
+Config)`. If a method-like form such as `config.parse()` is admitted through a
+trait or extension API, its selector target similarly waits for
+`MethodSetFact(Config, "parse")`.
 
 == Top-Level And Block-Local Scheduling
 

@@ -33,9 +33,20 @@ selects a macro provider target.
 #### Scenario: Method-like selector resolves to macro provider
 
 - **WHEN** `value.expand(2)` is parsed
-- **AND** receiver facts make member, method, or extension lookup runnable
+- **AND** receiver type facts make member lookup runnable
+- **AND** method-set facts are available when trait or extension lookup can
+  contribute `.expand` candidates
 - **AND** that lookup resolves `.expand` to a macro provider
 - **THEN** cosmo0 classifies the expression as a macro invocation
+
+#### Scenario: Derive-generated impl contributes method-like macro provider
+
+- **WHEN** a derive-generated implementation contributes a trait or extension
+  method named `.expand` for the receiver type
+- **THEN** method-like macro classification waits for the corresponding
+  method-set fact
+- **AND** the selector is classified only after that fact resolves `.expand` to
+  a macro provider
 
 #### Scenario: Free macro does not match selector by text
 

@@ -59,6 +59,38 @@ name-resolution environment in the first slice.
 - **AND** the derive output supplies implementation evidence rather than a new
   binding
 
+### Requirement: Derive Contributes Trait Implementation Facts
+
+cosmo0 derive expansion SHALL contribute implementation facts that can be used
+by trait resolution and selector method-set resolution.
+
+#### Scenario: Generated impl fact satisfies trait use
+
+- **WHEN** `@derive(cli.Parser)` attaches an implementation for `Config`
+- **AND** later source requires `cli.Parser for Config`
+- **THEN** trait resolution waits for and consumes the derive-generated
+  `ImplFact(cli.Parser for Config)`
+- **AND** ordinary name resolution is not rerun
+
+#### Scenario: Method-like selector waits for method-set fact
+
+- **WHEN** a method-like selector such as `config.parse()` can be supplied by a
+  trait or extension implementation
+- **THEN** selector resolution waits for `TypeFact(config)`
+- **AND** it waits for the method-set fact for the receiver type and selector
+  name when trait or extension lookup can contribute candidates
+- **AND** derive-generated implementation facts are included in that method-set
+  fact
+
+#### Scenario: Derive input does not depend on trait resolution
+
+- **WHEN** cosmo0 builds derive input in the first derive slice
+- **THEN** the input may depend on declaration headers, selected trait identity,
+  target item identity, fields, variants, attributes, defaults, doc comments,
+  and admitted type facts
+- **AND** it does not depend on arbitrary body checking or trait-resolution
+  facts unless a later capability admits explicit inspector dependencies
+
 ### Requirement: Derive Input Uses Existing Item Facts
 
 cosmo0 SHALL build derive input from compiler-selected facts for the annotated

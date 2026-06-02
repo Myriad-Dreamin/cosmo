@@ -11,13 +11,15 @@
 
 - [ ] 2.1 Classify free call macro sites only when ordinary callee resolution
   selects a macro provider.
-- [ ] 2.2 Classify method-like macro sites only after receiver facts make
-  member, method, or extension lookup runnable.
-- [ ] 2.3 Classify block-attached sites only after target lookup selects a
+- [ ] 2.2 Classify method-like macro sites only after receiver type facts make
+  inherent member lookup runnable.
+- [ ] 2.3 Wait for method-set facts keyed by receiver type and selector name
+  when trait or extension lookup can contribute method-like macro candidates.
+- [ ] 2.4 Classify block-attached sites only after target lookup selects a
   macro provider.
-- [ ] 2.4 Classify template/interpolation sites only after tag lookup selects a
+- [ ] 2.5 Classify template/interpolation sites only after tag lookup selects a
   macro provider.
-- [ ] 2.5 Reject textual macro matching and unsupported payload shapes with
+- [ ] 2.6 Reject textual macro matching and unsupported payload shapes with
   stable diagnostics.
 
 ## 3. Payload Construction

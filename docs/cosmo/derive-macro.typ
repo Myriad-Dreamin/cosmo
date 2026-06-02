@@ -141,6 +141,51 @@ The attachment phase validates:
 Because the output is an implementation attachment, not a new declaration, the
 ordinary declaration index is unchanged by derive expansion.
 
+== Trait Resolution Dependency
+
+Derive output may affect trait resolution even though it does not affect
+ordinary name resolution. A generated implementation contributes an
+implementation fact:
+
+```text
+ImplFact(trait = cli.Parser, target = Config)
+```
+
+The implementation fact index is built from both source impl declarations and
+derive-generated implementation attachments:
+
+```text
+ImplFactIndex =
+  source impls
+  + derive-generated impls
+```
+
+Type checking of an item that requires trait evidence depends on the relevant
+implementation fact. For example:
+
+```cos
+val config = cli.Parser.parse[Config](args)
+```
+
+uses ordinary name resolution for `cli.Parser` and `Config`, but it cannot
+finish trait resolution until `ImplFact(cli.Parser for Config)` is available.
+If a method-like trait API such as `config.parse()` is admitted, selector
+resolution must also wait for the method-set fact that can include
+derive-generated impls:
+
+```text
+ResolveSelector(config.parse)
+  waits for TypeFact(config)
+  waits for MethodSetFact(Config, "parse")
+```
+
+The first derive slice keeps derive input smaller than this output dependency:
+derive expansion may depend on declaration header facts, selected trait
+identity, target item identity, fields, variants, attributes, defaults, doc
+comments, and admitted type facts. It must not depend on arbitrary body checking
+or trait-resolution facts unless a later inspector capability adds explicit
+dependency edges.
+
 == Diagnostics
 
 Derive diagnostics must point both to the derive attribute and to the target
