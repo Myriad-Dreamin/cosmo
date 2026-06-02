@@ -4,7 +4,9 @@
 - [ ] 1.2 Add `docs/cosmo/compile-time-evaluation.typ` covering macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
 - [ ] 1.3 Link macro documentation from `docs/cosmo/spec.typ`, include it in the website book summary, and update the docs validation script.
 - [ ] 1.4 Add examples for `@derive(...)`, declaration attributes, expression macros, generated output, and unsupported macro shapes.
-- [ ] 1.5 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
+- [ ] 1.5 Document that first-slice derive output attaches trait implementations
+  without adding new ordinary name-resolution bindings.
+- [ ] 1.6 Document the first compiler-hosted provider boundary and the future self-hosted provider path.
 
 ## 2. Syntax And Attribute Preservation
 
@@ -32,8 +34,8 @@
 
 - [ ] 5.1 Add a package pipeline phase that runs after declaration-shape collection and before body checking/lowering.
 - [ ] 5.2 Add a macro provider registry keyed by resolved derive/provider paths.
-- [ ] 5.3 Define the provider input/output contract: serialized macro function input in, generated declaration trees and diagnostics out.
-- [ ] 5.4 Integrate generated declarations into name resolution and type checking.
+- [ ] 5.3 Define the provider input/output contract: serialized macro function input in, generated artifacts and diagnostics out.
+- [ ] 5.4 Integrate first-slice derive implementation attachments into trait checking without rebuilding ordinary name resolution.
 - [ ] 5.5 Add generated-span plumbing for diagnostics and generated-source summaries.
 
 ## 6. Compile-Time Evaluation Boundary
@@ -55,7 +57,7 @@
 
 ## 8. Derive Provider Smoke Path
 
-- [ ] 8.1 Implement a minimal compiler-hosted derive provider that generates a simple static method from reflected fields.
-- [ ] 8.2 Add positive tests proving user code can call the generated method.
+- [ ] 8.1 Implement a minimal compiler-hosted derive provider that generates a simple trait implementation from reflected fields.
+- [ ] 8.2 Add positive tests proving user code can use the generated trait implementation through an already-resolved trait API.
 - [ ] 8.3 Add negative tests for unresolved derive provider paths and unsupported target types.
 - [ ] 8.4 Add end-to-end tests that keep generated code in ordinary checking and C++ backend paths.

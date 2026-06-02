@@ -16,13 +16,13 @@ schema, RPC, and test-discovery libraries.
 
 **Goals:**
 
-- Add a macro expansion phase that can generate ordinary cosmo0 declarations.
+- Add a macro expansion phase that can generate validated cosmo0 artifacts.
 - Support custom derive macros on classes and sum types.
 - Preserve macro-owned attributes on declarations, fields, variants, and
   functions long enough for macro providers to inspect them.
 - Provide typed reflection metadata for derive providers.
 - Keep generated output deterministic and reviewable.
-- Give generated declarations stable names and diagnostics with source spans.
+- Give generated artifacts stable origins and diagnostics with source spans.
 - Allow a compiler-hosted macro provider implementation as the first bridge.
 - Keep the macro contract compatible with later self-hosted macro packages.
 - Define how macro providers are computed instead of leaving provider execution
@@ -38,6 +38,8 @@ schema, RPC, and test-discovery libraries.
 
 - Add arbitrary expression quotation or function-like expression macros in the
   first slice.
+- Let first-slice derive macros add new top-level declarations, members, fields,
+  variants, classes, aliases, or ordinary name-resolution bindings.
 - Define macro semantics where output depends on ambient filesystem, command,
   network, time, randomness, or runtime effects.
 - Require all macro providers to be written in Cosmo before the macro execution
@@ -64,14 +66,19 @@ attributes. They should not need fully checked function bodies.
 Alternative considered: run macros directly during parsing. That cannot support
 type-aware derives such as CLI value parsing or future serialization derives.
 
-Alternative considered: run macros after complete type checking. That makes
-generated methods unavailable to name resolution and type checking of user code.
+Alternative considered: run all macros after complete type checking. That makes
+generated artifacts unavailable to later checking. First-slice derive output is
+more constrained: it attaches trait implementations without adding new names,
+so it can run after declaration indexing without forcing ordinary name
+resolution to be rebuilt.
 
-### Treat Derived Code As Ordinary Generated Declarations
+### Treat Generated Output As Structured Artifacts
 
-A macro provider should return generated declarations plus diagnostics, not a
-private backend hook. The generated declarations then enter the same
-resolution, checking, lowering, and backend paths as hand-written declarations.
+A macro provider should return structured generated artifacts plus diagnostics,
+not a private backend hook. General declaration macros may return generated
+declarations in a later slice. First-slice derive providers return trait
+implementation attachments that enter ordinary impl validation without changing
+the declaration index.
 
 Alternative considered: special-case each derive in the compiler. That would
 ship features quickly but would make every library derive a compiler feature.
@@ -90,9 +97,10 @@ macro providers re-parse syntax and would produce weaker diagnostics.
 ### Use Conservative Hygiene
 
 Generated helper names should be fresh by default and should not shadow user
-names silently. When a macro intentionally exposes a generated member such as
-`Cli::parse`, the provider must declare that public output and conflict with
-user declarations deterministically.
+names silently. First-slice derive macros avoid this issue by not exposing new
+members or top-level declarations at all. Later declaration macros that expose
+public generated names must declare that output and conflict with user
+declarations deterministically.
 
 Alternative considered: let generated text behave exactly like pasted source.
 That is easy to implement but quickly creates fragile name-capture behavior.
@@ -101,8 +109,8 @@ That is easy to implement but quickly creates fragile name-capture behavior.
 
 The first implementation may register macro providers in Scala-side cosmo0
 infrastructure. The provider contract should still be specified in source terms:
-metadata in, generated declarations and diagnostics out. This lets the CLI
-derive prove the macro system before self-hosted macro packages exist.
+metadata in, generated artifacts and diagnostics out. This lets the CLI derive
+prove the macro system before self-hosted macro packages exist.
 
 Alternative considered: require self-hosted Cosmo macro execution first. That
 would make the CLI library depend on a larger compiler bootstrapping problem.

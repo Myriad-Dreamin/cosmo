@@ -3,19 +3,19 @@
 ### Requirement: Deterministic Macro Expansion Phase
 
 cosmo0 SHALL provide a deterministic macro expansion phase that turns accepted
-macro decorators into ordinary generated declarations before type checking and
-lowering depend on those declarations.
+macro decorators into validated generated artifacts before type checking and
+lowering depend on those artifacts.
 
-#### Scenario: Derive expands before generated method use
+#### Scenario: Derive attaches trait implementation before trait use
 
-- **WHEN** a class annotated with `@derive(example.MakeParse)` generates a public static `parse` method
-- **THEN** later source in the same package can resolve and type-check calls to that generated method
-- **AND** the generated method enters ordinary lowering and backend emission
+- **WHEN** a class annotated with `@derive(example.MakeParse)` generates an implementation of an existing trait for that class
+- **THEN** later source in the same package can type-check uses that require the trait implementation
+- **AND** the derive output does not add a new top-level name or target member to ordinary name resolution
 
 #### Scenario: Repeated expansion is stable
 
 - **WHEN** the same package is checked twice with the same macro providers and source inputs
-- **THEN** macro expansion produces the same generated declarations, diagnostics, and generated-source summary order
+- **THEN** macro expansion produces the same generated artifacts, diagnostics, and generated-source summary order
 
 ### Requirement: Macro Attribute Preservation
 
@@ -31,7 +31,7 @@ shapes until the macro expansion phase consumes or rejects them.
 
 - **WHEN** a macro attribute uses an unsupported argument shape for the selected provider
 - **THEN** expansion reports a macro diagnostic at the attribute span
-- **AND** generated declarations for that macro invocation are not accepted
+- **AND** generated artifacts for that macro invocation are not accepted
 
 ### Requirement: Macro Provider Registry
 
@@ -63,8 +63,8 @@ instead of by executing arbitrary target program code.
 #### Scenario: Provider returns bounded macro output
 
 - **WHEN** a macro provider finishes evaluation
-- **THEN** it returns generated declarations, consumed attributes, diagnostics, and optional generated-source summary data
-- **AND** later compiler phases accept only the generated declarations that pass ordinary validation
+- **THEN** it returns generated artifacts, consumed attributes, diagnostics, and optional generated-source summary data
+- **AND** later compiler phases accept only generated artifacts that pass ordinary validation
 
 #### Scenario: Provider attempts target runtime execution
 
@@ -80,7 +80,7 @@ input supplied by cosmo0.
 #### Scenario: Compiler reruns a macro function
 
 - **WHEN** cosmo0 evaluates the same macro function repeatedly with the same provider identity, serialized macro function input, C++ imports, provider source, target settings, and toolchain identity
-- **THEN** each evaluation is required to produce the same generated declarations, expression output, consumed attributes, diagnostics, and generated-source summary data
+- **THEN** each evaluation is required to produce the same generated artifacts, expression output, consumed attributes, diagnostics, and generated-source summary data
 - **AND** cosmo0 may cache, discard, rerun, or compare macro function evaluations
 
 #### Scenario: Macro function depends on hidden state
@@ -99,6 +99,13 @@ generated declaration model rather than unvalidated source text.
 - **WHEN** a macro provider generates a helper method
 - **THEN** the provider output represents that method as a generated declaration tree with generated spans and origin spans
 - **AND** cosmo0 validates the tree before integrating it into the package
+
+#### Scenario: Derive provider returns implementation attachment
+
+- **WHEN** a derive provider generates behavior for a target item in the first derive slice
+- **THEN** the provider output represents that behavior as a generated trait implementation attachment
+- **AND** cosmo0 validates the attachment before integrating it into the package
+- **AND** the attachment does not introduce a new ordinary name-resolution binding
 
 #### Scenario: Raw generated source text is rejected as primary output
 

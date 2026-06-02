@@ -11,7 +11,7 @@ behavior underneath.
 - Add a `cosmo.cli` library with `@derive(cli.Parser)`,
   `@derive(cli.Args)`, and `@derive(cli.Subcommand)` support.
 - Use macro reflection to turn typed structs and sum types into validated CLI
-  schema data and generated `parse(args)` methods.
+  schema data and generated implementations of existing CLI traits.
 - Wrap CLI11 behind a private support boundary so Cosmo source does not depend
   on C++ parser APIs directly.
 - Support the first derived CLI surface: short/long options, bool flags,
@@ -29,7 +29,8 @@ behavior underneath.
 ### New Capabilities
 
 - `core0-derived-cli`: Defines the source-facing derived CLI parser API,
-  attribute semantics, type mapping, generated methods, errors, and validation.
+  attribute semantics, type mapping, generated trait implementations, errors,
+  and validation.
 - `cli11-sys`: Defines the CLI11 support boundary, schema/matches exchange,
   exception handling, dependency staging, and package build integration.
 
@@ -41,8 +42,9 @@ behavior underneath.
 
 ## Impact
 
-- Depends on `introduce-cosmo0-macro-system` for derive expansion, reflection
-  metadata, generated declarations, and attribute consumption.
+- Depends on `introduce-cosmo0-macro-system` and
+  `implement-cosmo0-derive-macros` for derive expansion, reflection metadata,
+  generated trait implementation attachments, and attribute consumption.
 - Adds a new Cosmo library package such as `library/cli` or `library/std/src/cli`
   depending on the final std/package boundary.
 - Adds a CLI11-backed native support component or support-library wrapper.

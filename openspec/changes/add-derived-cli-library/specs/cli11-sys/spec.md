@@ -15,7 +15,7 @@ library rather than exposing CLI11 classes or templates to ordinary Cosmo source
 
 - **WHEN** an external Cosmo package imports the public CLI library
 - **THEN** raw CLI11 wrapper declarations remain private implementation details
-- **AND** the public API is expressed through Cosmo `CliSchema`, `CliMatches`, `CliError`, and derive-generated methods
+- **AND** the public API is expressed through Cosmo `CliSchema`, `CliMatches`, `CliError`, and derive-generated trait implementations
 
 ### Requirement: CLI11 Schema And Match Exchange
 

@@ -23,10 +23,10 @@ has this shape:
 MacroFunctionInput:
   provider identity
   source package identity
-  macro call or macro target identity
+  selected macro payload identity
   reflection facts selected by the compiler
   admitted attributes and defaults selected by the compiler
-  Expr[Untyped] fragments when the macro kind accepts expressions
+  selected Expr[Untyped] macro payload when the macro kind accepts expressions
   source spans and hygiene/origin metadata
   C++ import and execution context
 
@@ -107,10 +107,11 @@ C++ types inside the session. It must not return raw compiler mutation handles.
 
 Macro functions are specified as pure computations over the input supplied by
 cosmo0 and the declared JIT execution context. For the same provider identity,
-source package, macro call or target, compiler-selected input facts, expression
-fragments, C++ imports, provider source, target settings, and toolchain identity,
-repeated evaluation must produce the same generated output, diagnostics,
-generated-source summary, and native support binding metadata.
+source package, selected macro payload, compiler-selected input facts,
+selected Expr[Untyped] macro payload, C++ imports, provider source, target
+settings, and toolchain identity, repeated evaluation must produce the same
+generated output, diagnostics, generated-source summary, and native support
+binding metadata.
 
 The compiler may cache, discard, rerun, parallelize, or compare macro function
 evaluations. `cosmo-jit-sys` can execute ordinary C++ provider code, but if a
@@ -164,9 +165,10 @@ Provider behavior with undefined macro semantics:
 ```text
 var counter = 0
 
-macro provider(input):
+@macro def provider(input: Expr[Untyped]): Expr[Untyped] = {
   counter = counter + 1
   return generatedName("helper_" + counter)
+}
 ```
 
 These examples are not undefined because C++ JIT is incapable of file, random,

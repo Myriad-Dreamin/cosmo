@@ -9,16 +9,19 @@ remain outside the accepted source boundary.
 ## What Changes
 
 - Introduce a deterministic cosmo0 macro expansion phase for source-level
-  generated declarations.
+  generated artifacts.
 - Add accepted decorator storage for macro-owned declaration, field, variant,
   and function metadata instead of rejecting every non-extern decorator.
 - Add custom derive support through `@derive(path)` on class-like declarations
-  and sum types.
+  and sum types, with the first derive slice restricted to attaching existing
+  trait implementations to existing items.
 - Add the compile-time reflection metadata needed by derive macros: type name,
   fields, field types, variants, defaults, attributes, doc comments, visibility,
   and source spans.
 - Define macro hygiene, generated-name behavior, generated span reporting, and
   duplicate/conflict diagnostics.
+- Define that first-slice derive macros do not introduce new ordinary
+  name-resolution bindings.
 - Define a conservative macro execution boundary that is deterministic and does
   not grant arbitrary filesystem, command, network, or runtime side effects.
 - Specify macro functions as pure computations over cosmo0-provided inputs; the
@@ -38,7 +41,7 @@ remain outside the accepted source boundary.
 ### New Capabilities
 
 - `cosmo0-macro-expansion`: Defines macro expansion phases, decorator
-  preservation, generated declarations, hygiene, deterministic expansion, and
+  preservation, generated artifacts, hygiene, deterministic expansion, and
   diagnostics.
 - `cosmo0-derived-reflection`: Defines the reflection metadata and derive macro
   provider contract used by source-level `@derive(...)` macros.
@@ -56,7 +59,7 @@ remain outside the accepted source boundary.
 - Parser and elaborator must preserve accepted macro decorators and reject only
   invalid or unsupported macro shapes.
 - Package checking needs a macro expansion stage before ordinary type checking
-  and lowering consume generated declarations.
+  and lowering consume generated artifacts.
 - Name resolution and diagnostics need generated-span and generated-name support.
 - The first implementation may host macro providers in compiler infrastructure
   before self-hosted macro packages are available.

@@ -24,7 +24,8 @@ palc-style parser later.
   and subcommand behavior.
 - Use CLI11 behind a private support boundary for parsing, help, version, and
   common validation behavior.
-- Generate ordinary Cosmo methods such as `Cli::parse(args)`.
+- Generate implementations of existing CLI traits, used through already
+  name-resolved trait APIs such as `cli.Parser.parse[Cli](args)`.
 - Keep parse errors structured and renderable without forcing immediate process
   exit.
 - Validate schema mistakes at compile time where reflection metadata is enough.
@@ -63,13 +64,13 @@ reported as Cosmo `CliError` data.
 Alternative considered: bind CLI11 classes into Cosmo directly. That would leak
 C++ lifetime, template, and exception behavior into the source-facing API.
 
-### Generate Typed Construction Code
+### Generate Typed Trait Implementation Code
 
 The derive provider should generate code that maps parsed matches into the
-target struct. The CLI backend should not construct arbitrary Cosmo objects by
-reflection. For example, it can return a match table, while generated Cosmo code
-extracts `package`, `output`, or `subcommand` values and calls the struct
-constructor.
+target struct inside a generated trait implementation. The CLI backend should
+not construct arbitrary Cosmo objects by reflection. For example, it can return
+a match table, while generated implementation code extracts `package`,
+`output`, or `subcommand` values and calls the struct constructor.
 
 Alternative considered: have CLI11 construct the final Cosmo struct. That makes
 the support library depend on Cosmo object layout and backend internals.
@@ -132,7 +133,8 @@ creates parse-at-runtime behavior for what should be source-checked.
    `introduce-cosmo0-macro-system`.
 2. Add the Cosmo `cosmo.cli` schema, matches, and error data model.
 3. Add the CLI11 support boundary and deterministic dependency staging.
-4. Implement `@derive(cli.Parser)` for a small single-command struct.
+4. Implement `@derive(cli.Parser)` for a small single-command struct as a
+   generated `cli.Parser for T` implementation.
 5. Add `Args` and `Subcommand` derives.
 6. Migrate `packages/cosmoc/src/main.cos` to derived parsing.
 7. Add fixture packages and CLI golden tests for help, errors, and parsed values.
