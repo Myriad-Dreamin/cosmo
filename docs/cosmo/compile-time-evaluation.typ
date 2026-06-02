@@ -23,10 +23,10 @@ has this shape:
 MacroFunctionInput:
   provider identity
   source package identity
-  macro call or macro target identity
+  selected macro source expression identity
   reflection facts selected by the compiler
   admitted attributes and defaults selected by the compiler
-  Expr[Untyped] fragments when the macro kind accepts expressions
+  selected Expr[Untyped] input when the macro kind accepts expressions
   source spans and hygiene/origin metadata
   C++ import and execution context
 
@@ -107,10 +107,10 @@ C++ types inside the session. It must not return raw compiler mutation handles.
 
 Macro functions are specified as pure computations over the input supplied by
 cosmo0 and the declared JIT execution context. For the same provider identity,
-source package, macro call or target, compiler-selected input facts, expression
-fragments, C++ imports, provider source, target settings, and toolchain identity,
-repeated evaluation must produce the same generated output, diagnostics,
-generated-source summary, and native support binding metadata.
+source package, selected macro source expression, compiler-selected input facts,
+selected Expr[Untyped] input, C++ imports, provider source, target settings, and
+toolchain identity, repeated evaluation must produce the same generated output,
+diagnostics, generated-source summary, and native support binding metadata.
 
 The compiler may cache, discard, rerun, parallelize, or compare macro function
 evaluations. `cosmo-jit-sys` can execute ordinary C++ provider code, but if a

@@ -28,28 +28,121 @@ for an arbitrary object-language result type. Typed facts are requested through
 inspectors such as `Type.of(expr)`, and inspector output does not authorize a
 provider to mark an expression as typed.
 
-== Expression Macro Protocol
+== Expression Macro Function Contract
 
-Expression macros use ordinary Cosmo call syntax. The parser first accepts a
-normal source expression; name resolution decides whether the callee is a
-compile-time provider or an ordinary function.
+Expression macros are macro functions selected from already-parsed source
+expressions. The surface syntax does not have to be a function call. A call
+expression, method-like application, interpolation, block-attached application,
+or another syntax form admitted by a future capability may all select an
+expression macro after parsing and name resolution.
 
-The first protocol shape is:
+The parser first accepts ordinary source syntax. Name resolution and macro
+classification then decide whether the parsed expression targets a compile-time
+provider or an ordinary value-level operation. Macro selection must not depend
+on exposing a raw parser token stream to the provider.
+
+Provider-facing expression macro behavior is specified as a macro function
+implementation shape:
 
 ```text
-ExprMacroInput:
-  path: PathRef
-  args: List[Expr[Untyped]]
-  callSpan: SourceSpan
-
-ExprMacroOutput:
-  expr: Expr[Untyped]
-  diagnostics: List[MacroDiagnostic]
+macro def provider(input: Expr[Untyped]): Expr[Untyped] = {
+  val generated: Expr[Untyped] = ...
+  return generated
+}
 ```
+
+The provider-facing input is the selected source expression as `Expr[Untyped]`.
+The compiler may still record provider identity, source spans, hygiene/origin
+metadata, diagnostics, and execution context in the surrounding macro execution
+record, but those are not a second public provider argument. Call syntax is one
+possible `Expr[Untyped]` shape, not the general macro ABI.
 
 Generated expression output always returns to ordinary type checking. A provider
 may generate a candidate expression, but it cannot manufacture or inject a
 trusted checked expression object.
+
+== Macro Input Shapes
+
+Different surface forms feed different `Expr[Untyped]` shapes to the macro
+function. The shape names below are illustrative; the stable rule is that the
+provider receives one parsed expression value, not raw tokens and not a special
+context value.
+
+Call-like syntax feeds the whole call expression:
+
+```cos
+val xs = vec(1, 2, 3)
+```
+
+```text
+macro def vec(input: Expr[Untyped]): Expr[Untyped]
+
+input =
+  Expr.Call(
+    callee = Expr.Name("vec"),
+    args = [Expr.Int(1), Expr.Int(2), Expr.Int(3)],
+  )
+```
+
+Method-like syntax feeds the selected expression shape, preserving the receiver
+inside the expression:
+
+```cos
+val y = value.expand(2)
+```
+
+```text
+macro def expand(input: Expr[Untyped]): Expr[Untyped]
+
+input =
+  Expr.Call(
+    callee = Expr.Select(Expr.Name("value"), "expand"),
+    args = [Expr.Int(2)],
+  )
+```
+
+Block-attached syntax feeds one expression whose target and block body are both
+part of the parsed expression:
+
+```cos
+val field = j.path { self.field(0) }
+```
+
+```text
+macro def path(input: Expr[Untyped]): Expr[Untyped]
+
+input =
+  Expr.BlockApply(
+    target = Expr.Select(Expr.Name("j"), "path"),
+    body = Expr.Block([
+      Expr.Call(
+        callee = Expr.Select(Expr.Name("self"), "field"),
+        args = [Expr.Int(0)],
+      ),
+    ]),
+  )
+```
+
+Interpolation feeds one interpolation expression. Literal parts are structured
+data inside that expression node, while holes remain `Expr[Untyped]` values:
+
+```cos
+val message = fmt"x $name y"
+```
+
+```text
+macro def fmt(input: Expr[Untyped]): Expr[Untyped]
+
+input =
+  Expr.Interpolate(
+    tag = Expr.Name("fmt"),
+    parts = [
+      Text("x "),
+      Hole(Expr.Name("name")),
+      Text(" y"),
+    ],
+  )
+```
 
 == Typed Inspection
 
@@ -79,32 +172,69 @@ This boundary intentionally does not admit:
 
 == Examples
 
-Accepted macro expression shape once expression macros are admitted:
+Accepted macro function implementation shape once expression macros are
+admitted. Helper method names on `Expr[Untyped]` are illustrative:
+
+```text
+macro def vec(input: Expr[Untyped]): Expr[Untyped] = {
+  val items = input.callArgs()
+  val output = quote_expr(Vec.from_array(Array(..items)))
+  return output
+}
+```
+
+Call-like use is still allowed, but it is only one accepted surface form:
 
 ```cos
 val xs = vec(1, 2, 3)
 ```
 
-Provider-level sketch:
+The same boundary can describe a block-attached application. The macro inspects
+the input expression to get the target and block body; the body is structured
+`Expr[Untyped]` data, not raw source text and not a checked expression:
+
+```cos
+val field = j.path { self.field(0) }
+```
 
 ```text
-vec:
-  List[Expr[Untyped]] -> MacroResult[Expr[Untyped]]
+macro def path(input: Expr[Untyped]): Expr[Untyped] = {
+  val receiver = input.blockTarget()
+  val body = input.blockBody()
+  val output = build_path_access(receiver, body)
+  return output
+}
+```
 
-Type.of(arg0): TypeInfo
+Interpolation may also be admitted without making the source expression look
+like an ordinary call:
+
+```cos
+val message = fmt"x $name y"
+```
+
+```text
+macro def fmt(input: Expr[Untyped]): Expr[Untyped] = {
+  val parts = input.interpolationParts()
+  val output = build_format_expr(parts)
+  return output
+}
 ```
 
 Rejected provider API shapes:
 
 ```text
-List[Expr[Any]] -> Expr[Any]
-List[Expr[i32]] -> Expr[Vec[i32]]
+Expr[Any] -> Expr[Any]
+Expr[i32] -> Expr[Vec[i32]]
+List[Expr[Untyped]] -> Expr[Untyped]
+Call(path: PathRef, args: List[Expr[Untyped]]) -> Expr[Untyped]
 TokenStream -> TokenStream
 ```
 
 The rejected examples either confuse untyped source expressions with an
-object-language top type, imply typed quotation, claim checked output, or bypass
-the Cosmo parser.
+object-language top type, imply typed quotation, claim checked output, add a
+separate public context value, force macros into a pre-extracted argument-list
+or function-call shape, or bypass the Cosmo parser.
 
 == Review Rules
 
@@ -115,5 +245,7 @@ Macro expression proposals must preserve these rules:
 - typed facts come from inspectors such as `Type.of(expr)`.
 - inspector output is read-only and cannot be used to mark generated code as
   already checked.
+- expression macro provider input is `Expr[Untyped]`, not a separate context
+  value, raw token stream, or pre-extracted argument list.
 - generated expression output must be deterministic and must re-enter ordinary
   checking before lowering.
