@@ -11,10 +11,10 @@ functions without approximating C++ execution in a JavaScript host model.
 - **THEN** the provider receives only the explicit macro input admitted by the compile-time evaluation boundary
 - **AND** the provider output is validated through the ordinary macro output contract
 
-#### Scenario: Self-hosted provider uses JIT boundary
+#### Scenario: Self-hosted provider uses CTE compile boundary
 
 - **WHEN** a later self-hosted macro function is compiled for macro execution
-- **THEN** cosmo0 may run it through `cosmo-jit-sys` when it needs C++ compile-time execution
+- **THEN** cosmo0 may run it through `cosmo-cte-sys` when it needs C++ compile-time execution
 - **AND** generated Cosmo output still returns through the macro output protocol before ordinary validation and type checking
 
 ### Requirement: Macro Function Input And Output Records
@@ -64,30 +64,37 @@ value.
 - **THEN** cosmo0 exposes the information through a bounded typer-phase inspector such as `Type.of(expr)`
 - **AND** the inspector returns stable type facts rather than a mutable or constructible `TypedExpr` tree
 
-### Requirement: C++ Compile-Time Execution Uses cosmo-jit-sys
+### Requirement: C++ Compile-Time Execution Uses cosmo-cte-sys
 
 cosmo0 SHALL route C++ compile-time provider execution through
-`cosmo-jit-sys`, backed by clang-repl, rather than a JavaScript host JIT or
-handwritten C++ layout emulation.
+`cosmo-cte-sys`, backed by ordinary Clang provider-entry compilation and
+PCH/precompiled context reuse, rather than clangInterpreter, a JavaScript host
+JIT, or handwritten C++ layout emulation.
 
 #### Scenario: Provider executes C++ at compile time
 
 - **WHEN** a macro function needs to import C++ types, instantiate templates, inspect C++ layout, or execute provider C++ code during compilation
-- **THEN** it runs through a `cosmo-jit-sys` clang-repl session with C++ imports, headers, provider source or generated snippets, target settings, and toolchain identity
-- **AND** `cosmo-jit-sys` returns structured diagnostics, macro output serialization, requested C++ type facts, support binding metadata, and generated artifact summaries
+- **THEN** it runs through a `cosmo-cte-sys` provider-entry compile request with C++ imports, headers, provider source or generated entry snippets, target settings, precompiled context key, and toolchain identity
+- **AND** `cosmo-cte-sys` returns structured diagnostics, macro output serialization, requested C++ type facts, support binding metadata, generated artifact summaries, and precompiled context cache summaries
 - **AND** generated Cosmo output still enters ordinary validation and type checking
+
+#### Scenario: clangInterpreter execution is rejected
+
+- **WHEN** a macro function needs C++ compile-time execution
+- **THEN** cosmo0 does not use clang-repl or clangInterpreter as the semantic execution substrate
+- **AND** provider entry functions are compiled through the Clang compile path
 
 #### Scenario: JavaScript host layout approximation is rejected
 
 - **WHEN** a macro function needs C++ struct, class, template, or ABI-visible type facts
-- **THEN** cosmo0 obtains those facts from Clang through `cosmo-jit-sys`
+- **THEN** cosmo0 obtains those facts from ordinary Clang compile facts through `cosmo-cte-sys`
 - **AND** it does not model C++ structs as JavaScript objects, typed arrays, or handwritten layout tables
 - **AND** it does not guess C++ padding, alignment, bit-field placement, overload resolution, or template instantiation in JavaScript
 
 ### Requirement: Compile-Time Determinism Controls
 
 cosmo0 macro output SHALL be deterministic for repeated evaluation of the same
-cosmo0 input and declared C++ JIT execution context.
+cosmo0 input and declared C++ compile-time execution context.
 
 #### Scenario: Non-pure provider changes macro output
 
@@ -108,7 +115,7 @@ execution and backend mutation.
 #### Scenario: Backend is unavailable during macro evaluation
 
 - **WHEN** a package uses compile-time macro providers and the target backend has not emitted the package executable yet
-- **THEN** macro evaluation can still run through `cosmo-jit-sys`
+- **THEN** macro evaluation can still run through `cosmo-cte-sys`
 - **AND** it does not require compiling or launching the package executable
 
 #### Scenario: Provider attempts direct compiler mutation

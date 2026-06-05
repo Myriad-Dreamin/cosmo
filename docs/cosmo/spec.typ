@@ -61,7 +61,7 @@ The accepted example is intentionally simple: it uses concrete classes, fields, 
 - `derive-macro.typ` owns the first derive macro boundary, where providers may
   attach trait implementations to existing items without adding new names to
   ordinary name resolution.
-- `compile-time-evaluation.typ` owns macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
+- `compile-time-evaluation.typ` owns macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-cte-sys` provider-entry compilation, and target runtime separation.
 - `testing.typ` owns positive, negative, deterministic, and bug regression test policy.
 
 == Conformance Overview

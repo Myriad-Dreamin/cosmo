@@ -9,7 +9,7 @@ Current pages:
   function contracts, typed inspector access, and expression macro non-goals.
 - `docs/cosmo/compile-time-evaluation.typ` owns macro function input/output
   records, macro function purity, full C++ compile-time execution through
-  `cosmo-jit-sys`, and target runtime separation.
+  `cosmo-cte-sys` provider-entry compilation, and target runtime separation.
 
 The original mixed discussion should not be extended here. New macro expression
 or compile-time evaluation changes should update the owning `docs/cosmo/*.typ`

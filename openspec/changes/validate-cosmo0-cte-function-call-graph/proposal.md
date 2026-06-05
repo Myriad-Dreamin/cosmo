@@ -16,11 +16,11 @@ source-order loop.
   including source-order-independent helper lookup.
 - Validate direct and mutual recursive constant function calls by compiling a
   callable strongly connected component as one host artifact.
-- Route execution through the existing `cosmo-jit-sys` request/result boundary
+- Route execution through the existing `cosmo-cte-sys` request/result boundary
   or an adapter-compatible test double.
 - Report deterministic diagnostics for unresolved call heads, unsupported call
-  shapes, unavailable JIT execution, and recursion that does not finish within
-  the validation bounds.
+  shapes, unavailable CTE support, provider-entry compile/execution failure, and
+  recursion that does not finish within the validation bounds.
 - Keep general constant evaluation, arbitrary type-level arithmetic, macro
   providers, generated declarations, and production `const` semantics out of
   scope for this change.
@@ -31,7 +31,7 @@ source-order loop.
 
 - `cosmo0-cte-function-call-graph`: Defines the gated compile-time function
   call graph validation slice, including dependent constant calls, recursive
-  callable SCCs, JIT execution, and stable diagnostics.
+  callable SCCs, provider-entry compile execution, and stable diagnostics.
 
 ### Modified Capabilities
 
@@ -39,7 +39,7 @@ source-order loop.
 
 ## Impact
 
-- Depends on `probe-cosmo0-cte-with-cosmo-jit-sys` for the structured CTE/JIT
+- Depends on `probe-cosmo0-cte-with-cosmo-cte-sys` for the structured CTE compile
   request boundary.
 - Adds a small planner for compile-time callable headers and call obligations.
 - Adds focused fixtures for dependent helper calls, source-order-independent

@@ -31,8 +31,9 @@ schema, RPC, and test-discovery libraries.
   and keep serialized macro function input/output records separate from it.
 - Define typed-expression information as inspector output from the typer phase,
   not as a typed expression tree that macro providers can receive or construct.
-- Define compile-time macro function execution through `cosmo-jit-sys` and
-  clang-repl, without approximating C++ execution in JavaScript.
+- Define compile-time macro function execution through `cosmo-cte-sys`
+  provider-entry compilation with PCH/precompiled context reuse, without using
+  clangInterpreter or approximating C++ execution in JavaScript.
 
 **Non-Goals:**
 
@@ -47,8 +48,8 @@ schema, RPC, and test-discovery libraries.
 - Make runtime reflection a dependency of generated parsers.
 - Admit every existing full-language staging feature into cosmo0.
 - Replace ordinary type checking with macro-time execution.
-- Treat JavaScript host JIT or handwritten C++ layout tables as the source of
-  C++ struct, class, template, or ABI-visible type facts.
+- Treat clangInterpreter, JavaScript host JIT, or handwritten C++ layout tables
+  as the source of C++ struct, class, template, or ABI-visible type facts.
 - Allow macro providers to inspect arbitrary function bodies unless a later
   capability admits quoted expression metadata.
 - Add a multi-stage `Expr[T]` or typed quotation system.
@@ -142,8 +143,9 @@ MacroFunctionOutput:
 The first provider execution host can be Scala-side compiler infrastructure.
 That host is still constrained by the same serialized input/output protocol as
 future self-hosted providers. If provider execution needs C++ type facts or C++
-code execution, it should route through `cosmo-jit-sys` rather than approximating
-C++ in JavaScript or mutating compiler internals directly.
+code execution, it should route through `cosmo-cte-sys` rather than using
+clangInterpreter, approximating C++ in JavaScript, or mutating compiler
+internals directly.
 
 Every macro function is required to be pure with respect to the macro input
 provided by cosmo0. For the same source package, provider identity, admitted
@@ -154,17 +156,21 @@ evaluations. If a macro function depends on hidden mutable state or ambient
 effects and produces different results for the same cosmo0 input, the package
 has undefined behavior.
 
-Macro functions that need C++ capability should run through `cosmo-jit-sys`,
-which owns a clang-repl session. This gives providers Clang's C++ type system,
-template instantiation, layout, alignment, padding, overload resolution, and
-execution semantics during compilation while still returning serialized macro
-function output to the compiler.
+Macro functions that need C++ capability should run through `cosmo-cte-sys`,
+which compiles explicit provider entry functions as ordinary Clang code against
+a declared C++ execution context. Heavy headers and support code should be
+accelerated with PCH, Clang modules, module caches, or an equivalent
+precompiled context. This gives providers Clang's C++ type system, template
+instantiation, layout, alignment, padding, overload resolution, and execution
+semantics during compilation while still returning serialized macro function
+output to the compiler.
 
 Alternative considered: treat macro providers as ordinary JavaScript host
-functions or run them through a JS host JIT. That makes C++ struct/class layout,
-padding, alignment, template instantiation, and ABI-visible type facts an
-approximation, which is exactly the behavior users would later see disagree with
-Clang and the generated C++ backend.
+functions, run them through a JS host JIT, or use clangInterpreter as the
+semantic execution substrate. The JS paths approximate C++ struct/class layout,
+padding, alignment, template instantiation, and ABI-visible type facts. The
+clangInterpreter path can diverge from ordinary Clang compilation and may
+miscompile provider code. Both are rejected as macro semantics.
 
 Alternative considered: only allow hard-coded compiler providers forever. That
 keeps execution controlled but prevents user-defined libraries from owning their
@@ -217,23 +223,28 @@ unreliable.
 Alternative considered: let providers return fully typed expressions. That
 turns macros into a type-checker escape hatch.
 
-### Use `cosmo-jit-sys` For C++ Compile-Time Execution
+### Use `cosmo-cte-sys` For C++ Compile-Time Execution
 
 Compile-time macro function execution should be a separately specified compiler
-boundary backed by `cosmo-jit-sys` when the provider needs C++ semantics. The JIT
-session receives serialized macro function input plus C++ imports, headers,
-include/library context, provider source or generated snippets, target settings,
-and toolchain identity. It returns diagnostics and serialized macro function
-output.
+boundary backed by `cosmo-cte-sys` when the provider needs C++ semantics. The
+adapter receives serialized macro function input plus C++ imports, headers,
+include/library context, provider source or generated entry function snippets,
+target settings, compile options, precompiled context key, and toolchain
+identity. It returns diagnostics and serialized macro function output.
 
-The JIT may execute C++ provider code and inspect imported C++ types, but it
-does not return raw compiler mutation handles. Generated declarations and
-expression fragments still re-enter ordinary validation and type checking.
+The adapter may compile and execute C++ provider code and inspect imported C++
+types, but it does not return raw compiler mutation handles. Generated
+declarations and expression fragments still re-enter ordinary validation and
+type checking.
 
 Alternative considered: use a restricted interpreter over a small macro IR as
 the semantic model. That was attractive for limited attribute evaluation, but it
 does not provide full C++ type import, template instantiation, layout, padding,
 alignment, overload resolution, or C++ code execution.
+
+Alternative considered: use clangInterpreter or clang-repl. That preserves an
+interactive model, but the interpreter path can diverge from ordinary Clang
+compilation and is not accepted as the semantic substrate for macro output.
 
 Alternative considered: use the generated target executable for compile-time
 computation. That confuses provider-host execution with target package runtime
@@ -262,7 +273,7 @@ before the macro use case needs them.
 - Reflection metadata can grow without control -> scope the first metadata set
   to declaration shapes needed by derives.
 - Macro execution can accidentally mutate compiler internals -> keep
-  `cosmo-jit-sys` behind a serialized macro function input/output protocol.
+  `cosmo-cte-sys` behind a serialized macro function input/output protocol.
 - A loose Expr model can leak implementation details across phases -> keep
   `Expr[Untyped]` as an untyped source-expression value and expose typed facts
   only through bounded typer inspectors.
@@ -276,7 +287,7 @@ before the macro use case needs them.
 3. Implement compiler-hosted derive provider registration.
 4. Add serialized macro function input/output records.
 5. Add generated declaration builders and generated-source debug output.
-6. Add deterministic tests for provider execution and JIT boundaries.
+6. Add deterministic tests for provider execution and CTE compile boundaries.
 7. Enable the CLI derive provider as the first end-to-end consumer.
 
 ## Open Questions

@@ -4,14 +4,34 @@
 
 This file owns compile-time macro function execution for cosmo0 macro design.
 The default cosmo0 subset still rejects general macro execution until an
-accepted capability admits it, but the intended execution model is full C++
-compile-time execution through `cosmo-jit-sys`.
+accepted capability admits it. The intended C++ execution model is no longer an
+interpreter-style JIT. Macro functions that need C++ capability run through a
+structured compile-time execution adapter that compiles explicit provider entry
+functions against a cached Clang context.
 
-The central rule is that compile-time execution is not a JavaScript host model
-and not a small interpreter for a reduced expression language. Macro functions
-that need C++ capability run in a `cosmo-jit-sys` clang-repl session. That lets
-providers import C++ types, instantiate templates, observe Clang's layout rules,
-and execute C++ code during compilation.
+The central rule is that compile-time execution is not a JavaScript host model,
+not a small interpreter for a reduced expression language, and not a
+clang-interpreter session. The execution substrate must use Clang as the source
+of C++ semantics while avoiding interpreter APIs whose behavior can diverge
+from normal Clang compilation.
+
+== Why Not clangInterpreter
+
+The first JIT design used a clang-repl / clangInterpreter-style execution
+session. That path is rejected for the macro execution boundary. Interpreter
+execution is a different execution mode from ordinary Clang compilation and can
+miscompile or observe behavior that the final C++ backend would not reproduce.
+Even when it is useful for interactive exploration, it is too risky as the
+semantic substrate for compile-time macro output.
+
+The accepted direction is:
+
+- compile provider entry functions as ordinary Clang translation units or
+  modules;
+- reuse heavy parse state through PCH, precompiled headers, module caches, or an
+  equivalent precompiled context;
+- load and invoke the compiled entry through a stable adapter boundary;
+- accept only serialized macro function output back into the compiler.
 
 == Macro Function Execution
 
@@ -43,80 +63,111 @@ The output record is not a compiler mutation handle. Generated declarations and
 generated expressions are validated, name-resolved, type-checked, and lowered by
 ordinary compiler phases after macro execution.
 
-== C++ JIT Execution
+== C++ Function Compilation Execution
 
-`cosmo-jit-sys` is the compile-time execution substrate for macro functions that
-need C++ semantics. It owns a clang-repl session and exposes enough of Clang's
-model for provider code to:
+`cosmo-cte-sys` is the native compile-time execution substrate for macro
+functions that need C++ semantics. It owns the build-and-execute adapter for
+provider entry functions and exposes enough of Clang's model for provider code
+to:
 
 - include C++ headers;
 - import C++ names and types;
 - instantiate C++ templates;
 - query or depend on C++ layout, alignment, padding, overload resolution, and
   ABI-visible type facts;
-- compile provider snippets and support wrappers;
-- execute C++ code during compilation.
+- compile provider snippets and support wrappers as ordinary Clang code;
+- execute one or more exported provider entry functions during compilation.
 
-This is the semantic reason to use `cosmo-jit-sys` instead of a JavaScript host
-JIT. A JS object, typed-array mirror, or handwritten layout table cannot
-faithfully model C++ object semantics. It can get struct padding, alignment,
-bit-fields, reference lifetime, overload resolution, template instantiation,
-exception behavior, or ABI wrapper details wrong. If a macro provider observes
-that approximation, users see confusing differences between compile-time
-behavior and the C++ code that the compiler later emits or links.
-
-For C++ facts, the source of truth is Clang through `cosmo-jit-sys`, not a JS
-reimplementation of C++ type layout or execution.
-
-== JIT Protocol
-
-The compiler-facing protocol remains structured even though the execution engine
-has full C++ capability. Provider code may execute C++ inside the JIT session,
-while the compiler accepts only the serialized macro function output record from
-the session boundary.
-
-The JIT session accepts explicit inputs:
+The expensive part of C++ compile-time execution is parsing and semantic setup,
+especially for heavy headers. The execution substrate should amortize that cost
+with precompiled inputs:
 
 ```text
-CosmoJitRequest:
+PrecompiledContextKey:
+  C++ standard
+  target triple
+  compiler version
+  include paths
+  headers/imports
+  compile options
+  support library identities
+```
+
+A cached precompiled context may be implemented with PCH, Clang modules, a
+module cache, or another Clang-owned precompiled representation. Provider entry
+functions are then compiled against that context as small translation units.
+
+== Compile Protocol
+
+The compiler-facing protocol remains structured even though the execution
+engine has full C++ capability. Provider code may execute native C++ inside the
+adapter process or loaded artifact, while the compiler accepts only the
+serialized macro function output record from the boundary.
+
+The compile-time execution adapter accepts explicit inputs:
+
+```text
+CosmoCteRequest:
   provider identity
   serialized macro function input
   C++ imports and headers
   include and library search context
-  provider source or generated C++ snippet
+  provider source or generated C++ entry function snippet
   expected exported provider entry points
   target triple and C++ standard
+  compile options and resource limits
+  precompiled context key
   LLVM/Clang toolchain identity
 ```
 
-The JIT session returns structured outputs:
+The adapter returns structured outputs:
 
 ```text
-CosmoJitResult:
+CosmoCteResult:
   diagnostics
   serialized macro function output
   imported C++ type facts requested by the provider
   support binding metadata when generated code needs native support
   generated artifact summary
+  precompiled context cache summary
 ```
 
-The JIT may execute code, allocate objects, call provider helpers, and inspect
-C++ types inside the session. It must not return raw compiler mutation handles.
+The adapter may compile code, load a dynamic artifact, call provider helpers,
+and inspect C++ types through Clang-owned facts. It must not return raw compiler
+mutation handles.
+
+== Single-Function Compile Path
+
+The first accepted execution path should prove one small provider entry at a
+time:
+
+```text
+serialized MacroFunctionInput
+  -> generate provider_entry.cpp
+  -> compile provider_entry.cpp against cached PCH/precompiled context
+  -> load/call exported provider entry
+  -> return serialized MacroFunctionOutput
+```
+
+The provider entry should be small and deterministic. Shared heavy support code
+belongs in the precompiled context or a separately built support library, not in
+every generated function snippet.
 
 == Purity Contract
 
 Macro functions are specified as pure computations over the input supplied by
-cosmo0 and the declared JIT execution context. For the same provider identity,
+cosmo0 and the declared C++ execution context. For the same provider identity,
 source package, selected macro payload, compiler-selected input facts,
 selected Expr[Untyped] macro payload, C++ imports, provider source, target
-settings, and toolchain identity, repeated evaluation must produce the same
-generated output, diagnostics, generated-source summary, and native support
-binding metadata.
+settings, compile options, precompiled context key, and toolchain identity,
+repeated evaluation must produce the same generated output, diagnostics,
+generated-source summary, and native support binding metadata.
 
 The compiler may cache, discard, rerun, parallelize, or compare macro function
-evaluations. `cosmo-jit-sys` can execute ordinary C++ provider code, but if a
-provider uses hidden mutable state or ambient effects to produce different macro
-output for the same cosmo0 input, package behavior is undefined.
+evaluations. The native execution adapter can execute ordinary C++ provider
+code, but if a provider uses hidden mutable state or ambient effects to produce
+different macro output for the same cosmo0 input, package behavior is
+undefined.
 
 == Target Runtime Separation
 
@@ -124,22 +175,30 @@ Compile-time evaluation is real C++ execution in the provider host, but it is
 not execution of the target package binary. It must be possible to run macro
 functions before the target backend emits the package executable.
 
-A provider may use clang-repl to execute provider code and imported C++ support
-code. It may not treat that as permission to patch typed modules, lowering IR,
-backend state, or compiler global state outside the serialized macro function
-output protocol.
+A provider may use the compile-time execution adapter to execute provider code
+and imported C++ support code. It may not treat that as permission to patch
+typed modules, lowering IR, backend state, or compiler global state outside the
+serialized macro function output protocol.
 
 == Examples
 
-Accepted C++ JIT execution shape:
+Accepted C++ compile-time execution shape:
 
 ```text
 macro function execution:
-  start a cosmo-jit-sys clang-repl session
-  import <vector>, <optional>, or project headers
-  instantiate and inspect C++ types with Clang layout rules
-  execute provider C++ code
+  build or reuse a PCH/precompiled context for <vector>, <optional>, or project headers
+  compile a small provider entry function against that context with Clang
+  load and execute the compiled entry
   return serialized macro function output
+```
+
+Rejected clang interpreter shape:
+
+```text
+macro function execution:
+  start a clang-repl or clangInterpreter session
+  incrementally interpret provider snippets
+  trust interpreter behavior as macro semantics
 ```
 
 Rejected host approximation shape:
@@ -151,8 +210,8 @@ macro function execution:
   run macro logic against the guessed layout
 ```
 
-The rejected shape makes compile-time behavior diverge from Clang's C++ layout
-and ABI model.
+The rejected shapes make compile-time behavior diverge from ordinary Clang C++
+compilation and ABI rules.
 
 Provider behavior with undefined macro semantics:
 
@@ -171,20 +230,22 @@ var counter = 0
 }
 ```
 
-These examples are not undefined because C++ JIT is incapable of file, random,
-time, or mutable-state access. They are undefined when those effects change the
-macro output for the same cosmo0 input.
+These examples are not undefined because native C++ execution is incapable of
+file, random, time, or mutable-state access. They are undefined when those
+effects change the macro output for the same cosmo0 input.
 
 == Review Rules
 
 Compile-time evaluation proposals must preserve these rules:
 
-- macro functions that need C++ type facts or C++ code execution use
-  `cosmo-jit-sys`;
+- macro functions that need C++ type facts or C++ code execution use a
+  Clang-backed compile-time execution adapter, not clangInterpreter;
 - C++ type layout, padding, alignment, templates, and overload rules come from
-  Clang, not from a JavaScript host approximation;
+  ordinary Clang compilation facts, not from a JavaScript host approximation;
+- provider entry functions are compiled against a declared C++ execution
+  context, preferably accelerated by PCH or an equivalent precompiled context;
 - macro function output is pure with respect to cosmo0-provided input and the
-  declared JIT execution context;
-- JIT execution does not directly mutate compiler typed modules, lowering IR,
-  backend state, or global compiler state;
+  declared C++ execution context;
+- native compile-time execution does not directly mutate compiler typed modules,
+  lowering IR, backend state, or global compiler state;
 - generated code still enters ordinary validation and type checking.
