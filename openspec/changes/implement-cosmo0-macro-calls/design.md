@@ -29,7 +29,7 @@ ordinary rechecking.
 
 - Implement custom derive macros or declaration-generation workflows.
 - Load self-hosted macro provider packages.
-- Compile provider code through `cosmo-jit-sys` in this slice.
+- Compile provider code through cosmo0 eval in this slice.
 - Expose typed expression trees to macro providers.
 - Support multiple provider payloads for one surface form such as
   `A(1) { block }`.
@@ -66,7 +66,7 @@ providers. They still receive serialized macro input and return serialized
 macro output, but they avoid blocking this slice on self-hosted provider
 package compilation.
 
-Alternative considered: require JIT-backed self-hosted providers first. That
+Alternative considered: require CTE-backed self-hosted providers first. That
 would merge expression call implementation with macro package graph, provider
 ABI generation, and native execution work.
 
@@ -109,7 +109,7 @@ expansion.
 3. Implement resolved-target macro classification for accepted call sites.
 4. Add payload construction for `Expr.Args`, `Expr.Block`, and `Expr.Template`.
 5. Invoke providers, validate generated expressions, and recheck output.
-6. Leave self-hosted provider packages and JIT-backed provider execution for a
+6. Leave self-hosted provider packages and CTE-backed provider execution for a
    later change.
 
 ## Open Questions

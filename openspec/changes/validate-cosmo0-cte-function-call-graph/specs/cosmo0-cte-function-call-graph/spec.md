@@ -33,7 +33,7 @@ depends on other accepted constant functions.
 - **WHEN** an enabled fixture defines a constant helper function and a constant
   caller that invokes the helper in either source order
 - **THEN** cosmo0 resolves the helper call through the callable graph
-- **AND** the entry result is produced through the CTE/JIT boundary
+- **AND** the entry result is produced through the CTE compile boundary
 - **AND** the helper header, body, and host artifact are checked or compiled at
   most once per validation plan
 
@@ -82,18 +82,18 @@ cosmo0 SHALL report stable diagnostics for unsupported callable graph shapes.
   validation mode
 - **AND** it does not silently execute the call in a host interpreter
 
-### Requirement: Callable Execution Uses CTE Boundary
+### Requirement: Callable Execution Uses CTE Compile Boundary
 
 Accepted callable graph entries SHALL execute through the structured
 compile-time evaluation boundary.
 
-#### Scenario: Callable artifact executes through JIT
+#### Scenario: Callable artifact executes through provider-entry compile
 
 - **WHEN** an accepted callable graph entry is evaluated in integration mode
 - **THEN** cosmo0 sends a structured request containing the callable artifact,
   entry identity, argument payloads, source identity, target settings, bounds,
-  and toolchain identity
-- **AND** `cosmo-jit-sys` or a request-compatible adapter returns a structured
+  precompiled context key, compile options, and toolchain identity
+- **AND** cosmo0 eval or a request-compatible adapter returns a structured
   result and diagnostics
 
 #### Scenario: Host approximation is not used
