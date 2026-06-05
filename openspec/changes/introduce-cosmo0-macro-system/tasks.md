@@ -1,7 +1,7 @@
 ## 1. Documentation And Specs
 
 - [ ] 1.1 Add `docs/cosmo/macro-expr.typ` covering `Expr[T = Untyped]`, expression macros, typed inspectors, and non-goals.
-- [ ] 1.2 Add `docs/cosmo/compile-time-evaluation.typ` covering macro function input/output records, macro output purity, full C++ compile-time execution through `cosmo-jit-sys`, and target runtime separation.
+- [ ] 1.2 Add `docs/cosmo/compile-time-evaluation.typ` covering macro function input/output records, macro output purity, full C++ compile-time execution through cosmo0 eval, and target runtime separation.
 - [ ] 1.3 Link macro documentation from `docs/cosmo/spec.typ`, include it in the website book summary, and update the docs validation script.
 - [ ] 1.4 Add examples for `@derive(...)`, declaration attributes, expression macros, generated output, and unsupported macro shapes.
 - [ ] 1.5 Document that first-slice derive output attaches trait implementations
@@ -40,13 +40,13 @@
 
 ## 6. Compile-Time Evaluation Boundary
 
-- [ ] 6.1 Add a compile-time evaluator interface with serialized macro function input, serialized macro function output, diagnostics, and C++ JIT execution context.
+- [ ] 6.1 Add a compile-time evaluator interface with serialized macro function input, serialized macro function output, diagnostics, and C++ provider-entry compile context.
 - [ ] 6.2 Route compiler-hosted providers through the same boundary used by future self-hosted providers.
 - [ ] 6.3 Add diagnostics where feasible for provider behavior that cannot preserve deterministic macro output.
-- [ ] 6.4 Add resource limits for JIT sessions, provider execution, generated artifacts, and repeated evaluation.
+- [ ] 6.4 Add resource limits for provider-entry compilation, provider execution, generated artifacts, and repeated evaluation.
 - [ ] 6.5 Document and enforce the macro-function purity contract where feasible; non-pure providers have undefined behavior.
-- [ ] 6.6 Route C++ compile-time execution through `cosmo-jit-sys` with clang-repl, imported C++ types, provider code execution, structured diagnostics, and Clang-owned layout facts.
-- [ ] 6.7 Reject JS host JIT or handwritten C++ layout emulation as the source of C++ struct/class/template facts.
+- [ ] 6.6 Route C++ compile-time execution through cosmo0 eval with provider-entry compilation, PCH/precompiled context reuse, imported C++ types, provider code execution, structured diagnostics, and Clang-owned layout facts.
+- [ ] 6.7 Reject clangInterpreter, JS host JIT, or handwritten C++ layout emulation as the source of C++ struct/class/template facts.
 
 ## 7. Hygiene And Validation
 

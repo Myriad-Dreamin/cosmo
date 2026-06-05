@@ -28,7 +28,7 @@ resolve names before derive expansion affects trait satisfaction.
 - Make `Config.parse` or any other new name visible through derive expansion.
 - Implement expression macro calls.
 - Load self-hosted macro provider packages.
-- Execute provider code through `cosmo-jit-sys`.
+- Execute provider code through cosmo0 eval.
 - Expose trusted typed expressions or compiler mutation handles to providers.
 
 ## Decisions
