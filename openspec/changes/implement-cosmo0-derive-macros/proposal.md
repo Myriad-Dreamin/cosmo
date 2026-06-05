@@ -50,4 +50,4 @@ leaving ordinary name resolution unchanged.
   validation, trait-resolution fact indexing, generated origin metadata, and
   diagnostics.
 - Does not require expression macro calls, self-hosted provider packages, or
-  provider execution through `cosmo-cte-sys` in the first implementation.
+  provider execution through cosmo0 eval in the first implementation.

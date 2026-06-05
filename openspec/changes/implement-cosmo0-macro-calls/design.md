@@ -29,7 +29,7 @@ ordinary rechecking.
 
 - Implement custom derive macros or declaration-generation workflows.
 - Load self-hosted macro provider packages.
-- Compile provider code through `cosmo-cte-sys` in this slice.
+- Compile provider code through cosmo0 eval in this slice.
 - Expose typed expression trees to macro providers.
 - Support multiple provider payloads for one surface form such as
   `A(1) { block }`.

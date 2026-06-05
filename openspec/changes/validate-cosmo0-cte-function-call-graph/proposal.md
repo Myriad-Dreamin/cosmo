@@ -16,7 +16,7 @@ source-order loop.
   including source-order-independent helper lookup.
 - Validate direct and mutual recursive constant function calls by compiling a
   callable strongly connected component as one host artifact.
-- Route execution through the existing `cosmo-cte-sys` request/result boundary
+- Route execution through the existing cosmo0 eval request/result boundary
   or an adapter-compatible test double.
 - Report deterministic diagnostics for unresolved call heads, unsupported call
   shapes, unavailable CTE support, provider-entry compile/execution failure, and
@@ -39,7 +39,7 @@ source-order loop.
 
 ## Impact
 
-- Depends on `probe-cosmo0-cte-with-cosmo-cte-sys` for the structured CTE compile
+- Depends on `probe-cosmo0-cte-with-cosmo-eval` for the structured CTE compile
   request boundary.
 - Adds a small planner for compile-time callable headers and call obligations.
 - Adds focused fixtures for dependent helper calls, source-order-independent

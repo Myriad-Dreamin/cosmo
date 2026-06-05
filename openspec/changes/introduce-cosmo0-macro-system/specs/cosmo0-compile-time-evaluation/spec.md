@@ -14,7 +14,7 @@ functions without approximating C++ execution in a JavaScript host model.
 #### Scenario: Self-hosted provider uses CTE compile boundary
 
 - **WHEN** a later self-hosted macro function is compiled for macro execution
-- **THEN** cosmo0 may run it through `cosmo-cte-sys` when it needs C++ compile-time execution
+- **THEN** cosmo0 may run it through cosmo0 eval when it needs C++ compile-time execution
 - **AND** generated Cosmo output still returns through the macro output protocol before ordinary validation and type checking
 
 ### Requirement: Macro Function Input And Output Records
@@ -64,18 +64,18 @@ value.
 - **THEN** cosmo0 exposes the information through a bounded typer-phase inspector such as `Type.of(expr)`
 - **AND** the inspector returns stable type facts rather than a mutable or constructible `TypedExpr` tree
 
-### Requirement: C++ Compile-Time Execution Uses cosmo-cte-sys
+### Requirement: C++ Compile-Time Execution Uses cosmo0 Eval
 
 cosmo0 SHALL route C++ compile-time provider execution through
-`cosmo-cte-sys`, backed by ordinary Clang provider-entry compilation and
-PCH/precompiled context reuse, rather than clangInterpreter, a JavaScript host
-JIT, or handwritten C++ layout emulation.
+cosmo0 eval, backed by ordinary Clang provider-entry compilation and
+PCH/precompiled context reuse, rather than clangInterpreter, cosmoc, a
+JavaScript host JIT, or handwritten C++ layout emulation.
 
 #### Scenario: Provider executes C++ at compile time
 
 - **WHEN** a macro function needs to import C++ types, instantiate templates, inspect C++ layout, or execute provider C++ code during compilation
-- **THEN** it runs through a `cosmo-cte-sys` provider-entry compile request with C++ imports, headers, provider source or generated entry snippets, target settings, precompiled context key, and toolchain identity
-- **AND** `cosmo-cte-sys` returns structured diagnostics, macro output serialization, requested C++ type facts, support binding metadata, generated artifact summaries, and precompiled context cache summaries
+- **THEN** it runs through a cosmo0 eval provider-entry compile request with C++ imports, headers, provider source or generated entry snippets, target settings, precompiled context key, and toolchain identity
+- **AND** cosmo0 eval returns structured diagnostics, macro output serialization, requested C++ type facts, support binding metadata, generated artifact summaries, and precompiled context cache summaries
 - **AND** generated Cosmo output still enters ordinary validation and type checking
 
 #### Scenario: clangInterpreter execution is rejected
@@ -87,7 +87,7 @@ JIT, or handwritten C++ layout emulation.
 #### Scenario: JavaScript host layout approximation is rejected
 
 - **WHEN** a macro function needs C++ struct, class, template, or ABI-visible type facts
-- **THEN** cosmo0 obtains those facts from ordinary Clang compile facts through `cosmo-cte-sys`
+- **THEN** cosmo0 obtains those facts from ordinary Clang compile facts through cosmo0 eval
 - **AND** it does not model C++ structs as JavaScript objects, typed arrays, or handwritten layout tables
 - **AND** it does not guess C++ padding, alignment, bit-field placement, overload resolution, or template instantiation in JavaScript
 
@@ -115,7 +115,7 @@ execution and backend mutation.
 #### Scenario: Backend is unavailable during macro evaluation
 
 - **WHEN** a package uses compile-time macro providers and the target backend has not emitted the package executable yet
-- **THEN** macro evaluation can still run through `cosmo-cte-sys`
+- **THEN** macro evaluation can still run through cosmo0 eval
 - **AND** it does not require compiling or launching the package executable
 
 #### Scenario: Provider attempts direct compiler mutation

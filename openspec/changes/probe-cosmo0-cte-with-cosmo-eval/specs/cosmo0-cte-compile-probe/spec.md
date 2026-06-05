@@ -11,7 +11,7 @@ opt-in.
 - **WHEN** a normal cosmo0 compile or check run encounters `type x = 1 + 1`
   without the probe enabled
 - **THEN** cosmo0 preserves the existing unsupported type-alias target behavior
-- **AND** it does not route the expression through `cosmo-cte-sys`
+- **AND** it does not route the expression through cosmo0 eval mode
 
 #### Scenario: Probe is enabled explicitly
 
@@ -22,21 +22,20 @@ opt-in.
   evaluation request
 - **AND** unsupported compile-time expression shapes remain outside the probe
 
-### Requirement: cosmo-cte-sys Request Boundary
+### Requirement: Cosmo Eval Request Boundary
 
-The probe SHALL route the smoke expression through `cosmo-cte-sys` using a
+The probe SHALL route the smoke expression through cosmo0 eval mode using a
 structured request/result boundary rather than evaluating the arithmetic in a
 Scala, JavaScript, clangInterpreter, or handwritten host interpreter.
 
 #### Scenario: Smoke expression is evaluated by compiled provider entry
 
 - **WHEN** the enabled probe evaluates `type x = 1 + 1`
-- **THEN** cosmo0 sends a structured request to `cosmo-cte-sys` containing the
-  source identity, declaration identity, expression payload, target settings,
-  precompiled context key, and toolchain identity needed by the smoke
-- **AND** `cosmo-cte-sys` compiles a small provider entry function through
-  Clang
-- **AND** cosmo0 consumes the structured result from `cosmo-cte-sys`
+- **THEN** cosmo0 sends a `CosmoEvalRequest` containing the source identity,
+  declaration identity, expression payload, target settings, precompiled context
+  key, and toolchain identity needed by the smoke
+- **AND** cosmo0 eval compiles a small provider entry function through Clang
+- **AND** cosmo0 consumes the structured `CosmoEvalResult`
 
 #### Scenario: Interpreter or host approximation is not used
 
@@ -53,7 +52,7 @@ compile-time value `2` in the probe result.
 #### Scenario: type x equals two
 
 - **WHEN** the enabled probe checks a module containing `type x = 1 + 1`
-- **AND** `cosmo-cte-sys` returns a successful integer result
+- **AND** eval mode returns a successful integer result
 - **THEN** the probe records that `x` evaluated to `2`
 - **AND** the check reports no compile-time evaluation diagnostic for that
   declaration
@@ -69,14 +68,13 @@ compile-time value `2` in the probe result.
 
 ### Requirement: Compile Execution Failure Diagnostics
 
-The probe SHALL report stable diagnostics when `cosmo-cte-sys` is disabled,
+The probe SHALL report stable diagnostics when eval mode is disabled,
 unavailable, cannot compile the provider entry, or returns a failed execution
 result.
 
-#### Scenario: CTE dependency unavailable
+#### Scenario: Eval dependency unavailable
 
-- **WHEN** the probe is enabled but `cosmo-cte-sys` cannot be loaded or
-  configured
+- **WHEN** the probe is enabled but eval mode cannot be configured or accessed
 - **THEN** cosmo0 reports a diagnostic with code
   `cosmo0.cte-compile-probe.unavailable`
 - **AND** the diagnostic includes the source span of the compile-time
@@ -84,7 +82,7 @@ result.
 
 #### Scenario: Provider entry compile fails
 
-- **WHEN** `cosmo-cte-sys` returns a failed compile status for the smoke request
+- **WHEN** eval mode returns a failed compile status for the smoke request
 - **THEN** cosmo0 reports a diagnostic with code
   `cosmo0.cte-compile-probe.compile-failed`
 - **AND** it includes the structured Clang diagnostic summary without exposing
@@ -92,7 +90,7 @@ result.
 
 #### Scenario: Provider entry execution fails
 
-- **WHEN** `cosmo-cte-sys` compiles the provider entry but execution fails
+- **WHEN** eval mode compiles the provider entry but execution fails
 - **THEN** cosmo0 reports a diagnostic with code
   `cosmo0.cte-compile-probe.execution-failed`
 - **AND** it includes the structured execution diagnostic summary

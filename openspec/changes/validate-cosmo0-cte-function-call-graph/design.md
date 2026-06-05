@@ -1,6 +1,6 @@
 ## Context
 
-`probe-cosmo0-cte-with-cosmo-cte-sys` validates one tiny request:
+`probe-cosmo0-cte-with-cosmo-eval` validates one tiny request:
 `type x = 1 + 1`. That proves the CTE compile boundary, but it does not prove the
 next scheduling problem: compile-time execution often depends on helper
 functions, and those helpers may appear before or after the requesting
@@ -22,7 +22,7 @@ into a full constant-evaluation language.
   call sites reuse the same callable facts and artifact.
 - Compile recursive callable SCCs as one host artifact when they are otherwise
   supported by the validation profile.
-- Execute selected constant function call entries through `cosmo-cte-sys` or a
+- Execute selected constant function call entries through cosmo0 eval or a
   request-compatible test double.
 - Prove stable diagnostics for unsupported and failing call graph shapes.
 
@@ -78,9 +78,9 @@ shape that macro providers are expected to need.
 ### Execute Through The CTE Compile Boundary
 
 The validation result should flow through the same structured
-`CosmoCteRequest`/`CosmoCteResult` shape as the existing CTE probe. A pure test
-double may be used for deterministic unit tests, but the accepted integration
-path routes through `cosmo-cte-sys`.
+`CosmoEvalRequest`/`CosmoEvalResult` shape as the existing CTE probe. A pure
+test double may be used for deterministic unit tests, but the accepted
+integration path routes through cosmo0 eval.
 
 Alternative considered: add a Scala constant folder for the fixtures. That
 would validate neither the macro-host compilation boundary nor C++ execution
@@ -108,7 +108,7 @@ recursion. That would make tests flaky and diagnostics unstable.
 
 ## Migration Plan
 
-1. Keep `probe-cosmo0-cte-with-cosmo-cte-sys` as the first CTE compile boundary smoke.
+1. Keep `probe-cosmo0-cte-with-cosmo-eval` as the first CTE compile boundary smoke.
 2. Add the callable graph data model and deterministic planner.
 3. Add adapter-compatible CTE requests for callable artifacts and entry calls.
 4. Add dependent helper and recursive fixtures.
@@ -120,4 +120,4 @@ recursion. That would make tests flaky and diagnostics unstable.
 - Whether validation fixtures should use a temporary source marker such as
   `@const` or be injected as harness-level compile-time callable records.
 - Which recursion bound should be enforced by the Scala-side adapter versus the
-  native `cosmo-cte-sys` layer.
+  cosmo0 eval layer.

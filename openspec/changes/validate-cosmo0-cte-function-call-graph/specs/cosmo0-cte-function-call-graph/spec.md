@@ -93,7 +93,7 @@ compile-time evaluation boundary.
 - **THEN** cosmo0 sends a structured request containing the callable artifact,
   entry identity, argument payloads, source identity, target settings, bounds,
   precompiled context key, compile options, and toolchain identity
-- **AND** `cosmo-cte-sys` or a request-compatible adapter returns a structured
+- **AND** cosmo0 eval or a request-compatible adapter returns a structured
   result and diagnostics
 
 #### Scenario: Host approximation is not used

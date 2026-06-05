@@ -65,10 +65,18 @@ ordinary compiler phases after macro execution.
 
 == C++ Function Compilation Execution
 
-`cosmo-cte-sys` is the native compile-time execution substrate for macro
-functions that need C++ semantics. It owns the build-and-execute adapter for
-provider entry functions and exposes enough of Clang's model for provider code
-to:
+cosmo0 and cosmoc each provide their own eval mode for macro functions and
+other compile-time execution requests that need C++ semantics. They are two
+independent compilers: cosmo0 eval must not depend on cosmoc eval, and cosmoc
+eval must not depend on cosmo0 implementation internals. The shared part is the
+documented eval contract: request identity, selected input facts, payload
+serialization, resource bounds, purity keys, PCH/precompiled context cache
+semantics, provider-entry compilation, artifact invocation, and structured
+results.
+
+The eval mode is not a separate `cosmo-cte-sys` native support package. Each
+compiler owns its own execution layer that builds and executes provider entry
+functions and exposes enough of Clang's model for provider code to:
 
 - include C++ headers;
 - import C++ names and types;
@@ -97,17 +105,17 @@ A cached precompiled context may be implemented with PCH, Clang modules, a
 module cache, or another Clang-owned precompiled representation. Provider entry
 functions are then compiled against that context as small translation units.
 
-== Compile Protocol
+== Eval Protocol
 
-The compiler-facing protocol remains structured even though the execution
-engine has full C++ capability. Provider code may execute native C++ inside the
-adapter process or loaded artifact, while the compiler accepts only the
-serialized macro function output record from the boundary.
+The compiler-facing protocol remains structured even though eval mode has full
+C++ capability. Provider code may execute native C++ inside the driver process,
+an out-of-process helper, or a loaded artifact, while the compiler accepts only
+the serialized macro function output record from the boundary.
 
-The compile-time execution adapter accepts explicit inputs:
+The eval layer accepts explicit inputs:
 
 ```text
-CosmoCteRequest:
+CosmoEvalRequest:
   provider identity
   serialized macro function input
   C++ imports and headers
@@ -120,10 +128,10 @@ CosmoCteRequest:
   LLVM/Clang toolchain identity
 ```
 
-The adapter returns structured outputs:
+The eval layer returns structured outputs:
 
 ```text
-CosmoCteResult:
+CosmoEvalResult:
   diagnostics
   serialized macro function output
   imported C++ type facts requested by the provider
@@ -132,9 +140,9 @@ CosmoCteResult:
   precompiled context cache summary
 ```
 
-The adapter may compile code, load a dynamic artifact, call provider helpers,
-and inspect C++ types through Clang-owned facts. It must not return raw compiler
-mutation handles.
+The compiler's eval module may compile code, load a dynamic artifact, call
+provider helpers, and inspect C++ types through Clang-owned facts. It must not
+return raw compiler mutation handles.
 
 == Single-Function Compile Path
 

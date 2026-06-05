@@ -31,9 +31,10 @@ schema, RPC, and test-discovery libraries.
   and keep serialized macro function input/output records separate from it.
 - Define typed-expression information as inspector output from the typer phase,
   not as a typed expression tree that macro providers can receive or construct.
-- Define compile-time macro function execution through `cosmo-cte-sys`
+- Define compile-time macro function execution through cosmo0 eval
   provider-entry compilation with PCH/precompiled context reuse, without using
-  clangInterpreter or approximating C++ execution in JavaScript.
+  clangInterpreter, depending on cosmoc, or approximating C++ execution in
+  JavaScript.
 
 **Non-Goals:**
 
@@ -143,7 +144,7 @@ MacroFunctionOutput:
 The first provider execution host can be Scala-side compiler infrastructure.
 That host is still constrained by the same serialized input/output protocol as
 future self-hosted providers. If provider execution needs C++ type facts or C++
-code execution, it should route through `cosmo-cte-sys` rather than using
+code execution, it should route through cosmo0 eval rather than using
 clangInterpreter, approximating C++ in JavaScript, or mutating compiler
 internals directly.
 
@@ -156,7 +157,7 @@ evaluations. If a macro function depends on hidden mutable state or ambient
 effects and produces different results for the same cosmo0 input, the package
 has undefined behavior.
 
-Macro functions that need C++ capability should run through `cosmo-cte-sys`,
+Macro functions that need C++ capability should run through cosmo0 eval,
 which compiles explicit provider entry functions as ordinary Clang code against
 a declared C++ execution context. Heavy headers and support code should be
 accelerated with PCH, Clang modules, module caches, or an equivalent
@@ -223,16 +224,16 @@ unreliable.
 Alternative considered: let providers return fully typed expressions. That
 turns macros into a type-checker escape hatch.
 
-### Use `cosmo-cte-sys` For C++ Compile-Time Execution
+### Use cosmo0 Eval For C++ Compile-Time Execution
 
 Compile-time macro function execution should be a separately specified compiler
-boundary backed by `cosmo-cte-sys` when the provider needs C++ semantics. The
-adapter receives serialized macro function input plus C++ imports, headers,
+boundary backed by cosmo0 eval when the provider needs C++ semantics. The eval
+module receives serialized macro function input plus C++ imports, headers,
 include/library context, provider source or generated entry function snippets,
 target settings, compile options, precompiled context key, and toolchain
 identity. It returns diagnostics and serialized macro function output.
 
-The adapter may compile and execute C++ provider code and inspect imported C++
+cosmo0 eval may compile and execute C++ provider code and inspect imported C++
 types, but it does not return raw compiler mutation handles. Generated
 declarations and expression fragments still re-enter ordinary validation and
 type checking.
@@ -272,8 +273,8 @@ before the macro use case needs them.
   and duplicate-name diagnostics.
 - Reflection metadata can grow without control -> scope the first metadata set
   to declaration shapes needed by derives.
-- Macro execution can accidentally mutate compiler internals -> keep
-  `cosmo-cte-sys` behind a serialized macro function input/output protocol.
+- Macro execution can accidentally mutate compiler internals -> keep cosmo0
+  eval behind a serialized macro function input/output protocol.
 - A loose Expr model can leak implementation details across phases -> keep
   `Expr[Untyped]` as an untyped source-expression value and expose typed facts
   only through bounded typer inspectors.

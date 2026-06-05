@@ -21,7 +21,7 @@
 - [ ] 3.1 Extend the probe adapter shape to carry callable artifact source,
   entry call identity, argument payloads, bounds, target settings, precompiled
   context key, compile options, and toolchain identity.
-- [ ] 3.2 Route accepted callable artifacts through `cosmo-cte-sys` for
+- [ ] 3.2 Route accepted callable artifacts through cosmo0 eval for
   integration execution or a request-compatible test double for pure tests.
 - [ ] 3.3 Enforce recursion execution bounds and report a stable failure
   diagnostic when a bound is exceeded.
