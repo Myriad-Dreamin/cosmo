@@ -113,7 +113,9 @@ provider-entry compilation does not reparse the same headers from scratch.
 ### Requirement: Single Provider Entry Compile Proof
 
 Eval mode SHALL include a proof-of-concept smoke path that compiles and executes
-a provider entry function as ordinary Clang-compiled code.
+a provider entry function as ordinary Clang-compiled code. A backend that only
+satisfies this proof is not automatically accepted as the production backend for
+interactive REPL or production compile-time evaluation.
 
 #### Scenario: Integer provider entry executes
 
@@ -131,6 +133,30 @@ a provider entry function as ordinary Clang-compiled code.
 - **AND** the result proves the entry executed under ordinary Clang C++
   compilation semantics
 
+### Requirement: Backend Maturity Is Explicit
+
+Eval mode SHALL distinguish a proof backend from a latency-accepted backend so
+downstream REPL and production compile-time evaluation proposals do not depend
+on a compile path whose benchmark results are unsuitable for interactive use.
+
+#### Scenario: PCH executable backend remains a proof backend
+
+- **WHEN** the first PCH executable backend compiles a provider entry through
+  ordinary Clang compilation and emits benchmark reports
+- **THEN** eval mode records that the backend is a proof backend unless a
+  follow-up proposal explicitly accepts it for REPL or production
+  compile-time evaluation
+- **AND** downstream consumers can inspect or name that backend maturity status
+
+#### Scenario: Downstream interactive consumer needs eval execution
+
+- **WHEN** a downstream REPL or production compile-time evaluation feature
+  depends on repeated provider execution latency
+- **THEN** it SHALL depend on an accepted eval backend whose benchmark evidence
+  has been reviewed for that use case
+- **AND** it SHALL NOT silently promote the measured PCH executable proof
+  backend as the default interactive execution path
+
 ### Requirement: Compile Benchmark Reporting
 
 Eval mode SHALL provide benchmark coverage that measures the compile-time
@@ -145,7 +171,8 @@ a heavy-header input that includes `nlohmann/json.hpp`.
   time, first provider-entry compile time, repeated provider-entry compile time,
   load/invoke time, and total request time
 - **AND** it records host platform, LLVM/Clang version, compile backend
-  identity, build profile, and benchmark input shape
+  identity, backend maturity status, build profile, compile/link option lists,
+  and benchmark input shape
 - **AND** it writes a structured report under `target/cosmo/bench/eval/`
 
 #### Scenario: Benchmark includes nlohmann JSON header input

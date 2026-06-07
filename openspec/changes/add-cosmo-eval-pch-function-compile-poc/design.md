@@ -13,6 +13,16 @@ compiles explicit provider entry functions as ordinary Clang code. Heavy C++
 setup is amortized through PCH, Clang modules, module caches, or an equivalent
 precompiled context.
 
+The implemented PoC used a PCH-backed executable backend:
+
+- context: `clang++ -std=c++17 ... -x c++-header context.hpp -o context.hpp.pch`
+- provider: `clang++ -std=c++17 ... -include-pch context.hpp.pch provider_entry.cpp -o provider_entry`
+
+That backend provides a useful semantic baseline, but measured warm compile
+times are still too high for interactive or repeated provider execution. The
+change should therefore be read as a contract and benchmark PoC, not as an
+accepted production backend for REPL or compile-time evaluation.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -31,6 +41,8 @@ precompiled context.
 - Prove the path with integer and standard-library provider-entry smoke tests.
 - Benchmark cold context creation, warm context reuse, provider-entry compile,
   load/invoke time, and heavy-header behavior.
+- Record whether the first backend is only a proof backend or acceptable for
+  downstream interactive and compile-time evaluation consumers.
 
 **Non-Goals:**
 
@@ -39,6 +51,10 @@ precompiled context.
 - Define general constant evaluation semantics in cosmo0.
 - Define the user-facing REPL command syntax; a separate proposal owns that.
 - Use clangInterpreter or clang-repl for accepted provider execution.
+- Treat the measured PCH executable backend as the final low-latency backend for
+  REPL or production compile-time evaluation.
+- Design the successor backend in this change; that belongs in a follow-up
+  proposal after the benchmark result is reviewed.
 - Require absolute performance thresholds before the path has baseline data.
 
 ## Decisions
@@ -99,6 +115,43 @@ absolute numbers. The first goal is to make cold and warm behavior visible.
 Alternative considered: require a fixed speedup over cold compile in CI. That
 would be noisy until the implementation and machines are stable.
 
+### Keep PCH Executable As A Proof Backend
+
+The PCH executable backend should remain available as a semantic smoke and
+benchmark backend, but downstream REPL and production compile-time evaluation
+should not depend on it as the latency-accepted path. It still performs a
+provider-entry compile and executable link for each request, and the benchmark
+shows that this dominates warm repeated execution.
+
+The current benchmark data:
+
+| Backend | Input | Cold / context | Warm / repeated | Report |
+| --- | --- | ---: | ---: | --- |
+| Clang 15 PCH executable | integer | 209.40 ms | 67.54 ms | `target/cosmo/bench/eval/eval-2026-06-05T22-23-12-230Z.json` |
+| Clang 15 PCH executable | standard | 226.50 ms | 77.22 ms | `target/cosmo/bench/eval/eval-2026-06-05T22-23-12-230Z.json` |
+| Clang 15 PCH executable | nlohmann-json | 1029.31 ms | 519.85 ms | `target/cosmo/bench/eval/eval-2026-06-05T22-23-12-230Z.json` |
+| Clang 21.1.4 PCH executable | integer | 787.53 ms | 70.71 ms | `target/cosmo/bench/eval/eval-2026-06-06T03-19-28-406Z.json` |
+| Clang 21.1.4 PCH executable | standard | 274.67 ms | 84.21 ms | `target/cosmo/bench/eval/eval-2026-06-06T03-19-28-406Z.json` |
+| Clang 21.1.4 PCH executable | nlohmann-json | 1173.55 ms | 577.76 ms | `target/cosmo/bench/eval/eval-2026-06-06T03-19-28-406Z.json` |
+
+The benchmark compile options were empty for these inputs. There was no `-O2`,
+`-O3`, `-g`, LTO, or similar optimization/debug flag explaining the latency.
+
+For comparison, local Clang 21.1.4 `clang-repl` produced much faster repeated
+eval timings, but remains rejected as the accepted semantic substrate:
+
+| Backend | Input | Context | First eval | Repeated eval | Report |
+| --- | --- | ---: | ---: | ---: | --- |
+| Clang 21.1.4 clang-repl | integer | 135.86 ms | 4.72 ms | 4.66 ms | `target/cosmo/bench/eval/clang-repl-2026-06-06T04-05-01-126Z.json` |
+| Clang 21.1.4 clang-repl | standard | 157.42 ms | 20.18 ms | 10.98 ms | `target/cosmo/bench/eval/clang-repl-2026-06-06T04-05-01-126Z.json` |
+| Clang 21.1.4 clang-repl | nlohmann-json | 714.78 ms | 330.07 ms | 87.04 ms | `target/cosmo/bench/eval/clang-repl-2026-06-06T04-05-01-126Z.json` |
+
+The successor backend should preserve ordinary Clang compile semantics while
+removing the per-request executable compile/link cost. Candidate directions
+include a persistent worker that loads compiled objects or shared libraries, an
+object-cache plus long-lived loader, or another Clang-owned compiled artifact
+path that does not switch provider semantics to clangInterpreter execution.
+
 ## Risks / Trade-offs
 
 - PCH invalidation can be subtle -> include all compile-affecting settings in
@@ -106,8 +159,9 @@ would be noisy until the implementation and machines are stable.
 - Driver-owned compilation can grow into a large module -> keep request/result,
   cache management, compile, load/invoke, and benchmark code separated inside
   eval.
-- Per-function compile may still be expensive -> benchmark heavy headers and
-  repeated entry compiles before designing higher-level provider batching.
+- Per-function compile is expensive in the measured PCH executable backend ->
+  treat that backend as a semantic PoC and require a follow-up backend decision
+  before REPL or production CTE depends on it.
 - Support libraries can leak target runtime assumptions -> keep compile-time
   execution separate from target package execution.
 
@@ -119,14 +173,18 @@ would be noisy until the implementation and machines are stable.
 4. Add precompiled context creation/reuse APIs and cache summaries.
 5. Add integer and standard-library provider-entry smoke tests.
 6. Add benchmark reports under `target/cosmo/bench/eval/`.
-7. Route later cosmo0 CTE probes through cosmo0 eval and cosmoc REPL sessions
-   through cosmoc eval.
+7. Record the benchmark conclusion that PCH executable is a proof backend only.
+8. Route later cosmo0 CTE probes and cosmoc REPL sessions through cosmoc/cosmo0
+   eval only after a faster ordinary-Clang backend is accepted.
 
 ## Open Questions
 
 - Whether the first platform should invoke compiled entries through a dynamic
   library, object-file loader, or out-of-process helper executable.
-- Whether PCH or Clang modules should be the first concrete precompiled context
-  implementation.
+- Whether the successor should use dynamic libraries, object files, a
+  persistent loader process, a Clang module/PCH combination, or another
+  Clang-owned compiled artifact path.
 - How much provider helper code should be compiled into the precompiled context
   versus each provider entry function.
+- What latency budget is acceptable for REPL and production CTE once the
+  successor backend is proposed.

@@ -89,6 +89,31 @@ class FacadeTests extends munit.FunSuite:
     assertEquals(forEach.name, "item")
     assertEquals(forEach.itemTy, SourceType.I32)
 
+  test("check expands local compile-time integer aliases"):
+    val result = Cosmo0().check(
+      """def main(): Unit = {
+        |  type left = 1;
+        |  type right = 2;
+        |  type total = left + right;
+        |  println(total)
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val main = result.value.get.typed.decls.collectFirst {
+      case fn: TypedFunction if fn.name == "main" => fn
+    }.get
+    val body = main.body.get.asInstanceOf[TypedBlock]
+    val call = body.items.collectFirst { case call: TypedCall => call }.get
+    val total = call.args.head.asInstanceOf[TypedIntLiteral]
+
+    assertEquals(total.value, BigInt(3))
+    assertEquals(total.ty, SourceType.I32)
+
   test("check types ascii and rune literals as fixed-width integers"):
     val result = Cosmo0().check(
       """val newline: u8 = a"\n"
@@ -592,6 +617,27 @@ class FacadeTests extends munit.FunSuite:
         .contains("inline const int32_t answer = static_cast<int32_t>(42);"),
     )
     assert(result.diagnostics.isEmpty)
+
+  test("compile erases local compile-time integer aliases"):
+    val result = Cosmo0().compile(
+      """def main(): Unit = {
+        |  type left = 1;
+        |  type right = 2;
+        |  type total = left + right;
+        |  println(total)
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.phase, Phase.Compile)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val output = result.value.get.output
+    assert(output.contains("::cosmo0_runtime::println(static_cast<int32_t>(3));"))
+    assert(!output.contains("auto left"))
+    assert(!output.contains("auto right"))
+    assert(!output.contains("auto total"))
 
   test("compile stops on unsupported subset constructs"):
     val result = Cosmo0().compile("trait Display[T] {}")
