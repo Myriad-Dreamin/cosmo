@@ -21,10 +21,6 @@ def main(args: Vec[String]): i32 = {
     return run_node_source_command(args)
   }
 
-  if (args.get(0) == "eval-smoke" or args.get(0) == "eval-bench") {
-    return run_node_driver_command(args)
-  }
-
   if (args.len() < 3) {
     print_usage();
     return 1
@@ -109,8 +105,6 @@ def print_usage(): Unit = {
   println("usage: cosmoc run <file.cos> [-- <args>]");
   println("       cosmoc -p <package> build -o <output>");
   println("       cosmoc -p <package> run [-- <args>]");
-  println("       cosmoc eval-smoke [integer|standard|all]");
-  println("       cosmoc eval-bench [--with-heavy-json|--without-heavy-json]");
   println("       cosmoc --version")
 }
 

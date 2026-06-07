@@ -7,18 +7,11 @@ import test from "node:test";
 import {
   applyEnvironmentFile,
   cosmoClangSysCMakeCacheArgs,
-  cosmoEvalInputDefinition,
-  cosmoEvalPrecompiledContextKey,
-  cosmoEvalRequestForInput,
-  cosmoEvalUnsupportedBackendDiagnostic,
-  discoverCosmoEvalToolchain,
   findPackageRootForSource,
   packageBuildBuildPaths,
   packageRunBuildPaths,
   nativePackageCMakeSource,
   nativeGnuToolchainLinkHint,
-  parseEvalBenchCommand,
-  parseEvalSmokeCommand,
   parseEnvironmentFile,
   parseEnvironmentOptions,
   parsePackageBuildCommand,
@@ -78,126 +71,6 @@ test("source run parser forwards args after the file without requiring --", () =
       runArgs: ["--example-arg"],
     },
   );
-});
-
-test("eval smoke parser accepts input shape and backend", () => {
-  assert.deepEqual(
-    parseEvalSmokeCommand(["eval-smoke", "integer", "--backend", "clang-pch-executable"]),
-    {
-      inputShape: "integer",
-      backend: "clang-pch-executable",
-    },
-  );
-  assert.deepEqual(parseEvalSmokeCommand(["run", "main.cos"]), null);
-});
-
-test("eval benchmark parser controls heavy-header input", () => {
-  assert.deepEqual(parseEvalBenchCommand(["eval-bench", "--without-heavy-json"]), {
-    backend: "clang-pch-executable",
-    includeHeavyJson: "disabled",
-  });
-});
-
-test("eval request precompiled context key is stable and complete", () => {
-  const toolchainIdentity = {
-    llvmVersion: "21.1.8",
-    clangExecutable: "/opt/llvm/bin/clang++",
-    clangVersion: "clang version 21.1.8",
-    manifestPath: "/repo/packages/cosmo-clang-sys/config/llvm-manifest.json",
-    cachePath: "/repo/target/cosmo/llvm",
-    offlineMode: false,
-    targetPlatform: "linux",
-    targetArchitecture: "x64",
-    gnuToolchain: "/usr/local/gcc-14.3.0",
-  };
-  const first = cosmoEvalRequestForInput(cosmoEvalInputDefinition("standard"), {
-    toolchainIdentity,
-    evalSessionProfile: "test",
-  });
-  const second = cosmoEvalRequestForInput(cosmoEvalInputDefinition("standard"), {
-    toolchainIdentity,
-    evalSessionProfile: "test",
-  });
-
-  assert.equal(first.precompiledContextKey.id, second.precompiledContextKey.id);
-  assert.equal(
-    cosmoEvalPrecompiledContextKey({
-      cxxStandard: "c++17",
-      targetTriple: "",
-      toolchainIdentity,
-      includePaths: [],
-      headers: ["<iostream>", "<string>", "<vector>"],
-      imports: [],
-      compileOptions: [],
-      supportLibraryIdentities: [],
-      evalSessionProfile: "test",
-    }).id,
-    first.precompiledContextKey.id,
-  );
-  assert.match(first.precompiledContextKey.stableJson, /"headers":\["<iostream>","<string>","<vector>"\]/);
-});
-
-test("eval precompiled context key changes for compile-affecting inputs", () => {
-  const toolchainIdentity = {
-    llvmVersion: "21.1.8",
-    clangExecutable: "/opt/llvm/bin/clang++",
-    clangVersion: "clang version 21.1.8",
-    manifestPath: "/repo/packages/cosmo-clang-sys/config/llvm-manifest.json",
-    cachePath: "/repo/target/cosmo/llvm",
-    offlineMode: false,
-    targetPlatform: "linux",
-    targetArchitecture: "x64",
-    gnuToolchain: "",
-  };
-  const base = cosmoEvalPrecompiledContextKey({
-    cxxStandard: "c++17",
-    targetTriple: "",
-    toolchainIdentity,
-    includePaths: [],
-    headers: ["<iostream>"],
-    imports: [],
-    compileOptions: [],
-    supportLibraryIdentities: [],
-    evalSessionProfile: "test",
-  });
-  const changedHeader = cosmoEvalPrecompiledContextKey({
-    cxxStandard: "c++17",
-    targetTriple: "",
-    toolchainIdentity,
-    includePaths: [],
-    headers: ["<iostream>", "<vector>"],
-    imports: [],
-    compileOptions: [],
-    supportLibraryIdentities: [],
-    evalSessionProfile: "test",
-  });
-
-  assert.notEqual(changedHeader.id, base.id);
-});
-
-test("eval rejects interpreter backend requests", () => {
-  const diagnostic = cosmoEvalUnsupportedBackendDiagnostic("clangInterpreter");
-
-  assert.equal(diagnostic.code, "cosmo.eval.unsupported-interpreter-backend");
-  assert.match(diagnostic.message, /ordinary Clang/);
-  assert.equal(cosmoEvalUnsupportedBackendDiagnostic("clang-pch-executable"), null);
-});
-
-test("eval toolchain discovery reports missing configured Clang", () => {
-  const toolchain = discoverCosmoEvalToolchain({
-    env: {
-      COSMO_EVAL_CXX: "/not/a/real/clang++",
-      COSMO_LLVM_VERSION: "21.1.8",
-    },
-    allowFallback: false,
-  });
-
-  assert.equal(toolchain.available, false);
-  assert.equal(
-    toolchain.diagnostics[0].code,
-    "cosmo.eval.missing-clang-compile-support",
-  );
-  assert.match(toolchain.diagnostics[0].message, /COSMO_LLVM_PATH/);
 });
 
 test("source package discovery walks upward from the selected source file", () => {
