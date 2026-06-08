@@ -113,6 +113,7 @@ final case class ParsedModule(
 
 final case class CheckedModule(
     typed: TypedModule,
+    macroExpansion: MacroExpansionSummary = MacroExpansionSummary.empty,
 )
 
 final case class LoweredModule(

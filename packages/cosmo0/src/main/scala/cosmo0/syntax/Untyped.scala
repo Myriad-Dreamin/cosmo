@@ -131,6 +131,7 @@ final case class UntypedClass(
     members: List[UntypedClassMember],
     span: SourceSpan,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
 
 /** Trait declaration. Method signatures have no bodies at this stage. */
@@ -139,6 +140,7 @@ final case class UntypedTrait(
     methods: List[UntypedFunction],
     span: SourceSpan,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
 
 /** Function or method declaration.
@@ -154,6 +156,7 @@ final case class UntypedFunction(
     span: SourceSpan,
     extern: Option[SourceExternBinding] = None,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -167,6 +170,7 @@ final case class UntypedValueDecl(
     init: Option[UntypedExpr],
     span: SourceSpan,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -199,6 +203,7 @@ final case class UntypedVariant(
     name: String,
     fields: List[UntypedVariantField],
     span: SourceSpan,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedClassMember
 
 /** Payload field for a class variant. Unnamed fields are addressed by position

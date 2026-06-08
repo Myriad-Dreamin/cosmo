@@ -186,6 +186,41 @@ comments, and admitted type facts. It must not depend on arbitrary body checking
 or trait-resolution facts unless a later inspector capability adds explicit
 dependency edges.
 
+== Examples
+
+Accepted derive shape:
+
+```cos
+trait FieldCount {
+  def field_count(&self): i32
+}
+
+@derive(example.FieldCount)
+class Config {
+  @arg(long = "package", short = "p")
+  val package_name: String
+
+  val verbose: Bool
+}
+```
+
+The provider may attach an implementation equivalent to:
+
+```cos
+impl FieldCount for Config {
+  def field_count(&self): i32 = 2
+}
+```
+
+Rejected first-slice output shape:
+
+```text
+generated top-level def parse_config(...)
+generated Config.parse(...)
+generated field Config.cached_parser
+trusted TypedExpr for a generated method body
+```
+
 == Diagnostics
 
 Derive diagnostics must point both to the derive attribute and to the target

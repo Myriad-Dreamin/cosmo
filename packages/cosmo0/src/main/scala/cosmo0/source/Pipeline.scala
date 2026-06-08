@@ -282,16 +282,33 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
         cppImports,
       )
 
-    MlttTyper(combinedModule, checkerProfile).check() match
-      case typed if typed.isFailure =>
-        Result.failure(Phase.Check, typed.diagnostics)
-      case typed =>
-        checkedPackageFromTyped(
-          pkg,
-          ordered.map(_.pkgModule),
-          ordered.map(_.key),
-          typed.value.get,
+    MacroExpander.expand(
+      combinedModule,
+      checkerProfile,
+      sourcePackageIdentity = pkg.metadata.name,
+    ) match
+      case expanded if expanded.isFailure =>
+        return Result.failure(Phase.Check, expanded.diagnostics)
+      case expanded if expanded.isUnsupported =>
+        return Result(
+          Phase.Check,
+          PhaseStatus.Unsupported,
+          None,
+          expanded.diagnostics,
         )
+      case expanded =>
+        val expandedModule = expanded.value.get
+        MlttTyper(expandedModule.module, checkerProfile).check() match
+          case typed if typed.isFailure =>
+            Result.failure(Phase.Check, typed.diagnostics)
+          case typed =>
+            checkedPackageFromTyped(
+              pkg,
+              ordered.map(_.pkgModule),
+              ordered.map(_.key),
+              typed.value.get,
+              expandedModule.summary,
+            )
 
   private def checkProfilePackage(
       pkg: Cosmo0Package,
@@ -310,15 +327,22 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
           checked.diagnostics,
         )
       case checked =>
-        checkedPackageFromTyped(pkg, modules, moduleOrder, checked.value.get)
+        checkedPackageFromTyped(
+          pkg,
+          modules,
+          moduleOrder,
+          checked.value.get,
+          MacroExpansionSummary.empty,
+        )
 
   private def checkedPackageFromTyped(
       pkg: Cosmo0Package,
       modules: List[Cosmo0PackageModule],
       moduleOrder: List[String],
       typed: TypedModule,
+      macroExpansion: MacroExpansionSummary,
   ): Result[CheckedPackage] =
-    val checkedModule = CheckedModule(typed)
+    val checkedModule = CheckedModule(typed, macroExpansion)
     LirLowerer(checkedModule.typed).lower() match
       case lowered if lowered.isFailure =>
         Result.failure(Phase.Check, lowered.diagnostics)
