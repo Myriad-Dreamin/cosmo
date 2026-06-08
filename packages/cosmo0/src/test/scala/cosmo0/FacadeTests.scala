@@ -634,7 +634,9 @@ class FacadeTests extends munit.FunSuite:
     assert(result.diagnostics.isEmpty)
 
     val output = result.value.get.output
-    assert(output.contains("::cosmo0_runtime::println(static_cast<int32_t>(3));"))
+    assert(
+      output.contains("::cosmo0_runtime::println(static_cast<int32_t>(3));"),
+    )
     assert(!output.contains("auto left"))
     assert(!output.contains("auto right"))
     assert(!output.contains("auto total"))
