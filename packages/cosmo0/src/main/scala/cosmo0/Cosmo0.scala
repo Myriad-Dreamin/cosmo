@@ -65,6 +65,24 @@ final class Cosmo0:
   def check(source: SourceFile): Result[CheckedModule] =
     checkWithProfile(source, CheckerProfiles.MlttDependentPatterns.id)
 
+  def checkCompileTimeEvalProbe(
+      sourceText: String,
+      options: Cosmo0CteCompileProbeOptions,
+      runner: Cosmo0CteCompileProbeRunner,
+  ): Result[Cosmo0CteCompileProbeModule] =
+    checkCompileTimeEvalProbe(
+      SourceFile("<memory>", sourceText),
+      options,
+      runner,
+    )
+
+  def checkCompileTimeEvalProbe(
+      source: SourceFile,
+      options: Cosmo0CteCompileProbeOptions,
+      runner: Cosmo0CteCompileProbeRunner,
+  ): Result[Cosmo0CteCompileProbeModule] =
+    Cosmo0CteCompileProbe.check(source, options, runner)
+
   def checkWithProfile(
       source: SourceFile,
       profileId: String,
