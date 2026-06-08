@@ -83,6 +83,24 @@ final class Cosmo0:
   ): Result[Cosmo0CteCompileProbeModule] =
     Cosmo0CteCompileProbe.check(source, options, runner)
 
+  def checkCompileTimeFunctionCallGraph(
+      sourceText: String,
+      options: Cosmo0CteFunctionCallGraphOptions,
+      runner: Cosmo0CteFunctionCallGraphRunner,
+  ): Result[Cosmo0CteFunctionCallGraphModule] =
+    checkCompileTimeFunctionCallGraph(
+      SourceFile("<memory>", sourceText),
+      options,
+      runner,
+    )
+
+  def checkCompileTimeFunctionCallGraph(
+      source: SourceFile,
+      options: Cosmo0CteFunctionCallGraphOptions,
+      runner: Cosmo0CteFunctionCallGraphRunner,
+  ): Result[Cosmo0CteFunctionCallGraphModule] =
+    Cosmo0CteFunctionCallGraph.check(source, options, runner)
+
   def checkWithProfile(
       source: SourceFile,
       profileId: String,

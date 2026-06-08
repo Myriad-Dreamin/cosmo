@@ -319,7 +319,7 @@ object Cosmo0CteCompileProbe:
         .mkString("; ")
 
   private def publicDiagnosticMessage(message: String): String =
-    message.replace("clang::", "clang ").replace("llvm::", "llvm ")
+    message.replace("clang::", "clang").replace("llvm::", "llvm")
 
   private def unsupportedExpressionDiagnostic(
       node: Typ,
