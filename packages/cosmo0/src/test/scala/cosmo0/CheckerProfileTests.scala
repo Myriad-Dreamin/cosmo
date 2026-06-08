@@ -22,6 +22,8 @@ class CheckerProfileTests extends munit.FunSuite:
     assert(subset.supports("cosmo0-expressions"))
     assert(subset.supports(CheckerProfiles.DependentPatternsFeature))
     assert(subset.supports(CheckerProfiles.DependentPatternElaborationFeature))
+    assert(subset.supports(CheckerProfiles.MacrosFeature))
+    assert(subset.supports(CheckerProfiles.ReflectionFeature))
     assert(!subset.rejects(CheckerProfiles.DependentPatternsFeature))
 
     assertEquals(mltt.id, "mltt.core")
@@ -45,7 +47,10 @@ class CheckerProfileTests extends munit.FunSuite:
     assert(
       dependent.supports(CheckerProfiles.DependentPatternElaborationFeature),
     )
+    assert(dependent.supports(CheckerProfiles.MacrosFeature))
+    assert(dependent.supports(CheckerProfiles.ReflectionFeature))
     assert(!dependent.rejects(CheckerProfiles.DependentPatternsFeature))
+    assert(!dependent.rejects(CheckerProfiles.MacrosFeature))
 
   test("default cosmo0 check result uses the MLTT dependent source typer"):
     val result = Cosmo0().check("val answer = 42")

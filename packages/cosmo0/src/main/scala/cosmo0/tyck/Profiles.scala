@@ -141,6 +141,8 @@ object CheckerProfiles:
         "cosmo0-cpp-namespace-imports",
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
+        MacrosFeature,
+        ReflectionFeature,
       ),
       Map(
         EffectsFeature -> UnsupportedEffectRowCode,
@@ -201,6 +203,8 @@ object CheckerProfiles:
         "whnf-conversion",
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
+        MacrosFeature,
+        ReflectionFeature,
         "inductive-family-constructors",
         "case-trees",
         "constructor-split-coverage",
@@ -211,8 +215,6 @@ object CheckerProfiles:
         TraitsFeature -> UnsupportedTraitConstraintCode,
         ObjectDispatchFeature -> UnsupportedObjectDispatchCode,
         CppImportsFeature -> UnsupportedCppImportCode,
-        MacrosFeature -> UnsupportedFeatureCode,
-        ReflectionFeature -> UnsupportedFeatureCode,
         StagingFeature -> UnsupportedFeatureCode,
       ),
     )
