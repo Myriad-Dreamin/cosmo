@@ -252,6 +252,16 @@ final case class UntypedLocal(
     span: SourceSpan,
 ) extends UntypedStmt
 
+/** Local compile-time integer alias used by the source-level CTE smoke path.
+  * The alias has no runtime storage; the typer evaluates `value` while checking
+  * the block and expands later references to integer literals.
+  */
+final case class UntypedCompileTimeIntAlias(
+    name: String,
+    value: UntypedExpr,
+    span: SourceSpan,
+) extends UntypedStmt
+
 /** Expression in statement position, usually produced by a trailing semicolon.
   */
 final case class UntypedExprStmt(

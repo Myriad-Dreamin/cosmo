@@ -1,0 +1,7 @@
+/// expect: compile
+def main(): Unit = {
+  type left = 1;
+  type right = 2;
+  type total = left + right;
+  println(total)
+}

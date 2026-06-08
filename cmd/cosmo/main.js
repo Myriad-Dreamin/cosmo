@@ -67,6 +67,14 @@ export function parseSourceRunCommand(argv) {
   return { input, runArgs };
 }
 
+function requiredOptionValue(argv, index, optionName) {
+  const value = argv[index + 1];
+  if (!value) {
+    throw new CliError(`${optionName} requires a value`);
+  }
+  return value;
+}
+
 export function parseEnvironmentOptions(argv) {
   const commandArgs = [];
   let envFile = ".env";

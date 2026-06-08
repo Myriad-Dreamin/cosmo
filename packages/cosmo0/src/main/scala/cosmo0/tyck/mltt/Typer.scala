@@ -158,12 +158,23 @@ final class MlttTyper(
 
   private final class Scope(parent: Option[Scope]):
     private val values = mutable.LinkedHashMap.empty[String, ValueSymbol]
+    private val compileTimeInts = mutable.LinkedHashMap.empty[String, BigInt]
 
     def define(symbol: ValueSymbol): Unit =
       values.update(symbol.name, symbol)
 
+    def defineCompileTimeInt(name: String, value: BigInt): Unit =
+      compileTimeInts.update(name, value)
+
     def resolve(name: String): Option[ValueSymbol] =
       values.get(name).orElse(parent.flatMap(_.resolve(name)))
+
+    def resolveCompileTimeInt(name: String): Option[BigInt] =
+      compileTimeInts
+        .get(name)
+        .orElse(
+          parent.flatMap(_.resolveCompileTimeInt(name)),
+        )
 
     def child: Scope =
       new Scope(Some(this))
@@ -1130,6 +1141,14 @@ final class MlttTyper(
           init.map(_.expr),
           local.span,
         )
+      case alias: UntypedCompileTimeIntAlias =>
+        compileTimeIntExpr(alias.value, scope).foreach(value =>
+          scope.defineCompileTimeInt(alias.name, value),
+        )
+        TypedExprStmt(
+          TypedUnitLiteral(SourceType.Unit, alias.span),
+          alias.span,
+        )
       case stmt: UntypedExprStmt =>
         val typed = expr(stmt.expr, scope, expected, context)
         TypedExprStmt(typed.expr, stmt.span)
@@ -1167,52 +1186,61 @@ final class MlttTyper(
               symbol.mutAllowed,
             )
           case None =>
-            classCtor(name, node.span).orElse(
-              descriptorCtor(name, node.span),
-            ) match
-              case Some(sig) =>
-                val callee =
-                  SourceType.dealias(sig.returnType) match
-                    case owner: SourceType.User =>
-                      TypedTypeConstructorExpr(
-                        owner,
-                        sig.functionType,
-                        node.span,
-                      )
-                    case _ =>
-                      descriptorOwner(name) match
-                        case Some(owner) if sameType(sig.returnType, owner) =>
+            scope.resolveCompileTimeInt(name) match
+              case Some(value) =>
+                ExprInfo(
+                  TypedIntLiteral(value, SourceType.I32, node.span),
+                  mutBinding = false,
+                  mutAllowed = false,
+                )
+              case None =>
+                classCtor(name, node.span).orElse(
+                  descriptorCtor(name, node.span),
+                ) match
+                  case Some(sig) =>
+                    val callee =
+                      SourceType.dealias(sig.returnType) match
+                        case owner: SourceType.User =>
                           TypedTypeConstructorExpr(
                             owner,
                             sig.functionType,
                             node.span,
                           )
                         case _ =>
-                          TypedName(
-                            node.path,
-                            sig.functionType,
-                            false,
-                            false,
-                            node.span,
-                          )
-                ExprInfo(callee, false, false)
-              case None =>
-                error(
-                  "cosmo0.type.unresolved-name",
-                  s"unresolved name ${node.path.text}",
-                  node.span,
-                )
-                ExprInfo(
-                  TypedName(
-                    node.path,
-                    SourceType.Error,
-                    false,
-                    false,
-                    node.span,
-                  ),
-                  false,
-                  false,
-                )
+                          descriptorOwner(name) match
+                            case Some(owner)
+                                if sameType(sig.returnType, owner) =>
+                              TypedTypeConstructorExpr(
+                                owner,
+                                sig.functionType,
+                                node.span,
+                              )
+                            case _ =>
+                              TypedName(
+                                node.path,
+                                sig.functionType,
+                                false,
+                                false,
+                                node.span,
+                              )
+                    ExprInfo(callee, false, false)
+                  case None =>
+                    error(
+                      "cosmo0.type.unresolved-name",
+                      s"unresolved name ${node.path.text}",
+                      node.span,
+                    )
+                    ExprInfo(
+                      TypedName(
+                        node.path,
+                        SourceType.Error,
+                        false,
+                        false,
+                        node.span,
+                      ),
+                      false,
+                      false,
+                    )
       case _ =>
         error(
           "cosmo0.type.unresolved-name",
@@ -1224,6 +1252,56 @@ final class MlttTyper(
           false,
           false,
         )
+
+  private def compileTimeIntExpr(
+      node: UntypedExpr,
+      scope: Scope,
+  ): Option[BigInt] =
+    node match
+      case value: UntypedIntLiteral =>
+        Some(value.value)
+      case UntypedName(path, span) if path.parts.length == 1 =>
+        val name = path.parts.head
+        scope.resolveCompileTimeInt(name) match
+          case Some(value) => Some(value)
+          case None =>
+            error(
+              "cosmo0.cte.local-int-alias.unresolved-name",
+              s"unresolved compile-time integer alias $name",
+              span,
+            )
+            None
+      case UntypedUnary("+", expr, _) =>
+        compileTimeIntExpr(expr, scope)
+      case UntypedUnary("-", expr, _) =>
+        compileTimeIntExpr(expr, scope).map(-_)
+      case UntypedBinary(op, left, right, span)
+          if Set("+", "-", "*", "/", "%").contains(op) =>
+        val leftValue = compileTimeIntExpr(left, scope)
+        val rightValue = compileTimeIntExpr(right, scope)
+        leftValue.zip(rightValue).flatMap { case (lhs, rhs) =>
+          op match
+            case "+" => Some(lhs + rhs)
+            case "-" => Some(lhs - rhs)
+            case "*" => Some(lhs * rhs)
+            case "/" | "%" if rhs == 0 =>
+              error(
+                "cosmo0.cte.local-int-alias.divide-by-zero",
+                "compile-time integer alias division by zero",
+                span,
+              )
+              None
+            case "/" => Some(lhs / rhs)
+            case "%" => Some(lhs % rhs)
+            case _   => None
+        }
+      case other =>
+        error(
+          "cosmo0.cte.local-int-alias.unsupported-expression",
+          "local compile-time integer aliases currently support integer literals, alias names, unary +/- and binary + - * / %",
+          other.span,
+        )
+        None
 
   /** Infers a direct type-constructor expression.
     *

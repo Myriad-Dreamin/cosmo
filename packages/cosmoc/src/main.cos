@@ -51,6 +51,10 @@ def run_node_source_command(args: Vec[String]): i32 = {
     return 1
   }
 
+  run_node_driver_command(args)
+}
+
+def run_node_driver_command(args: Vec[String]): i32 = {
   val command = core0_command(core0_path_from_string("node"));
   command.arg("cmd/cosmo/main.js");
 
