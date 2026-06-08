@@ -1058,6 +1058,7 @@ final class Elaborator(
           case None                 => None
           case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
           case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
+          case Some(typeNode: Typ)  => localCompileTimeIntAlias(typeNode)
           case Some(other) =>
             expr(other).map(value => UntypedExprStmt(value, nodeSpan(node)))
       case other =>
@@ -1065,6 +1066,7 @@ final class Elaborator(
           case None                 => None
           case Some(valueNode: Val) => local(valueNode, UntypedValueKind.Val)
           case Some(valueNode: Var) => local(valueNode, UntypedValueKind.Var)
+          case Some(typeNode: Typ)  => localCompileTimeIntAlias(typeNode)
           case Some(value)          => expr(value)
 
   private def local(
@@ -1098,6 +1100,28 @@ final class Elaborator(
     ty.zip(init).map { case (t, i) =>
       UntypedLocal(kind, node.name.name, t, i, span)
     }
+
+  private def localCompileTimeIntAlias(
+      node: Typ,
+  ): Option[UntypedCompileTimeIntAlias] =
+    if node.ty.nonEmpty then
+      unsupported(
+        node,
+        "cosmo0.elaborate.unsupported.local-type-alias-annotation",
+        "local compile-time integer aliases must use `type name = <integer expression>`",
+      )
+    else
+      node.init match
+        case Some(value) =>
+          expr(value).map(init =>
+            UntypedCompileTimeIntAlias(node.name.name, init, nodeSpan(node)),
+          )
+        case None =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported.local-type-alias-target",
+            "local compile-time integer aliases must use `type name = <integer expression>`",
+          )
 
   /** Lowers parser expressions into untyped expressions.
     *

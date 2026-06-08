@@ -1,0 +1,410 @@
+class CosmoEvalStatus {
+  case Succeeded
+  case Failed
+  case Unsupported
+}
+
+class CosmoEvalCacheState {
+  case Created
+  case Reused
+  case Invalidated
+  case Disabled
+  case Unknown
+}
+
+class CosmoEvalDiagnostic {
+  val severity: String
+  val code: String
+  val message: String
+}
+
+class CosmoEvalToolchainIdentity {
+  val llvm_version: String
+  val clang_executable: String
+  val clang_version: String
+  val manifest_path: String
+  val cache_path: String
+  val offline_mode: Bool
+  val target_platform: String
+  val target_architecture: String
+  val gnu_toolchain: String
+}
+
+class CosmoEvalTargetSettings {
+  val cxx_standard: String
+  val target_triple: String
+  val build_profile: String
+}
+
+class CosmoEvalResourceLimits {
+  val timeout_millis: i32
+  val max_output_bytes: i32
+}
+
+class CosmoEvalPrecompiledContextKey {
+  val cxx_standard: String
+  val target_triple: String
+  val toolchain: CosmoEvalToolchainIdentity
+  val include_paths: Vec[String]
+  val headers: Vec[String]
+  val imports: Vec[String]
+  val compile_options: Vec[String]
+  val support_library_identities: Vec[String]
+  val eval_session_profile: String
+
+  def stable_text(&self): String = {
+    "cxx=".concat(self.cxx_standard)
+      .concat(";target=").concat(self.target_triple)
+      .concat(";clang=").concat(self.toolchain.clang_executable)
+      .concat(";clang_version=").concat(self.toolchain.clang_version)
+      .concat(";manifest=").concat(self.toolchain.manifest_path)
+      .concat(";cache=").concat(self.toolchain.cache_path)
+      .concat(";includes=").concat(cosmo_eval_join_values(self.include_paths))
+      .concat(";headers=").concat(cosmo_eval_join_values(self.headers))
+      .concat(";imports=").concat(cosmo_eval_join_values(self.imports))
+      .concat(";options=").concat(cosmo_eval_join_values(self.compile_options))
+      .concat(";support=").concat(cosmo_eval_join_values(self.support_library_identities))
+      .concat(";profile=").concat(self.eval_session_profile)
+  }
+}
+
+class CosmoEvalRequest {
+  val compiler_id: String
+  val eval_identity: String
+  val provider_identity: String
+  val serialized_input: String
+  val imports: Vec[String]
+  val headers: Vec[String]
+  val include_paths: Vec[String]
+  val library_search_paths: Vec[String]
+  val compile_options: Vec[String]
+  val generated_entry_source: String
+  val target: CosmoEvalTargetSettings
+  val resource_limits: CosmoEvalResourceLimits
+  val precompiled_context_key: CosmoEvalPrecompiledContextKey
+  val toolchain_identity: CosmoEvalToolchainIdentity
+  val backend: String
+  val requested_facts: Vec[String]
+  val support_library_identities: Vec[String]
+
+  def stable_text(&self): String = {
+    "compiler=".concat(self.compiler_id)
+      .concat(";eval=").concat(self.eval_identity)
+      .concat(";provider=").concat(self.provider_identity)
+      .concat(";input=").concat(self.serialized_input)
+      .concat(";backend=").concat(self.backend)
+      .concat(";headers=").concat(cosmo_eval_join_values(self.headers))
+      .concat(";includes=").concat(cosmo_eval_join_values(self.include_paths))
+      .concat(";libs=").concat(cosmo_eval_join_values(self.library_search_paths))
+      .concat(";options=").concat(cosmo_eval_join_values(self.compile_options))
+      .concat(";facts=").concat(cosmo_eval_join_values(self.requested_facts))
+      .concat(";key=").concat(self.precompiled_context_key.stable_text())
+  }
+}
+
+class CosmoEvalArtifactSummary {
+  val kind: String
+  val path: String
+  val sha256: String
+}
+
+class CosmoEvalCacheSummary {
+  val key_id: String
+  val state: CosmoEvalCacheState
+  val artifact_path: String
+  val message: String
+}
+
+class CosmoEvalCapturedOutputSummary {
+  val stdout_bytes: usize
+  val stderr_bytes: usize
+  val stdout_preview: String
+  val stderr_preview: String
+}
+
+class CosmoEvalResult {
+  val status: CosmoEvalStatus
+  val diagnostics: Vec[CosmoEvalDiagnostic]
+  val serialized_output: Option[String]
+  val requested_cpp_facts: Vec[String]
+  val support_binding_metadata: Vec[String]
+  val artifacts: Vec[CosmoEvalArtifactSummary]
+  val cache_summary: CosmoEvalCacheSummary
+  val captured_output: CosmoEvalCapturedOutputSummary
+}
+
+class CosmoEvalSession {
+  val compiler_id: String
+  var cached_context_keys: Vec[String]
+
+  def prepare(&mut self, request: CosmoEvalRequest): Result[CosmoEvalCacheSummary, CosmoEvalDiagnostic] = {
+    val unsupported = cosmo_eval_unsupported_backend_diagnostic(request.backend);
+    unsupported match {
+      case Option[CosmoEvalDiagnostic]::Some(diagnostic) => {
+        return Result[CosmoEvalCacheSummary, CosmoEvalDiagnostic]::Err(diagnostic)
+      }
+      case Option[CosmoEvalDiagnostic]::None => {}
+    }
+
+    val key_id = request.precompiled_context_key.stable_text();
+    if (cosmo_eval_contains_string(self.cached_context_keys, key_id)) {
+      return Result[CosmoEvalCacheSummary, CosmoEvalDiagnostic]::Ok(
+        CosmoEvalCacheSummary(
+          key_id,
+          CosmoEvalCacheState.Reused,
+          "target/cosmo/eval/cache/context.hpp.pch",
+          "precompiled context reused"
+        )
+      )
+    }
+
+    self.cached_context_keys.push(key_id);
+    Result[CosmoEvalCacheSummary, CosmoEvalDiagnostic]::Ok(
+      CosmoEvalCacheSummary(
+        key_id,
+        CosmoEvalCacheState.Created,
+        "target/cosmo/eval/cache/context.hpp.pch",
+        "precompiled context created"
+      )
+    )
+  }
+
+  def complete(&mut self, request: CosmoEvalRequest, serialized_output: String): CosmoEvalResult = {
+    val prepared = self.prepare(request);
+    prepared match {
+      case Result[CosmoEvalCacheSummary, CosmoEvalDiagnostic]::Ok(cache) => {
+        CosmoEvalResult(
+          CosmoEvalStatus.Succeeded,
+          Vec[CosmoEvalDiagnostic](),
+          Option[String]::Some(serialized_output),
+          request.requested_facts,
+          request.support_library_identities,
+          Vec[CosmoEvalArtifactSummary](),
+          cache,
+          CosmoEvalCapturedOutputSummary(serialized_output.len(), 0, serialized_output, "")
+        )
+      }
+      case Result[CosmoEvalCacheSummary, CosmoEvalDiagnostic]::Err(diagnostic) => {
+        val diagnostics = Vec[CosmoEvalDiagnostic]();
+        diagnostics.push(diagnostic);
+        CosmoEvalResult(
+          CosmoEvalStatus.Unsupported,
+          diagnostics,
+          Option[String]::None,
+          Vec[String](),
+          Vec[String](),
+          Vec[CosmoEvalArtifactSummary](),
+          CosmoEvalCacheSummary(
+            request.precompiled_context_key.stable_text(),
+            CosmoEvalCacheState.Disabled,
+            "",
+            "eval backend is not supported"
+          ),
+          CosmoEvalCapturedOutputSummary(0, 0, "", "")
+        )
+      }
+    }
+  }
+}
+
+def cosmo_eval_session(compiler_id: String): CosmoEvalSession = {
+  CosmoEvalSession(compiler_id, Vec[String]())
+}
+
+def cosmo_eval_unsupported_backend_diagnostic(backend: String): Option[CosmoEvalDiagnostic] = {
+  if (backend == "clang-repl" or backend == "clangInterpreter" or backend == "clang-interpreter") {
+    Option[CosmoEvalDiagnostic]::Some(
+      CosmoEvalDiagnostic(
+        "error",
+        "cosmo.eval.unsupported-interpreter-backend",
+        "clang-repl and clangInterpreter are not supported eval backends; provider entry functions must compile through ordinary Clang"
+      )
+    )
+  } else {
+    Option[CosmoEvalDiagnostic]::None
+  }
+}
+
+def cosmo_eval_integer_smoke_request(compiler_id: String): CosmoEvalRequest = {
+  val headers = Vec[String]();
+  headers.push("<iostream>");
+  val requested_facts = Vec[String]();
+  requested_facts.push("return:i32");
+  val toolchain = CosmoEvalToolchainIdentity(
+    "21.1.8",
+    "clang++",
+    "clang version 21.1.8",
+    "packages/cosmo-clang-sys/config/llvm-manifest.json",
+    "target/cosmo/llvm",
+    false,
+    "host",
+    "host",
+    ""
+  );
+  val target = CosmoEvalTargetSettings("c++17", "", "dev");
+  val support = Vec[String]();
+  val imports = Vec[String]();
+  val includes = Vec[String]();
+  val libraries = Vec[String]();
+  val options = Vec[String]();
+  val key = CosmoEvalPrecompiledContextKey(
+    target.cxx_standard,
+    target.target_triple,
+    toolchain,
+    includes,
+    headers,
+    imports,
+    options,
+    support,
+    target.build_profile
+  );
+
+  CosmoEvalRequest(
+    compiler_id,
+    "smoke.integer",
+    "cosmoc.eval.poc",
+    "1+1",
+    imports,
+    headers,
+    includes,
+    libraries,
+    options,
+    "extern \"C\" int cosmo_eval_entry() { return 1 + 1; }",
+    target,
+    CosmoEvalResourceLimits(10000, 65536),
+    key,
+    toolchain,
+    "clang-pch-executable",
+    requested_facts,
+    support
+  )
+}
+
+def cosmo_eval_rejects_interpreter_backend(): Bool = {
+  val request = cosmo_eval_integer_smoke_request("cosmoc");
+  val rejected = CosmoEvalRequest(
+    request.compiler_id,
+    request.eval_identity,
+    request.provider_identity,
+    request.serialized_input,
+    request.imports,
+    request.headers,
+    request.include_paths,
+    request.library_search_paths,
+    request.compile_options,
+    request.generated_entry_source,
+    request.target,
+    request.resource_limits,
+    request.precompiled_context_key,
+    request.toolchain_identity,
+    "clangInterpreter",
+    request.requested_facts,
+    request.support_library_identities
+  );
+  val session = cosmo_eval_session("cosmoc");
+  val result = session.complete(rejected, "2");
+  cosmo_eval_status_unsupported(result.status) and result.diagnostics.len() == 1
+}
+
+def cosmo_eval_context_cache_reuses_same_key(): Bool = {
+  val request = cosmo_eval_integer_smoke_request("cosmoc");
+  val session = cosmo_eval_session("cosmoc");
+  val first = session.complete(request, "2");
+  val second = session.complete(request, "2");
+
+  cosmo_eval_status_succeeded(first.status) and
+    cosmo_eval_cache_created(first.cache_summary.state) and
+    cosmo_eval_cache_reused(second.cache_summary.state)
+}
+
+def cosmo_eval_status_succeeded(status: CosmoEvalStatus): Bool = {
+  status match {
+    case CosmoEvalStatus.Succeeded => {
+      true
+    }
+    case CosmoEvalStatus.Failed => {
+      false
+    }
+    case CosmoEvalStatus.Unsupported => {
+      false
+    }
+  }
+}
+
+def cosmo_eval_status_unsupported(status: CosmoEvalStatus): Bool = {
+  status match {
+    case CosmoEvalStatus.Succeeded => {
+      false
+    }
+    case CosmoEvalStatus.Failed => {
+      false
+    }
+    case CosmoEvalStatus.Unsupported => {
+      true
+    }
+  }
+}
+
+def cosmo_eval_cache_created(state: CosmoEvalCacheState): Bool = {
+  state match {
+    case CosmoEvalCacheState.Created => {
+      true
+    }
+    case CosmoEvalCacheState.Reused => {
+      false
+    }
+    case CosmoEvalCacheState.Invalidated => {
+      false
+    }
+    case CosmoEvalCacheState.Disabled => {
+      false
+    }
+    case CosmoEvalCacheState.Unknown => {
+      false
+    }
+  }
+}
+
+def cosmo_eval_cache_reused(state: CosmoEvalCacheState): Bool = {
+  state match {
+    case CosmoEvalCacheState.Created => {
+      false
+    }
+    case CosmoEvalCacheState.Reused => {
+      true
+    }
+    case CosmoEvalCacheState.Invalidated => {
+      false
+    }
+    case CosmoEvalCacheState.Disabled => {
+      false
+    }
+    case CosmoEvalCacheState.Unknown => {
+      false
+    }
+  }
+}
+
+def cosmo_eval_join_values(values: Vec[String]): String = {
+  var text = "";
+  var index: usize = 0;
+  while (index < values.len()) {
+    if (index > 0) {
+      text = text.concat("|")
+    }
+    text = text.concat(values.get(index));
+    index = index + 1
+  }
+  text
+}
+
+def cosmo_eval_contains_string(values: Vec[String], value: String): Bool = {
+  var index: usize = 0;
+  while (index < values.len()) {
+    if (values.get(index) == value) {
+      return true
+    }
+    index = index + 1
+  }
+  false
+}
