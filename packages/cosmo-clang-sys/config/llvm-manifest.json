@@ -26,15 +26,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
-        "sha256": "7b42134621ceaa79055282e8d471100bc9e8b13d2beb391b028f3e251bc54049"
+        "sha256": "f5ac3acda90d772d532c94ab0a1581625234cee7f4350d1f35118376564a9ea3"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
-        "sha256": "ae664c99f1ad785161012a939e302ab5c9f9a1c9972465701eecc2f7fac69c1e"
+        "sha256": "7d2bd17534cb9f7d214c5c7156e142fbf1b5bb8bb613831d0a5ef35c3a8e3c0c"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
-        "sha256": "cdc18481fcdc61247622481533daa2d9687bb97e55fe4a5a438713b95f51bb00"
+        "sha256": "5ead126f9693fd046fe300ef875da5a055f0f3394b313b6253b7167b6dc7e594"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-x86_64-unknown-linux-gnu.tar.xz",
@@ -55,15 +55,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
-        "sha256": "6666e6886a627ab4fd2d5879f10bfa3c0dcd678f55a5b30bb5cb998336ba5de9"
+        "sha256": "e86a7509cee7dbaae08777223ded04ebedd9f1f71387ee77aca886f590d61e2c"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
-        "sha256": "8c027fe9e4aa161c328d35569404e09cf4a9192d6d58ddc4295a04a061b0f47b"
+        "sha256": "a00067b23a728f4e63e9adef85f4ddc7d14c30d90e63b0164627895e265e0f83"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
-        "sha256": "057eb5412f48b30263e9b906b0776c7ddc6f3b4d3193e05d7170cb99e9683ea8"
+        "sha256": "3e3f57c4b17b637e9264d56827fbeedb5043c79133155a6baa5f66cacd44225d"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-x86_64-unknown-linux-gnu.tar.xz",
@@ -84,15 +84,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
-        "sha256": "049fb8b95775091ecb5b6629d95da708714cfb25e2ec6b02673582c8394601e5"
+        "sha256": "ea582067629d84d982d8923a7b88038cc7ef445f92ed8166a29e216f4edc737b"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
-        "sha256": "fac47e053b1bd4deebd9cda1ffe3974e0c302dccd41667c21afb71d7287b7e16"
+        "sha256": "d39c7eae9165f65e6d5884e897729c4e656565008cd5e6eb91c08638719f2fb0"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
-        "sha256": "0e4c831c24fd2f8f0c0178f96ddc43e6cb932dbf5e0b58b3f7bf527a047d41d1"
+        "sha256": "bc67c28ce35dab2bcb14dfe8624c3c50c5f642b5ec688aad17963ee62896b6e1"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-aarch64-apple-darwin.tar.xz",
@@ -113,15 +113,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
-        "sha256": "55173e24be85de2fc2a2125e29ef2faa9a7d12e2a5611b60833b5c8a20df0816"
+        "sha256": "5ca883bd16a13f56ad9ce504af84db7e753b31d14b5d220f3423da8a2fa930b2"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
-        "sha256": "5a4c6b8f1191a8d6dda4ca831bb0d08ab1adb21dec8c2eb5f62326be28466b2c"
+        "sha256": "45f670a7b489a9f72725712a9f771ada29eeff6d67f2a91bf15b90f30284dd35"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
-        "sha256": "7d5f5dbbc4496e0ac443b223470b0c050fbfce19660603b0b4e75b16ea78f45b"
+        "sha256": "266e3a1a5b84f6bb42c9d3e3d9ce8f8d68b01f911264fddc25d90039adac7ea5"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-aarch64-apple-darwin.tar.xz",
@@ -142,15 +142,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
-        "sha256": "287b837dd8d0c7e04b5e2db044738ad20ebb46951161ae9227be03e8ec96d220"
+        "sha256": "861cbdb0710413ff51a2b4f9907dd4fff33719b4a0b9a929901c0f00a4688f21"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
-        "sha256": "e19fc82a833d286a8eb9c74c2eb92ed6047065c001cec882abe82af36ffe1a22"
+        "sha256": "91f9d896aaaf1e282a3632c88f933a753f48c5e3fccb0bb28381825f3c4ce3f1"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
-        "sha256": "89998709a7069f143c627eb7c2978fd73de9aaa6934f19143b3372819aef3db5"
+        "sha256": "e751335406347233f96740d538898fbecf7aa019cc809016fd028f66e50491a0"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-x86_64-apple-darwin.tar.xz",
@@ -171,15 +171,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
-        "sha256": "6e9117c67399690152eed86851654bfda5ee774f3f28e800b9f5f09fda40a115"
+        "sha256": "e893fc939a0f0343836e480860bf50f5bfefc30198076b2df86c3e4854ef260a"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
-        "sha256": "f2e06b880d5b83d2e848c1b580cf042e6e6862608a4c4b2a217e21e462f951b2"
+        "sha256": "f4d1051805731ca6f22809f1a4dc62225e23ada050db62fdae9485b4cc4ce5f9"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
-        "sha256": "d7c937dea03457e7bad6d25070c341281bcecba40d6391f70d698cc3c0879597"
+        "sha256": "e3a8a0bedd11db5449c6d34265585960906df67d016f3cbb2c6728e3fad4314e"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-x86_64-apple-darwin.tar.xz",
@@ -220,15 +220,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
-        "sha256": "838aa6c02f44d02d29235c629530b6d82f69be24e89a5767ba71c34978d91111"
+        "sha256": "1491cd2935b10532f9e4e4513abe5c3f82e9df3975dd92b9e7a87628a489b60a"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
-        "sha256": "1f60c919b94e6902a1165c11b2fe725ecf85946a39c5e9bf8d06fd57a2d99085"
+        "sha256": "878465291cbdcdf8331292a60b55fff01bb0f2ca3e366db0c2cb066a8a7cc770"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
-        "sha256": "f3cf90e5439a8e0ee75866db8832febdc79c9660ee56f3799e4c418caa162b89"
+        "sha256": "3390ef2613971c0a28a756eb6f0638e48d649bb126dee5a6b50e4edd14901231"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-relwithdebinfo-x86_64-pc-windows-msvc.tar.xz",
@@ -249,15 +249,15 @@
     "archives": [
       {
         "filename": "llvm-dist-llvm-core-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
-        "sha256": "8e9a00d09fb7a5af69ab8229371a17315f8ea40e9763ba62070c8abd3e880f50"
+        "sha256": "6c517e93b37d5885740436e507d37d569d92c6786d254b7084bd2775daa1ef56"
       },
       {
         "filename": "llvm-dist-clang-sdk-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
-        "sha256": "047fa350672d1ce32c6bc75147f018e3a73fd6e949772e219e3f35733f675807"
+        "sha256": "217376b082d9008703204306ea9cc749b17e1c56c59743a4f75e0abec8946fd9"
       },
       {
         "filename": "llvm-dist-clang-tooling-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
-        "sha256": "349111af3d67c4b3943165dc10d5d45370a95db2bd80cd7c657d096dc54698d9"
+        "sha256": "aff01503b910fc8e19089981201648981fd9bd3568534cfc6b27bdaf9895cb7c"
       },
       {
         "filename": "llvm-dist-clang-repl-llvmorg-21.1.8-release-x86_64-pc-windows-msvc.tar.xz",
