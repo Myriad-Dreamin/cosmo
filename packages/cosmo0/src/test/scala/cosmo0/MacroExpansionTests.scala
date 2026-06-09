@@ -1,5 +1,7 @@
 package cosmo0
 
+import MacroTestProviders.*
+
 class MacroExpansionTests extends munit.FunSuite:
   private val attributeSource =
     """trait FieldCount {
@@ -14,6 +16,94 @@ class MacroExpansionTests extends munit.FunSuite:
       |  val verbose: Bool
       |}
       |""".stripMargin
+
+  private def checkWithMacros(
+      sourceText: String,
+      profile: CheckerProfile = CheckerProfiles.MlttDependentPatterns,
+      expressionProviders: MacroExpressionProviderRegistry =
+        MacroTestProviders.expressionRegistry,
+      deriveProviders: MacroDeriveProviderRegistry =
+        MacroTestProviders.deriveRegistry,
+  ): Result[CheckedModule] =
+    Cosmo0().elaborate(sourceText) match
+      case elaborated if elaborated.isSuccess =>
+        checkElaboratedWithMacros(
+          elaborated.value.get,
+          profile,
+          expressionProviders,
+          deriveProviders,
+        )
+      case failed =>
+        Result(
+          Phase.Check,
+          failed.status,
+          None,
+          failed.diagnostics,
+        )
+
+  private def checkElaboratedWithMacros(
+      module: UntypedModule,
+      profile: CheckerProfile = CheckerProfiles.MlttDependentPatterns,
+      expressionProviders: MacroExpressionProviderRegistry =
+        MacroTestProviders.expressionRegistry,
+      deriveProviders: MacroDeriveProviderRegistry =
+        MacroTestProviders.deriveRegistry,
+  ): Result[CheckedModule] =
+    val typed =
+      new MlttTyper(
+        module,
+        StandardGenericDescriptors.all,
+        profile,
+        expressionProviders,
+        deriveProviders,
+      ).check()
+    checkedModuleResult(typed)
+
+  private def checkedModuleResult(
+      result: Result[TypedModule],
+  ): Result[CheckedModule] =
+    result match
+      case checked if checked.isSuccess =>
+        val typed = checked.value.get
+        Result.success(
+          Phase.Check,
+          CheckedModule(typed, typed.macroExpansion),
+        )
+      case failed =>
+        Result(
+          Phase.Check,
+          failed.status,
+          None,
+          failed.diagnostics,
+        )
+
+  private def compileWithMacros(
+      sourceText: String,
+  ): Result[CompiledModule] =
+    checkWithMacros(sourceText) match
+      case checked if checked.isFailure =>
+        Result.failure(Phase.Compile, checked.diagnostics)
+      case checked if checked.isUnsupported =>
+        Result(
+          Phase.Compile,
+          PhaseStatus.Unsupported,
+          None,
+          checked.diagnostics,
+        )
+      case checked =>
+        val checkedModule = checked.value.get
+        LirLowerer(checkedModule.typed).lower() match
+          case lowered if lowered.isSuccess =>
+            CppBackend(lowered.value.get).emit() match
+              case emitted if emitted.isSuccess =>
+                Result.success(
+                  Phase.Compile,
+                  CompiledModule(checkedModule, emitted.value.get.source),
+                )
+              case failed =>
+                Result.failure(Phase.Compile, failed.diagnostics)
+          case failed =>
+            Result.failure(Phase.Compile, failed.diagnostics)
 
   test("elaborate preserves structured derive and field attributes"):
     val result = Cosmo0().elaborate(attributeSource)
@@ -38,8 +128,39 @@ class MacroExpansionTests extends munit.FunSuite:
       List("""@arg(long="package",short="p")"""),
     )
 
+  test("production macro registries do not include test providers"):
+    assertEquals(
+      MacroExpressionProviderRegistry.default.resolveFree("example.answer"),
+      MacroProviderLookup.Missing,
+    )
+    assert(
+      !MacroExpressionProviderRegistry.default.hasFreeCandidate(
+        "example.answer",
+      ),
+    )
+    assertEquals(
+      MacroDeriveProviderRegistry.default.resolve("example.FieldCount"),
+      MacroDeriveProviderLookup.Missing,
+    )
+    assert(
+      !MacroDeriveProviderRegistry.default.hasCandidate("example.FieldCount"),
+    )
+
+  test("Cosmo0 check does not enable test expression macros by default"):
+    val result = Cosmo0().check("val answer = example.answer()")
+
+    assertEquals(result.status, PhaseStatus.Failed)
+    assert(
+      result.diagnostics.exists(_.code == "cosmo0.type.unresolved-name"),
+      s"missing unresolved-name diagnostic in ${result.diagnostics.map(_.code)}",
+    )
+    assert(
+      !result.diagnostics.exists(_.code.startsWith("cosmo0.macro.")),
+      s"unexpected macro diagnostic in ${result.diagnostics.map(_.code)}",
+    )
+
   test("check expands expression macro during expression typing"):
-    val result = Cosmo0().check("val answer: u8 = example.answer()")
+    val result = checkWithMacros("val answer: u8 = example.answer()")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -61,8 +182,8 @@ class MacroExpansionTests extends munit.FunSuite:
 
   test("macro expansion summary is deterministic"):
     val source = "val answer: u8 = example.answer()"
-    val first = Cosmo0().check(source)
-    val second = Cosmo0().check(source)
+    val first = checkWithMacros(source)
+    val second = checkWithMacros(source)
 
     assertEquals(first.status, PhaseStatus.Succeeded)
     assertEquals(second.status, PhaseStatus.Succeeded)
@@ -77,7 +198,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("identity expression macro output is rechecked in caller context"):
-    val result = Cosmo0().check("val copied: u8 = example.identity(41)")
+    val result = checkWithMacros("val copied: u8 = example.identity(41)")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -98,7 +219,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro payload preserves named arguments"):
-    val result = Cosmo0().check("val copied: u8 = example.named(value = 7)")
+    val result = checkWithMacros("val copied: u8 = example.named(value = 7)")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -123,7 +244,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("free expression macro does not match a method selector by text"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """class Example {
         |  val answer: i32
         |}
@@ -145,7 +266,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("method-like expression macro preserves receiver in Args payload"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """class MacroBox {}
         |
         |val box = MacroBox()
@@ -176,7 +297,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("block-attached expression macro receives a Block payload"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """val answer: u8 = example.block {
         |  1
         |}
@@ -201,7 +322,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("macro call rejects multiple surface payloads"):
-    val result = Cosmo0().check("val answer = example.block(1) { 2 }")
+    val result = checkWithMacros("val answer = example.block(1) { 2 }")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Unsupported)
@@ -213,7 +334,8 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("template expression macro receives a Template payload"):
-    val result = Cosmo0().check("""val message: String = example.text"hello"""")
+    val result =
+      checkWithMacros("""val message: String = example.text"hello"""")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -233,7 +355,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("compile keeps expression macro output on the ordinary backend path"):
-    val result = Cosmo0().compile("val answer = example.answer()")
+    val result = compileWithMacros("val answer = example.answer()")
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -244,7 +366,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro expansion rejects unresolved providers"):
-    val result = Cosmo0().check("val answer = example.missing()")
+    val result = checkWithMacros("val answer = example.missing()")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -253,7 +375,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro expansion rejects invalid provider output"):
-    val result = Cosmo0().check("val answer = example.invalid()")
+    val result = checkWithMacros("val answer = example.invalid()")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -262,7 +384,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro expansion rejects typed-expression injection"):
-    val result = Cosmo0().check("val answer = example.typed()")
+    val result = checkWithMacros("val answer = example.typed()")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -277,7 +399,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro expansion rejects recursive expansion"):
-    val result = Cosmo0().check("val answer = example.recursive()")
+    val result = checkWithMacros("val answer = example.recursive()")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -288,7 +410,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro expansion rejects unsupported provider inputs"):
-    val result = Cosmo0().check("val answer = example.answer(1)")
+    val result = checkWithMacros("val answer = example.answer(1)")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -299,9 +421,11 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("expression macro expansion is gated by checker profile support"):
-    val elaborated =
-      Cosmo0().elaborate("val answer = example.answer()").value.get
-    val result = MlttTyper(elaborated, CheckerProfiles.MlttCore).check()
+    val result =
+      checkWithMacros(
+        "val answer = example.answer()",
+        profile = CheckerProfiles.MlttCore,
+      )
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -312,7 +436,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro attaches a generated trait implementation"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """trait FieldCount {
         |  def field_count(&self): i32
         |}
@@ -365,8 +489,8 @@ class MacroExpansionTests extends munit.FunSuite:
         |  val verbose: Bool
         |}
         |""".stripMargin
-    val first = Cosmo0().check(source)
-    val second = Cosmo0().check(source)
+    val first = checkWithMacros(source)
+    val second = checkWithMacros(source)
 
     assertEquals(first.status, PhaseStatus.Succeeded)
     assertEquals(second.status, PhaseStatus.Succeeded)
@@ -387,7 +511,7 @@ class MacroExpansionTests extends munit.FunSuite:
         |}
         |
         |""".stripMargin
-    val topLevel = Cosmo0().check(sourcePrefix + "val count = field_count()")
+    val topLevel = checkWithMacros(sourcePrefix + "val count = field_count()")
 
     assertEquals(topLevel.status, PhaseStatus.Failed)
     assert(
@@ -396,7 +520,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
     val staticMethod =
-      Cosmo0().check(sourcePrefix + "val method = Config.field_count")
+      checkWithMacros(sourcePrefix + "val method = Config.field_count")
     assertEquals(staticMethod.status, PhaseStatus.Failed)
     assert(
       staticMethod.diagnostics.exists(_.code == "cosmo0.type.invalid-field"),
@@ -404,7 +528,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects invalid provider output"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """trait InvalidDerive {
         |  def field_count(&self): i32
         |}
@@ -421,7 +545,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects typed expression injection"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """trait TypedDerive {
         |  def field_count(&self): i32
         |}
@@ -442,7 +566,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects duplicate implementation attachments"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """trait FieldCount {
         |  def field_count(&self): i32
         |}
@@ -465,7 +589,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects unresolved providers"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """@derive(example.Missing)
         |class Config {}
         |""".stripMargin,
@@ -478,7 +602,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects unsupported selected traits"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """@derive(example.UnsupportedTrait)
         |class Config {}
         |""".stripMargin,
@@ -491,7 +615,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects unconsumed field attributes"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """trait PartialAttributes {
         |  def field_count(&self): i32
         |}
@@ -511,7 +635,7 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro rejects unsupported targets"):
-    val result = Cosmo0().check(
+    val result = checkWithMacros(
       """trait FieldCount {
         |  def field_count(&self): i32
         |}
@@ -528,9 +652,8 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("derive macro expansion is gated by checker profile support"):
-    val elaborated =
-      Cosmo0().elaborate(attributeSource).value.get
-    val result = MlttTyper(elaborated, CheckerProfiles.MlttCore).check()
+    val result =
+      checkWithMacros(attributeSource, profile = CheckerProfiles.MlttCore)
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -623,8 +746,6 @@ class MacroExpansionTests extends munit.FunSuite:
     )
 
   test("disabled expression macro provider is rejected at invocation"):
-    val elaborated =
-      Cosmo0().elaborate("val answer = example.answer()").value.get
     val registry = new MacroExpressionProviderRegistry(
       List(
         MacroExpressionProviderEntry(
@@ -635,12 +756,10 @@ class MacroExpansionTests extends munit.FunSuite:
       disabledProviderIdentities = Set(ExampleAnswerExpressionProvider.id),
     )
     val result =
-      new MlttTyper(
-        elaborated,
-        StandardGenericDescriptors.all,
-        CheckerProfiles.MlttDependentPatterns,
-        registry,
-      ).check()
+      checkWithMacros(
+        "val answer = example.answer()",
+        expressionProviders = registry,
+      )
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -657,7 +776,6 @@ class MacroExpansionTests extends munit.FunSuite:
         |@derive(example.FieldCount)
         |class Config {}
         |""".stripMargin
-    val elaborated = Cosmo0().elaborate(source).value.get
     val registry = new MacroDeriveProviderRegistry(
       List(
         MacroDeriveProviderEntry(
@@ -668,13 +786,11 @@ class MacroExpansionTests extends munit.FunSuite:
       disabledProviderIdentities = Set(ExampleFieldCountDeriveProvider.id),
     )
     val result =
-      new MlttTyper(
-        elaborated,
-        StandardGenericDescriptors.all,
-        CheckerProfiles.MlttDependentPatterns,
-        MacroExpressionProviderRegistry.default,
-        registry,
-      ).check()
+      checkWithMacros(
+        source,
+        expressionProviders = MacroExpressionProviderRegistry.empty,
+        deriveProviders = registry,
+      )
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
