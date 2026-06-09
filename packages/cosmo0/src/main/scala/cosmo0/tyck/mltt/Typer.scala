@@ -147,6 +147,8 @@ final class MlttTyper(
     standardGenerics: Map[String, StandardGenericDescriptor] =
       StandardGenericDescriptors.all,
     profile: CheckerProfile = CheckerProfiles.MlttDependentPatterns,
+    expressionMacroProviders: MacroExpressionProviderRegistry =
+      MacroExpressionProviderRegistry.default,
 ):
   private final case class ValueSymbol(
       name: String,
@@ -256,7 +258,7 @@ final class MlttTyper(
   private val macroInvocations = ListBuffer.empty[String]
   private val macroGenerated = ListBuffer.empty[String]
   private val macroConsumedAttributes = ListBuffer.empty[String]
-  private val expressionMacroProviders = MacroExpressionProviderRegistry.default
+  private val macroExpansionStack = ListBuffer.empty[String]
   private val classNames =
     module.decls.collect { case decl: UntypedClass => decl.name }.toSet
   private val rawAliases =
@@ -289,6 +291,7 @@ final class MlttTyper(
     * depending on declaration order.
     */
   def check(): Result[TypedModule] =
+    diagnostics ++= expressionMacroProviders.diagnostics
     collectForeignNamespaceImports()
     collectAliases()
     rawAliases.keys.foreach(resolveAlias)
@@ -993,6 +996,8 @@ final class MlttTyper(
         variantConstructorExpr(value)
       case value: UntypedCall =>
         callExpr(value, scope, expected, context)
+      case value: UntypedBlockCall =>
+        blockMacroCallExpr(value, scope, expected, context)
       case value: UntypedAssign =>
         assignExpr(value, scope, context)
       case value: UntypedUnary =>
@@ -1059,6 +1064,8 @@ final class MlttTyper(
           false,
           false,
         )
+      case value: UntypedTemplate =>
+        templateMacroExpr(value, scope, expected, context)
       case value: UntypedUnitLiteral =>
         ExprInfo(TypedUnitLiteral(SourceType.Unit, value.span), false, false)
 
@@ -1810,97 +1817,286 @@ final class MlttTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): Option[ExprInfo] =
-    macroCalleePath(node.callee) match
+    macroProviderPathFromCallee(node.callee, scope) match
       case None =>
         None
       case Some(path) =>
         val providerPath = MacroStableDisplay.path(path)
-        expressionMacroProviders.resolve(providerPath) match
-          case None
-              if expressionMacroProviders.isMacroCandidate(providerPath) =>
-            error(
-              "cosmo0.macro.unresolved-provider",
-              s"expression macro provider $providerPath is not registered",
+        expressionMacroProviders.resolveFree(providerPath) match
+          case MacroProviderLookup.Found(provider) =>
+            Some(
+              invokeExpressionMacro(
+                provider,
+                providerPath,
+                node.span,
+                macroArgsPayload(None, node.args, node.span),
+                scope,
+                expected,
+                context,
+              ),
+            )
+          case MacroProviderLookup.Disabled(providerIdentity) =>
+            Some(disabledMacroProvider(providerIdentity, node.callee.span))
+          case MacroProviderLookup.Missing
+              if expressionMacroProviders.hasFreeCandidate(providerPath) =>
+            Some(unresolvedMacroProvider(providerPath, node.callee.span))
+          case MacroProviderLookup.Missing =>
+            None
+
+  private def blockMacroCallExpr(
+      node: UntypedBlockCall,
+      scope: Scope,
+      expected: Option[SourceType],
+      context: FunctionContext,
+  ): ExprInfo =
+    macroProviderPathFromCallee(node.callee, scope) match
+      case None =>
+        unsupportedMacroPayload(
+          "block-attached expression macro target does not resolve to a provider path",
+          node.span,
+        )
+      case Some(path) =>
+        val providerPath = MacroStableDisplay.path(path)
+        expressionMacroProviders.resolveBlock(providerPath) match
+          case MacroProviderLookup.Found(provider) =>
+            invokeExpressionMacro(
+              provider,
+              providerPath,
+              node.span,
+              MacroExpr.Block(node.block),
+              scope,
+              expected,
+              context,
+            )
+          case MacroProviderLookup.Disabled(providerIdentity) =>
+            disabledMacroProvider(providerIdentity, node.callee.span)
+          case MacroProviderLookup.Missing
+              if expressionMacroProviders.hasBlockCandidate(providerPath) =>
+            unresolvedMacroProvider(providerPath, node.callee.span)
+          case MacroProviderLookup.Missing =>
+            unsupportedMacroPayload(
+              s"block-attached expression macro target $providerPath does not resolve to a registered provider",
               node.callee.span,
             )
-            Some(macroErrorExpr(node.span))
-          case None =>
-            None
-          case Some(provider) =>
-            if !profile.supports(CheckerProfiles.MacrosFeature) then
-              diagnostics += CheckerProfiles.unsupportedDiagnostic(
-                profile,
-                CheckerProfiles.MacrosFeature,
-                Some(node.span),
-              )
-              return Some(macroErrorExpr(node.span))
 
-            val input = MacroFunctionInput(
-              providerIdentity = provider.id,
-              sourcePackageIdentity = module.source.name,
-              invocationIdentity =
-                s"${module.source.name}:${node.span.start.offset}",
-              target = MacroReflectionTarget(
-                kind = MacroReflectionTargetKind.Expression,
-                name = providerPath,
-                modulePath = Nil,
-                visibility = UntypedVisibility.Private,
-                fields = Nil,
-                variants = Nil,
-                functions = Nil,
-                attributes = Nil,
-                span = node.span,
-              ),
-              cxxContext = MacroCxxExecutionContext(),
-              span = node.span,
-              payload = Some(
-                MacroExpr.Args(
-                  receiver = None,
-                  positional = node.args,
-                  span = node.span,
-                ),
-              ),
-            )
-            val output =
-              CompilerHostedMacroEvaluator.evaluateExpression(provider, input)
-            macroInvocations += input.stableDisplay
-            macroGenerated ++= output.generatedSourceSummary
-            macroConsumedAttributes ++=
-              output.consumedAttributes.map(_.stableDisplay)
-            diagnostics ++= output.diagnostics
-            if output.diagnostics.nonEmpty then
-              return Some(macroErrorExpr(node.span))
+  private def templateMacroExpr(
+      node: UntypedTemplate,
+      scope: Scope,
+      expected: Option[SourceType],
+      context: FunctionContext,
+  ): ExprInfo =
+    val providerPath = MacroStableDisplay.path(node.tag)
+    expressionMacroProviders.resolveTemplate(providerPath) match
+      case MacroProviderLookup.Found(provider) =>
+        invokeExpressionMacro(
+          provider,
+          providerPath,
+          node.span,
+          MacroExpr.Template(node.tag, node.parts, node.span),
+          scope,
+          expected,
+          context,
+        )
+      case MacroProviderLookup.Disabled(providerIdentity) =>
+        disabledMacroProvider(providerIdentity, node.tag.span)
+      case MacroProviderLookup.Missing
+          if expressionMacroProviders.hasTemplateCandidate(providerPath) =>
+        unresolvedMacroProvider(providerPath, node.tag.span)
+      case MacroProviderLookup.Missing =>
+        unsupportedMacroPayload(
+          s"template literal tag $providerPath does not resolve to a registered expression macro provider",
+          node.tag.span,
+        )
 
-            output.generatedExpr match
-              case Some(MacroExpr.UntypedSource(expanded)) =>
-                Some(expr(expanded, scope, expected, context))
-              case Some(other) =>
-                error(
-                  "cosmo0.macro.invalid-output",
-                  s"expression macro $providerPath returned unsupported output ${other.stableDisplay}",
-                  node.span,
-                )
-                Some(macroErrorExpr(node.span))
-              case None =>
-                error(
-                  "cosmo0.macro.invalid-output",
-                  s"expression macro $providerPath did not return Expr[Untyped]",
-                  node.span,
-                )
-                Some(macroErrorExpr(node.span))
+  private def macroProviderPathFromCallee(
+      callee: UntypedExpr,
+      scope: Scope,
+  ): Option[UntypedPath] =
+    macroPathFromCallee(callee).filterNot(pathRootResolvesAsValue(_, scope))
 
-  private def macroCalleePath(
+  private def macroPathFromCallee(
       callee: UntypedExpr,
   ): Option[UntypedPath] =
     callee match
       case UntypedName(path, _) =>
         Some(path)
       case UntypedSelect(recv, field, span) =>
-        macroCalleePath(recv).map(path =>
+        macroPathFromCallee(recv).map(path =>
           UntypedPath(path.parts :+ field, span),
         )
       case _ =>
         None
+
+  private def pathRootResolvesAsValue(
+      path: UntypedPath,
+      scope: Scope,
+  ): Boolean =
+    path.parts.headOption.exists { root =>
+      scope.resolve(root).nonEmpty ||
+      functions.contains(root) ||
+      classes.contains(root) ||
+      foreignAliases.contains(root)
+    }
+
+  private def macroArgsPayload(
+      receiver: Option[UntypedExpr],
+      args: List[UntypedCallArg],
+      span: SourceSpan,
+  ): MacroExpr.Args =
+    val positional = ListBuffer.empty[UntypedExpr]
+    val named = ListBuffer.empty[MacroExpr.NamedArg]
+    args.foreach {
+      case UntypedCallArg.Positional(value, _) =>
+        positional += value
+      case UntypedCallArg.Named(name, value, argSpan) =>
+        named += MacroExpr.NamedArg(name, value, argSpan)
+    }
+    MacroExpr.Args(receiver, positional.toList, named.toList, span)
+
+  private def invokeExpressionMacro(
+      provider: CompilerHostedExpressionProvider,
+      providerPath: String,
+      span: SourceSpan,
+      payload: MacroExpr,
+      scope: Scope,
+      expected: Option[SourceType],
+      context: FunctionContext,
+  ): ExprInfo =
+    if !profile.supports(CheckerProfiles.MacrosFeature) then
+      diagnostics += CheckerProfiles.unsupportedDiagnostic(
+        profile,
+        CheckerProfiles.MacrosFeature,
+        Some(span),
+      )
+      return macroErrorExpr(span)
+
+    if macroExpansionStack.contains(provider.id) then
+      error(
+        "cosmo0.macro.expansion-cycle",
+        s"expression macro expansion cycle includes ${provider.id}",
+        span,
+      )
+      return macroErrorExpr(span)
+
+    val input = macroFunctionInput(provider, providerPath, span, payload)
+    macroExpansionStack += provider.id
+    val output =
+      CompilerHostedMacroEvaluator.evaluateExpression(provider, input)
+    macroInvocations += input.stableDisplay
+    macroGenerated ++= output.generatedSourceSummary
+    macroConsumedAttributes ++=
+      output.consumedAttributes.map(_.stableDisplay)
+    diagnostics ++= output.diagnostics
+
+    val result =
+      if output.diagnostics.nonEmpty then macroErrorExpr(span)
+      else
+        validateExpressionMacroOutput(
+          providerPath,
+          output,
+          span,
+          scope,
+          expected,
+          context,
+        )
+    macroExpansionStack.remove(macroExpansionStack.length - 1)
+    result
+
+  private def macroFunctionInput(
+      provider: CompilerHostedExpressionProvider,
+      providerPath: String,
+      span: SourceSpan,
+      payload: MacroExpr,
+  ): MacroFunctionInput =
+    MacroFunctionInput(
+      providerIdentity = provider.id,
+      sourcePackageIdentity = module.source.name,
+      invocationIdentity = s"${module.source.name}:${span.start.offset}",
+      target = MacroReflectionTarget(
+        kind = MacroReflectionTargetKind.Expression,
+        name = providerPath,
+        modulePath = Nil,
+        visibility = UntypedVisibility.Private,
+        fields = Nil,
+        variants = Nil,
+        functions = Nil,
+        attributes = Nil,
+        span = span,
+      ),
+      cxxContext = MacroCxxExecutionContext(),
+      span = span,
+      payload = Some(payload),
+    )
+
+  private def validateExpressionMacroOutput(
+      providerPath: String,
+      output: MacroFunctionOutput,
+      span: SourceSpan,
+      scope: Scope,
+      expected: Option[SourceType],
+      context: FunctionContext,
+  ): ExprInfo =
+    if output.generatedDeclarations.nonEmpty then
+      error(
+        "cosmo0.macro.invalid-output",
+        s"expression macro $providerPath returned declaration output",
+        span,
+      )
+      return macroErrorExpr(span)
+
+    output.generatedExpr match
+      case Some(MacroExpr.UntypedSource(expanded)) =>
+        expr(expanded, scope, expected, context)
+      case Some(_: MacroExpr.TypedArtifact) =>
+        error(
+          "cosmo0.macro.invalid-output",
+          s"expression macro $providerPath attempted typed expression injection",
+          span,
+        )
+        macroErrorExpr(span)
+      case Some(other) =>
+        error(
+          "cosmo0.macro.invalid-output",
+          s"expression macro $providerPath returned unsupported output ${other.stableDisplay}",
+          span,
+        )
+        macroErrorExpr(span)
+      case None =>
+        error(
+          "cosmo0.macro.invalid-output",
+          s"expression macro $providerPath did not return Expr[Untyped]",
+          span,
+        )
+        macroErrorExpr(span)
+
+  private def unresolvedMacroProvider(
+      providerPath: String,
+      span: SourceSpan,
+  ): ExprInfo =
+    error(
+      "cosmo0.macro.unresolved-provider",
+      s"expression macro provider $providerPath is not registered",
+      span,
+    )
+    macroErrorExpr(span)
+
+  private def disabledMacroProvider(
+      providerIdentity: String,
+      span: SourceSpan,
+  ): ExprInfo =
+    error(
+      "cosmo0.macro.disabled-provider",
+      s"expression macro provider $providerIdentity is disabled",
+      span,
+    )
+    macroErrorExpr(span)
+
+  private def unsupportedMacroPayload(
+      message: String,
+      span: SourceSpan,
+  ): ExprInfo =
+    error("cosmo0.macro.unsupported-payload", message, span)
+    macroErrorExpr(span)
 
   private def macroErrorExpr(span: SourceSpan): ExprInfo =
     ExprInfo(
@@ -1925,7 +2121,7 @@ final class MlttTyper(
     */
   private def methodOrVariantCall(
       select: UntypedSelect,
-      args: List[UntypedExpr],
+      args: List[UntypedCallArg],
       span: SourceSpan,
       scope: Scope,
       expected: Option[SourceType],
@@ -2016,11 +2212,68 @@ final class MlttTyper(
                   context,
                 )
               case None =>
-                val selected = selectExpr(select, scope, context)
-                callFunctionValue(selected, args, span, scope, context)
+                if cls.fields.exists(_.name == select.field) then
+                  val selected = selectExpr(select, scope, context)
+                  callFunctionValue(selected, args, span, scope, context)
+                else
+                  expandMethodExpressionMacroCall(
+                    select,
+                    args,
+                    recv,
+                    scope,
+                    expected,
+                    context,
+                  ).getOrElse {
+                    val selected = selectExpr(select, scope, context)
+                    callFunctionValue(selected, args, span, scope, context)
+                  }
           case None =>
-            val selected = selectExpr(select, scope, context)
-            callFunctionValue(selected, args, span, scope, context)
+            expandMethodExpressionMacroCall(
+              select,
+              args,
+              recv,
+              scope,
+              expected,
+              context,
+            ).getOrElse {
+              val selected = selectExpr(select, scope, context)
+              callFunctionValue(selected, args, span, scope, context)
+            }
+
+  private def expandMethodExpressionMacroCall(
+      select: UntypedSelect,
+      args: List[UntypedCallArg],
+      recv: ExprInfo,
+      scope: Scope,
+      expected: Option[SourceType],
+      context: FunctionContext,
+  ): Option[ExprInfo] =
+    macroReceiverTypeName(recv.expr.ty) match
+      case None =>
+        None
+      case Some(receiverType) =>
+        expressionMacroProviders.resolveMethod(receiverType, select.field) match
+          case MacroProviderLookup.Found(provider) =>
+            Some(
+              invokeExpressionMacro(
+                provider,
+                provider.id,
+                select.span,
+                macroArgsPayload(Some(select.recv), args, select.span),
+                scope,
+                expected,
+                context,
+              ),
+            )
+          case MacroProviderLookup.Disabled(providerIdentity) =>
+            Some(disabledMacroProvider(providerIdentity, select.span))
+          case MacroProviderLookup.Missing =>
+            None
+
+  private def macroReceiverTypeName(ty: SourceType): Option[String] =
+    SourceType.dealias(ty) match
+      case SourceType.User(name) => Some(name)
+      case _                     => None
 
   /** Checks a call whose callee already inferred as an expression.
     *
@@ -2036,7 +2289,7 @@ final class MlttTyper(
     */
   private def callFunctionValue(
       callee: ExprInfo,
-      args: List[UntypedExpr],
+      args: List[UntypedCallArg],
       span: SourceSpan,
       scope: Scope,
       context: FunctionContext,
@@ -2057,7 +2310,9 @@ final class MlttTyper(
           s"type ${other.display} is not callable",
           span,
         )
-        val typedArgs = args.map(expr(_, scope, None, context).expr)
+        rejectNamedCallArgs(args)
+        val typedArgs =
+          args.map(arg => expr(arg.value, scope, None, context).expr)
         ExprInfo(
           TypedCall(
             callee.expr,
@@ -2086,7 +2341,7 @@ final class MlttTyper(
   private def callWithSig(
       callee: TypedExpr,
       sig: CallableSignature,
-      args: List[UntypedExpr],
+      args: List[UntypedCallArg],
       span: SourceSpan,
       scope: Scope,
       context: FunctionContext,
@@ -2097,9 +2352,10 @@ final class MlttTyper(
         s"${sig.name} expects ${sig.params.length} argument(s), got ${args.length}",
         span,
       )
+    rejectNamedCallArgs(args)
     val typedArgs = args.zipWithIndex.map { case (arg, index) =>
       val expectedTy = sig.params.lift(index).map(_.valueType)
-      val typed = expr(arg, scope, expectedTy, context)
+      val typed = expr(arg.value, scope, expectedTy, context)
       expectedTy.foreach(paramType =>
         if !canPass(typed, paramType) then
           error(
@@ -2115,6 +2371,17 @@ final class MlttTyper(
       mutBinding = false,
       mutAllowed = mutationCapability(sig.returnType),
     )
+
+  private def rejectNamedCallArgs(args: List[UntypedCallArg]): Unit =
+    args.foreach {
+      case UntypedCallArg.Named(name, _, span) =>
+        error(
+          "cosmo0.type.unsupported-named-argument",
+          s"ordinary cosmo0 calls do not support named argument $name",
+          span,
+        )
+      case _: UntypedCallArg.Positional =>
+    }
 
   /** Builds a typed placeholder for a call whose callee rule already failed.
     *
@@ -2133,7 +2400,8 @@ final class MlttTyper(
       context: FunctionContext,
   ): ExprInfo =
     val callee = expr(node.callee, scope, None, context)
-    val args = node.args.map(expr(_, scope, None, context).expr)
+    rejectNamedCallArgs(node.args)
+    val args = node.args.map(arg => expr(arg.value, scope, None, context).expr)
     ExprInfo(
       TypedCall(
         callee.expr,
@@ -2162,7 +2430,7 @@ final class MlttTyper(
   private def runtimeFunctionCall(
       calleeName: String,
       name: UntypedName,
-      args: List[UntypedExpr],
+      args: List[UntypedCallArg],
       span: SourceSpan,
       scope: Scope,
       context: FunctionContext,
@@ -2178,9 +2446,10 @@ final class MlttTyper(
         s"$calleeName expects ${sig.params.length} argument(s), got ${args.length}",
         span,
       )
+    rejectNamedCallArgs(args)
     val typedArgs = args.zipWithIndex.map { case (arg, index) =>
       expr(
-        arg,
+        arg.value,
         scope,
         sig.params.lift(index).map(_.valueType),
         context,

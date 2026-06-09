@@ -64,16 +64,45 @@ object MacroExpr:
     def span: SourceSpan = value.span
     def stableDisplay: String = MacroStableDisplay.expr(value)
 
+  final case class NamedArg(
+      name: String,
+      value: UntypedExpr,
+      span: SourceSpan,
+  ):
+    def stableDisplay: String =
+      s"$name=${MacroStableDisplay.expr(value)}"
+
   final case class Args(
       receiver: Option[UntypedExpr],
       positional: List[UntypedExpr],
+      named: List[NamedArg],
       span: SourceSpan,
   ) extends MacroExpr:
     def stableDisplay: String =
       val receiverText = receiver.map(MacroStableDisplay.expr).getOrElse("")
       val positionalText =
         positional.map(MacroStableDisplay.expr).mkString("[", ",", "]")
-      s"Expr.Args(receiver=$receiverText,positional=$positionalText)"
+      val namedText = named.map(_.stableDisplay).mkString("[", ",", "]")
+      s"Expr.Args(receiver=$receiverText,positional=$positionalText,named=$namedText)"
+
+  final case class Block(value: UntypedBlock) extends MacroExpr:
+    def span: SourceSpan = value.span
+    def stableDisplay: String =
+      s"Expr.Block(${MacroStableDisplay.expr(value)})"
+
+  final case class Template(
+      tag: UntypedPath,
+      parts: List[UntypedTemplatePart],
+      span: SourceSpan,
+  ) extends MacroExpr:
+    def stableDisplay: String =
+      val partText =
+        parts.map(MacroStableDisplay.templatePart).mkString("[", ",", "]")
+      s"Expr.Template(tag=${MacroStableDisplay.path(tag)},parts=$partText)"
+
+  final case class TypedArtifact(summary: String, span: SourceSpan)
+      extends MacroExpr:
+    def stableDisplay: String = s"TypedExpr($summary)"
 
 /** Reflection target kind admitted by the first macro expansion slice. */
 enum MacroReflectionTargetKind:
@@ -266,7 +295,9 @@ object MacroStableDisplay:
       case UntypedSelect(recv, field, _) =>
         s"${expr(recv)}.$field"
       case UntypedCall(callee, args, _) =>
-        s"${expr(callee)}(${args.map(expr).mkString(",")})"
+        s"${expr(callee)}(${args.map(callArg).mkString(",")})"
+      case UntypedBlockCall(callee, block, _) =>
+        s"${expr(callee)} ${expr(block)}"
       case UntypedBoolLiteral(value, _) =>
         value.toString
       case UntypedIntLiteral(value, _) =>
@@ -285,5 +316,44 @@ object MacroStableDisplay:
         s"$op${expr(inner)}"
       case UntypedBinary(op, left, right, _) =>
         s"(${expr(left)} $op ${expr(right)})"
+      case UntypedBlock(items, _) =>
+        s"{${items.map(blockItem).mkString(";")}}"
+      case UntypedTemplate(tag, parts, _) =>
+        val partText = parts.map(templatePart).mkString("[", ",", "]")
+        s"${path(tag)}$partText"
       case other =>
         other.getClass.getSimpleName.stripSuffix("$")
+
+  def callArg(value: UntypedCallArg): String =
+    value match
+      case UntypedCallArg.Positional(expr, _) =>
+        MacroStableDisplay.expr(expr)
+      case UntypedCallArg.Named(name, expr, _) =>
+        s"$name=${MacroStableDisplay.expr(expr)}"
+
+  def blockItem(value: UntypedBlockItem): String =
+    value match
+      case expr: UntypedExpr => MacroStableDisplay.expr(expr)
+      case UntypedExprStmt(expr, _) =>
+        MacroStableDisplay.expr(expr)
+      case UntypedLocal(kind, name, ty, init, _) =>
+        val kindText = kind.toString.toLowerCase
+        val tyText =
+          ty.map(value => s":${MacroStableDisplay.ty(value)}").getOrElse("")
+        val initText =
+          init.map(value => s"=${MacroStableDisplay.expr(value)}").getOrElse("")
+        s"$kindText $name$tyText$initText"
+      case UntypedCompileTimeIntAlias(name, value, _) =>
+        s"type $name=${MacroStableDisplay.expr(value)}"
+
+  def templatePart(value: UntypedTemplatePart): String =
+    val text = value.text
+      .replace("\\", "\\\\")
+      .replace("\"", "\\\"")
+      .replace("\n", "\\n")
+    value.hole match
+      case Some(hole) =>
+        val format = hole.format.map(value => s":$value").getOrElse("")
+        s""""$text"$${${expr(hole.value)}$format}"""
+      case None =>
+        s""""$text""""
