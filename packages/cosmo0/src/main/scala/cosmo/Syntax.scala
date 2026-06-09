@@ -66,7 +66,8 @@ final case class Var(name: N, ty: No, init: No) extends Node
 // constant level-1 variable
 final case class Typ(name: N, ty: No, init: No) extends Node
 // type alias with compile-time type parameters
-final case class GenericTyp(name: N, params: List[Param], ty: No, init: No) extends Node
+final case class GenericTyp(name: N, params: List[Param], ty: No, init: No)
+    extends Node
 // mutable  level-0 parameter (ct: must evaluated at compile-time)
 final case class Param(name: N, ty: No, init: No, ct: Boolean) extends Node
 // `import dest from path`
@@ -96,6 +97,7 @@ final case class As(lhs: Node, rhs: Node) extends Node
 final case class Select(lhs: Node, rhs: Ident, ct: Boolean) extends Node
 final case class Lambda(lhs: Node, rhs: Node) extends Node
 final case class Apply(lhs: Node, rhs: List[Node], ct: Boolean) extends Node
+final case class BlockApply(lhs: Node, rhs: Node) extends Node
 final case class TmplApply(lhs: Node, rhs: List[(String, TmplExp)]) extends Node
 final case class KeyedArg(key: Node, value: Node) extends Node
 // Kind: Clauses

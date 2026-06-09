@@ -220,6 +220,12 @@ private def j(node: NodeKinds, buf: StringBuilder): Unit = {
       buf.append(""", "rhs": [""")
       j(rhs, buf)
       buf.append("]}")
+    case BlockApply(lhs, rhs) =>
+      buf.append(""" "blockapply", "lhs": """)
+      j(lhs, buf)
+      buf.append(""", "rhs": """)
+      j(rhs, buf)
+      buf.append("}")
     case Lambda(lhs, rhs) =>
       buf.append(""" "lambda", "lhs": """)
       j(lhs, buf)

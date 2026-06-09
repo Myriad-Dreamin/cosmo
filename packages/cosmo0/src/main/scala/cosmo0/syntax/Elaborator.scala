@@ -1433,18 +1433,29 @@ final class Elaborator(
           typeFromNode(typeApply, Some(nodeSpan(typeApply))).map(t =>
             UntypedTypeConstructor(t, nodeSpan(typeApply)),
           )
-        val callArgs = args.map(expr)
+        val callArgs = args.map(callArg)
         for
           c <- callee
           as <- sequence(callArgs)
         yield UntypedCall(c, as, nodeSpan(node))
       case Some(Apply(lhs, args, false)) =>
         val callee = expr(lhs)
-        val callArgs = args.map(expr)
+        val callArgs = args.map(callArg)
         for
           c <- callee
           as <- sequence(callArgs)
         yield UntypedCall(c, as, nodeSpan(node))
+      case Some(BlockApply(Apply(_, _, false), _)) =>
+        unsupported(
+          node,
+          "cosmo0.macro.unsupported-payload",
+          "expression macro calls accept exactly one payload; parenthesized arguments plus an attached block are not supported",
+        )
+      case Some(BlockApply(lhs, rhs)) =>
+        for
+          c <- expr(lhs)
+          b <- blockPayload(rhs)
+        yield UntypedBlockCall(c, b, nodeSpan(node))
       case Some(applyNode @ Apply(_, _, true)) =>
         unsupported(
           applyNode,
@@ -1546,11 +1557,7 @@ final class Elaborator(
           "as-casts are outside the initial cosmo0 subset",
         )
       case Some(tmpl: TmplApply) =>
-        unsupported(
-          tmpl,
-          "cosmo0.elaborate.unsupported.template-literal",
-          "template literals are outside the initial cosmo0 subset",
-        )
+        templateExpr(tmpl)
       case Some(args: ArgsLit) =>
         unsupported(
           args,
@@ -1608,6 +1615,55 @@ final class Elaborator(
           "cosmo0.elaborate.unsupported.expression",
           s"${constructName(other)} is outside the initial cosmo0 expression subset",
         )
+
+  private def callArg(node: syntax.Node): Option[UntypedCallArg] =
+    node match
+      case keyed @ KeyedArg(Ident(name), valueNode) =>
+        expr(valueNode).map(value =>
+          UntypedCallArg.Named(name, value, nodeSpan(keyed)),
+        )
+      case keyed @ KeyedArg(_, _) =>
+        unsupported(
+          keyed,
+          "cosmo0.elaborate.unsupported.named-argument",
+          "named call arguments must use an identifier argument name",
+        )
+      case other =>
+        expr(other).map(value =>
+          UntypedCallArg.Positional(value, nodeSpan(other)),
+        )
+
+  private def blockPayload(node: syntax.Node): Option[UntypedBlock] =
+    node match
+      case block: Block =>
+        sequence(block.stmts.map(blockItem))
+          .map(UntypedBlock(_, nodeSpan(block)))
+      case other =>
+        unsupported(
+          other,
+          "cosmo0.macro.unsupported-payload",
+          "block-attached expression macros require an ordinary block payload",
+        )
+
+  private def templateExpr(node: TmplApply): Option[UntypedTemplate] =
+    for
+      tag <- pathFromNode(node.lhs, Some(nodeSpan(node.lhs)))
+      parts <- sequence(node.rhs.map(templatePart(_, node)))
+    yield UntypedTemplate(tag, parts, nodeSpan(node))
+
+  private def templatePart(
+      part: (String, Option[(syntax.Node, Option[String])]),
+      owner: TmplApply,
+  ): Option[UntypedTemplatePart] =
+    val span = nodeSpan(owner)
+    part match
+      case (text, None) =>
+        Some(UntypedTemplatePart(text, None, span))
+      case (text, Some((holeNode, format))) =>
+        expr(holeNode).map { value =>
+          val hole = UntypedTemplateHole(value, format, nodeSpan(holeNode))
+          UntypedTemplatePart(text, Some(hole), span)
+        }
 
   /** Lowers match-arm patterns. Literal patterns share the same untyped nodes
     * as literal expressions so the typer can assign them the scrutinee-driven

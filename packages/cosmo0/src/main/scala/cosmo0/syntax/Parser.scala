@@ -168,6 +168,8 @@ object Parser {
   def primaryExpr[$: P] =
     P(literal | tmplLit | ident | parens | paramsLit | braces).m
   def factor[$: P]: P[Node] = P(unary | primaryExpr.flatMapX(factorR))
+  def exprFactor[$: P]: P[Node] =
+    P(exprUnary | primaryExpr.flatMapX(exprFactorR))
 
   // Braces/Args/Params
   def argsCt[$: P] = P("[" ~/ arg.rep(sep = ",") ~ "]")
@@ -306,13 +308,21 @@ object Parser {
   def bitShift[$: P]: P[Node] = binOp(P(("<<" | ">>") ~~ !"="), addSub)
   def addSub[$: P]: P[Node] = binOp(CharIn("+\\-") ~~ !"=", divMul)
   def divMul[$: P]: P[Node] = binOp(CharIn("*/") ~~ !"=", arithMod)
-  def arithMod[$: P]: P[Node] = binOp(CharIn("%") ~~ !"=", factor)
+  def arithMod[$: P]: P[Node] = binOp(CharIn("%") ~~ !"=", exprFactor)
   def unaryOps[$: P] = "!" | "~" | "-" | "+" | "&" | "*" | word("mut")
   def unary[$: P]: P[Node] = P(unaryOps.! ~ factor).map(UnOp.apply.tupled)
+  def exprUnary[$: P]: P[Node] =
+    P(unaryOps.! ~ exprFactor).map(UnOp.apply.tupled)
   def eBinR[$: P](e: Node) =
     question(e) | select(e) | applyItemCt(e) | applyItem(e) | lambda(e)
+  def exprEBinR[$: P](e: Node) =
+    question(e) | select(e) | applyItemCt(e) | applyItem(e) | blockApply(
+      e,
+    ) | lambda(e)
   def factorR[$: P](e: Node): P[Node] =
     P(("" ~ eBinR(e)).flatMapX(factorR) | P("").map(_ => e))
+  def exprFactorR[$: P](e: Node): P[Node] =
+    P(("" ~ exprEBinR(e)).flatMapX(exprFactorR) | P("").map(_ => e))
   def question[$: P](lhs: Node) = "?".!.map(op => UnOp(op, lhs))
   def select[$: P](lhs: Node) =
     P(("." | "::").! ~ ident).map((op, rhs) => Select(lhs, rhs, op != "."))
@@ -320,6 +330,8 @@ object Parser {
     argsCt.map(rhs => Apply(lhs, rhs.toList, true))
   def applyItem[$: P](lhs: Node) =
     args.map(rhs => Apply(lhs, rhs.toList, false))
+  def blockApply[$: P](lhs: Node) =
+    braces.map(rhs => BlockApply(lhs, rhs))
   def lambda[$: P](lhs: Node) = P("=>" ~/ compound).map(rhs => Lambda(lhs, rhs))
   def caseItem[$: P] = P("case" ~/ factor).map {
     case Lambda(lhs, rhs) => Case(lhs, Some(rhs))
