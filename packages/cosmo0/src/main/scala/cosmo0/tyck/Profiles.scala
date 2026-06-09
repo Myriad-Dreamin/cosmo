@@ -100,6 +100,7 @@ object CheckerProfiles:
   val DependentPatternElaborationFeature = "dependent-pattern-elaboration"
   val CppImportsFeature = "cpp-imports"
   val MacrosFeature = "macros"
+  val DeriveMacrosFeature = "derive-macros"
   val ReflectionFeature = "reflection"
   val StagingFeature = "staging"
 
@@ -142,6 +143,7 @@ object CheckerProfiles:
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
         MacrosFeature,
+        DeriveMacrosFeature,
         ReflectionFeature,
       ),
       Map(
@@ -177,6 +179,7 @@ object CheckerProfiles:
         DependentPatternsFeature -> UnsupportedDependentPatternCode,
         CppImportsFeature -> UnsupportedCppImportCode,
         MacrosFeature -> UnsupportedFeatureCode,
+        DeriveMacrosFeature -> UnsupportedFeatureCode,
         ReflectionFeature -> UnsupportedFeatureCode,
         StagingFeature -> UnsupportedFeatureCode,
       ),
@@ -204,6 +207,7 @@ object CheckerProfiles:
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
         MacrosFeature,
+        DeriveMacrosFeature,
         ReflectionFeature,
         "inductive-family-constructors",
         "case-trees",

@@ -9,9 +9,15 @@ final case class MacroProviderSignature(
   def isExpressionUntypedToUntyped: Boolean =
     inputType == "Expr[Untyped]" && outputType == "Expr[Untyped]"
 
+  def isDeriveInputToTraitImplementations: Boolean =
+    inputType == "DeriveInput" && outputType == "GeneratedTraitImpls"
+
 object MacroProviderSignature:
   val expressionUntypedToUntyped: MacroProviderSignature =
     MacroProviderSignature("Expr[Untyped]", "Expr[Untyped]")
+
+  val deriveInputToTraitImplementations: MacroProviderSignature =
+    MacroProviderSignature("DeriveInput", "GeneratedTraitImpls")
 
 /** Provider binding selected by expression macro-call classification. */
 sealed trait MacroExpressionProviderBinding:
@@ -173,6 +179,144 @@ object MacroExpressionProviderRegistry:
       ),
     )
 
+/** One compiler-hosted derive provider entry. The path is the `@derive(path)`
+  * provider key.
+  */
+final case class MacroDeriveProviderEntry(
+    path: String,
+    provider: CompilerHostedDeriveProvider,
+)
+
+/** Result of resolving a derive provider binding. */
+sealed trait MacroDeriveProviderLookup
+
+object MacroDeriveProviderLookup:
+  final case class Found(provider: CompilerHostedDeriveProvider)
+      extends MacroDeriveProviderLookup
+  final case class Disabled(providerIdentity: String)
+      extends MacroDeriveProviderLookup
+  case object Missing extends MacroDeriveProviderLookup
+
+/** Registry of compiler-hosted derive providers.
+  *
+  * The registry mirrors expression provider resolution but keeps derive
+  * provider signatures and diagnostics scoped to implementation attachments.
+  */
+final class MacroDeriveProviderRegistry(
+    entries: List[MacroDeriveProviderEntry],
+    disabledProviderIdentities: Set[String] = Set.empty,
+    providerNamespacePrefixes: Set[String] = Set("example."),
+):
+  private val validation = DeriveRegistryValidation.build(
+    entries,
+    disabledProviderIdentities,
+  )
+
+  val diagnostics: List[Diagnostic] =
+    validation.diagnostics
+
+  def resolve(path: String): MacroDeriveProviderLookup =
+    validation.available.get(path) match
+      case Some(provider) =>
+        MacroDeriveProviderLookup.Found(provider)
+      case None =>
+        validation.disabled.get(path) match
+          case Some(providerIdentity) =>
+            MacroDeriveProviderLookup.Disabled(providerIdentity)
+          case None =>
+            MacroDeriveProviderLookup.Missing
+
+  def hasCandidate(path: String): Boolean =
+    validation.available.contains(path) ||
+      validation.disabled.contains(path) ||
+      providerNamespacePrefixes.exists(path.startsWith)
+
+object MacroDeriveProviderRegistry:
+  val default: MacroDeriveProviderRegistry =
+    new MacroDeriveProviderRegistry(
+      List(
+        MacroDeriveProviderEntry(
+          "example.FieldCount",
+          ExampleFieldCountDeriveProvider,
+        ),
+        MacroDeriveProviderEntry(
+          "example.PartialAttributes",
+          ExamplePartialAttributesDeriveProvider,
+        ),
+        MacroDeriveProviderEntry(
+          "example.InvalidDerive",
+          ExampleInvalidDeriveProvider,
+        ),
+        MacroDeriveProviderEntry(
+          "example.TypedDerive",
+          ExampleTypedDeriveProvider,
+        ),
+        MacroDeriveProviderEntry(
+          "example.UnsupportedTrait",
+          ExampleUnsupportedTraitDeriveProvider,
+        ),
+      ),
+    )
+
+private final case class DeriveRegistryValidation(
+    available: Map[String, CompilerHostedDeriveProvider],
+    disabled: Map[String, String],
+    diagnostics: List[Diagnostic],
+)
+
+private object DeriveRegistryValidation:
+  def build(
+      entries: List[MacroDeriveProviderEntry],
+      disabledProviderIdentities: Set[String],
+  ): DeriveRegistryValidation =
+    val available =
+      scala.collection.mutable.LinkedHashMap.empty[
+        String,
+        CompilerHostedDeriveProvider,
+      ]
+    val disabled = scala.collection.mutable.LinkedHashMap.empty[String, String]
+    val diagnostics = scala.collection.mutable.ListBuffer.empty[Diagnostic]
+    val seen = scala.collection.mutable.LinkedHashSet.empty[String]
+
+    entries.foreach { entry =>
+      val key = entry.path
+      val provider = entry.provider
+      if seen.contains(key) then
+        diagnostics += registryDiagnostic(
+          "cosmo0.macro.duplicate-provider",
+          s"derive macro provider binding $key is registered more than once",
+        )
+      else
+        seen += key
+        if disabledProviderIdentities.contains(provider.id) then
+          disabled.update(key, provider.id)
+          diagnostics += registryDiagnostic(
+            "cosmo0.macro.disabled-provider",
+            s"derive macro provider ${provider.id} is disabled",
+          )
+        else if !provider.signature.isDeriveInputToTraitImplementations then
+          diagnostics += registryDiagnostic(
+            "cosmo0.macro.invalid-provider-signature",
+            s"derive macro provider ${provider.id} must have signature @derive def provider(input: DeriveInput): GeneratedTraitImpls",
+          )
+        else available.update(key, provider)
+    }
+
+    DeriveRegistryValidation(
+      available.toMap,
+      disabled.toMap,
+      diagnostics.toList,
+    )
+
+  private def registryDiagnostic(code: String, message: String): Diagnostic =
+    Diagnostic(
+      Phase.Check,
+      DiagnosticSeverity.Error,
+      code,
+      message,
+      None,
+    )
+
 private final case class RegistryValidation(
     available: Map[String, CompilerHostedExpressionProvider],
     disabled: Map[String, String],
@@ -239,12 +383,25 @@ trait CompilerHostedExpressionProvider:
     MacroProviderSignature.expressionUntypedToUntyped
   def evaluate(input: MacroFunctionInput): MacroFunctionOutput
 
+/** Compiler-hosted derive provider contract. */
+trait CompilerHostedDeriveProvider:
+  def id: String
+  def signature: MacroProviderSignature =
+    MacroProviderSignature.deriveInputToTraitImplementations
+  def evaluate(input: MacroFunctionInput): MacroFunctionOutput
+
 /** Adapter that keeps compiler-hosted providers on the same serialized
   * input/output boundary that self-hosted providers will use.
   */
 object CompilerHostedMacroEvaluator:
   def evaluateExpression(
       provider: CompilerHostedExpressionProvider,
+      input: MacroFunctionInput,
+  ): MacroFunctionOutput =
+    provider.evaluate(input)
+
+  def evaluateDerive(
+      provider: CompilerHostedDeriveProvider,
       input: MacroFunctionInput,
   ): MacroFunctionOutput =
     provider.evaluate(input)
@@ -427,6 +584,61 @@ object ExampleRecursiveExpressionProvider
       generatedSourceSummary = List("expr example.recursive -> recurse"),
     )
 
+/** Smoke derive provider that implements a field-counting trait for classes. */
+object ExampleFieldCountDeriveProvider extends CompilerHostedDeriveProvider:
+  val id = "example.FieldCount"
+
+  def evaluate(input: MacroFunctionInput): MacroFunctionOutput =
+    fieldCountDeriveOutput(input, allInputAttributes(input))
+
+/** Provider that leaves field attributes unconsumed for diagnostics. */
+object ExamplePartialAttributesDeriveProvider
+    extends CompilerHostedDeriveProvider:
+  val id = "example.PartialAttributes"
+
+  def evaluate(input: MacroFunctionInput): MacroFunctionOutput =
+    fieldCountDeriveOutput(input, input.target.attributes)
+
+/** Provider registered only so the checker can report unsupported selected
+  * trait diagnostics before provider evaluation.
+  */
+object ExampleUnsupportedTraitDeriveProvider
+    extends CompilerHostedDeriveProvider:
+  val id = "example.UnsupportedTrait"
+
+  def evaluate(input: MacroFunctionInput): MacroFunctionOutput =
+    fieldCountDeriveOutput(input, allInputAttributes(input))
+
+/** Provider that deliberately returns expression output from a derive macro. */
+object ExampleInvalidDeriveProvider extends CompilerHostedDeriveProvider:
+  val id = "example.InvalidDerive"
+
+  def evaluate(input: MacroFunctionInput): MacroFunctionOutput =
+    MacroFunctionOutput(
+      generatedDeclarations = Nil,
+      generatedExpr = Some(
+        MacroExpr.UntypedSource(UntypedIntLiteral(BigInt(0), input.span)),
+      ),
+      consumedAttributes = input.target.attributes,
+      diagnostics = Nil,
+      generatedSourceSummary =
+        List("derive example.InvalidDerive -> <invalid>"),
+    )
+
+/** Provider that deliberately attempts typed-expression injection. */
+object ExampleTypedDeriveProvider extends CompilerHostedDeriveProvider:
+  val id = "example.TypedDerive"
+
+  def evaluate(input: MacroFunctionInput): MacroFunctionOutput =
+    MacroFunctionOutput(
+      generatedDeclarations = Nil,
+      generatedExpr =
+        Some(MacroExpr.TypedArtifact("trusted-derive", input.span)),
+      consumedAttributes = input.target.attributes,
+      diagnostics = Nil,
+      generatedSourceSummary = List("derive example.TypedDerive -> <typed>"),
+    )
+
 private def expressionOutput(
     input: MacroFunctionInput,
     expr: UntypedExpr,
@@ -459,3 +671,70 @@ private def diagnosticOutput(
     ),
     generatedSourceSummary = Nil,
   )
+
+private def fieldCountDeriveOutput(
+    input: MacroFunctionInput,
+    consumedAttributes: List[UntypedMacroAttribute],
+): MacroFunctionOutput =
+  input.selectedTrait match
+    case Some(selectedTrait) =>
+      val impl = fieldCountImpl(input, selectedTrait.identity)
+      MacroFunctionOutput(
+        generatedDeclarations = List(
+          GeneratedDeclaration.TraitImplementationAttachment(
+            impl,
+            input.span,
+          ),
+        ),
+        generatedExpr = None,
+        consumedAttributes = consumedAttributes,
+        diagnostics = Nil,
+        generatedSourceSummary = List(
+          s"derive ${input.providerIdentity} -> impl ${selectedTrait.identity} for ${input.target.name}",
+        ),
+      )
+    case None =>
+      diagnosticOutput(
+        input,
+        s"derive provider ${input.providerIdentity} requires a selected trait",
+      )
+
+private def fieldCountImpl(
+    input: MacroFunctionInput,
+    traitName: String,
+): UntypedImpl =
+  val span = input.span
+  val selfType =
+    UntypedRefType(namedType("Self", span), mut = false, span)
+  val method =
+    UntypedFunction(
+      "field_count",
+      List(UntypedParam("self", Some(selfType), None, span)),
+      Some(namedType("i32", span)),
+      Some(
+        UntypedBlock(
+          List(UntypedIntLiteral(BigInt(input.target.fields.length), span)),
+          span,
+        ),
+      ),
+      span,
+      extern = None,
+      vis = UntypedVisibility.Private,
+    )
+  UntypedImpl(
+    UntypedPath(List(traitName), span),
+    UntypedPath(List(input.target.name), span),
+    List(method),
+    span,
+  )
+
+private def namedType(name: String, span: SourceSpan): UntypedNamedType =
+  UntypedNamedType(UntypedPath(List(name), span), span)
+
+private def allInputAttributes(
+    input: MacroFunctionInput,
+): List[UntypedMacroAttribute] =
+  input.target.attributes :::
+    input.target.fields.flatMap(_.attributes) :::
+    input.target.variants.flatMap(_.attributes) :::
+    input.target.functions.flatMap(_.attributes)
