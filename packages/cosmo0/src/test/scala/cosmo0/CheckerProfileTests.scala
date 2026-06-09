@@ -23,6 +23,7 @@ class CheckerProfileTests extends munit.FunSuite:
     assert(subset.supports(CheckerProfiles.DependentPatternsFeature))
     assert(subset.supports(CheckerProfiles.DependentPatternElaborationFeature))
     assert(subset.supports(CheckerProfiles.MacrosFeature))
+    assert(subset.supports(CheckerProfiles.DeriveMacrosFeature))
     assert(subset.supports(CheckerProfiles.ReflectionFeature))
     assert(!subset.rejects(CheckerProfiles.DependentPatternsFeature))
 
@@ -48,6 +49,7 @@ class CheckerProfileTests extends munit.FunSuite:
       dependent.supports(CheckerProfiles.DependentPatternElaborationFeature),
     )
     assert(dependent.supports(CheckerProfiles.MacrosFeature))
+    assert(dependent.supports(CheckerProfiles.DeriveMacrosFeature))
     assert(dependent.supports(CheckerProfiles.ReflectionFeature))
     assert(!dependent.rejects(CheckerProfiles.DependentPatternsFeature))
     assert(!dependent.rejects(CheckerProfiles.MacrosFeature))

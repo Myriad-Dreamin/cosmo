@@ -149,6 +149,8 @@ final class MlttTyper(
     profile: CheckerProfile = CheckerProfiles.MlttDependentPatterns,
     expressionMacroProviders: MacroExpressionProviderRegistry =
       MacroExpressionProviderRegistry.default,
+    deriveMacroProviders: MacroDeriveProviderRegistry =
+      MacroDeriveProviderRegistry.default,
 ):
   private final case class ValueSymbol(
       name: String,
@@ -192,12 +194,15 @@ final class MlttTyper(
       kind: UntypedValueKind,
       ty: SourceType,
       init: Option[UntypedExpr],
+      attributes: List[UntypedMacroAttribute],
+      visibility: UntypedVisibility,
       span: SourceSpan,
   )
 
   private final case class VariantInfo(
       name: String,
       fields: List[TypedVariantField],
+      attributes: List[UntypedMacroAttribute],
       span: SourceSpan,
   ):
     def sig(owner: String): CallableSignature =
@@ -229,6 +234,8 @@ final class MlttTyper(
       owner: Option[String],
       span: SourceSpan,
       extern: Option[SourceExternBinding],
+      attributes: List[UntypedMacroAttribute],
+      visibility: UntypedVisibility,
   )
 
   private final case class TraitInfo(
@@ -243,6 +250,8 @@ final class MlttTyper(
       aliases: List[TypedTypeAlias],
       variants: Map[String, VariantInfo],
       methods: Map[String, FunctionInfo],
+      attributes: List[UntypedMacroAttribute],
+      visibility: UntypedVisibility,
       span: SourceSpan,
   ):
     def ctorSig: CallableSignature =
@@ -253,6 +262,15 @@ final class MlttTyper(
         params,
         SourceType.User(name),
       )
+
+  private final case class ImplementationFact(
+      traitName: String,
+      targetName: String,
+  )
+
+  private enum ImplOrigin:
+    case Source(span: SourceSpan)
+    case Derive(providerPath: String, attribute: UntypedMacroAttribute)
 
   private val diagnostics = ListBuffer.empty[Diagnostic]
   private val macroInvocations = ListBuffer.empty[String]
@@ -269,6 +287,8 @@ final class MlttTyper(
   private val traits = mutable.LinkedHashMap.empty[String, TraitInfo]
   private val classes = mutable.LinkedHashMap.empty[String, ClassInfo]
   private val functions = mutable.LinkedHashMap.empty[String, FunctionInfo]
+  private val implementationFacts =
+    mutable.LinkedHashSet.empty[ImplementationFact]
 
   private def sameType(left: SourceType, right: SourceType): Boolean =
     MlttTypeChecker.sourceTypesSame(left, right)
@@ -292,12 +312,14 @@ final class MlttTyper(
     */
   def check(): Result[TypedModule] =
     diagnostics ++= expressionMacroProviders.diagnostics
+    diagnostics ++= deriveMacroProviders.diagnostics
     collectForeignNamespaceImports()
     collectAliases()
     rawAliases.keys.foreach(resolveAlias)
     collectTraits()
     collectClasses()
     collectImpls()
+    expandDeriveMacros()
     collectFunctions()
 
     val globalScope = new Scope(None)
@@ -440,6 +462,8 @@ final class MlttTyper(
             SourceType.Error
           },
           field.init,
+          field.macroAttributes,
+          field.vis,
           field.span,
         )
       }
@@ -459,7 +483,13 @@ final class MlttTyper(
             field.span,
           ),
         )
-        variant.name -> VariantInfo(variant.name, fields, variant.span)
+        variant.name ->
+          VariantInfo(
+            variant.name,
+            fields,
+            variant.macroAttributes,
+            variant.span,
+          )
       }.toMap
       val methods = cls.members
         .collect { case fn: UntypedFunction =>
@@ -470,16 +500,25 @@ final class MlttTyper(
 
       classes.update(
         cls.name,
-        ClassInfo(cls.name, fields, aliases, variants, methods, cls.span),
+        ClassInfo(
+          cls.name,
+          fields,
+          aliases,
+          variants,
+          methods,
+          cls.macroAttributes,
+          cls.vis,
+          cls.span,
+        ),
       )
     }
 
   private def collectImpls(): Unit =
     module.decls
       .collect { case impl: UntypedImpl => impl }
-      .foreach(collectImpl)
+      .foreach(impl => collectImpl(impl, ImplOrigin.Source(impl.span)))
 
-  private def collectImpl(impl: UntypedImpl): Unit =
+  private def collectImpl(impl: UntypedImpl, origin: ImplOrigin): Unit =
     val targetName = impl.target.parts.headOption.getOrElse(impl.target.text)
     val traitName = impl.traitName.text
     val traitInfo = traits.get(traitName)
@@ -500,10 +539,19 @@ final class MlttTyper(
     if traitInfo.isEmpty || classInfo.isEmpty then return
 
     val target = classInfo.get
+    val fact = ImplementationFact(traitInfo.get.name, target.name)
+    if implementationFacts.contains(fact) then
+      duplicateImplementationDiagnostic(origin, traitInfo.get.name, target.name)
+      return
+
     val methods = impl.members.collect { case fn: UntypedFunction =>
       functionInfo(fn, Some(targetName))
     }
+    val beforeValidation = diagnostics.length
     validateTraitImplementation(impl, traitInfo.get, target, methods)
+    if diagnostics.length != beforeValidation then return
+
+    implementationFacts += fact
 
     val freshMethods =
       methods.filterNot { method =>
@@ -512,6 +560,440 @@ final class MlttTyper(
     val mergedMethods =
       target.methods ++ freshMethods.map(method => method.name -> method)
     classes.update(targetName, target.copy(methods = mergedMethods))
+    recordImplementationFacts(origin, fact, methods)
+
+  private def duplicateImplementationDiagnostic(
+      origin: ImplOrigin,
+      traitName: String,
+      targetName: String,
+  ): Unit =
+    origin match
+      case ImplOrigin.Source(span) =>
+        error(
+          "cosmo0.type.duplicate-impl",
+          s"impl $traitName for $targetName is already defined",
+          span,
+        )
+      case ImplOrigin.Derive(providerPath, attribute) =>
+        error(
+          "cosmo0.macro.duplicate-derive-impl",
+          s"derive macro $providerPath generated duplicate impl $traitName for $targetName",
+          attribute.span,
+        )
+
+  private def recordImplementationFacts(
+      origin: ImplOrigin,
+      fact: ImplementationFact,
+      methods: List[FunctionInfo],
+  ): Unit =
+    origin match
+      case ImplOrigin.Derive(_, _) =>
+        macroGenerated +=
+          s"impl-fact:${fact.traitName} for ${fact.targetName}"
+        methods.map(_.name).distinct.sorted.foreach { methodName =>
+          macroGenerated += s"method-set:${fact.targetName}.$methodName"
+        }
+      case ImplOrigin.Source(_) =>
+
+  private def expandDeriveMacros(): Unit =
+    module.decls.foreach {
+      case cls: UntypedClass =>
+        cls.macroAttributes
+          .filter(isDeriveAttribute)
+          .foreach(attribute => expandClassDerive(cls, attribute))
+        cls.members.foreach(reportUnsupportedMemberDerive)
+      case decl =>
+        macroAttributes(decl)
+          .filter(isDeriveAttribute)
+          .foreach(attribute =>
+            reportUnsupportedDeriveTarget(
+              attribute,
+              s"declaration ${decl.name}",
+            ),
+          )
+    }
+
+  private def reportUnsupportedMemberDerive(member: UntypedClassMember): Unit =
+    val ownerName = member match
+      case value: UntypedValueDecl => s"field ${value.name}"
+      case fn: UntypedFunction     => s"method ${fn.name}"
+      case alias: UntypedTypeAlias => s"type alias ${alias.name}"
+      case variant: UntypedVariant => s"variant ${variant.name}"
+    memberMacroAttributes(member)
+      .filter(isDeriveAttribute)
+      .foreach(attribute => reportUnsupportedDeriveTarget(attribute, ownerName))
+
+  private def expandClassDerive(
+      cls: UntypedClass,
+      attribute: UntypedMacroAttribute,
+  ): Unit =
+    if !profile.supports(CheckerProfiles.DeriveMacrosFeature) then
+      diagnostics += CheckerProfiles.unsupportedDiagnostic(
+        profile,
+        CheckerProfiles.DeriveMacrosFeature,
+        Some(attribute.span),
+      )
+      return
+
+    val providerPath = deriveProviderPath(attribute) match
+      case Some(path) => path
+      case None       => return
+    val providerKey = MacroStableDisplay.path(providerPath)
+    deriveMacroProviders.resolve(providerKey) match
+      case MacroDeriveProviderLookup.Found(provider) =>
+        val selectedTrait = selectedDeriveTrait(providerPath, attribute)
+        val classInfo = classes.get(cls.name)
+        if selectedTrait.isEmpty || classInfo.isEmpty then return
+        invokeDeriveMacro(
+          provider,
+          providerKey,
+          attribute,
+          classInfo.get,
+          selectedTrait.get,
+        )
+      case MacroDeriveProviderLookup.Disabled(providerIdentity) =>
+        error(
+          "cosmo0.macro.disabled-provider",
+          s"derive macro provider $providerIdentity is disabled",
+          attribute.span,
+        )
+      case MacroDeriveProviderLookup.Missing =>
+        error(
+          "cosmo0.macro.unresolved-provider",
+          s"derive macro provider $providerKey is not registered",
+          attribute.span,
+        )
+
+  private def invokeDeriveMacro(
+      provider: CompilerHostedDeriveProvider,
+      providerPath: String,
+      attribute: UntypedMacroAttribute,
+      classInfo: ClassInfo,
+      traitInfo: TraitInfo,
+  ): Unit =
+    val input =
+      deriveFunctionInput(
+        provider,
+        providerPath,
+        attribute,
+        classInfo,
+        traitInfo,
+      )
+    val output = CompilerHostedMacroEvaluator.evaluateDerive(provider, input)
+    macroInvocations += input.stableDisplay
+    macroGenerated ++= output.generatedSourceSummary
+    macroConsumedAttributes ++=
+      output.consumedAttributes.map(_.stableDisplay)
+    diagnostics ++= output.diagnostics
+    if output.diagnostics.nonEmpty then return
+
+    val impls =
+      validateDeriveOutput(
+        providerPath,
+        attribute,
+        classInfo,
+        traitInfo,
+        output,
+      )
+    if impls.isEmpty then return
+
+    val beforeUnconsumed = diagnostics.length
+    reportUnconsumedDeriveAttributes(
+      providerPath,
+      allDeriveInputAttributes(classInfo),
+      output.consumedAttributes,
+    )
+    if diagnostics.length != beforeUnconsumed then return
+
+    impls.foreach(impl =>
+      collectImpl(impl, ImplOrigin.Derive(providerPath, attribute)),
+    )
+
+  private def deriveFunctionInput(
+      provider: CompilerHostedDeriveProvider,
+      providerPath: String,
+      attribute: UntypedMacroAttribute,
+      classInfo: ClassInfo,
+      traitInfo: TraitInfo,
+  ): MacroFunctionInput =
+    MacroFunctionInput(
+      providerIdentity = provider.id,
+      sourcePackageIdentity = module.source.name,
+      invocationIdentity =
+        s"${module.source.name}:${attribute.span.start.offset}:${classInfo.name}:$providerPath",
+      target = MacroReflectionTarget(
+        kind = MacroReflectionTargetKind.Class,
+        name = classInfo.name,
+        modulePath = macroModulePath,
+        visibility = classInfo.visibility,
+        fields = classInfo.fields.map(macroReflectionField),
+        variants = classInfo.variants.values.toList
+          .sortBy(_.name)
+          .map(macroReflectionVariant),
+        functions = classInfo.methods.values.toList
+          .sortBy(_.name)
+          .map(macroReflectionFunction),
+        attributes = classInfo.attributes,
+        span = classInfo.span,
+      ),
+      cxxContext = MacroCxxExecutionContext(),
+      span = attribute.span,
+      selectedTrait = Some(macroSelectedTrait(traitInfo, attribute.span)),
+    )
+
+  private def macroReflectionField(field: FieldInfo): MacroReflectionField =
+    MacroReflectionField(
+      field.name,
+      field.ty.display,
+      field.init.map(MacroExpr.UntypedSource.apply),
+      field.attributes,
+      field.visibility,
+      field.span,
+    )
+
+  private def macroReflectionVariant(
+      variant: VariantInfo,
+  ): MacroReflectionVariant =
+    MacroReflectionVariant(
+      variant.name,
+      variant.fields.map(field =>
+        MacroReflectionVariantField(
+          field.name,
+          field.ty.display,
+          field.span,
+        ),
+      ),
+      variant.attributes,
+      variant.span,
+    )
+
+  private def macroReflectionFunction(
+      fn: FunctionInfo,
+  ): MacroReflectionFunction =
+    MacroReflectionFunction(
+      fn.name,
+      fn.sig.params.map(_.valueType.display),
+      Some(fn.retTy.display),
+      fn.attributes,
+      fn.visibility,
+      fn.span,
+    )
+
+  private def macroSelectedTrait(
+      traitInfo: TraitInfo,
+      span: SourceSpan,
+  ): MacroSelectedTrait =
+    MacroSelectedTrait(
+      traitInfo.name,
+      UntypedPath(List(traitInfo.name), span),
+      traitInfo.methods.values.toList.sortBy(_.name).map { method =>
+        MacroTraitRequirement(
+          method.name,
+          method.sig.params.map(_.valueType.display),
+          method.retTy.display,
+          method.sig.receiver.map(receiver =>
+            if receiver.mutable then s"&mut ${receiver.valueType.display}"
+            else s"&${receiver.valueType.display}",
+          ),
+          method.span,
+        )
+      },
+      traitInfo.span,
+    )
+
+  private def macroModulePath: List[String] =
+    val name = module.source.name
+    if name.isEmpty || name == "<memory>" then Nil
+    else
+      name
+        .replace('\\', '/')
+        .split('/')
+        .toList
+        .filter(_.nonEmpty)
+
+  private def validateDeriveOutput(
+      providerPath: String,
+      attribute: UntypedMacroAttribute,
+      classInfo: ClassInfo,
+      traitInfo: TraitInfo,
+      output: MacroFunctionOutput,
+  ): List[UntypedImpl] =
+    if output.generatedExpr.nonEmpty then
+      output.generatedExpr.foreach {
+        case _: MacroExpr.TypedArtifact =>
+          invalidDeriveOutput(
+            providerPath,
+            "attempted typed expression injection",
+            attribute.span,
+          )
+        case other =>
+          invalidDeriveOutput(
+            providerPath,
+            s"returned expression output ${other.stableDisplay}",
+            attribute.span,
+          )
+      }
+      return Nil
+
+    if output.generatedDeclarations.isEmpty then
+      invalidDeriveOutput(
+        providerPath,
+        "did not return a trait implementation attachment",
+        attribute.span,
+      )
+      return Nil
+
+    val impls = ListBuffer.empty[UntypedImpl]
+    output.generatedDeclarations.foreach {
+      case GeneratedDeclaration.TraitImplementationAttachment(impl, origin) =>
+        if validateDeriveAttachment(
+            providerPath,
+            classInfo.name,
+            traitInfo.name,
+            impl,
+            origin,
+          )
+        then impls += impl
+    }
+    impls.toList
+
+  private def validateDeriveAttachment(
+      providerPath: String,
+      targetName: String,
+      traitName: String,
+      impl: UntypedImpl,
+      origin: SourceSpan,
+  ): Boolean =
+    var ok = true
+    val actualTarget =
+      impl.target.parts.lastOption.getOrElse(impl.target.text)
+    val actualTrait =
+      impl.traitName.parts.lastOption.getOrElse(impl.traitName.text)
+
+    if actualTarget != targetName then
+      invalidDeriveOutput(
+        providerPath,
+        s"generated impl target $actualTarget instead of $targetName",
+        impl.target.span,
+      )
+      ok = false
+    if actualTrait != traitName then
+      invalidDeriveOutput(
+        providerPath,
+        s"generated impl trait $actualTrait instead of $traitName",
+        impl.traitName.span,
+      )
+      ok = false
+
+    impl.members.foreach {
+      case _: UntypedFunction =>
+      case other =>
+        invalidDeriveOutput(
+          providerPath,
+          s"generated unsupported impl member ${other.getClass.getSimpleName.stripSuffix("$")}",
+          origin,
+        )
+        ok = false
+    }
+    ok
+
+  private def invalidDeriveOutput(
+      providerPath: String,
+      message: String,
+      span: SourceSpan,
+  ): Unit =
+    error(
+      "cosmo0.macro.invalid-output",
+      s"derive macro $providerPath $message",
+      span,
+    )
+
+  private def reportUnconsumedDeriveAttributes(
+      providerPath: String,
+      attributes: List[UntypedMacroAttribute],
+      consumed: List[UntypedMacroAttribute],
+  ): Unit =
+    val consumedSet = consumed.toSet
+    attributes.filterNot(consumedSet.contains).foreach { attribute =>
+      error(
+        "cosmo0.macro.unconsumed-attribute",
+        s"derive macro $providerPath did not consume ${attribute.stableDisplay}",
+        attribute.span,
+      )
+    }
+
+  private def selectedDeriveTrait(
+      providerPath: UntypedPath,
+      attribute: UntypedMacroAttribute,
+  ): Option[TraitInfo] =
+    val traitName = providerPath.parts.lastOption.getOrElse(providerPath.text)
+    traits.get(traitName) match
+      case Some(traitInfo) => Some(traitInfo)
+      case None =>
+        error(
+          "cosmo0.macro.unsupported-trait",
+          s"derive trait $traitName is not a known trait",
+          attribute.span,
+        )
+        None
+
+  private def deriveProviderPath(
+      attribute: UntypedMacroAttribute,
+  ): Option[UntypedPath] =
+    attribute.args match
+      case List(
+            UntypedMacroAttributeArg(
+              None,
+              UntypedMacroAttributeValue.PathValue(path),
+              _,
+            ),
+          ) =>
+        Some(path)
+      case _ =>
+        error(
+          "cosmo0.macro.invalid-provider",
+          "@derive(...) expects exactly one provider path argument",
+          attribute.span,
+        )
+        None
+
+  private def allDeriveInputAttributes(
+      classInfo: ClassInfo,
+  ): List[UntypedMacroAttribute] =
+    classInfo.attributes :::
+      classInfo.fields.flatMap(_.attributes) :::
+      classInfo.variants.values.toList.flatMap(_.attributes) :::
+      classInfo.methods.values.toList.flatMap(_.attributes)
+
+  private def macroAttributes(decl: UntypedDecl): List[UntypedMacroAttribute] =
+    decl match
+      case cls: UntypedClass       => cls.macroAttributes
+      case trt: UntypedTrait       => trt.macroAttributes
+      case fn: UntypedFunction     => fn.macroAttributes
+      case value: UntypedValueDecl => value.macroAttributes
+      case _                       => Nil
+
+  private def memberMacroAttributes(
+      member: UntypedClassMember,
+  ): List[UntypedMacroAttribute] =
+    member match
+      case fn: UntypedFunction     => fn.macroAttributes
+      case value: UntypedValueDecl => value.macroAttributes
+      case variant: UntypedVariant => variant.macroAttributes
+      case _                       => Nil
+
+  private def isDeriveAttribute(attribute: UntypedMacroAttribute): Boolean =
+    attribute.path.parts == List("derive")
+
+  private def reportUnsupportedDeriveTarget(
+      attribute: UntypedMacroAttribute,
+      targetDescription: String,
+  ): Unit =
+    error(
+      "cosmo0.macro.unsupported-target",
+      s"@derive(...) cannot target $targetDescription",
+      attribute.span,
+    )
 
   private def validateTraitImplementation(
       impl: UntypedImpl,
@@ -962,6 +1444,8 @@ final class MlttTyper(
       owner,
       fn.span,
       fn.extern,
+      fn.macroAttributes,
+      fn.vis,
     )
 
   /** Infers an expression type, optionally under an expected type.

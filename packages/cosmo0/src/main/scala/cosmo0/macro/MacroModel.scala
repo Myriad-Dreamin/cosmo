@@ -159,6 +159,32 @@ final case class MacroReflectionFunction(
     val attrText = attributes.map(_.stableDisplay).mkString("[", ",", "]")
     s"function:$name$paramText:$returnText:$attrText:${MacroStableDisplay.visibility(visibility)}"
 
+/** Trait requirement metadata selected for derive implementation validation.
+  */
+final case class MacroTraitRequirement(
+    name: String,
+    params: List[String],
+    returnType: String,
+    receiver: Option[String],
+    span: SourceSpan,
+):
+  def stableDisplay: String =
+    val receiverText = receiver.map(value => s"receiver=$value,").getOrElse("")
+    val paramText = params.mkString("(", ",", ")")
+    s"requirement:$name(${receiverText}params=$paramText,return=$returnType)"
+
+/** Selected trait facts supplied to a derive provider. */
+final case class MacroSelectedTrait(
+    identity: String,
+    path: UntypedPath,
+    requirements: List[MacroTraitRequirement],
+    span: SourceSpan,
+):
+  def stableDisplay: String =
+    val requirementText =
+      requirements.map(_.stableDisplay).mkString("[", ",", "]")
+    s"trait:$identity:${MacroStableDisplay.path(path)}:$requirementText"
+
 /** Reflection facts selected by cosmo0 for one macro target. */
 final case class MacroReflectionTarget(
     kind: MacroReflectionTargetKind,
@@ -174,12 +200,13 @@ final case class MacroReflectionTarget(
   def stableDisplay: String =
     val moduleText =
       if modulePath.isEmpty then "<memory>" else modulePath.mkString("::")
+    val spanText = MacroStableDisplay.span(span)
     val attrText = attributes.map(_.stableDisplay).mkString("[", ",", "]")
     val fieldText = fields.map(_.stableDisplay).mkString("[", ",", "]")
     val variantText = variants.map(_.stableDisplay).mkString("[", ",", "]")
     val functionText = functions.map(_.stableDisplay).mkString("[", ",", "]")
     s"target:${kind.toString}:$moduleText::$name:${MacroStableDisplay
-        .visibility(visibility)}:$attrText:fields=$fieldText:variants=$variantText:functions=$functionText"
+        .visibility(visibility)}:$spanText:$attrText:fields=$fieldText:variants=$variantText:functions=$functionText"
 
 /** Explicit C++ execution context included in macro function input. The first
   * compiler-hosted providers use the empty context, while later self-hosted
@@ -211,10 +238,13 @@ final case class MacroFunctionInput(
     cxxContext: MacroCxxExecutionContext,
     span: SourceSpan,
     payload: Option[MacroExpr] = None,
+    selectedTrait: Option[MacroSelectedTrait] = None,
 ):
   def stableDisplay: String =
     val payloadText = payload.map(_.stableDisplay).getOrElse("")
-    s"input(provider=$providerIdentity,package=$sourcePackageIdentity,invocation=$invocationIdentity,payload=$payloadText,${target.stableDisplay},${cxxContext.stableDisplay})"
+    val traitText =
+      selectedTrait.map(value => s",${value.stableDisplay}").getOrElse("")
+    s"input(provider=$providerIdentity,package=$sourcePackageIdentity,invocation=$invocationIdentity,payload=$payloadText,${target.stableDisplay}$traitText,${cxxContext.stableDisplay})"
 
 /** Structured generated declaration output. */
 sealed trait GeneratedDeclaration:
@@ -275,6 +305,9 @@ object MacroExpansionSummary:
 object MacroStableDisplay:
   def path(path: UntypedPath): String =
     path.parts.mkString(".")
+
+  def span(span: SourceSpan): String =
+    s"${span.fileName}:${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}"
 
   def visibility(value: UntypedVisibility): String =
     value match
