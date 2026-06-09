@@ -253,6 +253,10 @@ final class MlttTyper(
       )
 
   private val diagnostics = ListBuffer.empty[Diagnostic]
+  private val macroInvocations = ListBuffer.empty[String]
+  private val macroGenerated = ListBuffer.empty[String]
+  private val macroConsumedAttributes = ListBuffer.empty[String]
+  private val expressionMacroProviders = MacroExpressionProviderRegistry.default
   private val classNames =
     module.decls.collect { case decl: UntypedClass => decl.name }.toSet
   private val rawAliases =
@@ -328,6 +332,11 @@ final class MlttTyper(
       module.span,
       module.cIncludes,
       foreignAliases.values.toList,
+      MacroExpansionSummary(
+        macroInvocations.toList,
+        macroGenerated.toList,
+        macroConsumedAttributes.toList.distinct.sorted,
+      ),
     )
     if diagnostics.isEmpty then Result.success(Phase.Check, result)
     else Result.failure(Phase.Check, diagnostics.toList)
@@ -1616,6 +1625,10 @@ final class MlttTyper(
       expected: Option[SourceType],
       context: FunctionContext,
   ): ExprInfo =
+    expandExpressionMacroCall(node, scope, expected, context) match
+      case Some(expanded) => return expanded
+      case None           => ()
+
     node.callee match
       case select: UntypedSelect =>
         methodOrVariantCall(
@@ -1784,6 +1797,117 @@ final class MlttTyper(
       case _ =>
         val callee = expr(node.callee, scope, None, context)
         callFunctionValue(callee, node.args, node.span, scope, context)
+
+  /** Expands expression macros at the expression checking site.
+    *
+    * Provider output is never typed directly. A successful provider must return
+    * `Expr[Untyped]`; the checker then recursively checks that untyped
+    * expression with the caller's current expected type.
+    */
+  private def expandExpressionMacroCall(
+      node: UntypedCall,
+      scope: Scope,
+      expected: Option[SourceType],
+      context: FunctionContext,
+  ): Option[ExprInfo] =
+    macroCalleePath(node.callee) match
+      case None =>
+        None
+      case Some(path) =>
+        val providerPath = MacroStableDisplay.path(path)
+        expressionMacroProviders.resolve(providerPath) match
+          case None
+              if expressionMacroProviders.isMacroCandidate(providerPath) =>
+            error(
+              "cosmo0.macro.unresolved-provider",
+              s"expression macro provider $providerPath is not registered",
+              node.callee.span,
+            )
+            Some(macroErrorExpr(node.span))
+          case None =>
+            None
+          case Some(provider) =>
+            if !profile.supports(CheckerProfiles.MacrosFeature) then
+              diagnostics += CheckerProfiles.unsupportedDiagnostic(
+                profile,
+                CheckerProfiles.MacrosFeature,
+                Some(node.span),
+              )
+              return Some(macroErrorExpr(node.span))
+
+            val input = MacroFunctionInput(
+              providerIdentity = provider.id,
+              sourcePackageIdentity = module.source.name,
+              invocationIdentity =
+                s"${module.source.name}:${node.span.start.offset}",
+              target = MacroReflectionTarget(
+                kind = MacroReflectionTargetKind.Expression,
+                name = providerPath,
+                modulePath = Nil,
+                visibility = UntypedVisibility.Private,
+                fields = Nil,
+                variants = Nil,
+                functions = Nil,
+                attributes = Nil,
+                span = node.span,
+              ),
+              cxxContext = MacroCxxExecutionContext(),
+              span = node.span,
+              payload = Some(
+                MacroExpr.Args(
+                  receiver = None,
+                  positional = node.args,
+                  span = node.span,
+                ),
+              ),
+            )
+            val output =
+              CompilerHostedMacroEvaluator.evaluateExpression(provider, input)
+            macroInvocations += input.stableDisplay
+            macroGenerated ++= output.generatedSourceSummary
+            macroConsumedAttributes ++=
+              output.consumedAttributes.map(_.stableDisplay)
+            diagnostics ++= output.diagnostics
+            if output.diagnostics.nonEmpty then
+              return Some(macroErrorExpr(node.span))
+
+            output.generatedExpr match
+              case Some(MacroExpr.UntypedSource(expanded)) =>
+                Some(expr(expanded, scope, expected, context))
+              case Some(other) =>
+                error(
+                  "cosmo0.macro.invalid-output",
+                  s"expression macro $providerPath returned unsupported output ${other.stableDisplay}",
+                  node.span,
+                )
+                Some(macroErrorExpr(node.span))
+              case None =>
+                error(
+                  "cosmo0.macro.invalid-output",
+                  s"expression macro $providerPath did not return Expr[Untyped]",
+                  node.span,
+                )
+                Some(macroErrorExpr(node.span))
+
+  private def macroCalleePath(
+      callee: UntypedExpr,
+  ): Option[UntypedPath] =
+    callee match
+      case UntypedName(path, _) =>
+        Some(path)
+      case UntypedSelect(recv, field, span) =>
+        macroCalleePath(recv).map(path =>
+          UntypedPath(path.parts :+ field, span),
+        )
+      case _ =>
+        None
+
+  private def macroErrorExpr(span: SourceSpan): ExprInfo =
+    ExprInfo(
+      TypedUnitLiteral(SourceType.Error, span),
+      mutBinding = false,
+      mutAllowed = false,
+    )
 
   /** Resolves selected calls before generic function-value call inference.
     *

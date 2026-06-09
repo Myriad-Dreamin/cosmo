@@ -62,46 +62,6 @@ final class Cosmo0:
       case failed =>
         Result.failure(Phase.Check, failed.diagnostics)
 
-  def expandMacros(sourceText: String): Result[MacroExpandedModule] =
-    expandMacros(SourceFile("<memory>", sourceText))
-
-  def expandMacros(source: SourceFile): Result[MacroExpandedModule] =
-    expandMacrosWithProfile(source, CheckerProfiles.MlttDependentPatterns.id)
-
-  def expandMacrosWithProfile(
-      sourceText: String,
-      profileId: String,
-  ): Result[MacroExpandedModule] =
-    expandMacrosWithProfile(SourceFile("<memory>", sourceText), profileId)
-
-  def expandMacrosWithProfile(
-      source: SourceFile,
-      profileId: String,
-  ): Result[MacroExpandedModule] =
-    CheckerProfiles.byId(profileId) match
-      case Some(profile) =>
-        elaborate(source) match
-          case elaborated if elaborated.isSuccess =>
-            MacroExpander.expand(
-              elaborated.value.get,
-              profile,
-              sourcePackageIdentity = source.name,
-            )
-          case unsupported if unsupported.isUnsupported =>
-            Result(
-              Phase.Check,
-              PhaseStatus.Unsupported,
-              None,
-              unsupported.diagnostics,
-            )
-          case failed =>
-            Result.failure(Phase.Check, failed.diagnostics)
-      case None =>
-        Result.failure(
-          Phase.Check,
-          List(CheckerProfiles.unknownProfileDiagnostic(profileId)),
-        )
-
   def check(source: SourceFile): Result[CheckedModule] =
     checkWithProfile(source, CheckerProfiles.MlttDependentPatterns.id)
 
@@ -175,7 +135,11 @@ final class Cosmo0:
   ): Result[CheckedModule] =
     result match
       case checked if checked.isSuccess =>
-        Result.success(Phase.Check, CheckedModule(checked.value.get))
+        val typed = checked.value.get
+        Result.success(
+          Phase.Check,
+          CheckedModule(typed, typed.macroExpansion),
+        )
       case checked if checked.isUnsupported =>
         Result(
           Phase.Check,
@@ -192,27 +156,12 @@ final class Cosmo0:
   ): Result[CheckedModule] =
     elaborate(source) match
       case elaborated if elaborated.isSuccess =>
-        MacroExpander.expand(
-          elaborated.value.get,
-          profile,
-          sourcePackageIdentity = source.name,
-        ) match
-          case expanded if expanded.isSuccess =>
-            val expandedValue = expanded.value.get
-            MlttTyper(expandedValue.module, profile).check() match
-              case checked if checked.isSuccess =>
-                Result.success(
-                  Phase.Check,
-                  CheckedModule(checked.value.get, expandedValue.summary),
-                )
-              case failed =>
-                Result.failure(Phase.Check, failed.diagnostics)
-          case expanded if expanded.isUnsupported =>
-            Result(
+        MlttTyper(elaborated.value.get, profile).check() match
+          case checked if checked.isSuccess =>
+            val typed = checked.value.get
+            Result.success(
               Phase.Check,
-              PhaseStatus.Unsupported,
-              None,
-              expanded.diagnostics,
+              CheckedModule(typed, typed.macroExpansion),
             )
           case failed =>
             Result.failure(Phase.Check, failed.diagnostics)

@@ -32,10 +32,10 @@
 
 ## 5. Macro Expansion Engine
 
-- [x] 5.1 Add a package pipeline phase that runs after declaration-shape collection and before body checking/lowering.
-- [x] 5.2 Add a macro provider registry keyed by resolved derive/provider paths.
+- [x] 5.1 Add an expression-checker expansion hook that expands macro calls before ordinary call checking.
+- [x] 5.2 Add a compiler-hosted expression macro provider registry keyed by provider paths.
 - [x] 5.3 Define the provider input/output contract: serialized macro function input in, generated artifacts and diagnostics out.
-- [x] 5.4 Integrate first-slice derive implementation attachments into trait checking without rebuilding ordinary name resolution.
+- [x] 5.4 Integrate expression macro output by recursively checking returned `Expr[Untyped]` in the caller scope and expected type.
 - [x] 5.5 Add generated-span plumbing for diagnostics and generated-source summaries.
 
 ## 6. Compile-Time Evaluation Boundary
@@ -52,12 +52,12 @@
 
 - [ ] 7.1 Implement fresh internal symbol generation for macro helpers.
 - [ ] 7.2 Diagnose collisions between public generated declarations and user declarations.
-- [x] 7.3 Reject unconsumed macro attributes after expansion.
+- [ ] 7.3 Reject unconsumed macro attributes after declaration/derive macro expansion.
 - [x] 7.4 Add deterministic repeated-expansion tests.
 
-## 8. Derive Provider Smoke Path
+## 8. Expression Provider Smoke Path
 
-- [x] 8.1 Implement a minimal compiler-hosted derive provider that generates a simple trait implementation from reflected fields.
-- [x] 8.2 Add positive tests proving user code can use the generated trait implementation through an already-resolved trait API.
-- [x] 8.3 Add negative tests for unresolved derive provider paths and unsupported target types.
-- [x] 8.4 Add end-to-end tests that keep generated code in ordinary checking and C++ backend paths.
+- [x] 8.1 Implement minimal compiler-hosted expression providers for answer, identity, and invalid-output smoke coverage.
+- [x] 8.2 Add positive tests proving expression macro output is checked in the caller's expected type.
+- [x] 8.3 Add negative tests for unresolved expression provider paths, invalid provider output, unsupported input, and unsupported profiles.
+- [x] 8.4 Add end-to-end tests that keep generated expression output in ordinary checking and C++ backend paths.

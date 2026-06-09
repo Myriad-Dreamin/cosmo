@@ -8,8 +8,9 @@ remain outside the accepted source boundary.
 
 ## What Changes
 
-- Introduce a deterministic cosmo0 macro expansion phase for source-level
-  generated artifacts.
+- Introduce deterministic cosmo0 macro expansion points for source-level
+  generated artifacts, including expression macro expansion during expression
+  checking.
 - Add accepted decorator storage for macro-owned declaration, field, variant,
   and function metadata instead of rejecting every non-extern decorator.
 - Add custom derive support through `@derive(path)` on class-like declarations
@@ -40,9 +41,9 @@ remain outside the accepted source boundary.
 
 ### New Capabilities
 
-- `cosmo0-macro-expansion`: Defines macro expansion phases, decorator
-  preservation, generated artifacts, hygiene, deterministic expansion, and
-  diagnostics.
+- `cosmo0-macro-expansion`: Defines macro expansion points, decorator
+  preservation, expression-site expansion, generated artifacts, hygiene,
+  deterministic expansion, and diagnostics.
 - `cosmo0-derived-reflection`: Defines the reflection metadata and derive macro
   provider contract used by source-level `@derive(...)` macros.
 - `cosmo0-compile-time-evaluation`: Defines the controlled compile-time
@@ -58,8 +59,10 @@ remain outside the accepted source boundary.
 
 - Parser and elaborator must preserve accepted macro decorators and reject only
   invalid or unsupported macro shapes.
-- Package checking needs a macro expansion stage before ordinary type checking
-  and lowering consume generated artifacts.
+- Expression checking needs to classify macro calls before ordinary call
+  checking and then recheck generated `Expr[Untyped]` in the caller context.
+  Declaration and derive macro output, when admitted, still needs integration
+  before later compiler facts consume generated artifacts.
 - Name resolution and diagnostics need generated-span and generated-name support.
 - The first implementation may host macro providers in compiler infrastructure
   before self-hosted macro packages are available.

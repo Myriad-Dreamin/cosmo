@@ -64,9 +64,20 @@ object MacroExpr:
     def span: SourceSpan = value.span
     def stableDisplay: String = MacroStableDisplay.expr(value)
 
+  final case class Args(
+      receiver: Option[UntypedExpr],
+      positional: List[UntypedExpr],
+      span: SourceSpan,
+  ) extends MacroExpr:
+    def stableDisplay: String =
+      val receiverText = receiver.map(MacroStableDisplay.expr).getOrElse("")
+      val positionalText =
+        positional.map(MacroStableDisplay.expr).mkString("[", ",", "]")
+      s"Expr.Args(receiver=$receiverText,positional=$positionalText)"
+
 /** Reflection target kind admitted by the first macro expansion slice. */
 enum MacroReflectionTargetKind:
-  case Class, Function, Field, Variant
+  case Class, Function, Field, Variant, Expression
 
 /** Reflected class field metadata visible to derive providers. */
 final case class MacroReflectionField(
@@ -170,9 +181,11 @@ final case class MacroFunctionInput(
     target: MacroReflectionTarget,
     cxxContext: MacroCxxExecutionContext,
     span: SourceSpan,
+    payload: Option[MacroExpr] = None,
 ):
   def stableDisplay: String =
-    s"input(provider=$providerIdentity,package=$sourcePackageIdentity,invocation=$invocationIdentity,${target.stableDisplay},${cxxContext.stableDisplay})"
+    val payloadText = payload.map(_.stableDisplay).getOrElse("")
+    s"input(provider=$providerIdentity,package=$sourcePackageIdentity,invocation=$invocationIdentity,payload=$payloadText,${target.stableDisplay},${cxxContext.stableDisplay})"
 
 /** Structured generated declaration output. */
 sealed trait GeneratedDeclaration:
@@ -206,12 +219,6 @@ final case class MacroFunctionOutput(
     val summary = generatedSourceSummary.mkString("[", ",", "]")
     val support = nativeSupportBindings.sorted.mkString("[", ",", "]")
     s"output(generated=$generated,consumed=$consumed,summary=$summary,support=$support)"
-
-/** Result of running the macro expansion phase over an untyped module. */
-final case class MacroExpandedModule(
-    module: UntypedModule,
-    summary: MacroExpansionSummary,
-)
 
 /** Deterministic generated-source inspection summary for tests and debugging.
   */
