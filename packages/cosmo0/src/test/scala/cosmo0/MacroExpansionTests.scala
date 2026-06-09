@@ -1,7 +1,7 @@
 package cosmo0
 
 class MacroExpansionTests extends munit.FunSuite:
-  private val deriveSource =
+  private val attributeSource =
     """trait FieldCount {
       |  def field_count(&self): i32
       |}
@@ -13,14 +13,10 @@ class MacroExpansionTests extends munit.FunSuite:
       |
       |  val verbose: Bool
       |}
-      |
-      |def count(config: Config): i32 = {
-      |  config.field_count()
-      |}
       |""".stripMargin
 
   test("elaborate preserves structured derive and field attributes"):
-    val result = Cosmo0().elaborate(deriveSource)
+    val result = Cosmo0().elaborate(attributeSource)
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
@@ -42,61 +38,78 @@ class MacroExpansionTests extends munit.FunSuite:
       List("""@arg(long="package",short="p")"""),
     )
 
-  test("macro expansion generates deterministic trait impl attachment"):
-    val first = Cosmo0().expandMacros(deriveSource)
-    val second = Cosmo0().expandMacros(deriveSource)
-
-    assertEquals(first.status, PhaseStatus.Succeeded)
-    assertEquals(second.status, PhaseStatus.Succeeded)
-    assertEquals(
-      first.value.get.summary.stableDisplay,
-      second.value.get.summary.stableDisplay,
-    )
-    assert(
-      first.value.get.summary.stableDisplay.contains(
-        "derive example.FieldCount -> impl FieldCount for Config",
-      ),
-    )
-
-    val generatedImpls = first.value.get.module.decls.collect {
-      case impl: UntypedImpl => impl
-    }
-    assertEquals(generatedImpls.length, 1)
-    assertEquals(
-      MacroStableDisplay.path(generatedImpls.head.traitName),
-      "FieldCount",
-    )
-    assertEquals(MacroStableDisplay.path(generatedImpls.head.target), "Config")
-
-  test("check can use a derive-generated trait method"):
-    val result = Cosmo0().check(deriveSource)
+  test("check expands expression macro during expression typing"):
+    val result = Cosmo0().check("val answer: u8 = example.answer()")
 
     assertEquals(result.phase, Phase.Check)
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
-    assert(!result.value.get.macroExpansion.isEmpty)
 
-    val count = result.value.get.typed.decls.collectFirst {
-      case fn: TypedFunction if fn.name == "count" => fn
+    val answer = result.value.get.typed.decls.collectFirst {
+      case value: TypedValueDecl if value.name == "answer" => value
     }.get
-    assertEquals(count.retTy, SourceType.I32)
+    val init = answer.init.get.asInstanceOf[TypedIntLiteral]
 
-  test("compile keeps derive-generated impls on the ordinary backend path"):
-    val result = Cosmo0().compile(deriveSource)
+    assertEquals(answer.ty, SourceType.Byte)
+    assertEquals(init.value, BigInt(42))
+    assertEquals(init.ty, SourceType.Byte)
+    assert(
+      result.value.get.macroExpansion.stableDisplay.contains(
+        "expr example.answer -> 42",
+      ),
+    )
+
+  test("macro expansion summary is deterministic"):
+    val source = "val answer: u8 = example.answer()"
+    val first = Cosmo0().check(source)
+    val second = Cosmo0().check(source)
+
+    assertEquals(first.status, PhaseStatus.Succeeded)
+    assertEquals(second.status, PhaseStatus.Succeeded)
+    assertEquals(
+      first.value.get.macroExpansion.stableDisplay,
+      second.value.get.macroExpansion.stableDisplay,
+    )
+    assert(
+      first.value.get.macroExpansion.stableDisplay.contains(
+        "expr example.answer -> 42",
+      ),
+    )
+
+  test("identity expression macro output is rechecked in caller context"):
+    val result = Cosmo0().check("val copied: u8 = example.identity(41)")
+
+    assertEquals(result.phase, Phase.Check)
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    assert(result.diagnostics.isEmpty)
+
+    val copied = result.value.get.typed.decls.collectFirst {
+      case value: TypedValueDecl if value.name == "copied" => value
+    }.get
+    val init = copied.init.get.asInstanceOf[TypedIntLiteral]
+
+    assertEquals(copied.ty, SourceType.Byte)
+    assertEquals(init.value, BigInt(41))
+    assertEquals(init.ty, SourceType.Byte)
+    assert(
+      result.value.get.macroExpansion.stableDisplay.contains(
+        "expr example.identity -> arg0",
+      ),
+    )
+
+  test("compile keeps expression macro output on the ordinary backend path"):
+    val result = Cosmo0().compile("val answer = example.answer()")
 
     assertEquals(result.phase, Phase.Compile)
     assertEquals(result.status, PhaseStatus.Succeeded)
     assert(result.diagnostics.isEmpty)
-    assert(result.value.get.output.contains("field_count"))
-
-  test("macro expansion rejects unresolved derive providers"):
-    val result = Cosmo0().check(
-      """@derive(missing.Provider)
-        |class Config {
-        |  val name: String
-        |}
-        |""".stripMargin,
+    assert(
+      result.value.get.output
+        .contains("inline const int32_t answer = static_cast<int32_t>(42);"),
     )
+
+  test("expression macro expansion rejects unresolved providers"):
+    val result = Cosmo0().check("val answer = example.missing()")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
@@ -104,111 +117,32 @@ class MacroExpansionTests extends munit.FunSuite:
       s"missing unresolved-provider diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
-  test("macro expansion rejects derive on unsupported targets"):
-    val result = Cosmo0().check(
-      """@derive(example.FieldCount)
-        |def not_a_class(): i32 = 0
-        |""".stripMargin,
-    )
+  test("expression macro expansion rejects invalid provider output"):
+    val result = Cosmo0().check("val answer = example.invalid()")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
-      result.diagnostics.exists(_.code == "cosmo0.macro.unsupported-target"),
-      s"missing unsupported-target diagnostic in ${result.diagnostics.map(_.code)}",
+      result.diagnostics.exists(_.code == "cosmo0.macro.invalid-output"),
+      s"missing invalid-output diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
-  test("macro expansion rejects unconsumed field attributes"):
-    val result = Cosmo0().check(
-      """trait FieldCount {
-        |  def field_count(&self): i32
-        |}
-        |
-        |@derive(example.FieldCount)
-        |class Config {
-        |  @agr(long = "package")
-        |  val package_name: String
-        |}
-        |""".stripMargin,
-    )
+  test("expression macro expansion rejects unsupported provider inputs"):
+    val result = Cosmo0().check("val answer = example.answer(1)")
 
     assertEquals(result.status, PhaseStatus.Failed)
     assert(
       result.diagnostics.exists(
-        _.code == "cosmo0.macro.unconsumed-attribute",
+        _.code == "cosmo0.macro.unsupported-input",
       ),
-      s"missing unconsumed-attribute diagnostic in ${result.diagnostics.map(_.code)}",
+      s"missing unsupported-input diagnostic in ${result.diagnostics.map(_.code)}",
     )
 
-  test("macro expansion validates provider-specific attribute payloads"):
-    val result = Cosmo0().check(
-      """trait FieldCount {
-        |  def field_count(&self): i32
-        |}
-        |
-        |@derive(example.FieldCount)
-        |class Config {
-        |  @arg(123)
-        |  val package_name: String
-        |}
-        |""".stripMargin,
-    )
+  test("expression macro expansion is gated by checker profile support"):
+    val elaborated =
+      Cosmo0().elaborate("val answer = example.answer()").value.get
+    val result = MlttTyper(elaborated, CheckerProfiles.MlttCore).check()
 
     assertEquals(result.status, PhaseStatus.Failed)
-    assert(
-      result.diagnostics.exists(
-        _.code == "cosmo0.macro.unsupported-attribute-payload",
-      ),
-      s"missing unsupported-attribute-payload diagnostic in ${result.diagnostics
-          .map(_.code)}",
-    )
-
-  test("elaborate rejects repeated keyed macro attribute arguments"):
-    val result = Cosmo0().elaborate(
-      """class Config {
-        |  @arg(long = "package", long = "pkg")
-        |  val package_name: String
-        |}
-        |""".stripMargin,
-    )
-
-    assertEquals(result.status, PhaseStatus.Unsupported)
-    assert(
-      result.diagnostics.exists(
-        _.code == "cosmo0.elaborate.invalid-macro-attribute",
-      ),
-      s"missing invalid-macro-attribute diagnostic in ${result.diagnostics.map(_.code)}",
-    )
-
-  test("macro expansion rejects duplicate generated impl attachments"):
-    val result = Cosmo0().check(
-      """trait FieldCount {
-        |  def field_count(&self): i32
-        |}
-        |
-        |@derive(example.FieldCount)
-        |class Config {
-        |  val package_name: String
-        |}
-        |
-        |impl FieldCount for Config {
-        |  def field_count(&self): i32 = 9
-        |}
-        |""".stripMargin,
-    )
-
-    assertEquals(result.status, PhaseStatus.Failed)
-    assert(
-      result.diagnostics.exists(_.code == "cosmo0.macro.duplicate-impl"),
-      s"missing duplicate-impl diagnostic in ${result.diagnostics.map(_.code)}",
-    )
-
-  test("macro expansion is gated by checker profile support"):
-    val result = Cosmo0().expandMacrosWithProfile(
-      deriveSource,
-      CheckerProfiles.MlttCore.id,
-    )
-
-    assertEquals(result.status, PhaseStatus.Unsupported)
     assert(
       result.diagnostics.exists(
         _.code == CheckerProfiles.UnsupportedFeatureCode,

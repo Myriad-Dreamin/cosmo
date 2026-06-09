@@ -47,6 +47,7 @@ final case class TypedModule(
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
     cppImports: List[SourceCppNamespaceImport] = Nil,
+    macroExpansion: MacroExpansionSummary = MacroExpansionSummary.empty,
 ) extends TypedNode:
   /** Stable summary used to compare checker artifacts without serializing the
     * whole typed tree.

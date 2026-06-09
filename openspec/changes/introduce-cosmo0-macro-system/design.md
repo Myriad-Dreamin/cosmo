@@ -16,7 +16,8 @@ schema, RPC, and test-discovery libraries.
 
 **Goals:**
 
-- Add a macro expansion phase that can generate validated cosmo0 artifacts.
+- Add deterministic macro expansion points that can generate validated cosmo0
+  artifacts.
 - Support custom derive macros on classes and sum types.
 - Preserve macro-owned attributes on declarations, fields, variants, and
   functions long enough for macro providers to inspect them.
@@ -29,6 +30,8 @@ schema, RPC, and test-discovery libraries.
   to ad hoc compiler callbacks.
 - Define `Expr[T = Untyped]` as the macro API's untyped source-expression value
   and keep serialized macro function input/output records separate from it.
+- Expand expression macros while checking the selected expression, then recheck
+  generated `Expr[Untyped]` in the caller context.
 - Define typed-expression information as inspector output from the typer phase,
   not as a typed expression tree that macro providers can receive or construct.
 - Define compile-time macro function execution through cosmo0 eval
@@ -38,8 +41,8 @@ schema, RPC, and test-discovery libraries.
 
 **Non-Goals:**
 
-- Add arbitrary expression quotation or function-like expression macros in the
-  first slice.
+- Add a complete user-defined expression macro system beyond the
+  compiler-hosted smoke providers in the first slice.
 - Let first-slice derive macros add new top-level declarations, members, fields,
   variants, classes, aliases, or ordinary name-resolution bindings.
 - Define macro semantics where output depends on ambient filesystem, command,
@@ -58,21 +61,32 @@ schema, RPC, and test-discovery libraries.
 
 ## Decisions
 
-### Add A Dedicated Expansion Stage
+### Use Phase-Specific Expansion Points
 
-Macro expansion should run after parsing and declaration-shape collection, but
-before ordinary body checking and LIR lowering. Derive providers need enough
-shape information to know a class name, field list, field types, variants, and
-attributes. They should not need fully checked function bodies.
+Macro expansion should run at the compiler point that owns the facts a macro
+needs and the validation that its output must re-enter. Expression macros are
+expanded by the expression checker when it reaches the selected macro call; the
+returned `Expr[Untyped]` is then checked immediately in the same scope,
+function context, and expected type as the original call.
+
+Declaration and derive providers should run after parsing and declaration-shape
+collection, but before later facts depend on generated declarations or
+implementation attachments. Derive providers need enough shape information to
+know a class name, field list, field types, variants, and attributes. They
+should not need fully checked function bodies.
 
 Alternative considered: run macros directly during parsing. That cannot support
 type-aware derives such as CLI value parsing or future serialization derives.
 
+Alternative considered: run all macros in one module-wide pass before ordinary
+checking. That over-expands expression macros before the checker has the
+current scope and expected type needed to validate `Expr[Untyped]` output.
+
 Alternative considered: run all macros after complete type checking. That makes
-generated artifacts unavailable to later checking. First-slice derive output is
-more constrained: it attaches trait implementations without adding new names,
-so it can run after declaration indexing without forcing ordinary name
-resolution to be rebuilt.
+generated artifacts unavailable to later checking. Derive output is more
+constrained: it attaches trait implementations without adding new names, so it
+can run after declaration indexing without forcing ordinary name resolution to
+be rebuilt.
 
 ### Treat Generated Output As Structured Artifacts
 

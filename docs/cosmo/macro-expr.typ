@@ -3,10 +3,10 @@
 == Status
 
 This file owns the macro expression value boundary for cosmo0 macro design. It
-is a design-facing specification page: the default cosmo0 subset still rejects
-ordinary macros until an accepted capability admits them, but future macro work
-must use this boundary instead of reintroducing a broad compiler-internal
-expression API.
+is a design-facing specification page: the current implementation admits a
+small compiler-hosted expression-provider smoke path, while general user-defined
+ordinary macros remain future work. Future macro work must use this boundary
+instead of reintroducing a broad compiler-internal expression API.
 
 The central rule is that public macro expression values are written as
 `Expr[T = Untyped]`. In the current contract, `Untyped` is the only stable
@@ -30,16 +30,16 @@ provider to mark an expression as typed.
 
 == Expression Macro Function Contract
 
-Expression macros are macro functions selected from already-parsed source
-expressions. The surface syntax does not have to be a function call. A call
-expression, method-like application, interpolation, block-attached application,
-or another syntax form admitted by a future capability may all select an
-expression macro after parsing and name resolution.
+Expression macros are macro functions selected while the checker is checking an
+already-parsed source expression. The surface syntax does not have to be a
+function call. A call expression, method-like application, interpolation,
+block-attached application, or another syntax form admitted by a future
+capability may all select an expression macro from the expression-checking path.
 
-The parser first accepts ordinary source syntax. Name resolution and macro
-classification then decide whether the parsed expression targets a compile-time
-provider or an ordinary value-level operation. Macro selection must not depend
-on exposing a raw parser token stream to the provider.
+The parser first accepts ordinary source syntax. During expression checking,
+macro classification decides whether the parsed expression targets a
+compile-time provider or an ordinary value-level operation. Macro selection must
+not depend on exposing a raw parser token stream to the provider.
 
 Provider-facing expression macro behavior is specified as a macro function
 implementation shape:
@@ -58,9 +58,9 @@ record, but those are not a second public provider argument. Parenthesized
 arguments and method-like syntax feed `Expr.Args`; attached blocks feed
 `Expr.Block`; templates and interpolations feed `Expr.Template`.
 
-Generated expression output always returns to ordinary type checking. A provider
-may generate a candidate expression, but it cannot manufacture or inject a
-trusted checked expression object.
+Generated expression output immediately returns to ordinary type checking at the
+macro call site. A provider may generate a candidate expression, but it cannot
+manufacture or inject a trusted checked expression object.
 
 == Macro Selection
 
