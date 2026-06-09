@@ -148,9 +148,9 @@ final class MlttTyper(
       StandardGenericDescriptors.all,
     profile: CheckerProfile = CheckerProfiles.MlttDependentPatterns,
     expressionMacroProviders: MacroExpressionProviderRegistry =
-      MacroExpressionProviderRegistry.default,
+      MacroExpressionProviderRegistry.empty,
     deriveMacroProviders: MacroDeriveProviderRegistry =
-      MacroDeriveProviderRegistry.default,
+      MacroDeriveProviderRegistry.empty,
 ):
   private final case class ValueSymbol(
       name: String,
