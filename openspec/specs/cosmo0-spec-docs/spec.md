@@ -5,12 +5,15 @@ Define the maintained cosmo0 documentation skeleton and synchronization policy f
 ## Requirements
 ### Requirement: cosmo0 Spec Document Skeleton
 
-The repository SHALL maintain a `docs/cosmo/` specification skeleton covering the cosmo0 subset boundary, type system, declarations, expressions, control flow, standard APIs, runtime hooks, package behavior, and testing policy.
+The repository SHALL maintain a `docs/cosmo/` specification skeleton covering
+the cosmo0 subset boundary, type system, declarations, expressions, control
+flow, standard APIs, runtime hooks, package behavior, macro and reflection
+behavior, and testing policy.
 
 #### Scenario: Required skeleton files exist
 
 - **WHEN** the cosmo0 docs skeleton validation runs
-- **THEN** `docs/cosmo/spec.typ`, `type.typ`, `class.typ`, `expr.typ`, `control-flow.typ`, `std.typ`, `runtime.typ`, `package.typ`, and `testing.typ` exist
+- **THEN** `docs/cosmo/spec.typ`, `type.typ`, `class.typ`, `expr.typ`, `control-flow.typ`, `std.typ`, `runtime.typ`, `package.typ`, `macro-expr.typ`, `compile-time-evaluation.typ`, and `testing.typ` exist
 
 #### Scenario: Ownership is reviewable
 
