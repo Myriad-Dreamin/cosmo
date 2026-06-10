@@ -251,6 +251,47 @@ class FacadeTests extends munit.FunSuite:
       s"missing local reference in ${resolution.references}",
     )
 
+  test("elaborate records name-reference positions"):
+    val result = Cosmo0().elaborate(
+      """def main(value: Later): Later = later(value)
+        |
+        |def later(value: Later): Later = value
+        |
+        |class Later {}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val resolution = result.value.get.nameResolution
+    val laterReference =
+      resolution.references.find(_.path.text == "later").get
+    val typeReferences =
+      resolution.references.filter(_.path.text == "Later")
+
+    assertEquals(
+      laterReference.position,
+      UntypedNameReferencePosition.Value,
+    )
+    assert(typeReferences.nonEmpty)
+    assert(
+      typeReferences.forall(_.position == UntypedNameReferencePosition.Type),
+    )
+    assert(
+      resolution
+        .bindingFor(
+          laterReference.path,
+          UntypedNameReferencePosition.Value,
+        )
+        .exists(_.name == "later"),
+    )
+    assertEquals(
+      resolution.bindingFor(
+        laterReference.path,
+        UntypedNameReferencePosition.Type,
+      ),
+      None,
+    )
+
   test("elaborate keeps class method headers out of method body scope"):
     val result = Cosmo0().elaborate(
       """class Box {

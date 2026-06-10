@@ -27,6 +27,7 @@ final class UntypedNameResolutionBuilder:
   private final case class PendingReference(
       path: UntypedPath,
       ownerDeclIndex: Option[Int],
+      position: UntypedNameReferencePosition,
   )
 
   private val rootScope = Scope(None)
@@ -233,14 +234,21 @@ final class UntypedNameResolutionBuilder:
           resolvePending = true,
         )
 
-  def resolvePath(path: UntypedPath): Unit =
+  def resolvePath(
+      path: UntypedPath,
+      position: UntypedNameReferencePosition,
+  ): Unit =
     path.parts.headOption match
       case Some(root) =>
         currentScope.resolve(root) match
           case Some(binding) =>
-            recordReference(path, binding, currentDeclIndex)
+            recordReference(path, binding, currentDeclIndex, position)
           case None =>
-            pendingReferences += PendingReference(path, currentDeclIndex)
+            pendingReferences += PendingReference(
+              path,
+              currentDeclIndex,
+              position,
+            )
       case None =>
 
   private def defineCurrent(
@@ -269,16 +277,27 @@ final class UntypedNameResolutionBuilder:
   ): Unit =
     pendingReferences.foreach { pending =>
       if pending.path.parts.headOption.contains(name) then
-        recordReference(pending.path, binding, pending.ownerDeclIndex)
+        recordReference(
+          pending.path,
+          binding,
+          pending.ownerDeclIndex,
+          pending.position,
+        )
     }
 
   private def recordReference(
       path: UntypedPath,
       binding: UntypedBindingFact,
       ownerDeclIndex: Option[Int],
+      position: UntypedNameReferencePosition,
   ): Unit =
     if !references.exists(_.path.span == path.span) then
-      references += UntypedNameReference(path, binding, ownerDeclIndex)
+      references += UntypedNameReference(
+        path,
+        binding,
+        ownerDeclIndex,
+        position,
+      )
 
   private def declarationDependencies(
       declCount: Int,
@@ -291,12 +310,39 @@ final class UntypedNameResolutionBuilder:
       for
         owner <- reference.ownerDeclIndex
         dependency <- reference.binding.declIndex
+        if isDeclarationDependency(reference)
         if owner != dependency &&
           owner >= 0 && owner < declCount &&
           dependency >= 0 && dependency < declCount
       do deps(owner) += dependency
     }
     deps.view.mapValues(_.toList.sorted).toMap
+
+  private def isDeclarationDependency(
+      reference: UntypedNameReference,
+  ): Boolean =
+    isDeclarationDependencyPosition(reference) &&
+      isDeclarationDependencyBindingKind(reference.binding.kind) &&
+      reference.path.parts.headOption.contains(reference.binding.name)
+
+  private def isDeclarationDependencyPosition(
+      reference: UntypedNameReference,
+  ): Boolean =
+    reference.position match
+      case UntypedNameReferencePosition.Value |
+          UntypedNameReferencePosition.Type =>
+        true
+      case UntypedNameReferencePosition.Template =>
+        false
+
+  private def isDeclarationDependencyBindingKind(
+      kind: UntypedBindingKind,
+  ): Boolean =
+    kind match
+      case UntypedBindingKind.Class | UntypedBindingKind.Function |
+          UntypedBindingKind.Value =>
+        true
+      case _ => false
 
   private def stronglyConnectedComponents(
       declCount: Int,
