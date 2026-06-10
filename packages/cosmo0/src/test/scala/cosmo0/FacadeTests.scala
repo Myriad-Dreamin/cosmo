@@ -223,7 +223,12 @@ class FacadeTests extends munit.FunSuite:
     )
 
     assertEquals(result.status, PhaseStatus.Succeeded)
-    val resolution = result.value.get.nameResolution
+    val module = result.value.get
+    val resolution = module.nameResolution
+    val orderedNames =
+      module.checkOrder.flatMap(_.declIndexes.map(module.decls(_).name))
+
+    assertEquals(orderedNames, List("later", "main"))
 
     assert(
       resolution.bindings.exists(binding =>

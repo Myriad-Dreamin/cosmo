@@ -1,0 +1,7 @@
+def main(): i32 = left() + right()
+
+def left(): i32 = base()
+
+def right(): i32 = base()
+
+def base(): i32 = 1

@@ -277,6 +277,11 @@ final class MlttTyper(
   private val macroGenerated = ListBuffer.empty[String]
   private val macroConsumedAttributes = ListBuffer.empty[String]
   private val macroExpansionStack = ListBuffer.empty[String]
+  private lazy val checkItems: List[UntypedCheckItem] =
+    if module.checkOrder.nonEmpty then module.checkOrder
+    else UntypedCheckItem.sourceOrder(module.decls.length)
+  private lazy val orderedDecls: List[UntypedDecl] =
+    checkItems.flatMap(_.declIndexes.flatMap(module.decls.lift))
   private val classNames =
     module.decls.collect { case decl: UntypedClass => decl.name }.toSet
   private val rawAliases =
@@ -365,7 +370,7 @@ final class MlttTyper(
     )
 
     val decls =
-      module.decls.flatMap { decl =>
+      orderedDecls.flatMap { decl =>
         typedDecl(decl, globalScope)
       }
 
@@ -420,7 +425,7 @@ final class MlttTyper(
 
   private def collectForeignNamespaceImports(): Unit =
     val ordinaryBindings = mutable.LinkedHashMap.empty[String, SourceSpan]
-    module.decls.foreach { declaration =>
+    orderedDecls.foreach { declaration =>
       ordinaryBindingName(declaration).foreach { name =>
         if !ordinaryBindings.contains(name) then
           ordinaryBindings.update(name, declaration.span)
@@ -428,7 +433,7 @@ final class MlttTyper(
     }
 
     val importValues =
-      (module.decls.collect { case importDecl: UntypedCppNamespaceImport =>
+      (orderedDecls.collect { case importDecl: UntypedCppNamespaceImport =>
         importDecl.value
       } :::
         module.cppImports).distinct
@@ -477,7 +482,7 @@ final class MlttTyper(
         Some(other.name)
 
   private def collectAliases(): Unit =
-    module.decls.foreach {
+    orderedDecls.foreach {
       case alias: UntypedTypeAlias =>
         rawAliases.update(alias.name, alias)
       case cls: UntypedClass =>
@@ -490,7 +495,7 @@ final class MlttTyper(
     }
 
   private def collectTraits(): Unit =
-    module.decls.collect { case trt: UntypedTrait => trt }.foreach { trt =>
+    orderedDecls.collect { case trt: UntypedTrait => trt }.foreach { trt =>
       val methods =
         trt.methods.map(method => functionInfo(method, Some(trt.name)))
       duplicateMethodNames(methods, trt.name, trt.span)
@@ -505,7 +510,7 @@ final class MlttTyper(
     }
 
   private def collectClasses(): Unit =
-    module.decls.collect { case cls: UntypedClass => cls }.foreach { cls =>
+    orderedDecls.collect { case cls: UntypedClass => cls }.foreach { cls =>
       val fields = cls.members.collect { case field: UntypedValueDecl =>
         FieldInfo(
           field.name,
@@ -571,7 +576,7 @@ final class MlttTyper(
     }
 
   private def collectImpls(): Unit =
-    module.decls
+    orderedDecls
       .collect { case impl: UntypedImpl => impl }
       .foreach(impl => collectImpl(impl, ImplOrigin.Source(impl.span)))
 
@@ -653,7 +658,7 @@ final class MlttTyper(
       case ImplOrigin.Source(_) =>
 
   private def expandDeriveMacros(): Unit =
-    module.decls.foreach {
+    orderedDecls.foreach {
       case cls: UntypedClass =>
         cls.macroAttributes
           .filter(isDeriveAttribute)
@@ -1197,7 +1202,7 @@ final class MlttTyper(
         false
 
   private def collectFunctions(): Unit =
-    module.decls.collect { case fn: UntypedFunction => fn }.foreach { fn =>
+    orderedDecls.collect { case fn: UntypedFunction => fn }.foreach { fn =>
       val info = functionInfo(fn, None)
       functions.update(info.name, info)
     }

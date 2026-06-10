@@ -1,0 +1,1 @@
+def self_annotated(): i32 = self_annotated()
