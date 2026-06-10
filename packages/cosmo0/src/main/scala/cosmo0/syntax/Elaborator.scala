@@ -6,13 +6,19 @@ import scala.collection.mutable.ListBuffer
 import cosmo.syntax
 import cosmo.syntax.*
 
-/** Converts the shared parser AST into the cosmo0 untyped AST.
+/** Stateful elaboration pass that converts the shared parser AST into the
+  * cosmo0 untyped AST.
   *
   * The parser accepts a larger source language than the initial cosmo0 subset.
   * Elaboration is the syntactic boundary between that broad AST and the source
   * forms accepted by the cosmo0 checker. This pass preserves source spans,
   * records file-level foreign metadata, and reports unsupported constructs as
   * check-phase diagnostics.
+  *
+  * The instance owns diagnostic and metadata buffers for a single module. It
+  * also records prefix-first name-resolution facts while constructing untyped
+  * nodes. Full `SourceType` resolution and type-dependent selectors remain
+  * type-checker work after an `UntypedModule` has been produced.
   *
   * Example source forms accepted here:
   *
@@ -41,42 +47,11 @@ import cosmo.syntax.*
   *   - Expressions are lowered structurally into `UntypedExpr`; expression type
   *     inference is intentionally deferred to `MlttTyper`.
   *   - Type applications must use compile-time square-bracket syntax.
-  *     Registered standard generic names and known C++ namespace aliases are
-  *     accepted.
+  *     Registered standard generic descriptor families and known C++ namespace
+  *     aliases are accepted.
   *   - `Ref[T]` and `RefMut[T]` are normalized to reference type nodes.
   */
-object Elaborator:
-  /** Standard generic families that may appear in cosmo0 type positions before
-    * the typer resolves their arity and descriptor.
-    */
-  val defaultStandardGenericNames: Set[String] =
-    Set(
-      "Arena",
-      "Box",
-      "Id",
-      "Map",
-      "Option",
-      "Ptr",
-      "Ref",
-      "RefMut",
-      "Result",
-      "Set",
-      "Vec",
-    )
-
-  def apply(parsed: ParsedModule): Elaborator =
-    new Elaborator(parsed, defaultStandardGenericNames)
-
-/** Stateful elaboration pass for one parsed source file.
-  *
-  * The instance owns diagnostic and metadata buffers for a single module. It
-  * does not resolve names or compute `SourceType`; those jobs belong to the
-  * type checker after an `UntypedModule` has been produced.
-  */
-final class Elaborator(
-    parsed: ParsedModule,
-    standardGenericNames: Set[String] = Elaborator.defaultStandardGenericNames,
-):
+final class Elaborator(parsed: ParsedModule):
   /** Elaborates all parser statements and either returns an `UntypedModule` or
     * the diagnostics collected while rejecting unsupported forms.
     */
@@ -85,16 +60,16 @@ final class Elaborator(
     val emittedDiagnostics = diagnostics.toList
 
     if emittedDiagnostics.isEmpty then
-      Result.success(
-        Phase.Check,
+      val module =
         UntypedModule(
           parsed.source,
           decls,
           nodeSpan(parsed.ast),
           cIncludes.toList,
           cppImports.toList,
-        ),
-      )
+          nameResolution.finish(),
+        )
+      Result.success(Phase.Check, module)
     else
       Result(
         Phase.Check,
@@ -108,6 +83,7 @@ final class Elaborator(
   private val cIncludes: ListBuffer[SourceCInclude] = ListBuffer.empty
   private val cppImports: ListBuffer[SourceCppNamespaceImport] =
     ListBuffer.empty
+  private val nameResolution = UntypedNameResolutionBuilder()
   private val genericTypeAliasNames = mutable.LinkedHashSet.empty[String]
 
   private val assignmentOps =
@@ -121,7 +97,7 @@ final class Elaborator(
     * diagnostic and no declaration.
     */
   private def moduleDecl(node: syntax.Node): Option[UntypedDecl] =
-    unwrapSemi(node) match
+    val decl = unwrapSemi(node) match
       case None                     => None
       case Some(importNode: Import) => importDecl(importNode)
       case Some(classNode: Class)   => classDecl(classNode)
@@ -146,6 +122,26 @@ final class Elaborator(
           "cosmo0.elaborate.unsupported.top-level",
           s"${constructName(other)} is not a supported top-level cosmo0 declaration",
         )
+    decl.foreach(recordModuleBinding)
+    decl
+
+  private def recordModuleBinding(decl: UntypedDecl): Unit =
+    decl match
+      case importDecl: UntypedCppNamespaceImport =>
+        nameResolution.declareForeignAlias(importDecl.value)
+      case importDecl: UntypedImport =>
+        nameResolution.noteOrdinaryModuleBinding(
+          importDecl.name,
+          importDecl.span,
+        )
+      case fn: UntypedFunction =>
+        nameResolution.defineModuleFunction(fn.name, fn.span)
+      case cls: UntypedClass =>
+        nameResolution.defineModuleClass(cls.name, cls.span)
+      case value: UntypedValueDecl =>
+        nameResolution.defineModuleValue(value.name, value.span)
+      case other =>
+        nameResolution.noteOrdinaryModuleBinding(other.name, other.span)
 
   private final case class ExternDecoratorArgs(
       name: Option[String] = None,
@@ -911,7 +907,10 @@ final class Elaborator(
     unwrapSemi(node) match
       case None => Nil
       case Some(block: Block) =>
-        block.stmts.map(classMember)
+        nameResolution.enterScope {
+          defineClassMethodHeaders(block.stmts)
+          block.stmts.map(classMember)
+        }
       case Some(caseBlock: CaseBlock) =>
         caseBlock.stmts.map(variantDecl(_, Nil))
       case Some(other) =>
@@ -923,6 +922,31 @@ final class Elaborator(
           ),
         )
 
+  private def defineClassMethodHeaders(stmts: List[syntax.Node]): Unit =
+    stmts.foreach {
+      case defNode: Def =>
+        nameResolution.defineScopedFunction(
+          defNode.name.name,
+          nodeSpan(defNode),
+        )
+      case Semi(Some(defNode: Def)) =>
+        nameResolution.defineScopedFunction(
+          defNode.name.name,
+          nodeSpan(defNode),
+        )
+      case Decorate(_, defNode: Def) =>
+        nameResolution.defineScopedFunction(
+          defNode.name.name,
+          nodeSpan(defNode),
+        )
+      case Semi(Some(Decorate(_, defNode: Def))) =>
+        nameResolution.defineScopedFunction(
+          defNode.name.name,
+          nodeSpan(defNode),
+        )
+      case _ =>
+    }
+
   private def classMember(node: syntax.Node): Option[UntypedClassMember] =
     unwrapSemi(node) match
       case None => None
@@ -930,7 +954,7 @@ final class Elaborator(
         valueDecl(valueNode, UntypedValueKind.Val, Nil)
       case Some(valueNode: Var) =>
         valueDecl(valueNode, UntypedValueKind.Var, Nil)
-      case Some(defNode: Def)   => functionDecl(defNode)
+      case Some(defNode: Def)   => classMethodDecl(defNode)
       case Some(typeNode: Typ)  => typeAlias(typeNode)
       case Some(caseNode: Case) => variantDecl(caseNode, Nil)
       case Some(decorated: Decorate) =>
@@ -994,7 +1018,7 @@ final class Elaborator(
             macroAttributes = List(attribute),
           )
         case Some(defNode: Def) =>
-          functionDecl(defNode, macroAttributes = List(attribute))
+          classMethodDecl(defNode, macroAttributes = List(attribute))
         case Some(caseNode: Case) =>
           variantDecl(caseNode, List(attribute))
         case Some(other) =>
@@ -1009,6 +1033,14 @@ final class Elaborator(
             "cosmo0.elaborate.unsupported-macro-attribute-target",
             "class macro attributes must decorate a supported member",
           )
+
+  private def classMethodDecl(
+      node: Def,
+      macroAttributes: List[UntypedMacroAttribute] = Nil,
+  ): Option[UntypedFunction] =
+    nameResolution.withParentScope {
+      functionDecl(node, macroAttributes = macroAttributes)
+    }
 
   private def functionDecl(
       node: Def,
@@ -1028,26 +1060,33 @@ final class Elaborator(
         "extern function declarations cannot define a cosmo0 body",
       )
     else
-      val span = nodeSpan(node)
-      val params = sequence(node.params.getOrElse(Nil).map(param))
-      val retTy =
-        node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
-          typeFromNode(ret, Some(span)).map(Some(_))
-        }
-      val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) { rhs =>
-        expr(rhs).map(Some(_))
-      }
-      params.zip(retTy).zip(body).map { case ((ps, rt), b) =>
-        UntypedFunction(
-          node.name.name,
-          ps,
-          rt,
-          b,
-          span,
-          extern,
-          declarationVisibility(node),
-          macroAttributes,
+      nameResolution.enterScope {
+        val span = nodeSpan(node)
+        val sourceParams = node.params.getOrElse(Nil)
+        sourceParams.foreach(param =>
+          nameResolution.defineParameter(param.name.name, nodeSpan(param)),
         )
+        val params = sequence(sourceParams.map(param))
+        val retTy =
+          node.ret.fold[Option[Option[UntypedType]]](Some(None)) { ret =>
+            typeFromNode(ret, Some(span)).map(Some(_))
+          }
+        val body = node.rhs.fold[Option[Option[UntypedExpr]]](Some(None)) {
+          rhs =>
+            expr(rhs).map(Some(_))
+        }
+        params.zip(retTy).zip(body).map { case ((ps, rt), b) =>
+          UntypedFunction(
+            node.name.name,
+            ps,
+            rt,
+            b,
+            span,
+            extern,
+            declarationVisibility(node),
+            macroAttributes,
+          )
+        }
       }
 
   private def valueDecl(
@@ -1338,6 +1377,7 @@ final class Elaborator(
         expr(value).map(Some(_))
     }
     ty.zip(init).map { case (t, i) =>
+      nameResolution.defineLocal(node.name.name, span)
       UntypedLocal(kind, node.name.name, t, i, span)
     }
 
@@ -1354,6 +1394,7 @@ final class Elaborator(
         expr(value).map(Some(_))
     }
     ty.zip(init).map { case (t, i) =>
+      nameResolution.defineLocal(node.name.name, span)
       UntypedLocal(kind, node.name.name, t, i, span)
     }
 
@@ -1369,9 +1410,13 @@ final class Elaborator(
     else
       node.init match
         case Some(value) =>
-          expr(value).map(init =>
-            UntypedCompileTimeIntAlias(node.name.name, init, nodeSpan(node)),
-          )
+          expr(value).map { init =>
+            nameResolution.defineCompileTimeIntAlias(
+              node.name.name,
+              nodeSpan(node),
+            )
+            UntypedCompileTimeIntAlias(node.name.name, init, nodeSpan(node))
+          }
         case None =>
           unsupported(
             node,
@@ -1394,12 +1439,16 @@ final class Elaborator(
     unwrapSemi(node) match
       case None => Some(UntypedUnitLiteral(nodeSpan(node)))
       case Some(block: Block) =>
-        val items = block.stmts.map(blockItem)
-        sequence(items).map(UntypedBlock(_, nodeSpan(block)))
+        nameResolution.enterScope {
+          val items = block.stmts.map(blockItem)
+          sequence(items).map(UntypedBlock(_, nodeSpan(block)))
+        }
       case Some(name: Ident) =>
+        val path = UntypedPath(List(name.name), nodeSpan(name))
+        nameResolution.resolvePath(path)
         Some(
           UntypedName(
-            UntypedPath(List(name.name), nodeSpan(name)),
+            path,
             nodeSpan(name),
           ),
         )
@@ -1484,14 +1533,14 @@ final class Elaborator(
         val span = nodeSpan(node)
         val elseExpValue =
           elseExp.fold[Option[Option[UntypedExpr]]](Some(None)) { branch =>
-            expr(branch).map(Some(_))
+            nameResolution.enterScope(expr(branch).map(Some(_)))
           }
-        expr(cond).zip(expr(thenExp)).zip(elseExpValue).map {
-          case ((c, t), e) =>
-            UntypedIf(c, t, e, span)
+        val thenValue = nameResolution.enterScope(expr(thenExp))
+        expr(cond).zip(thenValue).zip(elseExpValue).map { case ((c, t), e) =>
+          UntypedIf(c, t, e, span)
         }
       case Some(Loop(body)) =>
-        expr(body).map { value =>
+        nameResolution.enterScope(expr(body)).map { value =>
           UntypedLoop(
             prologue = Nil,
             condition = UntypedLoopCondition.Always(nodeSpan(node)),
@@ -1503,7 +1552,7 @@ final class Elaborator(
       case Some(While(cond, body)) =>
         for
           c <- expr(cond)
-          b <- expr(body)
+          b <- nameResolution.enterScope(expr(body))
         yield UntypedLoop(
           prologue = Nil,
           condition = UntypedLoopCondition.SourceCondition(c),
@@ -1514,7 +1563,10 @@ final class Elaborator(
       case Some(For(name, iter, body)) =>
         for
           i <- expr(iter)
-          b <- expr(body)
+          b <- nameResolution.enterScope {
+            nameResolution.defineLocal(name.name, nodeSpan(name))
+            expr(body)
+          }
         yield UntypedLoop(
           prologue = Nil,
           condition = UntypedLoopCondition.ForEach(
@@ -1636,8 +1688,10 @@ final class Elaborator(
   private def blockPayload(node: syntax.Node): Option[UntypedBlock] =
     node match
       case block: Block =>
-        sequence(block.stmts.map(blockItem))
-          .map(UntypedBlock(_, nodeSpan(block)))
+        nameResolution.enterScope {
+          sequence(block.stmts.map(blockItem))
+            .map(UntypedBlock(_, nodeSpan(block)))
+        }
       case other =>
         unsupported(
           other,
@@ -1648,6 +1702,7 @@ final class Elaborator(
   private def templateExpr(node: TmplApply): Option[UntypedTemplate] =
     for
       tag <- pathFromNode(node.lhs, Some(nodeSpan(node.lhs)))
+      _ = nameResolution.resolvePath(tag)
       parts <- sequence(node.rhs.map(templatePart(_, node)))
     yield UntypedTemplate(tag, parts, nodeSpan(node))
 
@@ -1671,12 +1726,15 @@ final class Elaborator(
     */
   private def matchArm(node: Case): Option[UntypedMatchArm] =
     val span = nodeSpan(node)
-    val body = node.body.fold[Option[Option[UntypedExpr]]](Some(None)) {
-      bodyNode =>
-        expr(bodyNode).map(Some(_))
-    }
-    pattern(node.cond).zip(body).map { case (patternValue, bodyValue) =>
-      UntypedMatchArm(patternValue, bodyValue, span)
+    nameResolution.enterScope {
+      val patternValue = pattern(node.cond)
+      val body = node.body.fold[Option[Option[UntypedExpr]]](Some(None)) {
+        bodyNode =>
+          expr(bodyNode).map(Some(_))
+      }
+      patternValue.zip(body).map { case (pat, bodyValue) =>
+        UntypedMatchArm(pat, bodyValue, span)
+      }
     }
 
   /** Accepts the pattern subset used by cosmo0 match arms: wildcards, bindings,
@@ -1687,6 +1745,7 @@ final class Elaborator(
       case Ident("_") =>
         Some(UntypedWildcardPattern(nodeSpan(node)))
       case Ident(name) =>
+        nameResolution.definePattern(name, nodeSpan(node))
         Some(UntypedBindingPattern(name, nodeSpan(node)))
       case BoolLit(value) =>
         Some(UntypedBoolLiteral(value, nodeSpan(node)))
@@ -1756,10 +1815,7 @@ final class Elaborator(
         )
       case Apply(lhs, args, true) =>
         pathFromNode(lhs, fallbackSpan) match
-          case Some(base)
-              if standardGenericNames.contains(
-                base.parts.lastOption.getOrElse(""),
-              ) =>
+          case Some(base) if isStandardGenericDescriptorFamily(base) =>
             val typeArgs = args.map(
               typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
@@ -1841,6 +1897,11 @@ final class Elaborator(
           "cosmo0.elaborate.unsupported.path",
           s"${constructName(other)} cannot be used as a cosmo0 path",
         )
+
+  private def isStandardGenericDescriptorFamily(path: UntypedPath): Boolean =
+    path.parts.lastOption.exists(
+      StandardGenericDescriptors.Boundary.temporaryStandardDescriptorNames.contains,
+    )
 
   def nodeSpan(node: syntax.Node): SourceSpan =
     nodeSpan(node, None)

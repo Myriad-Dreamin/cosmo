@@ -58,7 +58,7 @@ final class Cosmo0:
   def elaborate(source: SourceFile): Result[UntypedModule] =
     parse(source) match
       case parsed if parsed.isSuccess =>
-        Elaborator(parsed.value.get).elaborate()
+        new Elaborator(parsed.value.get).elaborate()
       case failed =>
         Result.failure(Phase.Check, failed.diagnostics)
 

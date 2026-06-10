@@ -273,6 +273,8 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
     val decls = ordered.flatMap(_.localDeclarations)
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
     val cppImports = ordered.flatMap(_.untyped.cppImports)
+    val nameResolution =
+      UntypedNameResolution.merge(ordered.map(_.untyped.nameResolution))
     val combinedModule =
       UntypedModule(
         combinedSource,
@@ -280,6 +282,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
         combinedSource.span(0, 0),
         cIncludes,
         cppImports,
+        nameResolution,
       )
 
     MlttTyper(combinedModule, checkerProfile).check() match
