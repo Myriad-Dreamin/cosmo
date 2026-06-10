@@ -1457,7 +1457,7 @@ final class Elaborator(parsed: ParsedModule):
         }
       case Some(name: Ident) =>
         val path = UntypedPath(List(name.name), nodeSpan(name))
-        nameResolution.resolvePath(path)
+        nameResolution.resolvePath(path, UntypedNameReferencePosition.Value)
         Some(
           UntypedName(
             path,
@@ -1714,7 +1714,7 @@ final class Elaborator(parsed: ParsedModule):
   private def templateExpr(node: TmplApply): Option[UntypedTemplate] =
     for
       tag <- pathFromNode(node.lhs, Some(nodeSpan(node.lhs)))
-      _ = nameResolution.resolvePath(tag)
+      _ = nameResolution.resolvePath(tag, UntypedNameReferencePosition.Template)
       parts <- sequence(node.rhs.map(templatePart(_, node)))
     yield UntypedTemplate(tag, parts, nodeSpan(node))
 
@@ -1855,7 +1855,10 @@ final class Elaborator(parsed: ParsedModule):
           case Some(base)
               if base.parts.headOption
                 .exists(alias => cppImports.exists(_.alias == alias)) =>
-            nameResolution.resolvePath(base)
+            nameResolution.resolvePath(
+              base,
+              UntypedNameReferencePosition.Type,
+            )
             val typeArgs = args.map(
               typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
@@ -1866,7 +1869,10 @@ final class Elaborator(parsed: ParsedModule):
               if base.parts.length == 1 && genericTypeAliasNames.contains(
                 base.parts.head,
               ) =>
-            nameResolution.resolvePath(base)
+            nameResolution.resolvePath(
+              base,
+              UntypedNameReferencePosition.Type,
+            )
             val typeArgs = args.map(
               typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
@@ -1889,7 +1895,10 @@ final class Elaborator(parsed: ParsedModule):
       case pathNode =>
         pathFromNode(pathNode, fallbackSpan).map { path =>
           if shouldResolveTypePath(path, tyParams) then
-            nameResolution.resolvePath(path)
+            nameResolution.resolvePath(
+              path,
+              UntypedNameReferencePosition.Type,
+            )
           UntypedNamedType(path, nodeSpan(pathNode, fallbackSpan))
         }
 

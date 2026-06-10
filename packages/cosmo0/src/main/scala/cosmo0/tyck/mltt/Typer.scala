@@ -1748,7 +1748,8 @@ final class MlttTyper(
     * name may infer as a class constructor or standard generic constructor.
     */
   private def nameExpr(node: UntypedName, scope: Scope): ExprInfo =
-    module.nameResolution.bindingFor(node.path) match
+    module.nameResolution
+      .bindingFor(node.path, UntypedNameReferencePosition.Value) match
       case Some(binding) =>
         nameExprFromBinding(node, binding)
           .getOrElse(fallbackNameExpr(node, scope))
@@ -1924,7 +1925,7 @@ final class MlttTyper(
         val name = path.parts.head
         val resolvedValue =
           module.nameResolution
-            .bindingFor(path)
+            .bindingFor(path, UntypedNameReferencePosition.Value)
             .flatMap(binding => compileTimeIntsByBinding.get(binding.id))
             .orElse(scope.resolveCompileTimeInt(name))
         resolvedValue match
@@ -2390,7 +2391,8 @@ final class MlttTyper(
       context: FunctionContext,
   ): ExprInfo =
     val calleeName = name.path.parts.head
-    module.nameResolution.bindingFor(name.path) match
+    module.nameResolution
+      .bindingFor(name.path, UntypedNameReferencePosition.Value) match
       case Some(binding) if binding.kind == UntypedBindingKind.Function =>
         functions.get(calleeName) match
           case Some(info) =>
@@ -4159,7 +4161,8 @@ final class MlttTyper(
       path: UntypedPath,
       className: String,
   ): Boolean =
-    module.nameResolution.bindingFor(path) match
+    module.nameResolution
+      .bindingFor(path, UntypedNameReferencePosition.Type) match
       case Some(binding) =>
         binding.kind == UntypedBindingKind.Class && binding.name == className
       case None =>

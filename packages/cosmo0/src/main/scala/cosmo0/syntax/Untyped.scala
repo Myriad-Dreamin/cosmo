@@ -168,10 +168,27 @@ object UntypedCheckOrder:
   private def isCheckDependencyBinding(
       reference: UntypedNameReference,
   ): Boolean =
-    reference.binding.kind match
-      case UntypedBindingKind.Function | UntypedBindingKind.Value |
-          UntypedBindingKind.Class =>
-        reference.path.parts.headOption.contains(reference.binding.name)
+    isCheckDependencyPosition(reference) &&
+      isCheckDependencyBindingKind(reference.binding.kind) &&
+      reference.path.parts.headOption.contains(reference.binding.name)
+
+  private def isCheckDependencyPosition(
+      reference: UntypedNameReference,
+  ): Boolean =
+    reference.position match
+      case UntypedNameReferencePosition.Value |
+          UntypedNameReferencePosition.Type =>
+        true
+      case UntypedNameReferencePosition.Template =>
+        false
+
+  private def isCheckDependencyBindingKind(
+      kind: UntypedBindingKind,
+  ): Boolean =
+    kind match
+      case UntypedBindingKind.Class | UntypedBindingKind.Function |
+          UntypedBindingKind.Value =>
+        true
       case _ => false
 
   private def itemDepths(
@@ -249,7 +266,17 @@ final case class UntypedNameReference(
     path: UntypedPath,
     binding: UntypedBindingFact,
     ownerDeclIndex: Option[Int] = None,
+    position: UntypedNameReferencePosition = UntypedNameReferencePosition.Value,
 )
+
+/** Source position where a name reference appears.
+  *
+  * Value and type references can create top-level declaration dependencies.
+  * Template tags select macro providers and do not introduce declaration
+  * check-order edges on their own.
+  */
+enum UntypedNameReferencePosition:
+  case Value, Type, Template
 
 /** Name-resolution facts attached to an elaborated module.
   *
@@ -270,6 +297,17 @@ final case class UntypedNameResolution(
       )
       .toMap
 
+  private lazy val positionedReferenceBindings: Map[
+    (String, SourceSpan, UntypedNameReferencePosition),
+    UntypedBindingFact,
+  ] =
+    references
+      .map(reference =>
+        (reference.path.text, reference.path.span, reference.position) ->
+          reference.binding,
+      )
+      .toMap
+
   private lazy val definitionBindings
       : Map[(UntypedBindingKind, String, SourceSpan), UntypedBindingFact] =
     bindings
@@ -278,6 +316,12 @@ final case class UntypedNameResolution(
 
   def bindingFor(path: UntypedPath): Option[UntypedBindingFact] =
     referenceBindings.get((path.text, path.span))
+
+  def bindingFor(
+      path: UntypedPath,
+      position: UntypedNameReferencePosition,
+  ): Option[UntypedBindingFact] =
+    positionedReferenceBindings.get((path.text, path.span, position))
 
   def bindingForDefinition(
       kind: UntypedBindingKind,
