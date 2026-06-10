@@ -1,0 +1,6 @@
+def main(): i32 = {
+  val value: i32 = later();
+  value
+}
+
+def later(): i32 = 1

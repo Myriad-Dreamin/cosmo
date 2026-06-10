@@ -6,7 +6,7 @@ Syntax owns the source-facing representation before type checking.
 `Elaborator.scala` is the source-to-cosmo0 bridge: it rejects unsupported full
 language constructs, preserves spans, collects file-level C/C++ extern metadata,
 records prefix-first name-resolution facts while building the untyped tree, and
-produces `UntypedModule`.
+produces `UntypedModule` with a declaration check order.
 
 `Untyped.scala`, `Typed.scala`, and `Types.scala` define the cosmo0 syntax and
 source type data passed between stages. `ExternAbi.scala` defines trusted extern

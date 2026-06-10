@@ -24,14 +24,21 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
     def key: String = moduleKey(pkgModule.modulePath)
 
     def localDeclarations: List[UntypedDecl] =
-      untyped.decls.filter {
-        case _: UntypedImport             => false
-        case _: UntypedCppNamespaceImport => false
-        case _                            => true
+      localDeclarationEntries.map(_._2)
+
+    def localDeclarationEntries: List[(Int, UntypedDecl)] =
+      untyped.decls.zipWithIndex.collect {
+        case (decl, index) if isLocalDeclaration(decl) => index -> decl
       }
 
     def publicDeclarations: List[UntypedDecl] =
       localDeclarations.filter(_.vis == UntypedVisibility.Public)
+
+    private def isLocalDeclaration(decl: UntypedDecl): Boolean =
+      decl match
+        case _: UntypedImport             => false
+        case _: UntypedCppNamespaceImport => false
+        case _                            => true
 
   private final case class ImportEdge(
       from: String,
@@ -270,11 +277,21 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       )
 
     val combinedSource = SourceFile(s"${pkg.metadata.outputModuleName}.cos", "")
-    val decls = ordered.flatMap(_.localDeclarations)
+    val orderedEntries = ordered.map { module =>
+      val entries = module.localDeclarationEntries
+      module -> entries
+    }
+    val decls = orderedEntries.flatMap(_._2.map(_._2))
     val cIncludes = ordered.flatMap(_.untyped.cIncludes)
     val cppImports = ordered.flatMap(_.untyped.cppImports)
+    val declIndexMaps = buildCombinedDeclIndexMaps(orderedEntries)
     val nameResolution =
-      UntypedNameResolution.merge(ordered.map(_.untyped.nameResolution))
+      UntypedNameResolution.mergeWithDeclIndexMaps(
+        ordered.map(module =>
+          module.untyped.nameResolution -> declIndexMaps(module.key),
+        ),
+      )
+    val checkOrder = combinedCheckOrder(ordered, declIndexMaps)
     val combinedModule =
       UntypedModule(
         combinedSource,
@@ -283,6 +300,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
         cIncludes,
         cppImports,
         nameResolution,
+        checkOrder,
       )
 
     MlttTyper(combinedModule, checkerProfile).check() match
@@ -295,6 +313,36 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
           ordered.map(_.key),
           typed.value.get,
         )
+
+  private def buildCombinedDeclIndexMaps(
+      orderedEntries: List[(AnalyzedModule, List[(Int, UntypedDecl)])],
+  ): Map[String, Map[Int, Int]] =
+    val maps = mutable.LinkedHashMap.empty[String, Map[Int, Int]]
+    var nextIndex = 0
+    orderedEntries.foreach { case (module, entries) =>
+      val indexMap = entries.map { case (sourceIndex, _) =>
+        val combinedIndex = nextIndex
+        nextIndex += 1
+        sourceIndex -> combinedIndex
+      }.toMap
+      maps.update(module.key, indexMap)
+    }
+    maps.toMap
+
+  private def combinedCheckOrder(
+      ordered: List[AnalyzedModule],
+      declIndexMaps: Map[String, Map[Int, Int]],
+  ): List[UntypedCheckItem] =
+    ordered.flatMap { module =>
+      val indexMap = declIndexMaps.getOrElse(module.key, Map.empty)
+      val moduleOrder =
+        if module.untyped.checkOrder.nonEmpty then module.untyped.checkOrder
+        else UntypedCheckItem.sourceOrder(module.untyped.decls.length)
+      moduleOrder.flatMap { item =>
+        val indexes = item.declIndexes.flatMap(indexMap.get)
+        if indexes.isEmpty then None else Some(UntypedCheckItem(indexes))
+      }
+    }
 
   private def checkProfilePackage(
       pkg: Cosmo0Package,

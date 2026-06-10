@@ -17,8 +17,9 @@ import cosmo.syntax.*
   *
   * The instance owns diagnostic and metadata buffers for a single module. It
   * also records prefix-first name-resolution facts while constructing untyped
-  * nodes. Full `SourceType` resolution and type-dependent selectors remain
-  * type-checker work after an `UntypedModule` has been produced.
+  * nodes and emits a declaration check order where later items only depend on
+  * earlier items. Full `SourceType` resolution and type-dependent selectors
+  * remain type-checker work after an `UntypedModule` has been produced.
   *
   * Example source forms accepted here:
   *
@@ -56,18 +57,24 @@ final class Elaborator(parsed: ParsedModule):
     * the diagnostics collected while rejecting unsupported forms.
     */
   def elaborate(): Result[UntypedModule] =
-    val decls = parsed.ast.stmts.flatMap(moduleDecl)
+    val decls = ListBuffer.empty[UntypedDecl]
+    parsed.ast.stmts.foreach { node =>
+      val declIndex = decls.length
+      moduleDecl(node, declIndex).foreach(decls += _)
+    }
     val emittedDiagnostics = diagnostics.toList
 
     if emittedDiagnostics.isEmpty then
+      val declValues = decls.toList
       val module =
         UntypedModule(
           parsed.source,
-          decls,
+          declValues,
           nodeSpan(parsed.ast),
           cIncludes.toList,
           cppImports.toList,
           nameResolution.finish(),
+          nameResolution.checkOrder(declValues.length),
         )
       Result.success(Phase.Check, module)
     else
@@ -96,34 +103,39 @@ final class Elaborator(parsed: ParsedModule):
     * semicolon nodes disappear; unsupported top-level constructs produce a
     * diagnostic and no declaration.
     */
-  private def moduleDecl(node: syntax.Node): Option[UntypedDecl] =
-    val decl = unwrapSemi(node) match
-      case None                     => None
-      case Some(importNode: Import) => importDecl(importNode)
-      case Some(classNode: Class)   => classDecl(classNode)
-      case Some(defNode: Def)       => functionDecl(defNode)
-      case Some(valueNode: Val) =>
-        valueDecl(valueNode, UntypedValueKind.Val, Nil)
-      case Some(valueNode: Var) =>
-        valueDecl(valueNode, UntypedValueKind.Var, Nil)
-      case Some(typeNode: Typ)        => typeAlias(typeNode)
-      case Some(typeNode: GenericTyp) => genericTypeAlias(typeNode)
-      case Some(implNode: Impl)       => implDecl(implNode)
-      case Some(decorated: Decorate)  => decoratedModuleDecl(decorated)
-      case Some(caseNode: Case) =>
-        unsupported(
-          caseNode,
-          "cosmo0.elaborate.unsupported.top-level-case",
-          "case variants are only supported inside cosmo0 classes",
-        )
-      case Some(other) =>
-        unsupported(
-          other,
-          "cosmo0.elaborate.unsupported.top-level",
-          s"${constructName(other)} is not a supported top-level cosmo0 declaration",
-        )
-    decl.foreach(recordModuleBinding)
-    decl
+  private def moduleDecl(
+      node: syntax.Node,
+      declIndex: Int,
+  ): Option[UntypedDecl] =
+    nameResolution.enterDeclaration(declIndex) {
+      val decl = unwrapSemi(node) match
+        case None                     => None
+        case Some(importNode: Import) => importDecl(importNode)
+        case Some(classNode: Class)   => classDecl(classNode)
+        case Some(defNode: Def)       => functionDecl(defNode)
+        case Some(valueNode: Val) =>
+          valueDecl(valueNode, UntypedValueKind.Val, Nil)
+        case Some(valueNode: Var) =>
+          valueDecl(valueNode, UntypedValueKind.Var, Nil)
+        case Some(typeNode: Typ)        => typeAlias(typeNode)
+        case Some(typeNode: GenericTyp) => genericTypeAlias(typeNode)
+        case Some(implNode: Impl)       => implDecl(implNode)
+        case Some(decorated: Decorate)  => decoratedModuleDecl(decorated)
+        case Some(caseNode: Case) =>
+          unsupported(
+            caseNode,
+            "cosmo0.elaborate.unsupported.top-level-case",
+            "case variants are only supported inside cosmo0 classes",
+          )
+        case Some(other) =>
+          unsupported(
+            other,
+            "cosmo0.elaborate.unsupported.top-level",
+            s"${constructName(other)} is not a supported top-level cosmo0 declaration",
+          )
+      decl.foreach(recordModuleBinding)
+      decl
+    }
 
   private def recordModuleBinding(decl: UntypedDecl): Unit =
     decl match
@@ -1843,6 +1855,7 @@ final class Elaborator(parsed: ParsedModule):
           case Some(base)
               if base.parts.headOption
                 .exists(alias => cppImports.exists(_.alias == alias)) =>
+            nameResolution.resolvePath(base)
             val typeArgs = args.map(
               typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
@@ -1853,6 +1866,7 @@ final class Elaborator(parsed: ParsedModule):
               if base.parts.length == 1 && genericTypeAliasNames.contains(
                 base.parts.head,
               ) =>
+            nameResolution.resolvePath(base)
             val typeArgs = args.map(
               typeFromNode(_, Some(nodeSpan(node, fallbackSpan)), tyParams),
             )
@@ -1873,9 +1887,11 @@ final class Elaborator(parsed: ParsedModule):
           "cosmo0 type applications must use compile-time square-bracket syntax",
         )
       case pathNode =>
-        pathFromNode(pathNode, fallbackSpan).map(path =>
-          UntypedNamedType(path, nodeSpan(pathNode, fallbackSpan)),
-        )
+        pathFromNode(pathNode, fallbackSpan).map { path =>
+          if shouldResolveTypePath(path, tyParams) then
+            nameResolution.resolvePath(path)
+          UntypedNamedType(path, nodeSpan(pathNode, fallbackSpan))
+        }
 
   /** Converts identifier/selection syntax into a path while preserving the
     * source span that should be used in later diagnostics.
@@ -1902,6 +1918,16 @@ final class Elaborator(parsed: ParsedModule):
     path.parts.lastOption.exists(
       StandardGenericDescriptors.Boundary.temporaryStandardDescriptorNames.contains,
     )
+
+  private def shouldResolveTypePath(
+      path: UntypedPath,
+      tyParams: Set[String],
+  ): Boolean =
+    path.parts.headOption.exists { root =>
+      !tyParams.contains(root) &&
+      SourceType.scalar(root).isEmpty &&
+      !isStandardGenericDescriptorFamily(path)
+    }
 
   def nodeSpan(node: syntax.Node): SourceSpan =
     nodeSpan(node, None)

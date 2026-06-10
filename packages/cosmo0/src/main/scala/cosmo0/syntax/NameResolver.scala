@@ -24,7 +24,10 @@ final class UntypedNameResolutionBuilder:
     def resolve(name: String): Option[UntypedBindingFact] =
       bindings.get(name).orElse(parent.flatMap(_.resolve(name)))
 
-  private final case class PendingReference(path: UntypedPath)
+  private final case class PendingReference(
+      path: UntypedPath,
+      ownerDeclIndex: Option[Int],
+  )
 
   private val rootScope = Scope(None)
   private var currentScope = rootScope
@@ -36,6 +39,7 @@ final class UntypedNameResolutionBuilder:
     mutable.LinkedHashMap.empty[String, SourceSpan]
   private val foreignAliases =
     mutable.LinkedHashMap.empty[String, SourceCppNamespaceImport]
+  private var currentDeclIndex: Option[Int] = None
   private var nextBindingId = 0
 
   def finish(): UntypedNameResolution =
@@ -45,6 +49,67 @@ final class UntypedNameResolutionBuilder:
       foreignAliases.values.toList,
       diagnostics.toList,
     )
+
+  def checkOrder(declCount: Int): List[UntypedCheckItem] =
+    val dependencies = declarationDependencies(declCount)
+    val components = stronglyConnectedComponents(declCount, dependencies)
+    val componentOf = mutable.LinkedHashMap.empty[Int, Int]
+    components.zipWithIndex.foreach { case (component, index) =>
+      component.foreach(declIndex => componentOf.update(declIndex, index))
+    }
+
+    val outgoing = mutable.LinkedHashMap.empty[Int, mutable.LinkedHashSet[Int]]
+    val incomingCount = mutable.LinkedHashMap.empty[Int, Int]
+    components.indices.foreach { index =>
+      outgoing.update(index, mutable.LinkedHashSet.empty)
+      incomingCount.update(index, 0)
+    }
+
+    dependencies.foreach { case (declIndex, deps) =>
+      val dependentComponent = componentOf(declIndex)
+      deps.foreach { dependency =>
+        val dependencyComponent = componentOf(dependency)
+        if dependencyComponent != dependentComponent &&
+          !outgoing(dependencyComponent).contains(dependentComponent)
+        then
+          outgoing(dependencyComponent) += dependentComponent
+          incomingCount.update(
+            dependentComponent,
+            incomingCount(dependentComponent) + 1,
+          )
+      }
+    }
+
+    val componentStart =
+      components.zipWithIndex.map { case (component, index) =>
+        index -> component.min
+      }.toMap
+    val ready =
+      mutable.PriorityQueue.empty[Int](
+        Ordering.by((index: Int) => -componentStart(index)),
+      )
+    incomingCount.foreach { case (index, count) =>
+      if count == 0 then ready.enqueue(index)
+    }
+
+    val ordered = ListBuffer.empty[UntypedCheckItem]
+    while ready.nonEmpty do
+      val componentIndex = ready.dequeue()
+      ordered += UntypedCheckItem(components(componentIndex))
+      outgoing(componentIndex).toList.sortBy(componentStart).foreach { next =>
+        val count = incomingCount(next) - 1
+        incomingCount.update(next, count)
+        if count == 0 then ready.enqueue(next)
+      }
+
+    if ordered.length == components.length then ordered.toList
+    else UntypedCheckItem.sourceOrder(declCount)
+
+  def enterDeclaration[A](declIndex: Int)(body: => A): A =
+    val previous = currentDeclIndex
+    currentDeclIndex = Some(declIndex)
+    try body
+    finally currentDeclIndex = previous
 
   def enterScope[A](body: => A): A =
     val previous = currentScope
@@ -173,9 +238,9 @@ final class UntypedNameResolutionBuilder:
       case Some(root) =>
         currentScope.resolve(root) match
           case Some(binding) =>
-            recordReference(path, binding)
+            recordReference(path, binding, currentDeclIndex)
           case None =>
-            pendingReferences += PendingReference(path)
+            pendingReferences += PendingReference(path, currentDeclIndex)
       case None =>
 
   private def defineCurrent(
@@ -185,7 +250,13 @@ final class UntypedNameResolutionBuilder:
       resolvePending: Boolean,
   ): UntypedBindingFact =
     val binding =
-      UntypedBindingFact(UntypedBindingId(nextBindingId), kind, name, span)
+      UntypedBindingFact(
+        UntypedBindingId(nextBindingId),
+        kind,
+        name,
+        span,
+        currentDeclIndex,
+      )
     nextBindingId += 1
     bindings += binding
     currentScope.define(binding)
@@ -198,15 +269,82 @@ final class UntypedNameResolutionBuilder:
   ): Unit =
     pendingReferences.foreach { pending =>
       if pending.path.parts.headOption.contains(name) then
-        recordReference(pending.path, binding)
+        recordReference(pending.path, binding, pending.ownerDeclIndex)
     }
 
   private def recordReference(
       path: UntypedPath,
       binding: UntypedBindingFact,
+      ownerDeclIndex: Option[Int],
   ): Unit =
     if !references.exists(_.path.span == path.span) then
-      references += UntypedNameReference(path, binding)
+      references += UntypedNameReference(path, binding, ownerDeclIndex)
+
+  private def declarationDependencies(
+      declCount: Int,
+  ): Map[Int, List[Int]] =
+    val deps = mutable.LinkedHashMap.empty[Int, mutable.LinkedHashSet[Int]]
+    (0 until declCount).foreach(index =>
+      deps.update(index, mutable.LinkedHashSet.empty),
+    )
+    references.foreach { reference =>
+      for
+        owner <- reference.ownerDeclIndex
+        dependency <- reference.binding.declIndex
+        if owner != dependency &&
+          owner >= 0 && owner < declCount &&
+          dependency >= 0 && dependency < declCount
+      do deps(owner) += dependency
+    }
+    deps.view.mapValues(_.toList.sorted).toMap
+
+  private def stronglyConnectedComponents(
+      declCount: Int,
+      dependencies: Map[Int, List[Int]],
+  ): List[List[Int]] =
+    val indexByDecl = mutable.LinkedHashMap.empty[Int, Int]
+    val lowlinkByDecl = mutable.LinkedHashMap.empty[Int, Int]
+    val stack = ListBuffer.empty[Int]
+    val onStack = mutable.LinkedHashSet.empty[Int]
+    val components = ListBuffer.empty[List[Int]]
+    var nextIndex = 0
+
+    def visit(declIndex: Int): Unit =
+      indexByDecl.update(declIndex, nextIndex)
+      lowlinkByDecl.update(declIndex, nextIndex)
+      nextIndex += 1
+      stack += declIndex
+      onStack += declIndex
+
+      dependencies.getOrElse(declIndex, Nil).foreach { dependency =>
+        if !indexByDecl.contains(dependency) then
+          visit(dependency)
+          lowlinkByDecl.update(
+            declIndex,
+            lowlinkByDecl(declIndex).min(lowlinkByDecl(dependency)),
+          )
+        else if onStack.contains(dependency) then
+          lowlinkByDecl.update(
+            declIndex,
+            lowlinkByDecl(declIndex).min(indexByDecl(dependency)),
+          )
+      }
+
+      if lowlinkByDecl(declIndex) == indexByDecl(declIndex) then
+        val component = ListBuffer.empty[Int]
+        var done = false
+        while !done && stack.nonEmpty do
+          val member = stack.remove(stack.length - 1)
+          onStack -= member
+          component += member
+          done = member == declIndex
+        components += component.toList.sorted
+
+    (0 until declCount).foreach { declIndex =>
+      if !indexByDecl.contains(declIndex) then visit(declIndex)
+    }
+
+    components.toList.sortBy(_.headOption.getOrElse(Int.MaxValue))
 
   private def error(
       code: String,
