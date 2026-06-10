@@ -135,7 +135,11 @@ final class Cosmo0:
   ): Result[CheckedModule] =
     result match
       case checked if checked.isSuccess =>
-        Result.success(Phase.Check, CheckedModule(checked.value.get))
+        val typed = checked.value.get
+        Result.success(
+          Phase.Check,
+          CheckedModule(typed, typed.macroExpansion),
+        )
       case checked if checked.isUnsupported =>
         Result(
           Phase.Check,
@@ -154,7 +158,11 @@ final class Cosmo0:
       case elaborated if elaborated.isSuccess =>
         MlttTyper(elaborated.value.get, profile).check() match
           case checked if checked.isSuccess =>
-            Result.success(Phase.Check, CheckedModule(checked.value.get))
+            val typed = checked.value.get
+            Result.success(
+              Phase.Check,
+              CheckedModule(typed, typed.macroExpansion),
+            )
           case failed =>
             Result.failure(Phase.Check, failed.diagnostics)
       case unsupported if unsupported.isUnsupported =>

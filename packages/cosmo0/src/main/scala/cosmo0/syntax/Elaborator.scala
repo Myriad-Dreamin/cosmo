@@ -126,9 +126,11 @@ final class Elaborator(
       case Some(importNode: Import) => importDecl(importNode)
       case Some(classNode: Class)   => classDecl(classNode)
       case Some(defNode: Def)       => functionDecl(defNode)
-      case Some(valueNode: Val) => valueDecl(valueNode, UntypedValueKind.Val)
-      case Some(valueNode: Var) => valueDecl(valueNode, UntypedValueKind.Var)
-      case Some(typeNode: Typ)  => typeAlias(typeNode)
+      case Some(valueNode: Val) =>
+        valueDecl(valueNode, UntypedValueKind.Val, Nil)
+      case Some(valueNode: Var) =>
+        valueDecl(valueNode, UntypedValueKind.Var, Nil)
+      case Some(typeNode: Typ)        => typeAlias(typeNode)
       case Some(typeNode: GenericTyp) => genericTypeAlias(typeNode)
       case Some(implNode: Impl)       => implDecl(implNode)
       case Some(decorated: Decorate)  => decoratedModuleDecl(decorated)
@@ -160,7 +162,8 @@ final class Elaborator(
     * `@include(...)` contributes module C include metadata and must decorate an
     * empty semicolon. `@extern("c", ...)` may decorate only a top-level
     * function declaration and records the trusted foreign binding on that
-    * function.
+    * function. Other structured macro attributes are preserved on supported
+    * declaration shapes for the macro expansion phase.
     */
   private def decoratedModuleDecl(node: Decorate): Option[UntypedDecl] =
     includeDecorator(node.lhs) match
@@ -177,8 +180,8 @@ final class Elaborator(
             )
       case None if isIncludeDecorator(node.lhs) =>
         None
-      case None =>
-        externDecorator(node.lhs).flatMap { binding =>
+      case None if isExternDecorator(node.lhs) =>
+        externDecorator(node.lhs).flatMap: binding =>
           unwrapSemi(node.rhs) match
             case Some(defNode: Def) =>
               functionDecl(defNode, Some(binding))
@@ -194,7 +197,37 @@ final class Elaborator(
                 "cosmo0.elaborate.invalid-extern",
                 "@extern(\"c\") must decorate a top-level function declaration",
               )
-        }
+      case None =>
+        macroAttribute(node.lhs).flatMap: attribute =>
+          unwrapSemi(node.rhs) match
+            case Some(classNode: Class) =>
+              classDecl(classNode, List(attribute))
+            case Some(defNode: Def) =>
+              functionDecl(defNode, macroAttributes = List(attribute))
+            case Some(valueNode: Val) =>
+              valueDecl(
+                valueNode,
+                UntypedValueKind.Val,
+                macroAttributes = List(attribute),
+              )
+            case Some(valueNode: Var) =>
+              valueDecl(
+                valueNode,
+                UntypedValueKind.Var,
+                macroAttributes = List(attribute),
+              )
+            case Some(other) =>
+              unsupported(
+                other,
+                "cosmo0.elaborate.unsupported-macro-attribute-target",
+                "macro attributes may decorate cosmo0 classes, functions, fields, and variants",
+              )
+            case None =>
+              unsupported(
+                node,
+                "cosmo0.elaborate.unsupported-macro-attribute-target",
+                "macro attributes must decorate a supported declaration",
+              )
 
   /** Parses `@include(path, kind = "c")` into source metadata. If `kind` is
     * omitted, `.h` paths infer the C include kind.
@@ -235,6 +268,145 @@ final class Elaborator(
       case Ident("include") | Apply(Ident("include"), _, false)     => true
       case Ident("include-c") | Apply(Ident("include-c"), _, false) => true
       case _                                                        => false
+
+  private def isExternDecorator(node: syntax.Node): Boolean =
+    node match
+      case Ident("extern") | Apply(Ident("extern"), _, false) => true
+      case _                                                  => false
+
+  /** Converts a non-compiler decorator into structured macro attribute data.
+    *
+    * The first macro boundary admits path, string, integer, and boolean
+    * attribute payloads. Provider-specific interpretation happens during macro
+    * expansion; this method only preserves a deterministic syntax record and
+    * catches malformed argument shapes.
+    */
+  private def macroAttribute(
+      node: syntax.Node,
+  ): Option[UntypedMacroAttribute] =
+    if isReservedStagingDecorator(node) then
+      return unsupported(
+        node,
+        "cosmo0.elaborate.unsupported.decorator",
+        "decorators and staging annotations are outside the initial cosmo0 subset",
+      )
+
+    node match
+      case Apply(callee, args, false) =>
+        for
+          path <- macroAttributePath(callee, Some(nodeSpan(callee)))
+          values <- macroAttributeArgs(args)
+        yield UntypedMacroAttribute(path, values, nodeSpan(node))
+      case Apply(_, _, true) =>
+        unsupported(
+          node,
+          "cosmo0.elaborate.invalid-macro-attribute",
+          "macro attributes do not accept compile-time type argument syntax",
+        )
+      case other =>
+        macroAttributePath(other, Some(nodeSpan(other))).map(path =>
+          UntypedMacroAttribute(path, Nil, nodeSpan(node)),
+        )
+
+  private def macroAttributeArgs(
+      args: List[syntax.Node],
+  ): Option[List[UntypedMacroAttributeArg]] =
+    val values = ListBuffer.empty[UntypedMacroAttributeArg]
+    val seenKeys = mutable.LinkedHashSet.empty[String]
+    var ok = true
+
+    args.foreach {
+      case keyed @ KeyedArg(Ident(key), valueNode) =>
+        if seenKeys.contains(key) then
+          report(
+            keyed,
+            "cosmo0.elaborate.invalid-macro-attribute",
+            s"macro attribute repeats argument $key",
+          )
+          ok = false
+        else
+          seenKeys += key
+          macroAttributeValue(valueNode).foreach { value =>
+            values += UntypedMacroAttributeArg(
+              Some(key),
+              value,
+              nodeSpan(keyed),
+            )
+          }
+          if values.lastOption.forall(_.name != Some(key)) then ok = false
+      case keyed @ KeyedArg(_, _) =>
+        report(
+          keyed,
+          "cosmo0.elaborate.invalid-macro-attribute",
+          "macro attribute argument names must be identifiers",
+        )
+        ok = false
+      case positional =>
+        macroAttributeValue(positional) match
+          case Some(value) =>
+            values += UntypedMacroAttributeArg(
+              None,
+              value,
+              nodeSpan(positional),
+            )
+          case None =>
+            ok = false
+    }
+
+    if ok then Some(values.toList) else None
+
+  private def macroAttributeValue(
+      node: syntax.Node,
+  ): Option[UntypedMacroAttributeValue] =
+    node match
+      case StrLit(value) =>
+        Some(UntypedMacroAttributeValue.StringValue(value))
+      case IntLit(value) =>
+        Some(UntypedMacroAttributeValue.IntValue(value))
+      case BoolLit(value) =>
+        Some(UntypedMacroAttributeValue.BoolValue(value))
+      case pathNode @ (_: Ident | _: Select) =>
+        macroAttributePath(pathNode, Some(nodeSpan(pathNode))).map(path =>
+          UntypedMacroAttributeValue.PathValue(path),
+        )
+      case other =>
+        unsupported(
+          other,
+          "cosmo0.elaborate.invalid-macro-attribute",
+          "macro attribute arguments must be strings, integers, booleans, or paths",
+        )
+
+  private def macroAttributePath(
+      node: syntax.Node,
+      fallbackSpan: Option[SourceSpan],
+  ): Option[UntypedPath] =
+    node match
+      case Ident(name) =>
+        Some(UntypedPath(List(name), nodeSpan(node, fallbackSpan)))
+      case Select(lhs, rhs, _) =>
+        macroAttributePath(lhs, fallbackSpan).map(path =>
+          UntypedPath(path.parts :+ rhs.name, nodeSpan(node, fallbackSpan)),
+        )
+      case other =>
+        unsupported(
+          other,
+          "cosmo0.elaborate.invalid-macro-attribute",
+          s"${constructName(other)} cannot be used as a macro attribute path",
+        )
+
+  private def isReservedStagingDecorator(node: syntax.Node): Boolean =
+    decoratorHeadName(node).exists(Set("stage", "macro", "inline"))
+
+  private def decoratorHeadName(node: syntax.Node): Option[String] =
+    node match
+      case Ident(name) =>
+        Some(name)
+      case Apply(callee, _, _) =>
+        decoratorHeadName(callee)
+      case Select(lhs, _, _) =>
+        decoratorHeadName(lhs)
+      case _ =>
+        None
 
   /** Valid include examples:
     *
@@ -634,11 +806,17 @@ final class Elaborator(
     * cosmo0 traits. Generic class and trait parameters are rejected at this
     * source boundary.
     */
-  private def classDecl(node: Class): Option[UntypedDecl] =
-    if node.ab then traitDecl(node)
-    else concreteClassDecl(node)
+  private def classDecl(
+      node: Class,
+      macroAttributes: List[UntypedMacroAttribute] = Nil,
+  ): Option[UntypedDecl] =
+    if node.ab then traitDecl(node, macroAttributes)
+    else concreteClassDecl(node, macroAttributes)
 
-  private def concreteClassDecl(node: Class): Option[UntypedClass] =
+  private def concreteClassDecl(
+      node: Class,
+      macroAttributes: List[UntypedMacroAttribute] = Nil,
+  ): Option[UntypedClass] =
     if hasExplicitTypeParams(node.ps) then
       unsupported(
         node,
@@ -659,10 +837,14 @@ final class Elaborator(
           _,
           nodeSpan(node),
           declarationVisibility(node),
+          macroAttributes,
         ),
       )
 
-  private def traitDecl(node: Class): Option[UntypedTrait] =
+  private def traitDecl(
+      node: Class,
+      macroAttributes: List[UntypedMacroAttribute] = Nil,
+  ): Option[UntypedTrait] =
     if hasExplicitTypeParams(node.ps) then
       unsupported(
         node,
@@ -683,6 +865,7 @@ final class Elaborator(
           _,
           nodeSpan(node),
           declarationVisibility(node),
+          macroAttributes,
         ),
       )
 
@@ -713,6 +896,8 @@ final class Elaborator(
             )
           else Some(fn)
         }
+      case Some(decorated: Decorate) =>
+        decoratedTraitMember(decorated)
       case Some(other) =>
         unsupported(
           other,
@@ -728,7 +913,7 @@ final class Elaborator(
       case Some(block: Block) =>
         block.stmts.map(classMember)
       case Some(caseBlock: CaseBlock) =>
-        caseBlock.stmts.map(variantDecl)
+        caseBlock.stmts.map(variantDecl(_, Nil))
       case Some(other) =>
         List(
           unsupported(
@@ -740,18 +925,16 @@ final class Elaborator(
 
   private def classMember(node: syntax.Node): Option[UntypedClassMember] =
     unwrapSemi(node) match
-      case None                 => None
-      case Some(valueNode: Val) => valueDecl(valueNode, UntypedValueKind.Val)
-      case Some(valueNode: Var) => valueDecl(valueNode, UntypedValueKind.Var)
+      case None => None
+      case Some(valueNode: Val) =>
+        valueDecl(valueNode, UntypedValueKind.Val, Nil)
+      case Some(valueNode: Var) =>
+        valueDecl(valueNode, UntypedValueKind.Var, Nil)
       case Some(defNode: Def)   => functionDecl(defNode)
       case Some(typeNode: Typ)  => typeAlias(typeNode)
-      case Some(caseNode: Case) => variantDecl(caseNode)
+      case Some(caseNode: Case) => variantDecl(caseNode, Nil)
       case Some(decorated: Decorate) =>
-        unsupported(
-          decorated,
-          "cosmo0.elaborate.unsupported.decorator",
-          "decorators and staging annotations are outside the initial cosmo0 subset",
-        )
+        decoratedClassMember(decorated)
       case Some(implNode: Impl) =>
         unsupported(
           implNode,
@@ -765,9 +948,72 @@ final class Elaborator(
           s"${constructName(other)} is not a supported cosmo0 class member",
         )
 
+  private def decoratedTraitMember(
+      node: Decorate,
+  ): Option[UntypedFunction] =
+    macroAttribute(node.lhs).flatMap: attribute =>
+      unwrapSemi(node.rhs) match
+        case Some(defNode: Def) =>
+          functionDecl(defNode, macroAttributes = List(attribute)).flatMap:
+            fn =>
+              if fn.body.nonEmpty then
+                unsupported(
+                  defNode,
+                  "cosmo0.elaborate.unsupported.trait-method-body",
+                  "cosmo0 trait methods cannot define bodies",
+                )
+              else Some(fn)
+        case Some(other) =>
+          unsupported(
+            other,
+            "cosmo0.elaborate.unsupported-macro-attribute-target",
+            "trait macro attributes may decorate method signatures",
+          )
+        case None =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported-macro-attribute-target",
+            "trait macro attributes must decorate method signatures",
+          )
+
+  private def decoratedClassMember(
+      node: Decorate,
+  ): Option[UntypedClassMember] =
+    macroAttribute(node.lhs).flatMap: attribute =>
+      unwrapSemi(node.rhs) match
+        case Some(valueNode: Val) =>
+          valueDecl(
+            valueNode,
+            UntypedValueKind.Val,
+            macroAttributes = List(attribute),
+          )
+        case Some(valueNode: Var) =>
+          valueDecl(
+            valueNode,
+            UntypedValueKind.Var,
+            macroAttributes = List(attribute),
+          )
+        case Some(defNode: Def) =>
+          functionDecl(defNode, macroAttributes = List(attribute))
+        case Some(caseNode: Case) =>
+          variantDecl(caseNode, List(attribute))
+        case Some(other) =>
+          unsupported(
+            other,
+            "cosmo0.elaborate.unsupported-macro-attribute-target",
+            "class macro attributes may decorate fields, methods, and variants",
+          )
+        case None =>
+          unsupported(
+            node,
+            "cosmo0.elaborate.unsupported-macro-attribute-target",
+            "class macro attributes must decorate a supported member",
+          )
+
   private def functionDecl(
       node: Def,
       extern: Option[SourceExternBinding] = None,
+      macroAttributes: List[UntypedMacroAttribute] = Nil,
   ): Option[UntypedFunction] =
     if hasExplicitTypeParams(node.params) then
       unsupported(
@@ -800,12 +1046,14 @@ final class Elaborator(
           span,
           extern,
           declarationVisibility(node),
+          macroAttributes,
         )
       }
 
   private def valueDecl(
       node: Val,
       kind: UntypedValueKind,
+      macroAttributes: List[UntypedMacroAttribute],
   ): Option[UntypedValueDecl] =
     val span = nodeSpan(node)
     val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
@@ -823,12 +1071,14 @@ final class Elaborator(
         i,
         span,
         declarationVisibility(node),
+        macroAttributes,
       )
     }
 
   private def valueDecl(
       node: Var,
       kind: UntypedValueKind,
+      macroAttributes: List[UntypedMacroAttribute],
   ): Option[UntypedValueDecl] =
     val span = nodeSpan(node)
     val ty = node.ty.fold[Option[Option[UntypedType]]](Some(None)) { ty =>
@@ -846,6 +1096,7 @@ final class Elaborator(
         i,
         span,
         declarationVisibility(node),
+        macroAttributes,
       )
     }
 
@@ -986,7 +1237,10 @@ final class Elaborator(
       case None =>
         Some(())
 
-  private def variantDecl(node: Case): Option[UntypedVariant] =
+  private def variantDecl(
+      node: Case,
+      macroAttributes: List[UntypedMacroAttribute] = Nil,
+  ): Option[UntypedVariant] =
     if node.body.nonEmpty then
       unsupported(
         node,
@@ -996,10 +1250,12 @@ final class Elaborator(
     else
       node.cond match
         case name: Ident =>
-          Some(UntypedVariant(name.name, Nil, nodeSpan(node)))
+          Some(UntypedVariant(name.name, Nil, nodeSpan(node), macroAttributes))
         case Apply(name: Ident, args, false) =>
           val fields = args.map(variantField)
-          sequence(fields).map(UntypedVariant(name.name, _, nodeSpan(node)))
+          sequence(fields).map(
+            UntypedVariant(name.name, _, nodeSpan(node), macroAttributes),
+          )
         case other =>
           unsupported(
             other,
@@ -1177,18 +1433,29 @@ final class Elaborator(
           typeFromNode(typeApply, Some(nodeSpan(typeApply))).map(t =>
             UntypedTypeConstructor(t, nodeSpan(typeApply)),
           )
-        val callArgs = args.map(expr)
+        val callArgs = args.map(callArg)
         for
           c <- callee
           as <- sequence(callArgs)
         yield UntypedCall(c, as, nodeSpan(node))
       case Some(Apply(lhs, args, false)) =>
         val callee = expr(lhs)
-        val callArgs = args.map(expr)
+        val callArgs = args.map(callArg)
         for
           c <- callee
           as <- sequence(callArgs)
         yield UntypedCall(c, as, nodeSpan(node))
+      case Some(BlockApply(Apply(_, _, false), _)) =>
+        unsupported(
+          node,
+          "cosmo0.macro.unsupported-payload",
+          "expression macro calls accept exactly one payload; parenthesized arguments plus an attached block are not supported",
+        )
+      case Some(BlockApply(lhs, rhs)) =>
+        for
+          c <- expr(lhs)
+          b <- blockPayload(rhs)
+        yield UntypedBlockCall(c, b, nodeSpan(node))
       case Some(applyNode @ Apply(_, _, true)) =>
         unsupported(
           applyNode,
@@ -1290,11 +1557,7 @@ final class Elaborator(
           "as-casts are outside the initial cosmo0 subset",
         )
       case Some(tmpl: TmplApply) =>
-        unsupported(
-          tmpl,
-          "cosmo0.elaborate.unsupported.template-literal",
-          "template literals are outside the initial cosmo0 subset",
-        )
+        templateExpr(tmpl)
       case Some(args: ArgsLit) =>
         unsupported(
           args,
@@ -1352,6 +1615,55 @@ final class Elaborator(
           "cosmo0.elaborate.unsupported.expression",
           s"${constructName(other)} is outside the initial cosmo0 expression subset",
         )
+
+  private def callArg(node: syntax.Node): Option[UntypedCallArg] =
+    node match
+      case keyed @ KeyedArg(Ident(name), valueNode) =>
+        expr(valueNode).map(value =>
+          UntypedCallArg.Named(name, value, nodeSpan(keyed)),
+        )
+      case keyed @ KeyedArg(_, _) =>
+        unsupported(
+          keyed,
+          "cosmo0.elaborate.unsupported.named-argument",
+          "named call arguments must use an identifier argument name",
+        )
+      case other =>
+        expr(other).map(value =>
+          UntypedCallArg.Positional(value, nodeSpan(other)),
+        )
+
+  private def blockPayload(node: syntax.Node): Option[UntypedBlock] =
+    node match
+      case block: Block =>
+        sequence(block.stmts.map(blockItem))
+          .map(UntypedBlock(_, nodeSpan(block)))
+      case other =>
+        unsupported(
+          other,
+          "cosmo0.macro.unsupported-payload",
+          "block-attached expression macros require an ordinary block payload",
+        )
+
+  private def templateExpr(node: TmplApply): Option[UntypedTemplate] =
+    for
+      tag <- pathFromNode(node.lhs, Some(nodeSpan(node.lhs)))
+      parts <- sequence(node.rhs.map(templatePart(_, node)))
+    yield UntypedTemplate(tag, parts, nodeSpan(node))
+
+  private def templatePart(
+      part: (String, Option[(syntax.Node, Option[String])]),
+      owner: TmplApply,
+  ): Option[UntypedTemplatePart] =
+    val span = nodeSpan(owner)
+    part match
+      case (text, None) =>
+        Some(UntypedTemplatePart(text, None, span))
+      case (text, Some((holeNode, format))) =>
+        expr(holeNode).map { value =>
+          val hole = UntypedTemplateHole(value, format, nodeSpan(holeNode))
+          UntypedTemplatePart(text, Some(hole), span)
+        }
 
   /** Lowers match-arm patterns. Literal patterns share the same untyped nodes
     * as literal expressions so the typer can assign them the scrutinee-driven

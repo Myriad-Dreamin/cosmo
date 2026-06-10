@@ -310,7 +310,12 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
           checked.diagnostics,
         )
       case checked =>
-        checkedPackageFromTyped(pkg, modules, moduleOrder, checked.value.get)
+        checkedPackageFromTyped(
+          pkg,
+          modules,
+          moduleOrder,
+          checked.value.get,
+        )
 
   private def checkedPackageFromTyped(
       pkg: Cosmo0Package,
@@ -318,7 +323,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
       moduleOrder: List[String],
       typed: TypedModule,
   ): Result[CheckedPackage] =
-    val checkedModule = CheckedModule(typed)
+    val checkedModule = CheckedModule(typed, typed.macroExpansion)
     LirLowerer(checkedModule.typed).lower() match
       case lowered if lowered.isFailure =>
         Result.failure(Phase.Check, lowered.diagnostics)

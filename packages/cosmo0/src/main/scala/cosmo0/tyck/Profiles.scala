@@ -100,6 +100,7 @@ object CheckerProfiles:
   val DependentPatternElaborationFeature = "dependent-pattern-elaboration"
   val CppImportsFeature = "cpp-imports"
   val MacrosFeature = "macros"
+  val DeriveMacrosFeature = "derive-macros"
   val ReflectionFeature = "reflection"
   val StagingFeature = "staging"
 
@@ -141,6 +142,9 @@ object CheckerProfiles:
         "cosmo0-cpp-namespace-imports",
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
+        MacrosFeature,
+        DeriveMacrosFeature,
+        ReflectionFeature,
       ),
       Map(
         EffectsFeature -> UnsupportedEffectRowCode,
@@ -175,6 +179,7 @@ object CheckerProfiles:
         DependentPatternsFeature -> UnsupportedDependentPatternCode,
         CppImportsFeature -> UnsupportedCppImportCode,
         MacrosFeature -> UnsupportedFeatureCode,
+        DeriveMacrosFeature -> UnsupportedFeatureCode,
         ReflectionFeature -> UnsupportedFeatureCode,
         StagingFeature -> UnsupportedFeatureCode,
       ),
@@ -201,6 +206,9 @@ object CheckerProfiles:
         "whnf-conversion",
         DependentPatternsFeature,
         DependentPatternElaborationFeature,
+        MacrosFeature,
+        DeriveMacrosFeature,
+        ReflectionFeature,
         "inductive-family-constructors",
         "case-trees",
         "constructor-split-coverage",
@@ -211,8 +219,6 @@ object CheckerProfiles:
         TraitsFeature -> UnsupportedTraitConstraintCode,
         ObjectDispatchFeature -> UnsupportedObjectDispatchCode,
         CppImportsFeature -> UnsupportedCppImportCode,
-        MacrosFeature -> UnsupportedFeatureCode,
-        ReflectionFeature -> UnsupportedFeatureCode,
         StagingFeature -> UnsupportedFeatureCode,
       ),
     )

@@ -1,5 +1,8 @@
-## ADDED Requirements
+# cosmo0-compile-time-evaluation Specification
 
+## Purpose
+TBD - created by archiving change introduce-cosmo0-macro-system. Update Purpose after archive.
+## Requirements
 ### Requirement: Compile-Time Evaluation Boundary
 
 cosmo0 SHALL provide a controlled compile-time evaluation boundary for macro
@@ -52,10 +55,16 @@ value.
 - **THEN** `Untyped` denotes that the expression has not been checked by the ordinary typer
 - **AND** the provider cannot use the `T` parameter as evidence for an arbitrary object-language result type
 
-#### Scenario: Expression macro output is checked later
+#### Scenario: Expression macro output is checked at the expansion site
 
-- **WHEN** a macro function emits `Expr[Untyped]` as expression output or inside a generated declaration
-- **THEN** ordinary type checking validates that expression after macro expansion
+- **WHEN** an expression macro function emits `Expr[Untyped]` as expression output
+- **THEN** ordinary type checking immediately validates that expression in the caller's current expression-checking scope and expected type
+- **AND** the provider does not mark the expression as trusted or already typed
+
+#### Scenario: Generated declaration expression fragments are checked by ordinary declaration validation
+
+- **WHEN** a declaration or derive macro function emits `Expr[Untyped]` inside a generated declaration
+- **THEN** ordinary validation and type checking validate that expression when the generated declaration is integrated
 - **AND** the provider does not mark the expression as trusted or already typed
 
 #### Scenario: Typed facts are inspected through typer APIs
@@ -123,3 +132,4 @@ execution and backend mutation.
 - **WHEN** a macro function executes C++ code during compilation
 - **THEN** it cannot directly patch typed modules, lowering IR, backend output, or compiler global state
 - **AND** it must affect the package only by returning validated macro output
+

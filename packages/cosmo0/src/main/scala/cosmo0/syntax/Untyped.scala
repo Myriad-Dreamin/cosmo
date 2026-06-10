@@ -30,7 +30,9 @@ package cosmo0
   *   Val,
   *   "answer",
   *   ty = None,
-  *   init = Some(UntypedCall(add, List(20, 22), span)),
+  *   init = Some(
+  *     UntypedCall(add, List(UntypedCallArg.Positional(20), UntypedCallArg.Positional(22)), span),
+  *   ),
   *   span = span,
   * )
   * }}}
@@ -131,6 +133,7 @@ final case class UntypedClass(
     members: List[UntypedClassMember],
     span: SourceSpan,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
 
 /** Trait declaration. Method signatures have no bodies at this stage. */
@@ -139,6 +142,7 @@ final case class UntypedTrait(
     methods: List[UntypedFunction],
     span: SourceSpan,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
 
 /** Function or method declaration.
@@ -154,6 +158,7 @@ final case class UntypedFunction(
     span: SourceSpan,
     extern: Option[SourceExternBinding] = None,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -167,6 +172,7 @@ final case class UntypedValueDecl(
     init: Option[UntypedExpr],
     span: SourceSpan,
     vis: UntypedVisibility = UntypedVisibility.Public,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedDecl
     with UntypedClassMember
 
@@ -199,6 +205,7 @@ final case class UntypedVariant(
     name: String,
     fields: List[UntypedVariantField],
     span: SourceSpan,
+    macroAttributes: List[UntypedMacroAttribute] = Nil,
 ) extends UntypedClassMember
 
 /** Payload field for a class variant. Unnamed fields are addressed by position
@@ -315,7 +322,33 @@ final case class UntypedTypeConstructor(
   */
 final case class UntypedCall(
     callee: UntypedExpr,
-    args: List[UntypedExpr],
+    args: List[UntypedCallArg],
+    span: SourceSpan,
+) extends UntypedExpr
+
+/** Parenthesized call argument preserved before macro payload selection.
+  *
+  * Ordinary cosmo0 calls currently accept only positional arguments. Expression
+  * macros receive both positional and named arguments in their normalized
+  * `Expr.Args` payload.
+  */
+sealed trait UntypedCallArg extends UntypedNode:
+  def value: UntypedExpr
+
+object UntypedCallArg:
+  final case class Positional(value: UntypedExpr, span: SourceSpan)
+      extends UntypedCallArg
+  final case class Named(name: String, value: UntypedExpr, span: SourceSpan)
+      extends UntypedCallArg
+
+/** Block-attached call candidate, for example `provider { ... }`.
+  *
+  * The ordinary source language does not treat this as a runtime call. It is
+  * accepted only when macro-call resolution selects a block payload provider.
+  */
+final case class UntypedBlockCall(
+    callee: UntypedExpr,
+    block: UntypedBlock,
     span: SourceSpan,
 ) extends UntypedExpr
 
@@ -456,6 +489,32 @@ final case class UntypedStringLiteral(
     span: SourceSpan,
 ) extends UntypedExpr
     with UntypedPattern
+
+/** One expression hole in a template literal payload. */
+final case class UntypedTemplateHole(
+    value: UntypedExpr,
+    format: Option[String],
+    span: SourceSpan,
+) extends UntypedNode
+
+/** One literal part plus an optional expression hole in a template payload. */
+final case class UntypedTemplatePart(
+    text: String,
+    hole: Option[UntypedTemplateHole],
+    span: SourceSpan,
+) extends UntypedNode
+
+/** Template or interpolation macro candidate.
+  *
+  * Untagged runtime interpolation remains outside the cosmo0 subset. Tagged
+  * forms are accepted only when the tag resolves to an expression macro
+  * provider.
+  */
+final case class UntypedTemplate(
+    tag: UntypedPath,
+    parts: List[UntypedTemplatePart],
+    span: SourceSpan,
+) extends UntypedExpr
 
 /** ASCII literal. The typer validates that it contains exactly one ASCII code
   * point and lowers it to a u8 integer literal.

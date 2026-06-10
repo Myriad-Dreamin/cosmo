@@ -1,10 +1,26 @@
-## ADDED Requirements
+# cosmo0-macro-expansion Specification
 
-### Requirement: Deterministic Macro Expansion Phase
+## Purpose
+TBD - created by archiving change introduce-cosmo0-macro-system. Update Purpose after archive.
+## Requirements
+### Requirement: Deterministic Macro Expansion Points
 
-cosmo0 SHALL provide a deterministic macro expansion phase that turns accepted
-macro decorators into validated generated artifacts before type checking and
-lowering depend on those artifacts.
+cosmo0 SHALL expand macro invocations at deterministic compiler integration
+points rather than requiring every macro in a module to expand before checking
+can begin. Expression macro calls SHALL expand while the expression checker is
+checking that call. The generated `Expr[Untyped]` SHALL then be checked in the
+same lexical scope, function context, and expected type as the original macro
+call.
+
+Declaration and derive macro output, when admitted by a capability, SHALL be
+integrated before later compiler facts that depend on the generated artifacts.
+
+#### Scenario: Expression macro expands at the checked call
+
+- **WHEN** the expression checker is checking `val answer: u8 = example.answer()` and the call target selects an expression macro provider
+- **THEN** the checker invokes the provider at that expression site
+- **AND** the provider output is rechecked as an ordinary expression with expected type `u8`
+- **AND** the module is not pre-expanded in a separate whole-module expression macro pass
 
 #### Scenario: Derive attaches trait implementation before trait use
 
@@ -20,7 +36,8 @@ lowering depend on those artifacts.
 ### Requirement: Macro Attribute Preservation
 
 cosmo0 SHALL preserve structured macro attributes on supported declaration
-shapes until the macro expansion phase consumes or rejects them.
+shapes until an admitted declaration or derive macro expansion consumes or
+rejects them.
 
 #### Scenario: Field attribute reaches derive provider
 
@@ -36,14 +53,26 @@ shapes until the macro expansion phase consumes or rejects them.
 ### Requirement: Macro Provider Registry
 
 cosmo0 SHALL resolve macro provider paths through a deterministic provider
-registry before invoking a derive or attribute macro.
+registry before invoking an expression, derive, or attribute macro.
 
-#### Scenario: Provider path resolves
+#### Scenario: Expression provider path resolves
+
+- **WHEN** source uses `example.answer()` and the selected checker profile registers `example.answer` as an expression macro provider
+- **THEN** expression checking invokes that provider with an expression payload selected from the source call
+- **AND** it does not first type-check `example.answer` as an ordinary runtime function call
+
+#### Scenario: Derive provider path resolves
 
 - **WHEN** source uses `@derive(cli.Parser)` and the selected package profile registers `cli.Parser`
 - **THEN** macro expansion invokes that provider with the target declaration metadata
 
-#### Scenario: Provider path is unknown
+#### Scenario: Expression provider path is unknown
+
+- **WHEN** source uses `example.missing()` and no expression provider is registered for that path
+- **THEN** expression checking reports an unresolved macro provider diagnostic
+- **AND** it does not fall through to ordinary unresolved-name diagnostics for that macro-shaped call
+
+#### Scenario: Derive provider path is unknown
 
 - **WHEN** source uses `@derive(missing.Provider)` and no provider is registered for that path
 - **THEN** macro expansion reports an unresolved macro provider diagnostic
@@ -54,7 +83,13 @@ registry before invoking a derive or attribute macro.
 cosmo0 SHALL evaluate macro invocations through an explicit provider protocol
 instead of by executing arbitrary target program code.
 
-#### Scenario: Provider receives bounded macro input
+#### Scenario: Expression provider receives bounded macro input
+
+- **WHEN** expression checking invokes an expression macro provider
+- **THEN** the provider input is a serialized macro function input record selected by the compiler, including provider identity, invocation identity, source span, C++ execution context, and an `Expr.Args` payload for the call arguments
+- **AND** it does not include arbitrary runtime state or an executable target program handle
+
+#### Scenario: Derive provider receives bounded macro input
 
 - **WHEN** macro expansion invokes a derive provider
 - **THEN** the provider input is a serialized macro function input record selected by the compiler, including target declaration facts, candidate attributes/defaults, expression fragments when applicable, and provider configuration
@@ -157,3 +192,4 @@ providers direct compiler mutation or target package runtime execution.
 - **WHEN** a macro provider uses filesystem contents, commands, environment state, network IO, time, randomness, or hidden mutable state to produce different macro output for the same cosmo0 input
 - **THEN** package behavior is undefined
 - **AND** cosmo0 is not required to preserve that provider's observed evaluation order or number of executions
+
