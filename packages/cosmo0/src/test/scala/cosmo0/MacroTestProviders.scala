@@ -251,8 +251,7 @@ object MacroTestProviders:
         generatedSourceSummary = List("expr example.recursive -> recurse"),
       )
 
-  object ExampleFieldCountDeriveProvider
-      extends CompilerHostedDeriveProvider:
+  object ExampleFieldCountDeriveProvider extends CompilerHostedDeriveProvider:
     val id = "example.FieldCount"
 
     def evaluate(input: MacroFunctionInput): MacroFunctionOutput =

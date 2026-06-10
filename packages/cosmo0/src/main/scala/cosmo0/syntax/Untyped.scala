@@ -1,5 +1,7 @@
 package cosmo0
 
+import scala.collection.mutable.ListBuffer
+
 /** Base node for the cosmo0 AST after elaboration and before type checking.
   *
   * `Untyped` means names and source type annotations are still source-shaped:
@@ -66,7 +68,116 @@ final case class UntypedModule(
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
     cppImports: List[SourceCppNamespaceImport] = Nil,
+    nameResolution: UntypedNameResolution = UntypedNameResolution.empty,
 ) extends UntypedNode
+
+/** Stable id assigned by the untyped name resolver to a lexical binding. */
+final case class UntypedBindingId(value: Int) extends AnyVal
+
+/** Binding kinds that can be resolved before source type checking.
+  *
+  * Selector and method targets are intentionally absent: they depend on later
+  * type facts and remain typer obligations.
+  */
+enum UntypedBindingKind:
+  case Class, Function, Value, Local, Parameter, Pattern, CompileTimeIntAlias,
+    ForeignNamespace
+
+/** A source binding recorded before type checking.
+  *
+  * The `span` points at the defining name, not at a later reference.
+  */
+final case class UntypedBindingFact(
+    id: UntypedBindingId,
+    kind: UntypedBindingKind,
+    name: String,
+    span: SourceSpan,
+)
+
+/** A resolved source name reference.
+  *
+  * Only prefix/head resolution is recorded here. Type-dependent suffixes such
+  * as selectors, methods, and variant payloads remain delayed obligations for
+  * the typer.
+  */
+final case class UntypedNameReference(
+    path: UntypedPath,
+    binding: UntypedBindingFact,
+)
+
+/** Name-resolution facts attached to an elaborated module.
+  *
+  * The facts are kept beside the untyped tree so later checkers can consume
+  * deterministic head-resolution results without rebuilding lexical scopes.
+  */
+final case class UntypedNameResolution(
+    bindings: List[UntypedBindingFact] = Nil,
+    references: List[UntypedNameReference] = Nil,
+    foreignAliases: List[SourceCppNamespaceImport] = Nil,
+    diagnostics: List[Diagnostic] = Nil,
+):
+  private lazy val referenceBindings
+      : Map[(String, SourceSpan), UntypedBindingFact] =
+    references
+      .map(reference =>
+        (reference.path.text, reference.path.span) -> reference.binding,
+      )
+      .toMap
+
+  private lazy val definitionBindings
+      : Map[(UntypedBindingKind, String, SourceSpan), UntypedBindingFact] =
+    bindings
+      .map(binding => (binding.kind, binding.name, binding.span) -> binding)
+      .toMap
+
+  def bindingFor(path: UntypedPath): Option[UntypedBindingFact] =
+    referenceBindings.get((path.text, path.span))
+
+  def bindingForDefinition(
+      kind: UntypedBindingKind,
+      name: String,
+      span: SourceSpan,
+  ): Option[UntypedBindingFact] =
+    definitionBindings.get((kind, name, span))
+
+object UntypedNameResolution:
+  val empty: UntypedNameResolution = UntypedNameResolution()
+
+  def merge(
+      resolutions: List[UntypedNameResolution],
+  ): UntypedNameResolution =
+    val bindings = ListBuffer.empty[UntypedBindingFact]
+    val references = ListBuffer.empty[UntypedNameReference]
+    val foreignAliases = ListBuffer.empty[SourceCppNamespaceImport]
+    val diagnostics = ListBuffer.empty[Diagnostic]
+    var nextBindingId = 0
+
+    resolutions.foreach { resolution =>
+      val remappedEntries =
+        resolution.bindings.map { binding =>
+          val remapped =
+            binding.copy(id = UntypedBindingId(nextBindingId))
+          nextBindingId += 1
+          binding.id -> remapped
+        }
+      val remappedBindings = remappedEntries.toMap
+
+      bindings ++= remappedEntries.map(_._2)
+      references ++= resolution.references.flatMap { reference =>
+        remappedBindings
+          .get(reference.binding.id)
+          .map(binding => reference.copy(binding = binding))
+      }
+      foreignAliases ++= resolution.foreignAliases
+      diagnostics ++= resolution.diagnostics
+    }
+
+    UntypedNameResolution(
+      bindings.toList,
+      references.toList,
+      foreignAliases.toList,
+      diagnostics.toList,
+    )
 
 /** Top-level declaration accepted by the cosmo0 checker. */
 sealed trait UntypedDecl extends UntypedNode:
