@@ -69,8 +69,8 @@ final case class UntypedModule(
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
     cppImports: List[SourceCppNamespaceImport] = Nil,
-    nameResolution: UntypedNameResolution = UntypedNameResolution.empty,
-    checkOrder: List[UntypedCheckItem] = Nil,
+    nameResolution: UntypedNameResolution,
+    checkOrder: List[UntypedCheckItem],
 ) extends UntypedNode
 
 /** One declaration-checking unit.
@@ -81,13 +81,9 @@ final case class UntypedModule(
   */
 final case class UntypedCheckItem(declIndexes: List[Int])
 
-object UntypedCheckItem:
-  def sourceOrder(declCount: Int): List[UntypedCheckItem] =
-    (0 until declCount).map(index => UntypedCheckItem(List(index))).toList
-
 object UntypedCheckOrder:
   def pretty(module: UntypedModule): String =
-    val items = effectiveItems(module)
+    val items = module.checkOrder
     if items.isEmpty then ""
     else
       val itemByDecl = itemIndexByDecl(module, items)
@@ -100,10 +96,6 @@ object UntypedCheckOrder:
           s"$indent${itemLabel(module, item, recursiveItems.contains(index))}"
         }
         .mkString("\n")
-
-  private def effectiveItems(module: UntypedModule): List[UntypedCheckItem] =
-    if module.checkOrder.nonEmpty then module.checkOrder
-    else UntypedCheckItem.sourceOrder(module.decls.length)
 
   private def itemIndexByDecl(
       module: UntypedModule,
@@ -137,6 +129,7 @@ object UntypedCheckOrder:
         dependencyDeclIndex <- reference.binding.declIndex
         ownerItem <- itemByDecl.get(ownerDeclIndex)
         dependencyItem <- itemByDecl.get(dependencyDeclIndex)
+        if UntypedNameReference.createsDeclarationDependency(reference)
         if ownerItem != dependencyItem
       do dependencies(ownerItem) += dependencyItem
     }
@@ -159,37 +152,12 @@ object UntypedCheckOrder:
         dependencyDeclIndex <- reference.binding.declIndex
         ownerItem <- itemByDecl.get(ownerDeclIndex)
         dependencyItem <- itemByDecl.get(dependencyDeclIndex)
-        if ownerItem == dependencyItem && isCheckDependencyBinding(reference)
+        if ownerItem == dependencyItem &&
+          UntypedNameReference.createsDeclarationDependency(reference)
       do recursive += ownerItem
     }
 
     recursive.toSet
-
-  private def isCheckDependencyBinding(
-      reference: UntypedNameReference,
-  ): Boolean =
-    isCheckDependencyPosition(reference) &&
-      isCheckDependencyBindingKind(reference.binding.kind) &&
-      reference.path.parts.headOption.contains(reference.binding.name)
-
-  private def isCheckDependencyPosition(
-      reference: UntypedNameReference,
-  ): Boolean =
-    reference.position match
-      case UntypedNameReferencePosition.Value |
-          UntypedNameReferencePosition.Type =>
-        true
-      case UntypedNameReferencePosition.Template =>
-        false
-
-  private def isCheckDependencyBindingKind(
-      kind: UntypedBindingKind,
-  ): Boolean =
-    kind match
-      case UntypedBindingKind.Class | UntypedBindingKind.Function |
-          UntypedBindingKind.Value =>
-        true
-      case _ => false
 
   private def itemDepths(
       itemCount: Int,
@@ -241,8 +209,8 @@ final case class UntypedBindingId(value: Int) extends AnyVal
   * type facts and remain typer obligations.
   */
 enum UntypedBindingKind:
-  case Class, Function, Value, Local, Parameter, Pattern, CompileTimeIntAlias,
-    ForeignNamespace
+  case Class, Trait, Function, Value, TypeAlias, Local, Parameter, Pattern,
+    CompileTimeIntAlias, ForeignNamespace
 
 /** A source binding recorded before type checking.
   *
@@ -269,6 +237,34 @@ final case class UntypedNameReference(
     position: UntypedNameReferencePosition = UntypedNameReferencePosition.Value,
 )
 
+object UntypedNameReference:
+  def createsDeclarationDependency(
+      reference: UntypedNameReference,
+  ): Boolean =
+    createsDeclarationDependencyFrom(reference.position) &&
+      createsDeclarationDependencyFrom(reference.binding.kind) &&
+      reference.path.parts.headOption.contains(reference.binding.name)
+
+  private def createsDeclarationDependencyFrom(
+      position: UntypedNameReferencePosition,
+  ): Boolean =
+    position match
+      case UntypedNameReferencePosition.Value |
+          UntypedNameReferencePosition.Type =>
+        true
+      case UntypedNameReferencePosition.Template =>
+        false
+
+  private def createsDeclarationDependencyFrom(
+      kind: UntypedBindingKind,
+  ): Boolean =
+    kind match
+      case UntypedBindingKind.Class | UntypedBindingKind.Trait |
+          UntypedBindingKind.Function | UntypedBindingKind.Value |
+          UntypedBindingKind.TypeAlias =>
+        true
+      case _ => false
+
 /** Source position where a name reference appears.
   *
   * Value and type references can create top-level declaration dependencies.
@@ -289,14 +285,6 @@ final case class UntypedNameResolution(
     foreignAliases: List[SourceCppNamespaceImport] = Nil,
     diagnostics: List[Diagnostic] = Nil,
 ):
-  private lazy val referenceBindings
-      : Map[(String, SourceSpan), UntypedBindingFact] =
-    references
-      .map(reference =>
-        (reference.path.text, reference.path.span) -> reference.binding,
-      )
-      .toMap
-
   private lazy val positionedReferenceBindings: Map[
     (String, SourceSpan, UntypedNameReferencePosition),
     UntypedBindingFact,
@@ -314,9 +302,6 @@ final case class UntypedNameResolution(
       .map(binding => (binding.kind, binding.name, binding.span) -> binding)
       .toMap
 
-  def bindingFor(path: UntypedPath): Option[UntypedBindingFact] =
-    referenceBindings.get((path.text, path.span))
-
   def bindingFor(
       path: UntypedPath,
       position: UntypedNameReferencePosition,
@@ -331,8 +316,6 @@ final case class UntypedNameResolution(
     definitionBindings.get((kind, name, span))
 
 object UntypedNameResolution:
-  val empty: UntypedNameResolution = UntypedNameResolution()
-
   def merge(
       resolutions: List[UntypedNameResolution],
   ): UntypedNameResolution =
