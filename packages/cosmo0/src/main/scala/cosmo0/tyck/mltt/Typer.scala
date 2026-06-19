@@ -277,6 +277,10 @@ final class MlttTyper(
   private val macroGenerated = ListBuffer.empty[String]
   private val macroConsumedAttributes = ListBuffer.empty[String]
   private val macroExpansionStack = ListBuffer.empty[String]
+  private lazy val checkItems: List[UntypedCheckItem] =
+    module.checkOrder
+  private lazy val orderedDecls: List[UntypedDecl] =
+    checkItems.flatMap(_.declIndexes.flatMap(module.decls.lift))
   private val classNames =
     module.decls.collect { case decl: UntypedClass => decl.name }.toSet
   private val rawAliases =
@@ -289,6 +293,10 @@ final class MlttTyper(
   private val functions = mutable.LinkedHashMap.empty[String, FunctionInfo]
   private val implementationFacts =
     mutable.LinkedHashSet.empty[ImplementationFact]
+  private val valueSymbolsByBinding =
+    mutable.LinkedHashMap.empty[UntypedBindingId, ValueSymbol]
+  private val compileTimeIntsByBinding =
+    mutable.LinkedHashMap.empty[UntypedBindingId, BigInt]
 
   private def sameType(left: SourceType, right: SourceType): Boolean =
     MlttTypeChecker.sourceTypesSame(left, right)
@@ -313,7 +321,8 @@ final class MlttTyper(
   def check(): Result[TypedModule] =
     diagnostics ++= expressionMacroProviders.diagnostics
     diagnostics ++= deriveMacroProviders.diagnostics
-    collectForeignNamespaceImports()
+    diagnostics ++= module.nameResolution.diagnostics
+    loadForeignNamespaceImports()
     collectAliases()
     rawAliases.keys.foreach(resolveAlias)
     collectTraits()
@@ -324,7 +333,8 @@ final class MlttTyper(
 
     val globalScope = new Scope(None)
     functions.values.foreach(info =>
-      globalScope.define(
+      defineValue(
+        globalScope,
         ValueSymbol(
           info.name,
           info.sig.functionType,
@@ -332,10 +342,14 @@ final class MlttTyper(
           mutAllowed = false,
           info.span,
         ),
+        UntypedBindingKind.Function,
+        info.name,
+        info.span,
       ),
     )
     foreignAliases.values.foreach(importValue =>
-      globalScope.define(
+      defineValue(
+        globalScope,
         ValueSymbol(
           importValue.alias,
           SourceType.ForeignNamespace(importValue),
@@ -343,11 +357,14 @@ final class MlttTyper(
           mutAllowed = false,
           importValue.span,
         ),
+        UntypedBindingKind.ForeignNamespace,
+        importValue.alias,
+        importValue.span,
       ),
     )
 
     val decls =
-      module.decls.flatMap { decl =>
+      orderedDecls.flatMap { decl =>
         typedDecl(decl, globalScope)
       }
 
@@ -366,61 +383,60 @@ final class MlttTyper(
     if diagnostics.isEmpty then Result.success(Phase.Check, result)
     else Result.failure(Phase.Check, diagnostics.toList)
 
-  private def collectForeignNamespaceImports(): Unit =
-    val ordinaryBindings = mutable.LinkedHashMap.empty[String, SourceSpan]
-    module.decls.foreach { declaration =>
-      ordinaryBindingName(declaration).foreach { name =>
-        if !ordinaryBindings.contains(name) then
-          ordinaryBindings.update(name, declaration.span)
-      }
-    }
+  private def loadForeignNamespaceImports(): Unit =
+    module.nameResolution.foreignAliases.foreach(importValue =>
+      registerForeignNamespaceImport(importValue),
+    )
 
-    val importValues =
-      (module.decls.collect { case importDecl: UntypedCppNamespaceImport =>
-        importDecl.value
-      } :::
-        module.cppImports).distinct
+  private def defineValue(
+      scope: Scope,
+      symbol: ValueSymbol,
+      kind: UntypedBindingKind,
+      name: String,
+      span: SourceSpan,
+  ): Unit =
+    scope.define(symbol)
+    module.nameResolution
+      .bindingForDefinition(kind, name, span)
+      .foreach(binding => valueSymbolsByBinding.update(binding.id, symbol))
 
-    importValues.foreach { importValue =>
-      ordinaryBindings.get(importValue.alias).foreach { _ =>
+  private def defineCompileTimeInt(
+      scope: Scope,
+      name: String,
+      value: BigInt,
+      span: SourceSpan,
+  ): Unit =
+    scope.defineCompileTimeInt(name, value)
+    module.nameResolution
+      .bindingForDefinition(
+        UntypedBindingKind.CompileTimeIntAlias,
+        name,
+        span,
+      )
+      .foreach(binding => compileTimeIntsByBinding.update(binding.id, value))
+
+  private def registerForeignNamespaceImport(
+      importValue: SourceCppNamespaceImport,
+  ): Unit =
+    foreignAliases.get(importValue.alias) match
+      case Some(existing) if existing.namespace == importValue.namespace =>
+        val mergedHeaders =
+          (existing.headers ::: importValue.headers).distinct
+        foreignAliases.update(
+          importValue.alias,
+          existing.copy(headers = mergedHeaders),
+        )
+      case Some(existing) =>
         error(
-          "cosmo1.name.duplicate-definition",
-          s"C++ namespace alias ${importValue.alias} conflicts with an existing Cosmo binding",
+          "cosmo1.name.conflicting-cpp-namespace-alias",
+          s"C++ namespace alias ${importValue.alias} already targets ${existing.namespace.cppName}, not ${importValue.namespace.cppName}",
           importValue.span,
         )
-      }
-
-      foreignAliases.get(importValue.alias) match
-        case Some(existing) if existing.namespace == importValue.namespace =>
-          val mergedHeaders =
-            (existing.headers ::: importValue.headers).distinct
-          foreignAliases.update(
-            importValue.alias,
-            existing.copy(headers = mergedHeaders),
-          )
-        case Some(existing) =>
-          error(
-            "cosmo1.name.conflicting-cpp-namespace-alias",
-            s"C++ namespace alias ${importValue.alias} already targets ${existing.namespace.cppName}, not ${importValue.namespace.cppName}",
-            importValue.span,
-          )
-        case None =>
-          foreignAliases.update(importValue.alias, importValue)
-    }
-
-  private def ordinaryBindingName(declaration: UntypedDecl): Option[String] =
-    declaration match
-      case _: UntypedCppNamespaceImport =>
-        None
-      case importDecl: UntypedImport =>
-        importDecl.dest
-          .flatMap(_.parts.lastOption)
-          .orElse(importDecl.path.parts.lastOption)
-      case other =>
-        Some(other.name)
+      case None =>
+        foreignAliases.update(importValue.alias, importValue)
 
   private def collectAliases(): Unit =
-    module.decls.foreach {
+    orderedDecls.foreach {
       case alias: UntypedTypeAlias =>
         rawAliases.update(alias.name, alias)
       case cls: UntypedClass =>
@@ -433,7 +449,7 @@ final class MlttTyper(
     }
 
   private def collectTraits(): Unit =
-    module.decls.collect { case trt: UntypedTrait => trt }.foreach { trt =>
+    orderedDecls.collect { case trt: UntypedTrait => trt }.foreach { trt =>
       val methods =
         trt.methods.map(method => functionInfo(method, Some(trt.name)))
       duplicateMethodNames(methods, trt.name, trt.span)
@@ -448,7 +464,7 @@ final class MlttTyper(
     }
 
   private def collectClasses(): Unit =
-    module.decls.collect { case cls: UntypedClass => cls }.foreach { cls =>
+    orderedDecls.collect { case cls: UntypedClass => cls }.foreach { cls =>
       val fields = cls.members.collect { case field: UntypedValueDecl =>
         FieldInfo(
           field.name,
@@ -514,7 +530,7 @@ final class MlttTyper(
     }
 
   private def collectImpls(): Unit =
-    module.decls
+    orderedDecls
       .collect { case impl: UntypedImpl => impl }
       .foreach(impl => collectImpl(impl, ImplOrigin.Source(impl.span)))
 
@@ -596,7 +612,7 @@ final class MlttTyper(
       case ImplOrigin.Source(_) =>
 
   private def expandDeriveMacros(): Unit =
-    module.decls.foreach {
+    orderedDecls.foreach {
       case cls: UntypedClass =>
         cls.macroAttributes
           .filter(isDeriveAttribute)
@@ -1140,7 +1156,7 @@ final class MlttTyper(
         false
 
   private def collectFunctions(): Unit =
-    module.decls.collect { case fn: UntypedFunction => fn }.foreach { fn =>
+    orderedDecls.collect { case fn: UntypedFunction => fn }.foreach { fn =>
       val info = functionInfo(fn, None)
       functions.update(info.name, info)
     }
@@ -1177,13 +1193,17 @@ final class MlttTyper(
       case value: UntypedValueDecl =>
         val typed = typedValueDecl(value, scope)
         typed.foreach(valueDecl =>
-          scope.define(
+          defineValue(
+            scope,
             valueSymbol(
               valueDecl.name,
               valueDecl.ty,
               valueDecl.kind,
               valueDecl.span,
             ),
+            UntypedBindingKind.Value,
+            valueDecl.name,
+            valueDecl.span,
           ),
         )
         typed
@@ -1215,7 +1235,8 @@ final class MlttTyper(
   private def typedClass(info: ClassInfo, globalScope: Scope): TypedClass =
     val classScope = globalScope.child
     info.methods.values.foreach(method =>
-      classScope.define(
+      defineValue(
+        classScope,
         ValueSymbol(
           method.name,
           method.sig.functionType,
@@ -1223,6 +1244,9 @@ final class MlttTyper(
           mutAllowed = false,
           method.span,
         ),
+        UntypedBindingKind.Function,
+        method.name,
+        method.span,
       ),
     )
 
@@ -1280,7 +1304,8 @@ final class MlttTyper(
   ): TypedFunction =
     val fnScope = outerScope.child
     info.params.foreach(param =>
-      fnScope.define(
+      defineValue(
+        fnScope,
         ValueSymbol(
           param.name,
           param.ty,
@@ -1288,6 +1313,9 @@ final class MlttTyper(
           mutAllowed = mutationCapability(param.ty),
           param.span,
         ),
+        UntypedBindingKind.Parameter,
+        param.name,
+        param.span,
       ),
     )
     val context = FunctionContext.Some(info.retTy, info.owner)
@@ -1631,8 +1659,12 @@ final class MlttTyper(
             "cosmo0.type.assignment-mismatch",
           ),
         )
-        scope.define(
+        defineValue(
+          scope,
           valueSymbol(local.name, ty, local.kind, local.span),
+          UntypedBindingKind.Local,
+          local.name,
+          local.span,
         )
         TypedLocal(
           local.kind,
@@ -1643,7 +1675,7 @@ final class MlttTyper(
         )
       case alias: UntypedCompileTimeIntAlias =>
         compileTimeIntExpr(alias.value, scope).foreach(value =>
-          scope.defineCompileTimeInt(alias.name, value),
+          defineCompileTimeInt(scope, alias.name, value, alias.span),
         )
         TypedExprStmt(
           TypedUnitLiteral(SourceType.Unit, alias.span),
@@ -1670,21 +1702,104 @@ final class MlttTyper(
     * name may infer as a class constructor or standard generic constructor.
     */
   private def nameExpr(node: UntypedName, scope: Scope): ExprInfo =
+    module.nameResolution
+      .bindingFor(node.path, UntypedNameReferencePosition.Value) match
+      case Some(binding) =>
+        nameExprFromBinding(node, binding)
+          .getOrElse(fallbackNameExpr(node, scope))
+      case None =>
+        fallbackNameExpr(node, scope)
+
+  private def nameExprFromBinding(
+      node: UntypedName,
+      binding: UntypedBindingFact,
+  ): Option[ExprInfo] =
+    valueSymbolsByBinding
+      .get(binding.id)
+      .map(symbol => valueSymbolExpr(node, symbol))
+      .orElse(
+        compileTimeIntsByBinding
+          .get(binding.id)
+          .map(value =>
+            ExprInfo(
+              TypedIntLiteral(value, SourceType.I32, node.span),
+              mutBinding = false,
+              mutAllowed = false,
+            ),
+          ),
+      )
+      .orElse(
+        binding.kind match
+          case UntypedBindingKind.Class =>
+            classCtor(binding.name, node.span).map(sig =>
+              ExprInfo(
+                TypedTypeConstructorExpr(
+                  SourceType.User(binding.name),
+                  sig.functionType,
+                  node.span,
+                ),
+                mutBinding = false,
+                mutAllowed = false,
+              ),
+            )
+          case UntypedBindingKind.Function =>
+            functions
+              .get(binding.name)
+              .map(info =>
+                ExprInfo(
+                  TypedName(
+                    node.path,
+                    info.sig.functionType,
+                    mutBinding = false,
+                    mutAllowed = false,
+                    node.span,
+                  ),
+                  mutBinding = false,
+                  mutAllowed = false,
+                ),
+              )
+          case UntypedBindingKind.ForeignNamespace =>
+            foreignAliases
+              .get(binding.name)
+              .map(importValue =>
+                ExprInfo(
+                  TypedName(
+                    node.path,
+                    SourceType.ForeignNamespace(importValue),
+                    mutBinding = false,
+                    mutAllowed = false,
+                    node.span,
+                  ),
+                  mutBinding = false,
+                  mutAllowed = false,
+                ),
+              )
+          case _ =>
+            None,
+      )
+
+  private def valueSymbolExpr(
+      node: UntypedName,
+      symbol: ValueSymbol,
+  ): ExprInfo =
+    ExprInfo(
+      TypedName(
+        node.path,
+        symbol.ty,
+        symbol.mutBinding,
+        symbol.mutAllowed,
+        node.span,
+      ),
+      symbol.mutBinding,
+      symbol.mutAllowed,
+    )
+
+  private def fallbackNameExpr(node: UntypedName, scope: Scope): ExprInfo =
     node.path.parts match
       case name :: Nil =>
         scope.resolve(name) match
           case Some(symbol) =>
-            ExprInfo(
-              TypedName(
-                node.path,
-                symbol.ty,
-                symbol.mutBinding,
-                symbol.mutAllowed,
-                node.span,
-              ),
-              symbol.mutBinding,
-              symbol.mutAllowed,
-            )
+            valueSymbolExpr(node, symbol)
           case None =>
             scope.resolveCompileTimeInt(name) match
               case Some(value) =>
@@ -1762,7 +1877,12 @@ final class MlttTyper(
         Some(value.value)
       case UntypedName(path, span) if path.parts.length == 1 =>
         val name = path.parts.head
-        scope.resolveCompileTimeInt(name) match
+        val resolvedValue =
+          module.nameResolution
+            .bindingFor(path, UntypedNameReferencePosition.Value)
+            .flatMap(binding => compileTimeIntsByBinding.get(binding.id))
+            .orElse(scope.resolveCompileTimeInt(name))
+        resolvedValue match
           case Some(value) => Some(value)
           case None =>
             error(
@@ -1854,7 +1974,11 @@ final class MlttTyper(
     node.recv match
       case UntypedName(path, _) if path.parts.length == 1 =>
         val ownerName = path.parts.head
-        classes.get(ownerName).flatMap(_.variants.get(node.field)) match
+        val variant =
+          if pathMayResolveAsClass(path, ownerName) then
+            classes.get(ownerName).flatMap(_.variants.get(node.field))
+          else None
+        variant match
           case Some(variant) =>
             val sig = variant.sig(ownerName)
             val ty =
@@ -2208,86 +2332,135 @@ final class MlttTyper(
             )
             errorCall(node, scope, context)
       case name: UntypedName if name.path.parts.length == 1 =>
-        val calleeName = name.path.parts.head
+        nameCallExpr(name, node.args, node.span, scope, context)
+      case _ =>
+        val callee = expr(node.callee, scope, None, context)
+        callFunctionValue(callee, node.args, node.span, scope, context)
+
+  private def nameCallExpr(
+      name: UntypedName,
+      args: List[UntypedCallArg],
+      span: SourceSpan,
+      scope: Scope,
+      context: FunctionContext,
+  ): ExprInfo =
+    val calleeName = name.path.parts.head
+    module.nameResolution
+      .bindingFor(name.path, UntypedNameReferencePosition.Value) match
+      case Some(binding) if binding.kind == UntypedBindingKind.Function =>
         functions.get(calleeName) match
           case Some(info) =>
-            callWithSig(
-              TypedName(
-                name.path,
-                info.sig.functionType,
-                false,
-                false,
-                name.span,
-              ),
-              info.sig,
-              node.args,
-              node.span,
-              scope,
-              context,
-            )
+            callKnownFunction(name, info, args, span, scope, context)
+          case None =>
+            callResolvedExpression(name, args, span, scope, context)
+      case Some(binding) if binding.kind == UntypedBindingKind.Class =>
+        constructorCall(calleeName, name, args, span, scope, context)
+          .getOrElse(callResolvedExpression(name, args, span, scope, context))
+      case Some(_) =>
+        callResolvedExpression(name, args, span, scope, context)
+      case None =>
+        functions.get(calleeName) match
+          case Some(info) =>
+            callKnownFunction(name, info, args, span, scope, context)
           case None =>
             if isRuntimeFunction(calleeName) then
               runtimeFunctionCall(
                 calleeName,
                 name,
-                node.args,
-                node.span,
+                args,
+                span,
                 scope,
                 context,
               )
             else
-              classCtor(calleeName, name.span).orElse(
-                descriptorCtor(calleeName, name.span),
-              ) match
-                case Some(sig) =>
-                  val callee =
-                    SourceType.dealias(sig.returnType) match
-                      case owner: SourceType.User =>
-                        TypedTypeConstructorExpr(
-                          owner,
-                          sig.functionType,
-                          name.span,
-                        )
-                      case _ =>
-                        descriptorOwner(calleeName) match
-                          case Some(owner)
-                              if sameType(
-                                sig.returnType,
-                                owner,
-                              ) =>
-                            TypedTypeConstructorExpr(
-                              owner,
-                              sig.functionType,
-                              name.span,
-                            )
-                          case _ =>
-                            TypedName(
-                              name.path,
-                              sig.functionType,
-                              false,
-                              false,
-                              name.span,
-                            )
-                  callWithSig(
-                    callee,
-                    sig,
-                    node.args,
-                    node.span,
-                    scope,
-                    context,
+              constructorCall(calleeName, name, args, span, scope, context)
+                .getOrElse(
+                  callResolvedExpression(name, args, span, scope, context),
+                )
+
+  private def callKnownFunction(
+      name: UntypedName,
+      info: FunctionInfo,
+      args: List[UntypedCallArg],
+      span: SourceSpan,
+      scope: Scope,
+      context: FunctionContext,
+  ): ExprInfo =
+    callWithSig(
+      TypedName(
+        name.path,
+        info.sig.functionType,
+        false,
+        false,
+        name.span,
+      ),
+      info.sig,
+      args,
+      span,
+      scope,
+      context,
+    )
+
+  private def constructorCall(
+      calleeName: String,
+      name: UntypedName,
+      args: List[UntypedCallArg],
+      span: SourceSpan,
+      scope: Scope,
+      context: FunctionContext,
+  ): Option[ExprInfo] =
+    classCtor(calleeName, name.span)
+      .orElse(
+        descriptorCtor(calleeName, name.span),
+      )
+      .map { sig =>
+        val callee =
+          SourceType.dealias(sig.returnType) match
+            case owner: SourceType.User =>
+              TypedTypeConstructorExpr(
+                owner,
+                sig.functionType,
+                name.span,
+              )
+            case _ =>
+              descriptorOwner(calleeName) match
+                case Some(owner)
+                    if sameType(
+                      sig.returnType,
+                      owner,
+                    ) =>
+                  TypedTypeConstructorExpr(
+                    owner,
+                    sig.functionType,
+                    name.span,
                   )
-                case None =>
-                  val callee = expr(node.callee, scope, None, context)
-                  callFunctionValue(
-                    callee,
-                    node.args,
-                    node.span,
-                    scope,
-                    context,
+                case _ =>
+                  TypedName(
+                    name.path,
+                    sig.functionType,
+                    false,
+                    false,
+                    name.span,
                   )
-      case _ =>
-        val callee = expr(node.callee, scope, None, context)
-        callFunctionValue(callee, node.args, node.span, scope, context)
+        callWithSig(
+          callee,
+          sig,
+          args,
+          span,
+          scope,
+          context,
+        )
+      }
+
+  private def callResolvedExpression(
+      callee: UntypedExpr,
+      args: List[UntypedCallArg],
+      span: SourceSpan,
+      scope: Scope,
+      context: FunctionContext,
+  ): ExprInfo =
+    val typedCallee = expr(callee, scope, None, context)
+    callFunctionValue(typedCallee, args, span, scope, context)
 
   /** Expands expression macros at the expression checking site.
     *
@@ -2614,7 +2787,11 @@ final class MlttTyper(
     select.recv match
       case UntypedName(path, _) if path.parts.length == 1 =>
         val ownerName = path.parts.head
-        classes.get(ownerName).flatMap(_.variants.get(select.field)) match
+        val variant =
+          if pathMayResolveAsClass(path, ownerName) then
+            classes.get(ownerName).flatMap(_.variants.get(select.field))
+          else None
+        variant match
           case Some(variant) =>
             val sig = variant.sig(ownerName)
             return callWithSig(
@@ -3390,7 +3567,8 @@ final class MlttTyper(
         )
         SourceType.Error
     val bodyScope = scope.child
-    bodyScope.define(
+    defineValue(
+      bodyScope,
       ValueSymbol(
         node.name,
         itemTy,
@@ -3398,6 +3576,9 @@ final class MlttTyper(
         mutationCapability(itemTy),
         node.span,
       ),
+      UntypedBindingKind.Local,
+      node.name,
+      node.span,
     )
     TypedLoopCondition
       .ForEach(
@@ -3530,7 +3711,8 @@ final class MlttTyper(
       case value: UntypedWildcardPattern =>
         TypedWildcardPattern(expectedTy, value.span)
       case value: UntypedBindingPattern =>
-        scope.define(
+        defineValue(
+          scope,
           ValueSymbol(
             value.name,
             expectedTy,
@@ -3538,6 +3720,9 @@ final class MlttTyper(
             mutAllowed = mutationCapability(expectedTy),
             value.span,
           ),
+          UntypedBindingKind.Pattern,
+          value.name,
+          value.span,
         )
         TypedBindingPattern(value.name, expectedTy, value.span)
       case value: UntypedBoolLiteral =>
@@ -3683,7 +3868,8 @@ final class MlttTyper(
           ),
         )
       case UntypedSelect(UntypedName(path, _), variant, span)
-          if path.parts.length == 1 =>
+          if path.parts.length == 1 &&
+            pathMayResolveAsClass(path, path.parts.head) =>
         val ownerType = SourceType.User(path.parts.head)
         Some(
           (
@@ -3924,6 +4110,17 @@ final class MlttTyper(
       case SourceType.User(name)                    => classes.get(name)
       case SourceType.Ref(SourceType.User(name), _) => classes.get(name)
       case _                                        => None
+
+  private def pathMayResolveAsClass(
+      path: UntypedPath,
+      className: String,
+  ): Boolean =
+    module.nameResolution
+      .bindingFor(path, UntypedNameReferencePosition.Type) match
+      case Some(binding) =>
+        binding.kind == UntypedBindingKind.Class && binding.name == className
+      case None =>
+        true
 
   /** Resolves a type alias target and detects recursive aliases.
     *

@@ -2,10 +2,12 @@
 
 Type checking owns source-level validation after elaboration and before LIR.
 
-`mltt/Typer.scala` checks `UntypedModule` into `TypedModule`. It resolves names,
-aliases, classes, traits, impls, standard generic descriptors, method calls,
-patterns, mutability, and expression result types, while delegating type
-relations and dependent-pattern hooks to `MlttTypeChecker`.
+`mltt/Typer.scala` checks `UntypedModule` into `TypedModule`. It consumes the
+prefix name-resolution facts and declaration check order recorded by
+elaboration, then resolves aliases, classes, traits, impls, standard generic
+descriptors, type-dependent method and selector calls, patterns, mutability, and
+expression result types, while delegating type relations and dependent-pattern
+hooks to `MlttTypeChecker`.
 
 `Profiles.scala` describes checker profiles and feature gates. `StageCapabilities.scala`
 validates package-level stage capability profiles before package checking.

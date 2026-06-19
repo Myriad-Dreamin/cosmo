@@ -1,0 +1,3 @@
+def even(): i32 = odd()
+
+def odd(): i32 = even()

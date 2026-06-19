@@ -1,0 +1,9 @@
+impl Drop for Owned {
+  def drop(&self): Unit = {}
+}
+
+class Owned {}
+
+trait Drop {
+  def drop(&self): Unit
+}

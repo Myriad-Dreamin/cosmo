@@ -1,5 +1,8 @@
 package cosmo0
 
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
+
 /** Base node for the cosmo0 AST after elaboration and before type checking.
   *
   * `Untyped` means names and source type annotations are still source-shaped:
@@ -66,7 +69,310 @@ final case class UntypedModule(
     span: SourceSpan,
     cIncludes: List[SourceCInclude] = Nil,
     cppImports: List[SourceCppNamespaceImport] = Nil,
+    nameResolution: UntypedNameResolution,
+    checkOrder: List[UntypedCheckItem],
 ) extends UntypedNode
+
+/** One declaration-checking unit.
+  *
+  * A unit may contain more than one declaration when those declarations form a
+  * recursive dependency component. Units in a module are ordered so
+  * dependencies of a later unit are checked by earlier units.
+  */
+final case class UntypedCheckItem(declIndexes: List[Int])
+
+object UntypedCheckOrder:
+  def pretty(module: UntypedModule): String =
+    val items = module.checkOrder
+    if items.isEmpty then ""
+    else
+      val itemByDecl = itemIndexByDecl(module, items)
+      val dependencies = itemDependencies(module, items.length, itemByDecl)
+      val recursiveItems = recursiveItemIndexes(module, items, itemByDecl)
+      val depths = itemDepths(items.length, dependencies)
+      items.zipWithIndex
+        .map { case (item, index) =>
+          val indent = " " * depths.getOrElse(index, 0)
+          s"$indent${itemLabel(module, item, recursiveItems.contains(index))}"
+        }
+        .mkString("\n")
+
+  private def itemIndexByDecl(
+      module: UntypedModule,
+      items: List[UntypedCheckItem],
+  ): Map[Int, Int] =
+    val result = mutable.LinkedHashMap.empty[Int, Int]
+    items.zipWithIndex.foreach { case (item, itemIndex) =>
+      item.declIndexes.foreach { declIndex =>
+        if declIndex >= 0 &&
+          declIndex < module.decls.length &&
+          !result.contains(declIndex)
+        then result.update(declIndex, itemIndex)
+      }
+    }
+    result.toMap
+
+  private def itemDependencies(
+      module: UntypedModule,
+      itemCount: Int,
+      itemByDecl: Map[Int, Int],
+  ): Map[Int, Set[Int]] =
+    val dependencies =
+      mutable.LinkedHashMap.empty[Int, mutable.LinkedHashSet[Int]]
+    (0 until itemCount).foreach(index =>
+      dependencies.update(index, mutable.LinkedHashSet.empty),
+    )
+
+    module.nameResolution.references.foreach { reference =>
+      for
+        ownerDeclIndex <- reference.ownerDeclIndex
+        dependencyDeclIndex <- reference.binding.declIndex
+        ownerItem <- itemByDecl.get(ownerDeclIndex)
+        dependencyItem <- itemByDecl.get(dependencyDeclIndex)
+        if UntypedNameReference.createsDeclarationDependency(reference)
+        if ownerItem != dependencyItem
+      do dependencies(ownerItem) += dependencyItem
+    }
+
+    dependencies.view.mapValues(_.toSet).toMap
+
+  private def recursiveItemIndexes(
+      module: UntypedModule,
+      items: List[UntypedCheckItem],
+      itemByDecl: Map[Int, Int],
+  ): Set[Int] =
+    val recursive = mutable.LinkedHashSet.empty[Int]
+    items.zipWithIndex.foreach { case (item, index) =>
+      if item.declIndexes.length > 1 then recursive += index
+    }
+
+    module.nameResolution.references.foreach { reference =>
+      for
+        ownerDeclIndex <- reference.ownerDeclIndex
+        dependencyDeclIndex <- reference.binding.declIndex
+        ownerItem <- itemByDecl.get(ownerDeclIndex)
+        dependencyItem <- itemByDecl.get(dependencyDeclIndex)
+        if ownerItem == dependencyItem &&
+          UntypedNameReference.createsDeclarationDependency(reference)
+      do recursive += ownerItem
+    }
+
+    recursive.toSet
+
+  private def itemDepths(
+      itemCount: Int,
+      dependencies: Map[Int, Set[Int]],
+  ): Map[Int, Int] =
+    val memo = mutable.LinkedHashMap.empty[Int, Int]
+    val visiting = mutable.LinkedHashSet.empty[Int]
+
+    def depth(index: Int): Int =
+      memo.getOrElseUpdate(
+        index,
+        if visiting.contains(index) then 0
+        else
+          visiting += index
+          val dependencyDepths =
+            dependencies
+              .getOrElse(index, Set.empty)
+              .filter { dependency =>
+                dependency >= 0 && dependency < itemCount
+              }
+              .map(dependency => depth(dependency) + 1)
+          visiting -= index
+          if dependencyDepths.isEmpty then 0 else dependencyDepths.max,
+      )
+
+    (0 until itemCount).foreach(depth)
+    memo.toMap
+
+  private def itemLabel(
+      module: UntypedModule,
+      item: UntypedCheckItem,
+      recursive: Boolean,
+  ): String =
+    val label = item.declIndexes match
+      case single :: Nil => declLabel(module, single)
+      case many =>
+        many.map(declLabel(module, _)).mkString("{", ", ", "}")
+    if recursive then s"$label (*)" else label
+
+  private def declLabel(module: UntypedModule, declIndex: Int): String =
+    module.decls.lift(declIndex).map(_.name).getOrElse(s"#$declIndex")
+
+/** Stable id assigned by the untyped name resolver to a lexical binding. */
+final case class UntypedBindingId(value: Int) extends AnyVal
+
+/** Binding kinds that can be resolved before source type checking.
+  *
+  * Selector and method targets are intentionally absent: they depend on later
+  * type facts and remain typer obligations.
+  */
+enum UntypedBindingKind:
+  case Class, Trait, Function, Value, TypeAlias, Local, Parameter, Pattern,
+    CompileTimeIntAlias, ForeignNamespace
+
+/** A source binding recorded before type checking.
+  *
+  * The `span` points at the defining name, not at a later reference.
+  */
+final case class UntypedBindingFact(
+    id: UntypedBindingId,
+    kind: UntypedBindingKind,
+    name: String,
+    span: SourceSpan,
+    declIndex: Option[Int] = None,
+)
+
+/** A resolved source name reference.
+  *
+  * Only prefix/head resolution is recorded here. Type-dependent suffixes such
+  * as selectors, methods, and variant payloads remain delayed obligations for
+  * the typer.
+  */
+final case class UntypedNameReference(
+    path: UntypedPath,
+    binding: UntypedBindingFact,
+    ownerDeclIndex: Option[Int] = None,
+    position: UntypedNameReferencePosition = UntypedNameReferencePosition.Value,
+)
+
+object UntypedNameReference:
+  def createsDeclarationDependency(
+      reference: UntypedNameReference,
+  ): Boolean =
+    createsDeclarationDependencyFrom(reference.position) &&
+      createsDeclarationDependencyFrom(reference.binding.kind) &&
+      reference.path.parts.headOption.contains(reference.binding.name)
+
+  private def createsDeclarationDependencyFrom(
+      position: UntypedNameReferencePosition,
+  ): Boolean =
+    position match
+      case UntypedNameReferencePosition.Value |
+          UntypedNameReferencePosition.Type =>
+        true
+      case UntypedNameReferencePosition.Template =>
+        false
+
+  private def createsDeclarationDependencyFrom(
+      kind: UntypedBindingKind,
+  ): Boolean =
+    kind match
+      case UntypedBindingKind.Class | UntypedBindingKind.Trait |
+          UntypedBindingKind.Function | UntypedBindingKind.Value |
+          UntypedBindingKind.TypeAlias =>
+        true
+      case _ => false
+
+/** Source position where a name reference appears.
+  *
+  * Value and type references can create top-level declaration dependencies.
+  * Template tags select macro providers and do not introduce declaration
+  * check-order edges on their own.
+  */
+enum UntypedNameReferencePosition:
+  case Value, Type, Template
+
+/** Name-resolution facts attached to an elaborated module.
+  *
+  * The facts are kept beside the untyped tree so later checkers can consume
+  * deterministic head-resolution results without rebuilding lexical scopes.
+  */
+final case class UntypedNameResolution(
+    bindings: List[UntypedBindingFact] = Nil,
+    references: List[UntypedNameReference] = Nil,
+    foreignAliases: List[SourceCppNamespaceImport] = Nil,
+    diagnostics: List[Diagnostic] = Nil,
+):
+  private lazy val positionedReferenceBindings: Map[
+    (String, SourceSpan, UntypedNameReferencePosition),
+    UntypedBindingFact,
+  ] =
+    references
+      .map(reference =>
+        (reference.path.text, reference.path.span, reference.position) ->
+          reference.binding,
+      )
+      .toMap
+
+  private lazy val definitionBindings
+      : Map[(UntypedBindingKind, String, SourceSpan), UntypedBindingFact] =
+    bindings
+      .map(binding => (binding.kind, binding.name, binding.span) -> binding)
+      .toMap
+
+  def bindingFor(
+      path: UntypedPath,
+      position: UntypedNameReferencePosition,
+  ): Option[UntypedBindingFact] =
+    positionedReferenceBindings.get((path.text, path.span, position))
+
+  def bindingForDefinition(
+      kind: UntypedBindingKind,
+      name: String,
+      span: SourceSpan,
+  ): Option[UntypedBindingFact] =
+    definitionBindings.get((kind, name, span))
+
+object UntypedNameResolution:
+  def merge(
+      resolutions: List[UntypedNameResolution],
+  ): UntypedNameResolution =
+    mergeWithDeclIndexMaps(resolutions.map(_ -> Map.empty[Int, Int]))
+
+  def mergeWithDeclIndexMaps(
+      entries: List[(UntypedNameResolution, Map[Int, Int])],
+  ): UntypedNameResolution =
+    val bindings = ListBuffer.empty[UntypedBindingFact]
+    val references = ListBuffer.empty[UntypedNameReference]
+    val foreignAliases = ListBuffer.empty[SourceCppNamespaceImport]
+    val diagnostics = ListBuffer.empty[Diagnostic]
+    var nextBindingId = 0
+
+    entries.foreach { case (resolution, declIndexMap) =>
+      val remappedEntries =
+        resolution.bindings.map { binding =>
+          val remapped =
+            binding.copy(
+              id = UntypedBindingId(nextBindingId),
+              declIndex = remapDeclIndex(binding.declIndex, declIndexMap),
+            )
+          nextBindingId += 1
+          binding.id -> remapped
+        }
+      val remappedBindings = remappedEntries.toMap
+
+      bindings ++= remappedEntries.map(_._2)
+      references ++= resolution.references.flatMap { reference =>
+        remappedBindings
+          .get(reference.binding.id)
+          .map(binding =>
+            reference.copy(
+              binding = binding,
+              ownerDeclIndex =
+                remapDeclIndex(reference.ownerDeclIndex, declIndexMap),
+            ),
+          )
+      }
+      foreignAliases ++= resolution.foreignAliases
+      diagnostics ++= resolution.diagnostics
+    }
+
+    UntypedNameResolution(
+      bindings.toList,
+      references.toList,
+      foreignAliases.toList,
+      diagnostics.toList,
+    )
+
+  private def remapDeclIndex(
+      index: Option[Int],
+      declIndexMap: Map[Int, Int],
+  ): Option[Int] =
+    index
+      .flatMap(declIndexMap.get)
+      .orElse(if declIndexMap.isEmpty then index else None)
 
 /** Top-level declaration accepted by the cosmo0 checker. */
 sealed trait UntypedDecl extends UntypedNode:

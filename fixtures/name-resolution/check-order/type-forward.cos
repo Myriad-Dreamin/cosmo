@@ -1,0 +1,5 @@
+def main(value: Later): Later = later(value)
+
+def later(value: Later): Later = value
+
+class Later {}

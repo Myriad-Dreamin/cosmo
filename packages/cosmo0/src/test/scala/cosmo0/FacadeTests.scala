@@ -211,6 +211,108 @@ class FacadeTests extends munit.FunSuite:
     assert(selfType.mut)
     assert(push.body.exists(_.isInstanceOf[UntypedBlock]))
 
+  test("elaborate records prefix name-resolution facts"):
+    val result = Cosmo0().elaborate(
+      """def main(): i32 = {
+        |  val local: i32 = later();
+        |  local
+        |}
+        |
+        |def later(): i32 = 1
+        |""".stripMargin,
+    )
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val module = result.value.get
+    val resolution = module.nameResolution
+    val orderedNames =
+      module.checkOrder.flatMap(_.declIndexes.map(module.decls(_).name))
+
+    assertEquals(orderedNames, List("later", "main"))
+
+    assert(
+      resolution.bindings.exists(binding =>
+        binding.kind == UntypedBindingKind.Function &&
+          binding.name == "later",
+      ),
+    )
+    assert(
+      resolution.references.exists(reference =>
+        reference.path.text == "later" &&
+          reference.binding.kind == UntypedBindingKind.Function,
+      ),
+      s"missing forward function reference in ${resolution.references}",
+    )
+    assert(
+      resolution.references.exists(reference =>
+        reference.path.text == "local" &&
+          reference.binding.kind == UntypedBindingKind.Local,
+      ),
+      s"missing local reference in ${resolution.references}",
+    )
+
+  test("elaborate records name-reference positions"):
+    val result = Cosmo0().elaborate(
+      """def main(value: Later): Later = later(value)
+        |
+        |def later(value: Later): Later = value
+        |
+        |class Later {}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val resolution = result.value.get.nameResolution
+    val laterReference =
+      resolution.references.find(_.path.text == "later").get
+    val typeReferences =
+      resolution.references.filter(_.path.text == "Later")
+
+    assertEquals(
+      laterReference.position,
+      UntypedNameReferencePosition.Value,
+    )
+    assert(typeReferences.nonEmpty)
+    assert(
+      typeReferences.forall(_.position == UntypedNameReferencePosition.Type),
+    )
+    assert(
+      resolution
+        .bindingFor(
+          laterReference.path,
+          UntypedNameReferencePosition.Value,
+        )
+        .exists(_.name == "later"),
+    )
+    assertEquals(
+      resolution.bindingFor(
+        laterReference.path,
+        UntypedNameReferencePosition.Type,
+      ),
+      None,
+    )
+
+  test("elaborate keeps class method headers out of method body scope"):
+    val result = Cosmo0().elaborate(
+      """class Box {
+        |  def sibling(): i32 = 1
+        |  val field: i32 = sibling()
+        |  def value(): i32 = sibling()
+        |}
+        |""".stripMargin,
+    )
+
+    assertEquals(result.status, PhaseStatus.Succeeded)
+    val siblingReferences =
+      result.value.get.nameResolution.references
+        .filter(_.path.text == "sibling")
+
+    assertEquals(siblingReferences.length, 1)
+    assertEquals(
+      siblingReferences.head.binding.kind,
+      UntypedBindingKind.Function,
+    )
+
   test("elaborate represents source loops with canonical untyped loops"):
     val result = Cosmo0().elaborate(
       """def loops(items: Vec[i32], keep: Bool): Unit = {
