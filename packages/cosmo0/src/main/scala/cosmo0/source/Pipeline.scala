@@ -335,10 +335,7 @@ private[cosmo0] final class PackagePipeline(compiler: Cosmo0):
   ): List[UntypedCheckItem] =
     ordered.flatMap { module =>
       val indexMap = declIndexMaps.getOrElse(module.key, Map.empty)
-      val moduleOrder =
-        if module.untyped.checkOrder.nonEmpty then module.untyped.checkOrder
-        else UntypedCheckItem.sourceOrder(module.untyped.decls.length)
-      moduleOrder.flatMap { item =>
+      module.untyped.checkOrder.flatMap { item =>
         val indexes = item.declIndexes.flatMap(indexMap.get)
         if indexes.isEmpty then None else Some(UntypedCheckItem(indexes))
       }

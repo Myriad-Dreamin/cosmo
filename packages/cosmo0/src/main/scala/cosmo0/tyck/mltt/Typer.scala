@@ -278,8 +278,7 @@ final class MlttTyper(
   private val macroConsumedAttributes = ListBuffer.empty[String]
   private val macroExpansionStack = ListBuffer.empty[String]
   private lazy val checkItems: List[UntypedCheckItem] =
-    if module.checkOrder.nonEmpty then module.checkOrder
-    else UntypedCheckItem.sourceOrder(module.decls.length)
+    module.checkOrder
   private lazy val orderedDecls: List[UntypedDecl] =
     checkItems.flatMap(_.declIndexes.flatMap(module.decls.lift))
   private val classNames =
@@ -298,11 +297,6 @@ final class MlttTyper(
     mutable.LinkedHashMap.empty[UntypedBindingId, ValueSymbol]
   private val compileTimeIntsByBinding =
     mutable.LinkedHashMap.empty[UntypedBindingId, BigInt]
-  private val hasResolverOutput =
-    module.nameResolution.bindings.nonEmpty ||
-      module.nameResolution.references.nonEmpty ||
-      module.nameResolution.foreignAliases.nonEmpty ||
-      module.nameResolution.diagnostics.nonEmpty
 
   private def sameType(left: SourceType, right: SourceType): Boolean =
     MlttTypeChecker.sourceTypesSame(left, right)
@@ -390,11 +384,9 @@ final class MlttTyper(
     else Result.failure(Phase.Check, diagnostics.toList)
 
   private def loadForeignNamespaceImports(): Unit =
-    if hasResolverOutput then
-      module.nameResolution.foreignAliases.foreach(importValue =>
-        registerForeignNamespaceImport(importValue),
-      )
-    else collectForeignNamespaceImports()
+    module.nameResolution.foreignAliases.foreach(importValue =>
+      registerForeignNamespaceImport(importValue),
+    )
 
   private def defineValue(
       scope: Scope,
@@ -423,33 +415,6 @@ final class MlttTyper(
       )
       .foreach(binding => compileTimeIntsByBinding.update(binding.id, value))
 
-  private def collectForeignNamespaceImports(): Unit =
-    val ordinaryBindings = mutable.LinkedHashMap.empty[String, SourceSpan]
-    orderedDecls.foreach { declaration =>
-      ordinaryBindingName(declaration).foreach { name =>
-        if !ordinaryBindings.contains(name) then
-          ordinaryBindings.update(name, declaration.span)
-      }
-    }
-
-    val importValues =
-      (orderedDecls.collect { case importDecl: UntypedCppNamespaceImport =>
-        importDecl.value
-      } :::
-        module.cppImports).distinct
-
-    importValues.foreach { importValue =>
-      ordinaryBindings.get(importValue.alias).foreach { _ =>
-        error(
-          "cosmo1.name.duplicate-definition",
-          s"C++ namespace alias ${importValue.alias} conflicts with an existing Cosmo binding",
-          importValue.span,
-        )
-      }
-
-      registerForeignNamespaceImport(importValue)
-    }
-
   private def registerForeignNamespaceImport(
       importValue: SourceCppNamespaceImport,
   ): Unit =
@@ -469,17 +434,6 @@ final class MlttTyper(
         )
       case None =>
         foreignAliases.update(importValue.alias, importValue)
-
-  private def ordinaryBindingName(declaration: UntypedDecl): Option[String] =
-    declaration match
-      case _: UntypedCppNamespaceImport =>
-        None
-      case importDecl: UntypedImport =>
-        importDecl.dest
-          .flatMap(_.parts.lastOption)
-          .orElse(importDecl.path.parts.lastOption)
-      case other =>
-        Some(other.name)
 
   private def collectAliases(): Unit =
     orderedDecls.foreach {

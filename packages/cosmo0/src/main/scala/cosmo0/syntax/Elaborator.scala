@@ -150,10 +150,14 @@ final class Elaborator(parsed: ParsedModule):
         nameResolution.defineModuleFunction(fn.name, fn.span)
       case cls: UntypedClass =>
         nameResolution.defineModuleClass(cls.name, cls.span)
+      case trt: UntypedTrait =>
+        nameResolution.defineModuleTrait(trt.name, trt.span)
       case value: UntypedValueDecl =>
         nameResolution.defineModuleValue(value.name, value.span)
-      case other =>
-        nameResolution.noteOrdinaryModuleBinding(other.name, other.span)
+      case alias: UntypedTypeAlias =>
+        nameResolution.defineModuleTypeAlias(alias.name, alias.span)
+      case _: UntypedImpl =>
+        ()
 
   private final case class ExternDecoratorArgs(
       name: Option[String] = None,
@@ -1256,6 +1260,11 @@ final class Elaborator(parsed: ParsedModule):
     val members = sequence(classMembers(node.body))
     traitPath.zip(targetPath).zip(members).flatMap {
       case ((traitName, target), implMembers) =>
+        nameResolution.resolvePath(
+          traitName,
+          UntypedNameReferencePosition.Type,
+        )
+        nameResolution.resolvePath(target, UntypedNameReferencePosition.Type)
         validateTraitImplMembers(node, implMembers).map(_ =>
           UntypedImpl(
             traitName,

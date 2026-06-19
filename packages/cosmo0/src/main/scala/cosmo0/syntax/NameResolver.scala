@@ -103,8 +103,7 @@ final class UntypedNameResolutionBuilder:
         if count == 0 then ready.enqueue(next)
       }
 
-    if ordered.length == components.length then ordered.toList
-    else UntypedCheckItem.sourceOrder(declCount)
+    ordered.toList
 
   def enterDeclaration[A](declIndex: Int)(body: => A): A =
     val previous = currentDeclIndex
@@ -165,12 +164,31 @@ final class UntypedNameResolutionBuilder:
     noteOrdinaryModuleBinding(name, span)
     defineCurrent(UntypedBindingKind.Class, name, span, resolvePending = true)
 
+  def defineModuleTrait(
+      name: String,
+      span: SourceSpan,
+  ): UntypedBindingFact =
+    noteOrdinaryModuleBinding(name, span)
+    defineCurrent(UntypedBindingKind.Trait, name, span, resolvePending = true)
+
   def defineModuleValue(
       name: String,
       span: SourceSpan,
   ): UntypedBindingFact =
     noteOrdinaryModuleBinding(name, span)
     defineCurrent(UntypedBindingKind.Value, name, span, resolvePending = false)
+
+  def defineModuleTypeAlias(
+      name: String,
+      span: SourceSpan,
+  ): UntypedBindingFact =
+    noteOrdinaryModuleBinding(name, span)
+    defineCurrent(
+      UntypedBindingKind.TypeAlias,
+      name,
+      span,
+      resolvePending = true,
+    )
 
   def defineParameter(name: String, span: SourceSpan): UntypedBindingFact =
     defineCurrent(
@@ -310,39 +328,13 @@ final class UntypedNameResolutionBuilder:
       for
         owner <- reference.ownerDeclIndex
         dependency <- reference.binding.declIndex
-        if isDeclarationDependency(reference)
+        if UntypedNameReference.createsDeclarationDependency(reference)
         if owner != dependency &&
           owner >= 0 && owner < declCount &&
           dependency >= 0 && dependency < declCount
       do deps(owner) += dependency
     }
     deps.view.mapValues(_.toList.sorted).toMap
-
-  private def isDeclarationDependency(
-      reference: UntypedNameReference,
-  ): Boolean =
-    isDeclarationDependencyPosition(reference) &&
-      isDeclarationDependencyBindingKind(reference.binding.kind) &&
-      reference.path.parts.headOption.contains(reference.binding.name)
-
-  private def isDeclarationDependencyPosition(
-      reference: UntypedNameReference,
-  ): Boolean =
-    reference.position match
-      case UntypedNameReferencePosition.Value |
-          UntypedNameReferencePosition.Type =>
-        true
-      case UntypedNameReferencePosition.Template =>
-        false
-
-  private def isDeclarationDependencyBindingKind(
-      kind: UntypedBindingKind,
-  ): Boolean =
-    kind match
-      case UntypedBindingKind.Class | UntypedBindingKind.Function |
-          UntypedBindingKind.Value =>
-        true
-      case _ => false
 
   private def stronglyConnectedComponents(
       declCount: Int,
